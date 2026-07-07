@@ -1,0 +1,17 @@
+# .gitleaks.toml for iaser-ai/ansari (deployed to the monorepo root in Phase 3).
+# Every allowlist entry MUST carry a justification — never widen without one.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Adjudicated synthetic fixtures (Spec 68 export manifest, data-scan section)"
+regexes = [
+  # tests/auth.test.ts negative-path fixture: a deliberately WRONG JWT secret used to
+  # prove verifyToken rejects it. Literal string, not a credential.
+  '''wrong-secret-key-32-characters-long''',
+  # tests/migration/bcrypt-compat.test.ts: a bcrypt hash of the literal string
+  # 'testpassword123', generated for the Python<->Node compatibility test. The
+  # plaintext is printed beside it in the test; not a real user's hash.
+  '''\$2b\$12\$qr31iYHUYhv/HngLaSEgpePzhlT7HIfUmh32ZdoZ5eKLtS0Wl8Vgi''',
+]
