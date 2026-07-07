@@ -1,0 +1,1 @@
+ALTER TABLE "tokens" ADD COLUMN "rotated_at" timestamp with time zone;
