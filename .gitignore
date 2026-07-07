@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Builds
+build/
+dist/
+coverage/
+
+# Env — never commit real configuration (.env.ci is the committed CI dummy set)
+.env
+.env.local
+.env.*.local
+
+# Credentials
+secrets/
+*.pem
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
