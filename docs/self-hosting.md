@@ -99,7 +99,7 @@ Verify your setup:
 
 ```bash
 npm run typecheck
-npm test                    # 456 tests; no external services needed
+npm test                    # full Vitest suite; no external services needed
 npm run build
 curl localhost:3000/api/health   # {"status":"ok",...,"service":"ansari-backend"}
 ```
