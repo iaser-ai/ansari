@@ -5,6 +5,12 @@
  * leaderboard — can drive the real Ansari facilitator (Gemini 3.x +
  * Islamic tools) through a standard OpenAI request/response shape.
  *
+ * Two model ids are served (issue #74): 'ansari-facilitator' (Gemini
+ * primary, the original pipeline) and 'ansari-facilitator-inkling'
+ * (identical pipeline with thinkingmachines/Inkling as primary for the
+ * whole request — never silently falling back to Gemini). Unknown ids
+ * are rejected with 400.
+ *
  * What is preserved: the request body matches the public OpenAI Chat
  * Completions schema (model/messages/temperature/max_tokens/seed), and
  * the response envelope matches `chat.completion` with a populated
@@ -24,11 +30,20 @@ import {
 import { createThread, createMessage } from '@/lib/db/threads';
 import { findUserByEmail, createUser } from '@/lib/db/users';
 import { getClientId } from '@/lib/attribution';
+import { isInklingConfigured } from '@/lib/ai/inkling-client';
 import type { ContentBlock } from '@/db/schema/messages';
 import { config } from '@/lib/config';
 
 const SYSTEM_USER_EMAIL = 'leaderboard@system.ansari.chat';
 const SOURCE_TAG = 'leaderboard';
+
+// Served model ids (issue #74 scope amendment). Both run the identical full
+// Ansari pipeline (facilitator + Islamic tools + prod prompt rules); they
+// differ ONLY in the primary model for the whole request. Unknown ids fail
+// fast with 400 — a typo must never silently fall back to Gemini, or the
+// resulting leaderboard submission would misattribute the answers.
+const GEMINI_MODEL_ID = 'ansari-facilitator';
+const INKLING_MODEL_ID = 'ansari-facilitator-inkling';
 
 // Triggers letter-answer mode: either the harness asked for a tiny
 // completion, or the prompt looks like a multiple-choice question.
@@ -183,12 +198,13 @@ function toFacilitatorMessages(messages: OpenAIRequest['messages']): Message[] {
  * Run the facilitator to completion and aggregate text + usage.
  */
 async function collectResponse(
-  messages: Message[]
+  messages: Message[],
+  provider: 'gemini' | 'inkling'
 ): Promise<{ text: string; usage?: NonNullable<FacilitatorStreamEvent['usage']> }> {
   let fullText = '';
   let usage: FacilitatorStreamEvent['usage'];
 
-  for await (const event of runFacilitator(messages)) {
+  for await (const event of runFacilitator(messages, undefined, { provider })) {
     if (event.type === 'text') {
       fullText += event.data;
     } else if (event.type === 'error') {
@@ -256,6 +272,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Model routing (issue #74): omitted model → the original Gemini-backed
+  // pipeline; the two served ids select the primary provider for the whole
+  // request; anything else is an explicit 400 (see MODEL_ID comment above).
+  const requestedModel = req.model ?? GEMINI_MODEL_ID;
+  if (requestedModel !== GEMINI_MODEL_ID && requestedModel !== INKLING_MODEL_ID) {
+    return openAIError(
+      `Unknown model '${requestedModel}'. Available models: ${GEMINI_MODEL_ID}, ${INKLING_MODEL_ID}.`,
+      400,
+      'invalid_request_error',
+      'model_not_found'
+    );
+  }
+  const provider = requestedModel === INKLING_MODEL_ID ? ('inkling' as const) : ('gemini' as const);
+  if (provider === 'inkling' && !isInklingConfigured()) {
+    return openAIError(
+      `Model '${INKLING_MODEL_ID}' is not configured on this server (TINKER_API_KEY unset).`,
+      503,
+      'server_error',
+      'inkling_not_configured'
+    );
+  }
+
   const { messages: rewritten, letterAnswerMode } = applyLetterAnswerMode(
     req.messages,
     req.max_tokens
@@ -263,6 +301,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   Sentry.setTag('source', SOURCE_TAG);
   Sentry.setTag('letter_answer_mode', String(letterAnswerMode));
+  Sentry.setTag('leaderboard_model', requestedModel);
 
   // Per-request client attribution from X-Ansari-Client (spec 56). `source`
   // stays SOURCE_TAG ('leaderboard'); `client` is the orthogonal axis, NULL
@@ -295,7 +334,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   let result: { text: string; usage?: NonNullable<FacilitatorStreamEvent['usage']> };
   try {
-    result = await collectResponse(facilitatorMessages);
+    result = await collectResponse(facilitatorMessages, provider);
   } catch (err) {
     console.error('[leaderboard] facilitator error:', err);
     Sentry.captureException(err);
@@ -335,10 +374,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     object: 'chat.completion' as const,
     created: Math.floor(Date.now() / 1000),
     // Per OpenAI spec, `model` in the response is the id of the model
-    // that actually served the request — not whatever the caller asked
-    // for. The leaderboard ignores this field, but echoing the caller's
-    // string would mislead anything that inspects it.
-    model: 'ansari-facilitator',
+    // that actually served the request. With strict id validation above,
+    // the validated requested id IS the serving id (issue #74).
+    model: requestedModel,
     choices: [
       {
         index: 0,
@@ -365,7 +403,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 // can verify the route exists before doing any auth-sensitive call.
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json(
-    { object: 'endpoint', name: 'ansari-facilitator', healthy: true },
+    {
+      object: 'endpoint',
+      name: 'ansari-facilitator',
+      models: [GEMINI_MODEL_ID, INKLING_MODEL_ID],
+      healthy: true,
+    },
     { status: 200 }
   );
 }

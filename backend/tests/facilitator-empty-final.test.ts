@@ -1,17 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * Empty-final-completion handling — issue #60.
+ * Empty-final-completion handling — issues #60 / #66 / #70.
  *
  * Vertex's degraded-completion family can finish a call with a real finishReason=STOP
  * and zero visible text. Before the fix, runFacilitator yielded a silent empty `done`,
  * which mcp-complete shipped as a 200-with-attribution-footer and the web routes hid as
  * a user-message-with-no-reply thread.
  *
- * The fix: STOP + empty + no tool calls → ONE bounded retry (nothing was delivered, so
- * re-issuing duplicates nothing — the #42 no-retry-after-finishReason rule protects
- * delivered tokens only). Retry exhausted, or SAFETY / MAX_TOKENS / missing reason →
- * an explicit `error` event, never a silent empty `done`.
+ * The policy (#60 as strengthened by #70, restructured by #79): STOP or
+ * MALFORMED_FUNCTION_CALL + degenerate text + no tool calls → bounded retries (nothing
+ * was delivered, so re-issuing duplicates nothing — the #42 no-retry-after-finishReason
+ * rule protects delivered tokens only). Retry 1 re-issues on the same model; retry 2
+ * escalates straight to Inkling off Vertex (#79 dropped the second-Vertex-pool rung —
+ * config.gemini.fallbackModel is now only the #45 429 failover inside gemini-client).
+ * With Inkling unconfigured (as in this file), the ladder is the single same-model
+ * retry. Retries exhausted, or SAFETY / MAX_TOKENS / missing reason → an explicit
+ * `error` event, never a silent empty `done`.
  *
  * Mock scaffolding mirrors tests/facilitator-budget.test.ts: streamGemini is stubbed
  * with per-call scripts; the real runFacilitator loop is exercised end to end.
@@ -22,6 +27,8 @@ type AnyEvent = { type: string; data?: unknown; response?: unknown };
 const h = vi.hoisted(() => ({
   calls: [] as Array<{ message: string; options: Record<string, unknown> }>,
   scripts: [] as Array<() => AsyncGenerator<AnyEvent>>,
+  // Mutable per-test model config (issue #70): distinct fallback by default.
+  gemini: { model: 'primary-model', fallbackModel: 'fallback-model' },
 }));
 
 function doneResponse(
@@ -84,6 +91,20 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
+// agent.ts reads config.gemini lazily in the degenerate-final branch (#70); stub it so
+// tests control the primary/fallback pair without real env.
+vi.mock('@/lib/config', () => ({
+  config: {
+    get gemini() {
+      return h.gemini;
+    },
+    // Inkling unset here: the #74 final rung is exercised in
+    // tests/facilitator-inkling-rung.test.ts; these tests pin the
+    // Gemini-only ladder behavior when the rung is unavailable.
+    inkling: { apiKey: undefined },
+  },
+}));
+
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn((message: string, options: Record<string, unknown>) => {
     h.calls.push({ message, options });
@@ -95,6 +116,7 @@ vi.mock('@/lib/ai/gemini-client', () => ({
 
 vi.mock('@/lib/ai/prompts/facilitator', () => ({
   FACILITATOR_SYSTEM_PROMPT: 'BASE_PROMPT',
+  TOOL_CONTINUATION_DIRECTIVE: 'CONTINUATION_DIRECTIVE',
 }));
 
 vi.mock('@/lib/tools', () => ({
@@ -139,6 +161,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.calls = [];
   h.scripts = [];
+  h.gemini = { model: 'primary-model', fallbackModel: 'fallback-model' };
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -174,21 +197,102 @@ describe('empty final completion (issue #60)', () => {
     expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe('Sabr means patience.');
   });
 
-  it('STOP + empty twice → explicit error event, never a silent empty done', async () => {
+  it('STOP + empty twice → single same-model retry, then explicit error — the distinct fallbackModel is NEVER used (#79)', async () => {
     const Sentry = await import('@sentry/nextjs');
-    h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
+    h.scripts = [emptyRound('STOP'), emptyRound('STOP'), textRound('should never be reached')];
 
     const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
     const types = events.map((e) => e.type);
 
-    expect(h.calls).toHaveLength(2); // strictly bounded: no third attempt
+    expect(h.calls).toHaveLength(2); // strictly bounded: no third Gemini attempt (#79)
+    // Both attempts run on the configured primary — no model override, no 3.1-pro rung.
+    expect(h.calls[0].options.model).toBeUndefined();
+    expect(h.calls[1].options.model).toBeUndefined();
     expect(types).toContain('error');
     expect(types).not.toContain('done');
     expect(events.find((e) => e.type === 'error')?.data).toMatch(/empty answer/i);
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
       'facilitator empty final completion',
-      expect.objectContaining({ level: 'error' })
+      expect.objectContaining({
+        level: 'error',
+        // The terminal event records the model that produced the last empty final —
+        // still the primary: the ladder never touched the fallback pool.
+        extra: expect.objectContaining({ model: 'primary-model' }),
+      })
     );
+  });
+
+  it('post-ladder T2 synthesis runs on the configured primary — no model override (#79)', async () => {
+    // A slow empty final burns most of the soft window (150ms); the retry then hangs and
+    // is cut past the soft deadline → T2 synthesis. Synthesis carries no per-call model
+    // override: the #70 sticky-fallback-model plumbing is gone.
+    const slowEmptyRound = (delayMs: number): (() => AsyncGenerator<AnyEvent>) =>
+      async function* () {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        yield { type: 'done', response: doneResponse('', [], 'STOP') };
+      };
+    const slowThrowRound = (delayMs: number): (() => AsyncGenerator<AnyEvent>) =>
+      // eslint-disable-next-line require-yield
+      async function* () {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        throw new Error('cut at deadline');
+      };
+    h.scripts = [slowEmptyRound(100), slowThrowRound(100), textRound('Synthesized from context.')];
+
+    const events = await collect(
+      runFacilitator([userMessage('q')], undefined, {
+        budgetMs: 300,
+        reserveMs: 150,
+      }) as AsyncGenerator<Event>
+    );
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(3);
+    // The third call is the synthesis pass (empty message, tools omitted), not a loop
+    // retry — and it carries no model override.
+    expect(h.calls[2].message).toBe('');
+    expect(h.calls[2].options.tools).toBeUndefined();
+    expect(h.calls[2].options.model).toBeUndefined();
+    expect(types).toContain('done');
+    expect(types).not.toContain('error');
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe(
+      'Synthesized from context.'
+    );
+  });
+
+  it('MALFORMED_FUNCTION_CALL + empty → retried like STOP, recovery answer delivered (#70)', async () => {
+    const Sentry = await import('@sentry/nextjs');
+    h.scripts = [emptyRound('MALFORMED_FUNCTION_CALL'), textRound('Recovered answer.')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(2);
+    expect(types).toContain('done');
+    expect(types).not.toContain('error');
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe('Recovered answer.');
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'facilitator empty final completion (retrying)',
+      expect.objectContaining({
+        extra: expect.objectContaining({ finishReason: 'MALFORMED_FUNCTION_CALL' }),
+      })
+    );
+  });
+
+  it('MALFORMED_FUNCTION_CALL exhausts the same ladder: one same-model retry, then error (#79)', async () => {
+    h.scripts = [
+      emptyRound('MALFORMED_FUNCTION_CALL'),
+      emptyRound('MALFORMED_FUNCTION_CALL'),
+      textRound('should never be reached'),
+    ];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1].options.model).toBeUndefined();
+    expect(types).toContain('error');
+    expect(types).not.toContain('done');
   });
 
   it('SAFETY + empty → immediate blocked error, no retry', async () => {
@@ -260,12 +364,13 @@ describe('degenerate fragment final completion (issue #66)', () => {
 
   it('STOP + "}" twice → explicit error, never shipped as a done (the #66 core regression)', async () => {
     const Sentry = await import('@sentry/nextjs');
-    h.scripts = [fragmentRound('}'), fragmentRound('}')];
+    h.scripts = [fragmentRound('}'), fragmentRound('}'), fragmentRound('}')];
 
     const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
     const types = events.map((e) => e.type);
 
-    expect(h.calls).toHaveLength(2); // strictly bounded: no third attempt
+    expect(h.calls).toHaveLength(2); // strictly bounded (#79 ladder): no third Gemini attempt
+    expect(h.calls[1].options.model).toBeUndefined();
     expect(types).toContain('error');
     expect(types).not.toContain('done');
     // The fragment is never emitted, so nothing degenerate reaches/persists on any surface.
@@ -322,7 +427,7 @@ describe('degenerate fragment final completion (issue #66)', () => {
     for (const frag of [']', '].', '{}', '. }']) {
       vi.clearAllMocks();
       h.calls = [];
-      h.scripts = [fragmentRound(frag), fragmentRound(frag)];
+      h.scripts = [fragmentRound(frag), fragmentRound(frag), fragmentRound(frag)];
 
       const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
       const types = events.map((e) => e.type);

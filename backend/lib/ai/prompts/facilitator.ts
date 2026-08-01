@@ -121,18 +121,37 @@ The documents provided to you contain citation-enabled content. Use them as foll
 2. Place the marker immediately after the relevant statement.
 3. At the END of your response, include a "**Citations**:" section.
 4. List each citation with its number, title, and bilingual content (Arabic + English).
+5. For hadith citations, ALWAYS include the LK id token from the search result verbatim,
+   in the form "(LK id <id>)" at the end of the citation title, e.g. "(LK id 2_38_5_5524)".
 
 Example format:
 "The Prophet (PBUH) said that actions are judged by intentions [1]. This hadith establishes
 the importance of niyyah (intention) in all deeds [1]."
 
 **Citations**:
-[1] Sahih Bukhari - Book of Revelation, Hadith 1
+[1] Sahih Bukhari - Book of Revelation, Hadith 1 (LK id 1_1_1_1)
     Arabic: إنما الأعمال بالنيات
     English: Actions are judged by intentions.
 
 IMPORTANT: Always provide both Arabic text and English translation when available.
 The citation section MUST appear at the end of your response.
 `;
+
+/**
+ * User-turn text sent when continuing a conversation after a tool round (issue #73).
+ *
+ * The continuation used to be an empty-string message; under load, gemini-3.5-flash
+ * sometimes answers that request shape with a thoughts-only STOP-empty completion —
+ * the dominant source of "empty final completion" retries (observed only at
+ * iterations >= 2, never on a first call, which always carries real user text).
+ * An explicit directive removes the trigger at the source; the #70 retry ladder
+ * stays as the safety net.
+ *
+ * This text is request-transient by construction: it is passed only as the
+ * per-call `message`, never pushed into history, never persisted, and never
+ * emitted on the visible stream.
+ */
+export const TOOL_CONTINUATION_DIRECTIVE =
+  "Answer the user's question using the tool results above.";
 
 export default FACILITATOR_SYSTEM_PROMPT;

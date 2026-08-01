@@ -303,6 +303,16 @@ describe('Rate limiting', () => {
     expect(response.status).toBe(429);
     expect(response.headers.get('Retry-After')).toBe('30');
   });
+
+  it('rate-limits at 120/min, not the default 30 (#87)', async () => {
+    mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfter: 0 });
+
+    await GET(makeGetRequest('Test question'));
+    expect(mockCheckRateLimit).toHaveBeenLastCalledWith(expect.any(String), 120);
+
+    await POST(makePostRequest({ messages: [{ role: 'user', content: 'Test' }] }));
+    expect(mockCheckRateLimit).toHaveBeenLastCalledWith(expect.any(String), 120);
+  });
 });
 
 describe('mcp-complete empty-answer backstop (issue #60)', () => {

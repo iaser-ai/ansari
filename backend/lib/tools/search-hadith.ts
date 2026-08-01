@@ -96,7 +96,9 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
         if (grade) {
           title += ` (Grade: ${grade})`;
         }
-        title = trimCitationTitle(title);
+        // The LK id is appended AFTER trimming so truncation can never cut it —
+        // the frontend linkifies the literal "LK id <id>" token in citations (issue #84).
+        title = `${trimCitationTitle(title)} (LK id ${hadith.id})`;
 
         const content = JSON.stringify({
           ar: hadith.ar_text,
@@ -104,6 +106,7 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
           grade: grade,
           collection: hadith.source_book,
           chapter: hadith.chapter_english,
+          lk_id: hadith.id,
         });
 
         return {

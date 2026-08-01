@@ -60,6 +60,7 @@ vi.mock('@/lib/ai/gemini-client', () => ({
 
 vi.mock('@/lib/ai/prompts/facilitator', () => ({
   FACILITATOR_SYSTEM_PROMPT: 'BASE_PROMPT',
+  TOOL_CONTINUATION_DIRECTIVE: 'CONTINUATION_DIRECTIVE',
 }));
 
 vi.mock('@/lib/tools', () => ({

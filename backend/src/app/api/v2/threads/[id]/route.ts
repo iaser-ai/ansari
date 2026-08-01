@@ -218,27 +218,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
         try {
           for await (const event of runFacilitator(messageHistory)) {
-            if (isClosed) break;
-
             switch (event.type) {
               case 'text':
                 heartbeat.stop();
                 fullText += event.data;
-                // Stream raw text back (frontend expects raw text, not SSE events)
                 safeEnqueue(encoder.encode(event.data));
                 break;
 
               case 'tool_use':
-                // Could optionally send tool info
                 break;
 
               case 'tool_result':
-                // Could optionally send tool results
                 break;
 
               case 'done':
-                // Backstop (issue #60): an empty final answer must surface as an error,
-                // never as a silent close that leaves a user message with no reply.
                 if (fullText.trim().length === 0) {
                   console.error('[chat] empty facilitator answer', { threadId });
                   Sentry.captureMessage('chat empty answer', { level: 'error', extra: { threadId } });
@@ -248,7 +241,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
                   safeClose();
                   break;
                 }
-                // Store the final assistant message
                 if (fullText) {
                   assistantContent.push({ type: 'text', text: fullText });
                 }
@@ -260,10 +252,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     agentName: 'facilitator',
                     source: 'web',
                     client,
-                    // Persist token accounting (issue #52). event.usage is summed
-                    // across the tool-loop iterations by the facilitator; it is
-                    // absent when the stream truncated with no usage chunk (#42),
-                    // in which case we leave the columns null rather than crash.
                     inputTokens: event.usage?.promptTokenCount ?? null,
                     outputTokens: event.usage?.candidatesTokenCount ?? null,
                     thinkingTokens: event.usage?.thoughtsTokenCount ?? null,
@@ -280,7 +268,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
             }
           }
 
-          // Ensure stream is closed even if no 'done' event
           safeClose();
         } catch (error) {
           console.error('Stream error:', error);

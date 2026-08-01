@@ -52,9 +52,13 @@ function createErrorResponse(message: string, status: number, headers?: Record<s
   return NextResponse.json({ error: message }, { status, headers });
 }
 
+// 120/min instead of the default 30 (#87): browsing AIs consuming the
+// published prompt share egress IPs, so per-IP volume is many users deep.
+const RATE_LIMIT_PER_MINUTE = 120;
+
 function applyRateLimit(request: NextRequest): NextResponse | null {
   const ip = getClientIp(request);
-  const { allowed, retryAfter } = checkRateLimit(ip);
+  const { allowed, retryAfter } = checkRateLimit(ip, RATE_LIMIT_PER_MINUTE);
   if (!allowed) {
     return createErrorResponse('Rate limit exceeded', 429, {
       'Retry-After': String(retryAfter),

@@ -59,6 +59,16 @@ describe('Rate limiter', () => {
       expect(result.allowed).toBe(true);
     });
 
+    it('at the mcp-complete limit (120, #87): 120th request allowed, 121st blocked in one window', () => {
+      for (let i = 0; i < 119; i++) {
+        expect(checkRateLimit('1.2.3.4', 120).allowed).toBe(true);
+      }
+      expect(checkRateLimit('1.2.3.4', 120).allowed).toBe(true); // 120th
+      const blocked = checkRateLimit('1.2.3.4', 120); // 121st
+      expect(blocked.allowed).toBe(false);
+      expect(blocked.retryAfter).toBeGreaterThan(0);
+    });
+
     it('returns retryAfter in seconds', () => {
       vi.useFakeTimers();
 

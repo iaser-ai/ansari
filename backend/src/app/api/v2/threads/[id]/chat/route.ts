@@ -74,12 +74,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
       async start(controller) {
         let fullText = '';
         const assistantContent: ContentBlock[] = [];
+        let isClosed = false;
 
-        // SSE comment heartbeat (#59): the facilitator emits nothing during
-        // Gemini thinking phases and tool rounds, and Cloudflare drops the
-        // proxied connection after ~100s without origin bytes. Comment lines
-        // are ignored by SSE parsers, so this is invisible to clients.
-        const heartbeat = startHeartbeat(() => controller.enqueue(encoder.encode(SSE_HEARTBEAT)));
+        const safeEnqueue = (data: Uint8Array) => {
+          if (!isClosed) {
+            try {
+              controller.enqueue(data);
+            } catch {
+              isClosed = true;
+            }
+          }
+        };
+
+        const safeClose = () => {
+          if (!isClosed) {
+            isClosed = true;
+            try {
+              controller.close();
+            } catch {
+              // Already closed
+            }
+          }
+        };
+
+        const heartbeat = startHeartbeat(() => safeEnqueue(encoder.encode(SSE_HEARTBEAT)));
 
         try {
           for await (const event of runFacilitator(messageHistory)) {
@@ -87,39 +105,35 @@ export async function POST(request: NextRequest, context: RouteContext) {
             switch (event.type) {
               case 'text':
                 fullText += event.data;
-                // Send SSE event
-                controller.enqueue(
+                safeEnqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: 'text', content: event.data })}\n\n`)
                 );
                 break;
 
               case 'tool_use':
-                controller.enqueue(
+                safeEnqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: 'tool_call', ...JSON.parse(event.data) })}\n\n`)
                 );
                 break;
 
               case 'tool_result':
-                controller.enqueue(
+                safeEnqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: 'tool_result', ...JSON.parse(event.data) })}\n\n`)
                 );
                 break;
 
               case 'done':
-                // Backstop (issue #60): an empty final answer must surface as an error,
-                // never as a silent done with no stored assistant message.
                 if (fullText.trim().length === 0) {
                   console.error('[chat] empty facilitator answer', { threadId });
                   Sentry.captureMessage('chat empty answer', { level: 'error', extra: { threadId } });
-                  controller.enqueue(
+                  safeEnqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({ type: 'error', message: 'The model returned an empty answer. Please try again.' })}\n\n`
                     )
                   );
-                  controller.close();
+                  safeClose();
                   break;
                 }
-                // Store the final assistant message
                 if (fullText) {
                   assistantContent.push({ type: 'text', text: fullText });
                 }
@@ -138,24 +152,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
                   });
                 }
 
-                controller.enqueue(
+                safeEnqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
                 );
-                controller.close();
+                safeClose();
                 break;
 
               case 'error':
-                controller.enqueue(
+                safeEnqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: 'error', message: event.data })}\n\n`)
                 );
-                controller.close();
+                safeClose();
                 break;
             }
           }
         } catch (error) {
           console.error('Stream error:', error);
           Sentry.captureException(error);
-          controller.enqueue(
+          safeEnqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: 'error',
@@ -163,7 +177,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
               })}\n\n`
             )
           );
-          controller.close();
+          safeClose();
         } finally {
           heartbeat.stop();
         }

@@ -15,7 +15,9 @@ import {
   type GeminiStreamEvent,
   type GeminiUsageMetadata,
 } from '../ai/gemini-client';
-import { FACILITATOR_SYSTEM_PROMPT } from '../ai/prompts/facilitator';
+import { streamInkling, isInklingConfigured, INKLING_MODEL } from '../ai/inkling-client';
+import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
+import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import type { ToolResult } from '../tools/types';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
@@ -60,14 +62,29 @@ const SYNTHESIS_DIRECTIVE =
 // A clean bounded error — never a raw internal error string, never a silent close.
 const BUDGET_ERROR_MESSAGE = 'This is taking longer than expected. Please try again.';
 
-// Empty-final-completion handling (issue #60). Vertex's degraded-completion family can
-// finish a call with a real finishReason=STOP and zero visible text. The #42 rule (never
-// retry after a finishReason) exists to avoid duplicating tokens already delivered to the
-// client — in the empty case nothing was delivered, so ONE bounded retry duplicates
-// nothing. Non-STOP empties are NOT retried: SAFETY = blocked (a retry would likely
+// Empty-final-completion handling (issues #60/#70/#74/#79). Vertex's degraded-completion
+// family can finish a call with a real finishReason and zero visible text. The #42 rule
+// (never retry after a finishReason) exists to avoid duplicating tokens already delivered
+// to the client — in the empty case nothing was delivered, so bounded retries duplicate
+// nothing. Retryable reasons are STOP and MALFORMED_FUNCTION_CALL (both transient provider
+// flakiness, #70). The ladder (#79): retry 1 re-issues on the same model (cheap, handles
+// blips); retry 2 leaves Vertex entirely for thinkingmachines/Inkling (Tinker
+// infrastructure, #74). Degradation that survives a same-model retry is overwhelmingly the
+// capacity-wave family that hits BOTH Vertex pools at once, so the second Vertex pool is
+// no longer a rung — config.gemini.fallbackModel now serves only gemini-client's
+// intra-Vertex 429 fast-failover (#45). When TINKER_API_KEY is unset the ladder is the
+// single same-model retry (the Inkling rung is skipped cleanly; warned once at boot-style
+// first use). Other reasons are NOT retried: SAFETY = blocked (a retry would likely
 // re-block), MAX_TOKENS = the thinking budget consumed the output cap (a config bug to
 // surface loudly — coordinate cap sizing with issue #51).
-const MAX_EMPTY_FINAL_RETRIES = 1;
+const MAX_EMPTY_FINAL_RETRIES = 2;
+
+// Terminal-Gemini-error rescue (#79): minimum time remaining before the soft deadline for
+// a rescue attempt to be worth starting. Below this the request is nearly out of gathering
+// budget anyway — surface the error (or synthesize) rather than start a doomed
+// off-Vertex call, and Spec 49's synthesis reserve beyond the soft deadline stays intact.
+const INKLING_RESCUE_MIN_REMAINING_MS = 20_000;
+const RETRYABLE_EMPTY_FINISH_REASONS = new Set(['STOP', 'MALFORMED_FUNCTION_CALL']);
 const EMPTY_ANSWER_ERROR_MESSAGE =
   'The model returned an empty answer. Please try again.';
 const SAFETY_BLOCKED_ERROR_MESSAGE =
@@ -293,7 +310,20 @@ function formatToolResultForGemini(toolName: string, result: ToolResult): object
 export async function* runFacilitator(
   messageHistory: Message[],
   onMessage?: (message: Message) => Promise<void>,
-  options?: { budgetMs?: number; reserveMs?: number }
+  options?: {
+    budgetMs?: number;
+    reserveMs?: number;
+    /**
+     * Model provider for the whole request (issue #74 scope amendment).
+     * 'inkling' runs EVERY call of the request — all tool-loop iterations,
+     * continuations, and the synthesis pass — on thinkingmachines/Inkling,
+     * with no Gemini fallback of any kind: if Inkling fails, the request
+     * fails loudly (benchmark integrity for the leaderboard adapter's
+     * 'ansari-facilitator-inkling' model id). Default 'gemini' keeps Gemini
+     * primary with Inkling only as the final empty-final ladder rung.
+     */
+    provider?: 'gemini' | 'inkling';
+  }
 ): AsyncGenerator<FacilitatorStreamEvent> {
   const tools = getGeminiToolDescriptions();
   const tracker: ToolUsageTracker = { history: [], callsWithArgs: [] };
@@ -325,8 +355,19 @@ export async function* runFacilitator(
   // Monotonic, per-request cumulative count of degraded tool results (T1). Repeated degraded
   // calls to the same tool count; a later healthy result never decrements it.
   let degradedCount = 0;
-  // Bounded retries used for STOP-with-empty-text final completions (issue #60).
+  // Bounded retries used for degenerate (empty/fragment) final completions (#60/#70).
   let emptyFinalRetries = 0;
+  // Off-Vertex escalation to Inkling (#74/#79), sticky for the request: once engaged —
+  // by the empty-final ladder's second rung or by the terminal-error rescue below — every
+  // later call in the request (tool loop and synthesis alike) stays on Inkling, because
+  // either engagement means Gemini has already failed this request and must not be
+  // re-asked. Seeded true when the caller forces provider 'inkling' (leaderboard
+  // adapter): then no Gemini call is ever made and any Inkling failure surfaces loudly
+  // instead of degrading the benchmark.
+  let useInklingRung = options?.provider === 'inkling';
+  // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
+  // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
+  let inklingRescueUsed = false;
 
   // Overall request-time budget (Spec 49). softDeadline = when we stop starting new tool
   // work; the reserve between it and hardDeadline is the window for one synthesis pass.
@@ -386,11 +427,16 @@ export async function* runFacilitator(
     let synthResponse: GeminiResponse | null = null;
     try {
       // Tools omitted → the model cannot emit a functionCall, so it must answer from context.
-      const stream = streamGemini('', {
+      // Once the request escalated to Inkling (#74/#79 — ladder rung or error rescue),
+      // synthesis stays there: Gemini already failed this request and must not be re-asked.
+      const synthesisOptions = {
         systemPrompt: `${FACILITATOR_SYSTEM_PROMPT}\n\n${SYNTHESIS_DIRECTIVE}`,
         history: synthesisHistory,
         timeoutMs: remainingMs,
-      });
+      };
+      const stream = useInklingRung
+        ? streamInkling('', synthesisOptions)
+        : streamGemini('', synthesisOptions);
       for await (const event of stream) {
         if (event.type === 'text') {
           synthText += event.data;
@@ -438,16 +484,26 @@ export async function* runFacilitator(
       return;
     }
 
+    // Whether THIS call has yielded any visible text to the client. Gates the #79 error
+    // rescue: re-issuing a call whose text partially reached the client would duplicate
+    // delivered tokens (the #42 rule) — such failures must still surface as errors.
+    let visibleTextDelivered = false;
+
     try {
-      // Stream Gemini response with real-time event delivery. Bound the tool-gathering call to
-      // the remaining-to-soft-deadline so a single slow/hanging call cannot blow the budget
-      // (Spec 49); if it is cut, the catch below falls through to the synthesis pass.
-      const stream = streamGemini(currentQuery, {
+      // Stream the model response with real-time event delivery. Bound the tool-gathering
+      // call to the remaining-to-soft-deadline so a single slow/hanging call cannot blow the
+      // budget (Spec 49); if it is cut, the catch below falls through to the synthesis pass.
+      // Once the request escalated to the Inkling rung (#74), the call runs on Inkling with
+      // the SAME system prompt — its tool-budget rules are load-bearing for Inkling too.
+      const callOptions = {
         systemPrompt: FACILITATOR_SYSTEM_PROMPT,
         history: geminiHistory,
         tools,
         timeoutMs: remainingToSoft,
-      });
+      };
+      const stream = useInklingRung
+        ? streamInkling(currentQuery, callOptions)
+        : streamGemini(currentQuery, callOptions);
 
       const toolCallsCollected: GeminiToolCall[] = [];
       let response: GeminiResponse | null = null;
@@ -470,9 +526,11 @@ export async function* runFacilitator(
         if (event.type === 'text') {
           streamedText += event.data;
           if (gateOpen) {
+            visibleTextDelivered = true;
             yield { type: 'text', data: event.data };
           } else if (isProvenNonDegenerateText(streamedText)) {
             gateOpen = true;
+            visibleTextDelivered = true;
             yield { type: 'text', data: pendingText + event.data };
             pendingText = '';
           } else {
@@ -482,7 +540,10 @@ export async function* runFacilitator(
           // Collect tool calls and notify frontend. A tool call opens the gate: flush any
           // buffered prefix first so its bytes and order are preserved.
           if (!gateOpen) {
-            if (pendingText) yield { type: 'text', data: pendingText };
+            if (pendingText) {
+              visibleTextDelivered = true;
+              yield { type: 'text', data: pendingText };
+            }
             pendingText = '';
             gateOpen = true;
           }
@@ -505,16 +566,25 @@ export async function* runFacilitator(
 
       // If no tool calls, we're done
       if (toolCallsCollected.length === 0) {
-        // Degenerate final completion (issues #60 + #66): a terminal answer that is empty OR
-        // a trivial punctuation-only fragment (a lone '}' etc.) must never become a silent
-        // `done` that ships as a real reply. STOP gets one bounded retry (nothing usable was
-        // delivered, so re-issuing the identical call duplicates nothing, and the loop's
-        // soft-deadline check keeps it inside the #49 budget). Anything else — SAFETY,
+        // Degenerate final completion (issues #60 + #66 + #70 + #79): a terminal answer
+        // that is empty OR a trivial punctuation-only fragment (a lone '}' etc.) must
+        // never become a silent `done` that ships as a real reply. STOP and
+        // MALFORMED_FUNCTION_CALL get bounded retries (nothing usable was delivered, so
+        // re-issuing duplicates nothing, and the loop's soft-deadline check keeps them
+        // inside the #49 budget): retry 1 on the same model, retry 2 straight to Inkling
+        // off Vertex (#79 — no second-Vertex-pool rung). Anything else — SAFETY,
         // MAX_TOKENS, or an unknown reason — fails fast with an explicit error. No PII in
-        // logs: reason + counters + fragment length only, never query text.
+        // logs: reason + model + counters + fragment length only, never query text.
         const degenerateKind = classifyDegenerateFinal(assistantText);
         if (degenerateKind) {
           const finishReason = response.finishReason ?? 'MISSING';
+          // Read lazily — this branch only runs on a degenerate final, so the config
+          // getter is never touched on the healthy path.
+          const primaryModel = config.gemini.model;
+          // Rung 2 (#74/#79) runs on Inkling's separate (non-Vertex) infrastructure;
+          // without TINKER_API_KEY the ladder is the single same-model retry.
+          const inklingAvailable = isInklingConfigured();
+          const maxRetries = inklingAvailable ? MAX_EMPTY_FINAL_RETRIES : 1;
           const summary = {
             degenerateKind,
             finishReason,
@@ -522,13 +592,35 @@ export async function* runFacilitator(
             iterations,
             toolCallCount: tracker.history.length,
             emptyFinalRetries,
+            model: useInklingRung ? INKLING_MODEL : primaryModel,
           };
-          if (finishReason === 'STOP' && emptyFinalRetries < MAX_EMPTY_FINAL_RETRIES) {
+          if (RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason) && emptyFinalRetries < maxRetries) {
             emptyFinalRetries++;
-            console.warn('[facilitator] empty final completion — retrying once', summary);
+            if (inklingAvailable && emptyFinalRetries >= MAX_EMPTY_FINAL_RETRIES && !useInklingRung) {
+              // The same-model retry also produced a degenerate final — leave Vertex (#79).
+              useInklingRung = true;
+              // Engagement breadcrumb for measuring the rung (issue #74). No PII:
+              // counters and finishReason only, never query text.
+              Sentry.addBreadcrumb({
+                category: 'inkling',
+                level: 'warning',
+                message: 'empty-final ladder escalated to Inkling fallback rung (#74)',
+                data: {
+                  emptyFinalRetries,
+                  iterations,
+                  toolCallCount: tracker.history.length,
+                  finishReason,
+                },
+              });
+            }
+            const retrySummary = {
+              ...summary,
+              nextModel: useInklingRung ? INKLING_MODEL : primaryModel,
+            };
+            console.warn('[facilitator] empty final completion — retrying', retrySummary);
             Sentry.captureMessage('facilitator empty final completion (retrying)', {
               level: 'warning',
-              extra: summary,
+              extra: retrySummary,
             });
             continue;
           }
@@ -657,8 +749,11 @@ export async function* runFacilitator(
         return;
       }
 
-      // Continue the loop with empty query (let Gemini continue based on tool results)
-      currentQuery = '';
+      // Continue the loop with an explicit directive, not an empty message (issue #73):
+      // the empty user turn after functionResponse parts is the trigger for flash's
+      // thoughts-only empty completions under load. Transient — never added to
+      // geminiHistory, so it cannot accumulate across rounds or persist.
+      currentQuery = TOOL_CONTINUATION_DIRECTIVE;
       continue;
     } catch (error) {
       // A tool-gathering call cut at/after the soft deadline is a budget short-circuit, not a
@@ -667,6 +762,49 @@ export async function* runFacilitator(
       if (Date.now() >= softDeadline) {
         yield* runSynthesis('T2');
         return;
+      }
+      // Inkling rescue on a terminal Gemini error (#79). The empty-final ladder only sees
+      // degenerate COMPLETIONS; hard failures (60s hang, dual-pool 429 exhaustion, Vertex
+      // HTML ApiError) land here and used to surface straight to the user. Before giving
+      // up, make ONE Inkling attempt — sticky, like the ladder rung — when ALL of:
+      //   - the failed call ran on Gemini (never rescue Inkling with Inkling; the forced
+      //     provider 'inkling' mode keeps failing loudly for benchmark integrity),
+      //   - no rescue was already spent this request (cost guardrail: at most one),
+      //   - the failed call delivered no visible text (the #42 rule: re-issuing after
+      //     delivered tokens would duplicate them),
+      //   - enough gathering budget remains for a real attempt (≥20s before the soft
+      //     deadline, which also keeps Spec 49's synthesis reserve intact), and
+      //   - TINKER_API_KEY is configured.
+      if (
+        !useInklingRung &&
+        !inklingRescueUsed &&
+        !visibleTextDelivered &&
+        softDeadline - Date.now() >= INKLING_RESCUE_MIN_REMAINING_MS &&
+        isInklingConfigured()
+      ) {
+        inklingRescueUsed = true;
+        useInklingRung = true;
+        // Same no-PII breadcrumb shape as the #74 ladder engagement but a DISTINCT
+        // message, so ladder-engagements and error-rescues stay separable in Sentry.
+        // The error text is provider-generated (never query text); truncated anyway.
+        const rescueSummary = {
+          elapsedMs: Date.now() - startTime,
+          iterations,
+          toolCallCount: tracker.history.length,
+          error: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+        };
+        console.warn('[facilitator] terminal Gemini error — rescuing on Inkling', rescueSummary);
+        Sentry.addBreadcrumb({
+          category: 'inkling',
+          level: 'warning',
+          message: 'terminal Gemini error rescued on Inkling (#79)',
+          data: rescueSummary,
+        });
+        Sentry.captureMessage('facilitator terminal Gemini error rescued on Inkling', {
+          level: 'warning',
+          extra: rescueSummary,
+        });
+        continue;
       }
       console.error('Facilitator error:', error);
       Sentry.captureException(error);

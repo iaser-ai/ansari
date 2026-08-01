@@ -13,10 +13,12 @@ const envSchema = z.object({
   // Either Vertex AI (preferred) or the public Gemini API must be configured.
   // Vertex is selected when GOOGLE_CLOUD_PROJECT is set; otherwise the SDK falls back to GEMINI_API_KEY.
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default('gemini-3.1-pro-preview'),
-  // Fallback model used only when the primary model exhausts its retries on
-  // transient (e.g. 429 shared-capacity) errors. Draws on a separate Vertex
-  // capacity pool, so it can succeed when the primary is congested.
+  GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
+  // Used ONLY by gemini-client's intra-Vertex 429 failover (#45): when the
+  // primary model's capacity pool is congested, the call hops to this model's
+  // separate Vertex pool in milliseconds. NOT part of the empty-final retry
+  // ladder (#79) — degradation that survives a same-model retry escalates
+  // straight to Inkling (off Vertex) instead.
   GEMINI_FALLBACK_MODEL: z.string().default('gemini-3.1-pro-preview'),
 
   // AI - Facilitator (Vertex AI)
@@ -26,6 +28,14 @@ const envSchema = z.object({
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
   // Inline JSON contents of the service account (used on Railway / hosts without a file system).
   GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().optional(),
+
+  // AI - Inkling (issues #74/#79). The facilitator's off-Vertex backup on
+  // Tinker infrastructure: the second rung of the empty-final retry ladder AND
+  // the one-shot rescue when a Gemini call fails terminally with budget left.
+  // Optional: when unset both are skipped cleanly (logged once) and the ladder
+  // is the single same-model retry.
+  TINKER_API_KEY: z.string().optional(),
+
 
   // Islamic Tools
   KALEMAT_API_KEY: z.string().min(1, 'KALEMAT_API_KEY is required'),
@@ -112,6 +122,13 @@ export const config = {
       },
     };
   },
+
+  get inkling() {
+    return {
+      apiKey: getEnv().TINKER_API_KEY,
+    };
+  },
+
 
   get tools() {
     return {

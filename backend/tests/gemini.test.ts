@@ -58,14 +58,14 @@ describe('Gemini Client (Spec 0004)', () => {
       const { config } = await import('../lib/config');
       expect(config.gemini).toBeDefined();
       expect(config.gemini.apiKey).toBe('test-gemini-key');
-      expect(config.gemini.model).toBe('gemini-3.1-pro-preview');
+      expect(config.gemini.model).toBe('gemini-3.6-flash');
     });
 
     it('uses default model when GEMINI_MODEL not set', async () => {
       delete process.env.GEMINI_MODEL;
       vi.resetModules();
       const { config } = await import('../lib/config');
-      expect(config.gemini.model).toBe('gemini-3.1-pro-preview');
+      expect(config.gemini.model).toBe('gemini-3.6-flash');
     });
   });
 

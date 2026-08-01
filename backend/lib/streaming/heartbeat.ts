@@ -16,13 +16,15 @@ export const HEARTBEAT_INTERVAL_MS = 15_000;
  * quickly redeployable) creates the assistant bubble and hides the thinking
  * indicator on the FIRST received byte — so an early ZWSP destroys the
  * thinking indicator on ordinary turns. First-token latency is p50 ~19s /
- * p90 ~35s: waiting 60s before the first heartbeat means the vast majority
- * of turns never receive one, while turns silent past 60s still get bytes
- * on the wire well inside Cloudflare's ~100s idle cutoff (worst-case gap
- * 60s, then every 20s).
+ * p90 ~39s: waiting 15s before the first heartbeat balances thinking-
+ * indicator UX against mobile network idle timeouts (many carriers drop
+ * TCP at 30-60s). p50 ~11s, so ~half of turns never receive one; turns
+ * silent past 15s get bytes flowing well inside mobile idle cutoffs.
+ * Previous value (60s) left a fatal gap: p90 responses had no heartbeat
+ * and mobile users' connections were silently dropped mid-thinking.
  */
-export const RAW_TEXT_HEARTBEAT_INITIAL_DELAY_MS = 60_000;
-export const RAW_TEXT_HEARTBEAT_INTERVAL_MS = 20_000;
+export const RAW_TEXT_HEARTBEAT_INITIAL_DELAY_MS = 15_000;
+export const RAW_TEXT_HEARTBEAT_INTERVAL_MS = 15_000;
 
 /** SSE comment line — ignored by SSE parsers, never surfaces to clients. */
 export const SSE_HEARTBEAT = ': ping\n\n';

@@ -1,14 +1,19 @@
 import * as Sentry from '@sentry/nextjs';
 import type { NextRequest } from 'next/server';
 
-// Per-client traffic attribution (spec 56).
+// Per-client traffic attribution (spec 56, extended by #87).
 //
-// A single choke-point for reading the optional `X-Ansari-Client` header so
-// every write path attributes identically. The client id is an application
-// identifier (not PII), so it is safe to attach to Sentry and logs.
+// A single choke-point for reading the optional `X-Ansari-Client` header (with
+// a `?src=` query-param fallback for callers that cannot set headers, e.g.
+// browsing AIs fetching a URL from a published prompt) so every write path
+// attributes identically. The client id is an application identifier (not
+// PII), so it is safe to attach to Sentry and logs.
 
 /** HTTP header carrying the per-request client id. Case-insensitive per Fetch. */
 export const CLIENT_HEADER = 'X-Ansari-Client';
+
+/** Query param carrying the client id when the header can't be set (#87). */
+export const CLIENT_SRC_PARAM = 'src';
 
 /**
  * Reserved sentinel stored when the header is present but malformed. Distinct
@@ -31,21 +36,27 @@ export const KNOWN_CLIENTS = ['askansari-web', 'askansari-android'] as const;
 const CLIENT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 /**
- * Extract the per-request client id from the `X-Ansari-Client` header (spec 56).
+ * Extract the per-request client id from the `X-Ansari-Client` header
+ * (spec 56), falling back to the `?src=` query param when the header is
+ * absent (#87). The header always wins when both are present — including a
+ * malformed header, which maps to the sentinel regardless of the param
+ * (first-party precedence).
  *
  * Returns:
- *  - `null`            when the header is absent — attribution not provided;
- *                      the caller stores NULL and behavior is unchanged.
+ *  - `null`            when both header and param are absent — attribution not
+ *                      provided; the caller stores NULL and behavior is
+ *                      unchanged.
  *  - the normalized id when present and valid (trimmed + lowercased).
  *  - `INVALID_CLIENT`  when present but malformed.
  *
- * Lenient by design (spec D2, architect-confirmed): a malformed header never
+ * Lenient by design (spec D2, architect-confirmed): a malformed value never
  * throws and never produces a 4xx — it is recorded as the sentinel and reported
  * to Sentry at WARNING level (with a truncated copy of the raw value) so
  * misconfigured clients are visible without leaking user content.
  */
 export function getClientId(request: NextRequest): string | null {
-  const raw = request.headers.get(CLIENT_HEADER);
+  const header = request.headers.get(CLIENT_HEADER);
+  const raw = header ?? request.nextUrl.searchParams.get(CLIENT_SRC_PARAM);
   if (raw === null) return null;
 
   const normalized = raw.trim().toLowerCase();
@@ -57,8 +68,10 @@ export function getClientId(request: NextRequest): string | null {
 
   // Present but malformed (bad charset, too long, empty after trim, or the
   // reserved sentinel word itself) → store the sentinel and warn.
+  const via =
+    header !== null ? `${CLIENT_HEADER} header` : `${CLIENT_SRC_PARAM} query param`;
   Sentry.setTag('client', INVALID_CLIENT);
-  Sentry.captureMessage('invalid X-Ansari-Client header', {
+  Sentry.captureMessage(`invalid ${via}`, {
     level: 'warning',
     tags: { client: INVALID_CLIENT },
     extra: { rawTruncated: raw.slice(0, 32) },

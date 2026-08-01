@@ -23,6 +23,8 @@ beforeEach(() => {
   process.env.KALEMAT_API_KEY = 'test-kalemat-key';
   process.env.USUL_API_TOKEN = 'test-usul-token';
   process.env.LEADERBOARD_API_KEY = API_KEY;
+  // Inkling (issue #74) is opt-in per test; default = unset.
+  delete process.env.TINKER_API_KEY;
 });
 
 // Default-allow mocks for DB and facilitator. Individual tests override.
@@ -113,7 +115,7 @@ describe('POST /v1/chat/completions', () => {
   it('rejects requests without a bearer token (401)', async () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
-      makeRequest({ model: 'x', messages: [{ role: 'user', content: 'hi' }] })
+      makeRequest({ model: 'ansari-facilitator', messages: [{ role: 'user', content: 'hi' }] })
     );
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -124,7 +126,7 @@ describe('POST /v1/chat/completions', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
       makeRequest(
-        { model: 'x', messages: [{ role: 'user', content: 'hi' }] },
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'hi' }] },
         { authorization: 'Bearer wrong-key' }
       )
     );
@@ -135,7 +137,7 @@ describe('POST /v1/chat/completions', () => {
     delete process.env.LEADERBOARD_API_KEY;
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
-      makeRequest({ model: 'x', messages: [{ role: 'user', content: 'hi' }] }, AUTH)
+      makeRequest({ model: 'ansari-facilitator', messages: [{ role: 'user', content: 'hi' }] }, AUTH)
     );
     expect(res.status).toBe(503);
     const body = await res.json();
@@ -146,7 +148,7 @@ describe('POST /v1/chat/completions', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
       makeRequest(
-        { model: 'x', messages: [{ role: 'user', content: 'hi' }], stream: true },
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'hi' }], stream: true },
         AUTH
       )
     );
@@ -170,7 +172,7 @@ describe('POST /v1/chat/completions', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
       makeRequest(
-        { model: 'whatever-caller-sent', messages: [{ role: 'user', content: 'Tell me about patience.' }] },
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'Tell me about patience.' }] },
         AUTH
       )
     );
@@ -196,7 +198,7 @@ describe('POST /v1/chat/completions', () => {
     const res = await POST(
       makeRequest(
         {
-          model: 'x',
+          model: 'ansari-facilitator',
           messages: [{ role: 'user', content: 'Which letter? A B C D' }],
           max_tokens: 8,
         },
@@ -212,7 +214,7 @@ describe('POST /v1/chat/completions', () => {
     setupSuccessfulMocks('A');
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const res = await POST(
-      makeRequest({ model: 'x', messages: [{ role: 'user', content: MCQ_PROMPT }] }, AUTH)
+      makeRequest({ model: 'ansari-facilitator', messages: [{ role: 'user', content: MCQ_PROMPT }] }, AUTH)
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -225,7 +227,7 @@ describe('POST /v1/chat/completions', () => {
     const res = await POST(
       makeRequest(
         {
-          model: 'x',
+          model: 'ansari-facilitator',
           messages: [{ role: 'user', content: 'What does the Quran say about patience?' }],
         },
         AUTH
@@ -241,7 +243,7 @@ describe('POST /v1/chat/completions', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     await POST(
       makeRequest(
-        { model: 'x', messages: [{ role: 'user', content: 'What about sabr?' }] },
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'What about sabr?' }] },
         AUTH
       )
     );
@@ -266,7 +268,7 @@ describe('POST /v1/chat/completions', () => {
 
     await POST(
       makeRequest(
-        { model: 'x', messages: [{ role: 'user', content: 'What about sabr?' }] },
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'What about sabr?' }] },
         { ...AUTH, 'X-Ansari-Client': 'muslimpedia' }
       )
     );
@@ -285,12 +287,94 @@ describe('POST /v1/chat/completions', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
 
     await POST(
-      makeRequest({ model: 'x', messages: [{ role: 'user', content: 'Q' }] }, AUTH)
+      makeRequest({ model: 'ansari-facilitator', messages: [{ role: 'user', content: 'Q' }] }, AUTH)
     );
 
     expect(mockCreateThread).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'leaderboard', client: null })
     );
+  });
+});
+
+describe('model routing (issue #74)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupSuccessfulMocks();
+  });
+
+  it('unknown model id → 400 model_not_found, facilitator never invoked', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        { model: 'ansari-facilitator-inklng', messages: [{ role: 'user', content: 'Q' }] },
+        AUTH
+      )
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('model_not_found');
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+  });
+
+  it('omitted model → Gemini pipeline, response model is ansari-facilitator', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Q' }] }, AUTH)
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBe('ansari-facilitator');
+    expect(mockRunFacilitator).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      expect.objectContaining({ provider: 'gemini' })
+    );
+  });
+
+  it('ansari-facilitator-inkling → provider inkling threads to the facilitator, model echoed', async () => {
+    process.env.TINKER_API_KEY = 'test-tinker-key';
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        { model: 'ansari-facilitator-inkling', messages: [{ role: 'user', content: 'Q' }] },
+        AUTH
+      )
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBe('ansari-facilitator-inkling');
+    expect(mockRunFacilitator).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      expect.objectContaining({ provider: 'inkling' })
+    );
+  });
+
+  it('ansari-facilitator-inkling without TINKER_API_KEY → 503, facilitator never invoked', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        { model: 'ansari-facilitator-inkling', messages: [{ role: 'user', content: 'Q' }] },
+        AUTH
+      )
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error.code).toBe('inkling_not_configured');
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+  });
+
+  it('ansari-facilitator works with TINKER_API_KEY unset (unaffected)', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'Q' }] },
+        AUTH
+      )
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBe('ansari-facilitator');
   });
 });
 

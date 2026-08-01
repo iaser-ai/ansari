@@ -23,6 +23,7 @@ const sdk = vi.hoisted(() => ({
   primaryModel: 'gemini-primary',
   establishCalls: 0,
   modelsTried: [] as string[],
+  messagesSent: [] as unknown[],
   scripts: [] as Array<(model: string) => AsyncGenerator<unknown>>,
 }));
 
@@ -54,9 +55,10 @@ vi.mock('@google/genai', () => ({
       create: (args: { model: string }) => ({
         // Establishment resolves successfully; the returned iterator is where
         // any mid-stream 429 surfaces (matching Vertex's accept-then-429 behavior).
-        sendMessageStream: async () => {
+        sendMessageStream: async (params?: { message?: unknown }) => {
           sdk.establishCalls += 1;
           sdk.modelsTried.push(args.model);
+          sdk.messagesSent.push(params?.message);
           const script = sdk.scripts.shift();
           if (!script) {
             // Default: a one-chunk success.
@@ -84,6 +86,7 @@ beforeEach(() => {
   sdk.primaryModel = 'gemini-primary';
   sdk.establishCalls = 0;
   sdk.modelsTried = [];
+  sdk.messagesSent = [];
   sdk.scripts = [];
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -325,5 +328,22 @@ describe('continueWithToolResult mid-stream 429 (issue #37)', () => {
 
     expect(delivered).toEqual(['Partial']); // delivered exactly once, no duplicate
     expect(sdk.establishCalls).toBe(1); // locked after first delivery
+  });
+
+  it('sends the explicit continuation directive, never an empty message (issue #73)', async () => {
+    // The empty-string continuation after a functionResponse is the trigger for
+    // flash's thoughts-only STOP-empty completions under load.
+    sdk.scripts = [
+      async function* () {
+        yield textChunk('Continued');
+      },
+    ];
+
+    const { continueWithToolResult } = await import('../lib/ai/gemini-client');
+    await continueWithToolResult('search_quran', { ok: true }, [], {});
+
+    expect(sdk.messagesSent).toEqual([
+      "Answer the user's question using the tool results above.",
+    ]);
   });
 });

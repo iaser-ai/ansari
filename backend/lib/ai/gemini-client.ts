@@ -22,6 +22,7 @@ import {
   type Tool,
 } from '@google/genai';
 import { config } from '../config';
+import { TOOL_CONTINUATION_DIRECTIVE } from './prompts/facilitator';
 
 // Re-export types needed by consumers
 export type { Content, Part, Tool } from '@google/genai';
@@ -233,6 +234,15 @@ export interface GeminiCallOptions {
    * underlying stream is cancelled when the deadline elapses. Omit for default behavior.
    */
   timeoutMs?: number;
+  /**
+   * Optional per-call model override (issue #70). Replaces config.gemini.model as the
+   * PRIMARY model for this call — the retry/fallback plumbing then composes around it
+   * unchanged, so overriding to config.gemini.fallbackModel automatically disables the
+   * 429 fast-failover (fallback === primary for that call). No longer used by the
+   * facilitator's empty-final ladder (#79 escalates to Inkling instead of a second
+   * Vertex pool); kept for future per-call routing. Omit for the configured default.
+   */
+  model?: string;
   /** Streaming callback for text chunks */
   onTextChunk?: (text: string) => void | Promise<void>;
   /** Callback for thinking parts (for logging, not display) */
@@ -361,8 +371,13 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * `operation` receives the model id to target, and wraps request establishment
  * (before any tokens stream), so retrying or falling back never duplicates output.
  */
-async function withRetry<T>(operation: (model: string) => Promise<T>, label: string): Promise<T> {
-  const primary = config.gemini.model;
+async function withRetry<T>(
+  operation: (model: string) => Promise<T>,
+  label: string,
+  // Per-call primary override (issue #70); see GeminiCallOptions.model.
+  primaryOverride?: string
+): Promise<T> {
+  const primary = primaryOverride ?? config.gemini.model;
   const fallback = config.gemini.fallbackModel;
   let lastError: unknown;
 
@@ -434,9 +449,11 @@ async function streamWithRetry(
   startTime: number,
   label: string,
   openStream: (model: string) => ReturnType<Chat['sendMessageStream']>,
-  emit: (event: GeminiStreamEvent) => boolean | Promise<boolean>
+  emit: (event: GeminiStreamEvent) => boolean | Promise<boolean>,
+  // Per-call primary override (issue #70); see GeminiCallOptions.model.
+  primaryOverride?: string
 ): Promise<GeminiResponse> {
-  const primary = config.gemini.model;
+  const primary = primaryOverride ?? config.gemini.model;
   const fallback = config.gemini.fallbackModel;
   // The fallback only buys us anything when it's a DIFFERENT model — it draws on a
   // separate Vertex capacity pool. GEMINI_FALLBACK_MODEL defaults to the same value
@@ -594,7 +611,7 @@ async function streamWithRetry(
     return {
       text: fullText,
       toolCalls,
-      rawPayload: finalContent ?? partsToModelContent(allParts),
+      rawPayload: streamRawPayload(finalContent, allParts),
       hasThinking,
       usage: finalUsage,
       durationMs: Date.now() - startTime,
@@ -712,6 +729,35 @@ function partsToModelContent(parts: Part[]): Content {
 }
 
 /**
+ * Build the rawPayload Content for a streamed response (issue #83).
+ *
+ * `finalContent` is the LAST chunk's candidate.content ("last chunk wins") and is
+ * kept verbatim to preserve thought signatures. But when the model emits a
+ * functionCall in an earlier chunk and then a trailing content/thought chunk,
+ * last-chunk-wins drops the functionCall from the stored payload — the model turn
+ * replayed as history then shows a functionResponse with no preceding functionCall,
+ * corrupting tool-round history for every continuation and retry.
+ *
+ * `allParts` accumulates every part of every chunk in exact arrival order,
+ * INCLUDING the final chunk's parts as its tail (same object references). So when
+ * a functionCall would be dropped, substituting `allParts` as the part list IS the
+ * merge of the dropped part(s) into the final content: arrival order — and with it
+ * thoughtSignature-to-part attachment and ordering — is exactly preserved. When no
+ * functionCall is missing (the common single-chunk case), `finalContent` is
+ * returned unchanged, by identity, so the primary path's signature handling is
+ * untouched.
+ */
+function streamRawPayload(finalContent: Content | undefined, allParts: Part[]): Content {
+  if (!finalContent) return partsToModelContent(allParts);
+  const finalCallCount = (finalContent.parts ?? []).filter((p) => p.functionCall).length;
+  const allCallCount = allParts.filter((p) => p.functionCall).length;
+  // finalContent's parts are a suffix of allParts, so a strictly greater count in
+  // allParts means an earlier chunk's functionCall is absent from finalContent.
+  if (allCallCount <= finalCallCount) return finalContent;
+  return { ...finalContent, parts: allParts };
+}
+
+/**
  * Parse a non-streaming response into GeminiResponse format
  */
 function parseResponse(response: GenerateContentResponse): GeminiResponse {
@@ -770,7 +816,7 @@ export async function callGemini(
       history: options.history ?? [],
     });
     return chat.sendMessage({ message });
-  }, 'callGemini');
+  }, 'callGemini', options.model);
   return parseResponse(response);
 }
 
@@ -815,7 +861,8 @@ export async function callGeminiStreaming(
         });
         return chat.sendMessageStream({ message });
       },
-      emit
+      emit,
+      options.model
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini streaming call');
@@ -891,7 +938,8 @@ export async function* streamGemini(
           queue.push(event);
           notify();
           return true;
-        }
+        },
+        options.model
       );
 
       queue.push({ type: 'done', response });
@@ -1047,10 +1095,13 @@ export async function continueWithToolResult(
           config: buildConfig(options),
           history: [...history, toolResultContent],
         });
-        // Send empty user-text message to continue after the tool result.
-        return chat.sendMessageStream({ message: '' });
+        // Explicit directive, not an empty message, to continue after the tool
+        // result (issue #73): the empty user turn is the trigger for flash's
+        // thoughts-only empty completions under load.
+        return chat.sendMessageStream({ message: TOOL_CONTINUATION_DIRECTIVE });
       },
-      emit
+      emit,
+      options.model
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini tool result call');
