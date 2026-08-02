@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { issueTokenPair, markTokenRotated } from '@/lib/db/users';
+import { issueTokenPair, markTokenRotated, lookupRefreshToken } from '@/lib/db/users';
 import { db } from '@/lib/db/index';
 import { validateRefreshToken, createErrorResponse } from '@/lib/auth/middleware';
 
@@ -34,23 +34,30 @@ export async function POST(request: NextRequest) {
       return createErrorResponse(result.error, 401);
     }
 
-    const { user } = result;
+    // Re-confirm, rotate, and issue the new pair ATOMICALLY (spec 4). The lookup
+    // is repeated INSIDE the transaction so it is serialized against a concurrent
+    // logout/reset that may have revoked the token after the initial validation:
+    //  - if the token was revoked in the meantime, the recheck is `not_found` /
+    //    `reuse` and we DON'T issue;
+    //  - an in-grace rotated token still reads `valid`, so concurrent refreshes
+    //    with the same token both succeed (issue #34);
+    //  - issuance embeds the version read inside the transaction, which the version
+    //    bump on reset/logout still invalidates under any remaining interleaving.
+    const pair = await db.transaction(async (tx) => {
+      const recheck = await lookupRefreshToken(refresh_token, tx);
+      if (recheck.status !== 'valid') return null;
+      await markTokenRotated(refresh_token, tx);
+      return issueTokenPair(recheck.user.id, recheck.user.sessionVersion, tx);
+    });
 
-    // Rotate the old token and issue the new pair ATOMICALLY. Rotation keeps the
-    // old token valid for a short grace window so concurrent refreshes with the
-    // same token still succeed (issue #34); the transaction ensures the mark and
-    // the new-pair insert commit together.
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await db.transaction(
-      async (tx) => {
-        await markTokenRotated(refresh_token, tx);
-        return issueTokenPair(user.id, user.sessionVersion, tx);
-      }
-    );
+    if (!pair) {
+      return createErrorResponse('Invalid or expired refresh token', 401);
+    }
 
     // Return new tokens in Ansari's format
     return NextResponse.json({
-      access_token: newAccessToken,
-      refresh_token: newRefreshToken,
+      access_token: pair.accessToken,
+      refresh_token: pair.refreshToken,
       token_type: 'bearer',
     });
   } catch (error) {

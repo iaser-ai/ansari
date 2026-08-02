@@ -35,6 +35,7 @@ import {
   lookupRefreshToken,
   bumpSessionVersion,
   deleteUserTokens,
+  deleteToken,
   markTokenRotated,
   updateUser,
   REFRESH_TOKEN_GRACE_MS,
@@ -264,6 +265,32 @@ describe('reset/logout-vs-refresh, both orderings', () => {
     const { accessToken } = await issueTokenPair(USER_ID, 0);
     // Rejected: embedded version 0 != current 1.
     expect('error' in (await authenticateRequest(bearer(accessToken)))).toBe(true);
+  });
+});
+
+describe('reset token atomic single-use (real DB)', () => {
+  it('conditional delete consumes the token exactly once (second consume returns false)', async () => {
+    const resetToken = 'one-time-reset';
+    await client.query(
+      `INSERT INTO tokens (user_id, token_type, token_hash, expires_at)
+       VALUES ($1, 'reset', $2, now() + interval '1 hour')`,
+      [USER_ID, hashToken(resetToken)]
+    );
+    // The DELETE ... RETURNING gives the row to exactly one caller.
+    expect(await deleteToken(resetToken)).toBe(true);
+    expect(await deleteToken(resetToken)).toBe(false);
+  });
+});
+
+describe('a stale-version pair is fully rejected (both members)', () => {
+  it('rejects BOTH the access and the refresh token after a version bump', async () => {
+    const { accessToken, refreshToken } = await issueTokenPair(USER_ID, 0);
+    await bumpSessionVersion(USER_ID); // version 0 -> 1
+
+    // Access token: stale version -> rejected.
+    expect('error' in (await authenticateRequest(bearer(accessToken)))).toBe(true);
+    // Refresh token: also stale version -> rejected (not just the access token).
+    expect('error' in (await validateRefreshToken(refreshToken))).toBe(true);
   });
 });
 

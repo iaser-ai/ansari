@@ -302,9 +302,9 @@ export async function lookupRefreshToken(token: string, exec: Executor = db): Pr
   return { status: 'reuse' };
 }
 
-export async function deleteToken(token: string): Promise<boolean> {
+export async function deleteToken(token: string, exec: Executor = db): Promise<boolean> {
   const tokenHash = hashToken(token);
-  const result = await db.delete(tokens).where(eq(tokens.tokenHash, tokenHash)).returning();
+  const result = await exec.delete(tokens).where(eq(tokens.tokenHash, tokenHash)).returning();
   return result.length > 0;
 }
 

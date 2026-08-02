@@ -297,5 +297,16 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   (fix verified), missing-claim=version-0 (legacy token). Updated logout-route.test.ts.
   deleteExpiredTokens retention flip correctly deferred to Phase 9 (both agree). Result:
   **554 passed, 3 skipped**; build green.
+- Phase 7 iter2: Gemini+Claude APPROVE, **Codex REQUEST_CHANGES** — deeper atomicity: (1)
+  refresh validation outside tx; (2) reset-token double-consumption (findToken outside tx →
+  two concurrent resets could both succeed = TOCTOU on one-time token). → Fixes: (1) refresh
+  now RE-CONFIRMS via lookupRefreshToken(tx) INSIDE the transaction — revoked-between-validate-
+  and-mint → not_found → don't issue; in-grace still 'valid' (issue #34 preserved); issues with
+  in-tx-read version. (2) reset now ATOMICALLY CONSUMES the token: deleteToken(reset_token, tx)
+  first, abort(400) if false — DELETE..RETURNING gives the row to exactly one concurrent caller.
+  Added exec to deleteToken. Tests: refresh concurrent-revoke (recheck not_found → 401 no issue);
+  reset double-consume (deleteToken false → 400, no pw change); real-DB reset-token single-use
+  (deleteToken true then false); stale pair rejects BOTH access AND refresh. Result: **558
+  passed, 3 skipped**; build green.
 
 

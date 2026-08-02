@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyToken } from '@/lib/auth/jwt';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { findToken, updateUser, deleteUserTokens, bumpSessionVersion } from '@/lib/db/users';
+import { findToken, updateUser, deleteUserTokens, bumpSessionVersion, deleteToken } from '@/lib/db/users';
 import { db } from '@/lib/db/index';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { config } from '@/lib/config';
@@ -52,16 +52,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash new password and apply the reset ATOMICALLY (spec 4): set the new
-    // password, bump session_version (invalidates every previously-issued token
-    // via the version check), and delete all existing tokens — all in one
-    // transaction so a refresh racing the reset cannot leave a valid session.
+    // Apply the reset ATOMICALLY (spec 4), all in one transaction:
+    //  1. CONSUME the one-time reset token via a conditional delete. Only one of
+    //     two concurrent requests wins this delete (the row lock serializes them),
+    //     so the same reset token can never drive two password changes.
+    //  2. Set the new password.
+    //  3. Bump session_version — invalidates every previously-issued token via the
+    //     version check, so a refresh racing this reset cannot leave a valid session.
+    //  4. Delete all remaining tokens (revoke current sessions).
     const passwordHash = await hashPassword(new_password);
-    await db.transaction(async (tx) => {
+    const applied = await db.transaction(async (tx) => {
+      const consumed = await deleteToken(reset_token, tx);
+      if (!consumed) return false; // already used by a concurrent request
       await updateUser(tokenResult.user.id, { passwordHash }, tx);
       await bumpSessionVersion(tokenResult.user.id, tx);
       await deleteUserTokens(tokenResult.user.id, undefined, tx);
+      return true;
     });
+
+    if (!applied) {
+      return createErrorResponse('Invalid or expired reset token', 400);
+    }
 
     return NextResponse.json({ status: 'success' });
   } catch (error) {

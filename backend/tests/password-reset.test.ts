@@ -9,6 +9,7 @@ const mockFindToken = vi.fn();
 const mockUpdateUser = vi.fn();
 
 const mockBumpSessionVersion = vi.fn();
+const mockDeleteToken = vi.fn();
 vi.mock('@/lib/db/users', () => ({
   findUserByEmail: (...args: unknown[]) => mockFindUserByEmail(...args),
   storeToken: (...args: unknown[]) => mockStoreToken(...args),
@@ -16,6 +17,7 @@ vi.mock('@/lib/db/users', () => ({
   findToken: (...args: unknown[]) => mockFindToken(...args),
   updateUser: (...args: unknown[]) => mockUpdateUser(...args),
   bumpSessionVersion: (...args: unknown[]) => mockBumpSessionVersion(...args),
+  deleteToken: (...args: unknown[]) => mockDeleteToken(...args),
 }));
 
 // reset_password applies the reset in a db.transaction; run the callback with a
@@ -101,6 +103,7 @@ beforeEach(() => {
   mockSendPasswordResetEmail.mockResolvedValue({ success: true });
   mockStoreToken.mockResolvedValue({ id: 'token-1' });
   mockDeleteUserTokens.mockResolvedValue(1);
+  mockDeleteToken.mockResolvedValue(true); // reset token consumed by default
 });
 
 describe('POST /api/v2/request_password_reset', () => {
@@ -395,5 +398,23 @@ describe('POST /api/v2/reset_password', () => {
     // (now inside the reset transaction, so it receives the tx executor).
     expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123', undefined, expect.anything());
     expect(mockDeleteUserTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it('atomically consumes the reset token: a lost concurrent race is a 400 with no password change', async () => {
+    mockVerifyToken.mockReturnValue({ user_id: 'user-123', type: 'reset' });
+    mockFindToken.mockResolvedValue({ ...testUser, user: testUser, tokenType: 'reset', tokenHash: 'hash' });
+    mockCheckPasswordStrength.mockReturnValue({ valid: true, score: 4, suggestions: [] });
+    mockHashPassword.mockResolvedValue('$2b$12$newhash');
+    // The conditional consume finds the token already deleted by a concurrent request.
+    mockDeleteToken.mockResolvedValue(false);
+
+    const request = makePostRequest({ reset_token: 'valid-jwt', new_password: 'NewStr0ngP@ss!' });
+    const response = await resetPassword(request);
+
+    expect(response.status).toBe(400);
+    // The password is NOT changed and no tokens are revoked when the token is spent.
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(mockBumpSessionVersion).not.toHaveBeenCalled();
+    expect(mockDeleteUserTokens).not.toHaveBeenCalled();
   });
 });

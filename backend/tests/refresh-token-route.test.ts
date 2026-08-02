@@ -8,11 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 const mockIssueTokenPair = vi.fn();
 const mockMarkTokenRotated = vi.fn();
 const mockDeleteToken = vi.fn();
+const mockLookupRefreshToken = vi.fn();
 
 vi.mock('@/lib/db/users', () => ({
   issueTokenPair: (...args: unknown[]) => mockIssueTokenPair(...args),
   markTokenRotated: (...args: unknown[]) => mockMarkTokenRotated(...args),
   deleteToken: (...args: unknown[]) => mockDeleteToken(...args),
+  lookupRefreshToken: (...args: unknown[]) => mockLookupRefreshToken(...args),
 }));
 
 const mockGenerateToken = vi.fn();
@@ -65,6 +67,7 @@ function makeRefreshRequest(refreshToken: string): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockValidateRefreshToken.mockResolvedValue({ user: testUser });
+  mockLookupRefreshToken.mockResolvedValue({ status: 'valid', user: testUser });
   mockIssueTokenPair.mockResolvedValue({
     accessToken: 'new-access-token',
     refreshToken: 'new-refresh-token',
@@ -100,6 +103,15 @@ describe('POST /api/v2/users/refresh_token (issue #34)', () => {
   it('rejects a detected refresh-token reuse with a generic 401', async () => {
     mockValidateRefreshToken.mockResolvedValueOnce({ reuse: true });
     const res = await refresh(makeRefreshRequest('spent-rt'));
+    expect(res.status).toBe(401);
+    expect(mockIssueTokenPair).not.toHaveBeenCalled();
+  });
+
+  it('does NOT issue when the token was revoked between validation and the transaction', async () => {
+    // Initial validation passed, but the in-transaction recheck finds it gone
+    // (a concurrent logout/reset deleted it).
+    mockLookupRefreshToken.mockResolvedValueOnce({ status: 'not_found' });
+    const res = await refresh(makeRefreshRequest('rt'));
     expect(res.status).toBe(401);
     expect(mockIssueTokenPair).not.toHaveBeenCalled();
   });
