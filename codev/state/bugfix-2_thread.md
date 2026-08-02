@@ -79,6 +79,20 @@ Net diff: lib +255/-59 (much of it doc comments in the resilience rewrite), test
 to the facilitator/tool pipeline; no architectural changes; within BUGFIX scope for a pre-authorized
 4-bug batch.
 
+## BLOCKED (2026-08-02) — porch fix-phase checks misconfigured for this monorepo
+
+`porch check bugfix-2` fails on `build` (and would fail `tests`) because porch runs `npm run
+build` / `npm test` from the **worktree root**, but this is a monorepo — `package.json` is in
+`backend/`. `build` also needs the dummy CI env in `backend/.env.ci`. My code is verified green
+from `backend/` (typecheck 0, test 486 passed / 3 pre-existing skips, build 0 with .env.ci).
+
+Proper fix is a `porch.checks` override in `.codev/config.json`, but that file is a **symlink to
+the main checkout** (`/Users/mwk/Development/iaser/ansari/.codev/config.json`) — shared per-user
+config, outside this worktree; the write-guard blocks it and a builder must not pollute the main
+tree. Escalated to the architect with the exact override (drafted in scratchpad
+`porch-checks-override.json`). Waiting on: architect to apply the override to the shared config
+(or advise). This blocks advancing out of the fix phase; the fix itself is done and committed.
+
 ## Constraints honored
 No streaming wire-format changes (heartbeats/ZWSP/SSE shapes). No facilitator prompt changes.
 Every fix gets a regression test. Full suite: `npm run typecheck && npm test && npm run build`.
