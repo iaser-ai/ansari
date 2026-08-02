@@ -340,6 +340,62 @@ describe('empty final completion (issue #60)', () => {
   });
 });
 
+describe('user question survives a first-call retry into history (issue #2)', () => {
+  // Regression for the `iterations === 1` history guard: a degenerate FIRST call is retried at
+  // iterations === 2 (the retry does `continue` after `iterations++`). If that retry then
+  // requests a tool, the old guard (`iterations === 1`) was already false, so the user's
+  // question was never pushed into geminiHistory — every continuation asked the model to answer
+  // a question it had never seen. The guard is now `!userMessageInHistory`.
+  function historyTexts(history: unknown): string[] {
+    if (!Array.isArray(history)) return [];
+    const texts: string[] = [];
+    for (const content of history as Array<{ role?: string; parts?: Array<{ text?: string }> }>) {
+      if (content.role !== 'user') continue;
+      for (const part of content.parts ?? []) {
+        if (typeof part.text === 'string') texts.push(part.text);
+      }
+    }
+    return texts;
+  }
+
+  it('empty first call → tool retry: the continuation history contains the user query', async () => {
+    // [empty first call] → [tool round at iterations===2] → [final answer]. The old bug dropped
+    // the user query from the history sent on the continuation call.
+    h.scripts = [emptyRound('STOP'), toolRound(['search_quran']), textRound('Sabr means patience.')];
+
+    const events = await collect(
+      runFacilitator([userMessage('What is sabr?')]) as AsyncGenerator<Event>
+    );
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(3); // empty + tool round + continuation
+    expect(types).toContain('tool_result');
+    expect(types).toContain('done');
+    expect(types).not.toContain('error');
+
+    // The continuation call (after the tool round) MUST carry the user's question in history.
+    const continuationHistory = h.calls[2].options.history;
+    expect(historyTexts(continuationHistory)).toContain('What is sabr?');
+    // And it must appear exactly once — not duplicated by a double push.
+    expect(historyTexts(continuationHistory).filter((t) => t === 'What is sabr?')).toHaveLength(1);
+
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe(
+      'Sabr means patience.'
+    );
+  });
+
+  it('the normal first-call tool round still records the user query exactly once', async () => {
+    // Guards against a double-push regression on the healthy path (no leading empty round).
+    h.scripts = [toolRound(['search_quran']), textRound('Answer.')];
+
+    await collect(runFacilitator([userMessage('What is zakat?')]) as AsyncGenerator<Event>);
+
+    expect(h.calls).toHaveLength(2);
+    const continuationHistory = h.calls[1].options.history;
+    expect(historyTexts(continuationHistory).filter((t) => t === 'What is zakat?')).toHaveLength(1);
+  });
+});
+
 describe('degenerate fragment final completion (issue #66)', () => {
   it('STOP + lone "}" → retried once and the retry answer is delivered', async () => {
     const Sentry = await import('@sentry/nextjs');

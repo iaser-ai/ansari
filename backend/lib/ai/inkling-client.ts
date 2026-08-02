@@ -249,8 +249,28 @@ interface InklingStreamChunk {
   } | null;
 }
 
-/** Yield the payload of each `data:` SSE line; stops at [DONE]. */
-async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+/** Extract the payload of a single SSE line, or null if it is not a `data:` line. */
+function ssePayload(line: string): string | null {
+  const trimmed = line.replace(/\r$/, '');
+  if (!trimmed.startsWith('data:')) return null;
+  const payload = trimmed.slice(5).trim();
+  return payload || null;
+}
+
+/**
+ * Yield the payload of each `data:` SSE line; stops at [DONE]. Sets `marker.sawDone` true iff
+ * the terminal `[DONE]` marker was seen, so the caller can distinguish a server-declared
+ * completion from a mid-stream connection cut (issue #2).
+ *
+ * On EOF, any final line NOT terminated by a newline is still processed — an OpenAI-compat
+ * server can send its last `data:` chunk (which may carry the finish_reason or `[DONE]`)
+ * without a trailing newline, and dropping it would both lose that chunk and misreport an
+ * otherwise-complete stream as truncated.
+ */
+async function* sseData(
+  body: ReadableStream<Uint8Array>,
+  marker: { sawDone: boolean },
+): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffered = '';
@@ -261,13 +281,25 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
       buffered += decoder.decode(value, { stream: true });
       let newline: number;
       while ((newline = buffered.indexOf('\n')) !== -1) {
-        const line = buffered.slice(0, newline).replace(/\r$/, '');
+        const line = buffered.slice(0, newline);
         buffered = buffered.slice(newline + 1);
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return;
+        const payload = ssePayload(line);
+        if (payload === '[DONE]') {
+          marker.sawDone = true;
+          return;
+        }
         if (payload) yield payload;
       }
+    }
+    // Flush a trailing line with no terminating newline (issue #2).
+    buffered += decoder.decode();
+    if (buffered.length > 0) {
+      const payload = ssePayload(buffered);
+      if (payload === '[DONE]') {
+        marker.sawDone = true;
+        return;
+      }
+      if (payload) yield payload;
     }
   } finally {
     reader.releaseLock();
@@ -328,7 +360,12 @@ export async function* streamInkling(
     // Streamed tool calls arrive as fragments keyed by index; arguments concatenate.
     const partialToolCalls = new Map<number, { name: string; args: string }>();
 
-    for await (const payload of sseData(res.body)) {
+    // Distinguish a server-declared completion from a mid-stream connection cut (issue #2):
+    // a legitimate stream ends with the `[DONE]` marker (sets marker.sawDone) and/or a
+    // finish_reason. A raw EOF after partial text yields neither.
+    const marker = { sawDone: false };
+
+    for await (const payload of sseData(res.body, marker)) {
       let chunk: InklingStreamChunk;
       try {
         chunk = JSON.parse(payload) as InklingStreamChunk;
@@ -357,6 +394,17 @@ export async function* streamInkling(
           totalTokenCount: chunk.usage.total_tokens ?? 0,
         };
       }
+    }
+
+    // The stream must PROVE it completed (issue #2): the terminal `[DONE]` marker or a
+    // finish_reason. Neither means the HTTP body ended mid-answer — a connection cut after
+    // partial text. The Gemini path detects truncation explicitly; this last rung, which has
+    // nothing to fail over to, must too — surfacing a distinct truncation error rather than
+    // shipping an incomplete answer marked complete.
+    if (!marker.sawDone && finishReason === undefined) {
+      throw new Error(
+        `[inkling] stream ended before completion ([DONE] or finish_reason) — truncated after ${text.length} chars`,
+      );
     }
 
     const toolCalls: GeminiToolCall[] = [];

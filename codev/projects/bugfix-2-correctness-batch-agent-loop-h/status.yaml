@@ -1,0 +1,17 @@
+id: bugfix-2
+title: correctness-batch-agent-loop-h
+protocol: bugfix
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-08-02T05:03:39.468Z'
+    approved_at: '2026-08-02T06:21:55.611Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-02T04:38:53.884Z'
+updated_at: '2026-08-02T06:21:55.611Z'
+pr_ready_for_human: false

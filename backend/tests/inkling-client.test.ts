@@ -55,6 +55,20 @@ function sseResponse(chunks: object[]): Response {
   });
 }
 
+/** Build a 200 SSE Response from a RAW body string — no auto-appended `[DONE]` (issue #2). */
+function rawSseResponse(body: string): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
 function delta(d: object, finish?: string): object {
   return { choices: [{ delta: d, finish_reason: finish ?? null }] };
 }
@@ -429,5 +443,60 @@ describe('streamInkling', () => {
     );
 
     await expect(collect(streamInkling('q'))).rejects.toThrow(/malformed JSON arguments/);
+  });
+
+  describe('truncated-stream detection (issue #2)', () => {
+    // The last rung must not ship an incomplete answer marked complete. A legitimate stream
+    // ends with the `[DONE]` marker AND/OR a finish_reason; a raw connection cut yields neither.
+
+    it('EOF after partial content with no finish_reason and no [DONE] → truncation error', async () => {
+      // Body ends mid-answer: content deltas, then the connection drops. No terminal proof.
+      fetchMock.mockResolvedValue(
+        rawSseResponse(
+          `data: ${JSON.stringify(delta({ content: 'Patience is ' }))}\n\n` +
+            `data: ${JSON.stringify(delta({ content: 'a vir' }))}\n\n`
+        )
+      );
+
+      await expect(collect(streamInkling('q'))).rejects.toThrow(/truncated/i);
+    });
+
+    it('a finish_reason WITHOUT a trailing [DONE] is accepted as complete (the "or" branch)', async () => {
+      // Some OpenAI-compat servers close the body right after the finish_reason chunk, never
+      // emitting `[DONE]`. The finish_reason itself proves completion — this must NOT truncate.
+      fetchMock.mockResolvedValue(
+        rawSseResponse(
+          `data: ${JSON.stringify(delta({ content: 'Complete answer.' }, 'stop'))}\n\n`
+        )
+      );
+
+      const events = await collect(streamInkling('q'));
+      const response = doneOf(events);
+      expect(response.text).toBe('Complete answer.');
+      expect(response.finishReason).toBe('STOP');
+    });
+
+    it('parses a final data line with NO trailing newline (finish_reason not lost)', async () => {
+      // The last chunk carries the finish_reason but the body ends without the terminating
+      // "\n\n". The buffered-line flush must still parse it, so the stream is proven complete
+      // (not falsely truncated) and its content is delivered.
+      fetchMock.mockResolvedValue(
+        rawSseResponse(`data: ${JSON.stringify(delta({ content: 'No trailing newline.' }, 'stop'))}`)
+      );
+
+      const events = await collect(streamInkling('q'));
+      const texts = events.filter((e) => e.type === 'text').map((e) => e.data);
+      expect(texts.join('')).toBe('No trailing newline.');
+      expect(doneOf(events).finishReason).toBe('STOP');
+    });
+
+    it('a proper [DONE] terminator with no finish_reason is accepted (not truncated)', async () => {
+      // The server declared the stream complete via [DONE] even though no finish_reason chunk
+      // arrived — a valid completion. sseResponse appends the [DONE] marker.
+      fetchMock.mockResolvedValue(sseResponse([delta({ content: 'Answer.' })]));
+
+      const events = await collect(streamInkling('q'));
+      expect(doneOf(events).text).toBe('Answer.');
+    });
   });
 });
