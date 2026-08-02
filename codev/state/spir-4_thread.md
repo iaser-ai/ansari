@@ -310,3 +310,14 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   passed, 3 skipped**; build green.
 
 
+- Phase 7 iter3: unanimous APPROVE. Committed (4f39024).
+
+## 2026-08-02 - Implement Phase 8 (feedback IDOR + oracle uniformity)
+- threads.ts: findMessageInOwnedThread(messageId, threadId, userId) - single owner-scoped
+  join (messages join threads WHERE threads.user_id = userId). Returns undefined for
+  nonexistent / foreign-owned / mismatched alike.
+- feedback route: uses it -> uniform 404 'Message not found' for all failure modes (no oracle).
+- Tests: feedback.test.ts (mock swap + owner-scoped call assertion + cross-user 404 no-create
+  + oracle-uniformity: nonexistent/foreign/mismatched all identical 404 body). feedback-idor.test.ts
+  (pglite, REAL join: owner resolves; other user undefined; nonexistent/wrong-thread undefined).
+  Result: typecheck clean; 565 passed, 3 skipped; build green.
