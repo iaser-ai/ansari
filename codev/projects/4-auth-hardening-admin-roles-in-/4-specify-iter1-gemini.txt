@@ -1,0 +1,44 @@
+# Specification Review: Auth Hardening (Spec #4)
+
+## Executive Assessment
+
+The specification for **Auth Hardening — Durable Admin Roles, System-Account Reservation, Session-Revocation & Config-Validation Fixes** is extremely thorough, well-reasoned, and ready to move forward. It precisely targets the seven security findings from Issue #4, clearly separates concerns (WHAT/WHY in spec vs. HOW in plan), honors all baked decisions and constraints, and strictly adheres to the canonical `codev` SPIR template.
+
+---
+
+## Detailed Evaluation
+
+### 1. Structure & Template Adherence
+- **Canonical Headings**: The document incorporates all 20 required headings in the exact canonical order specified by the SPIR spec template (`## Metadata` through `## Notes`).
+- **Scope Boundary**: Clearly defines in-scope and out-of-scope items (e.g., explicitly deferring rate-limiting, spend caps, CORS, and disconnect cancellation).
+
+### 2. Completeness & Clarity
+- **Problem & Current State**: Accurately describes existing vulnerabilities (email-based admin check, hijackable system accounts, persistent refresh tokens on logout, feedback IDOR, non-atomic token rotation, unvalidated config bypasses, weak password rules).
+- **Desired State & Success Criteria**: All 7 vulnerability fixes map directly to verifiable, testable acceptance criteria.
+- **Test Scenarios**: Thoroughly covers functional tests and critical non-functional/concurrency tests (e.g., reset-vs-refresh race conditions, rotated-token reuse, password score boundaries).
+
+### 3. Correctness & Feasibility
+- **Durable Identity**: Shifting admin status and system account identification from mutable email strings to database-backed attributes (`is_admin`, system marker/column) solves the core authorization defects reliably.
+- **Session Control & Token Atomicity**: Combining transactional token rotation with a per-user credential/session version ensures password resets reliably terminate sessions without breaking concurrent refresh semantics (Issue #34).
+- **Database & Config Constraints**: Respects the project's migration rule (`drizzle-kit generate` → review SQL → human-applied deploy) and consolidates environment parsing through `lib/config.ts` and `issueTokenPair`.
+
+### 4. Considerations & Recommendations for Plan Phase
+While the spec is complete and ready for approval, the following operational nuances should be explicitly addressed during the **Plan** phase:
+
+1. **System User Backfill Migration**:
+   - Ensure the database migration script includes an explicit SQL backfill query marking existing `ai-skill@system.ansari.chat` and `leaderboard@system.ansari.chat` user rows with the new system marker.
+2. **Dev/Test Environment Assertions**:
+   - As noted in Open Questions, ensure the startup admin-existence assertion gracefully handles local development/CI environments where `ADMIN_EMAILS` may be unset or set to local placeholders without pre-existing DB rows.
+3. **Rotated Token Reuse Logging**:
+   - When a rotated token is reused, ensure the security event is logged for auditing while adhering to project privacy rules (no user message content or unhashed tokens in logs).
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Exceptionally thorough and well-structured spec that accurately addresses all seven security vulnerabilities while strictly honoring project constraints and template rules.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

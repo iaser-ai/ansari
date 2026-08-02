@@ -1,0 +1,48 @@
+I'll verify the spec's claims against the actual codebase before assessing.I read the actual backend source to verify each claim rather than trusting the spec's self-report. The spec's current-state map is accurate on nearly every point (`lib/auth/admin.ts:10`, `db/schema/users.ts` has no role/version column, six `process.env.JWT_SECRET!` sites confirmed, `src/app/api/v2/feedback/route.ts:45` scopes message-in-thread but not thread-in-user, `drizzle/` is at `0002`). Structure follows the template exactly. Below are the issues I found by cross-checking against code.
+
+## Blocking issues
+
+**1. Logout: the "submitted refresh token" doesn't exist in the request.** `src/app/api/v2/users/logout/route.ts` reads only the `Authorization` header and has no body parsing. The `tokens` table (`db/schema/tokens.ts`) has no session/device grouping — no way to identify *which* refresh token pairs with a given access token. So the two options the spec treats as interchangeable ("revokes the submitted refresh token at minimum (full `deleteUserTokens(user.id)` is acceptable)") are very different:
+- Body param `refresh_token` → **breaking API contract change** for web/iOS/Android clients; unmigrated clients get a silent no-op and Success Criterion "after logout the refresh token is rejected" fails in production while passing in tests.
+- `deleteUserTokens(user.id)` → **logs the user out on every device**, a user-visible regression.
+
+Pick one and state the client-migration implication. As written the criterion is not achievable without an undeclared decision.
+
+**2. Two success criteria contradict each other: reuse detection vs. the expired-token sweep.** `deleteExpiredTokens` (`lib/db/users.ts:146-161`) already deletes rotated refresh tokens once the grace window closes. Wiring it up (item 7) destroys exactly the rows needed to detect rotated-token reuse (item 5). Even without the sweep, `findToken` (line 102) returns `undefined` for a post-grace rotated token — indistinguishable from an unknown/forged token, so "detection" is impossible without a retention change. The spec needs to state that reuse detection requires retaining rotated rows past grace (a `revoked`/tombstone state or a retention floor in the sweep predicate) and reconcile the two items.
+
+**3. The migration backfill can promote an attacker's account to system status.** Open Questions says "mark existing `ai-skill@`/`leaderboard@` system rows with the new marker." But the whole premise of defect #2 is that those rows *may already be attacker-registered*. A blind backfill would hand an attacker with a working password a permanently-marked system account plus all previously-logged threads. The backfill must verify legitimacy (e.g. `password_hash = 'nologin'` AND `source IN ('ai-skill','leaderboard')`) and the deploy runbook must include an inspect-before-apply step. Add this as a success criterion, not a nice-to-know.
+
+**4. A single `source = 'system'` marker cannot disambiguate two system identities.** There are two: `ai-skill@system.ansari.chat` (`src/app/api/v2/mcp-complete/route.ts:11`) and `leaderboard@system.ansari.chat` (`src/app/api/v1/chat/completions/route.ts:37`). Lookup "by marker" needs marker **plus** a key. Desired State #2 as written is under-determined; the Open Question on "marker shape" should be resolved to something like `system_key` ('ai-skill' | 'leaderboard') with a unique index, or a boolean flag + retained email lookup scoped to `is_system = true`.
+
+**5. Admin bootstrap has no path.** Criterion 2 (reject registration of configured admin addresses) + Criterion 3 (fail fast at boot unless every configured admin account exists) leaves no documented way to create the first admin: registration is blocked, and there's no admin-provisioning endpoint or script. Assumptions says "provisioned out-of-band by an operator with DB access" but never says how a bcrypt hash gets there. Specify the procedure (a `scripts/grant-admin.ts`, or a documented register-then-allowlist-then-flag ordering) — otherwise a fresh deploy is unbootable and CI with `.env.ci` may hard-fail.
+
+## Non-blocking, worth incorporating
+
+**6. Open Question on session-version scope has a free answer.** `authenticateRequest` (`lib/auth/middleware.ts`) already calls `findToken`, which does an `innerJoin` on `users` and returns the full user row. Checking a `session_version` on the access path costs **zero additional queries** — just add the predicate to the existing join. The spec's proposed default ("check on refresh/issue at minimum") would leave an access token minted seconds before a reset valid for up to 2 hours, i.e. the criterion unmet. Resolve this to "check everywhere" and drop the perf risk row.
+
+**7. Minor factual overstatement.** Problem Statement #1 and Current State say `email` is "user-mutable via `updateUser`". Verified: `updateUser` is called from exactly one place — `reset_password/route.ts:55`, with `{ passwordHash }` only. **There is no email-change endpoint.** The self-registration vector is real; the email-mutation vector is not live today. Correct the wording (the durable-flag fix is still right, as defense-in-depth against a future email-change endpoint) so the plan doesn't chase a phantom.
+
+**8. Startup assertion has no natural hook in Next.js App Router.** `src/instrumentation.ts` exists (Sentry only) and its `register()` is the right place, but note it runs per server instance and only when `NEXT_RUNTIME === 'nodejs'`. A DB query there couples boot success to DB reachability — call out the availability trade-off, and gate the assertion on `NODE_ENV === 'production'` (already hinted in the risk table, but make it a stated requirement).
+
+**9. Email normalization is already handled** — `createUser` (line 34) and `updateUser` (line 54) both lowercase, `findUserByEmail` (line 14) lowercases the lookup. Just state that the reserved-address/domain check must run against the normalized value so it isn't re-derived incorrectly.
+
+**10. Test Scenario 8 will fight the config cache.** `getEnv()` memoizes into `cachedEnv`, and many existing tests set `process.env.JWT_SECRET` in `beforeAll`. Testing "short secret is rejected" needs a cache reset export or module re-import per test — flag it so the plan budgets for it.
+
+## What's good
+
+Ordering (admin authz first, config/token consolidation as a shared foundation) is right. The out-of-scope list is unusually disciplined and worth enforcing at review. Approach 3 (full RBAC) is correctly rejected. The `issueTokenPair` consolidation is well-motivated — I confirmed four near-identical generate-and-store blocks across `register`, `login`, `refresh_token`, and `request_password_reset`.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Well-grounded, template-compliant spec, but two success criteria contradict each other (reuse detection vs. token sweep), the logout criterion is unachievable without an undeclared API-contract decision, and the system-account backfill as described could promote an already-hijacked account.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Logout: no refresh token is submitted today (`logout/route.ts` reads only the auth header, no body); the two offered options differ by breaking-client-change vs. all-device logout. Must be decided in the spec.
+- Contradiction: `deleteExpiredTokens` (`lib/db/users.ts:146-161`) deletes post-grace rotated tokens, destroying the rows that rotated-token-reuse detection requires. Needs a retention/tombstone decision.
+- Migration backfill must verify system rows are legitimate (`password_hash = 'nologin'`) before marking them, or it grants an attacker permanent system status.
+- A single `source = 'system'` marker cannot disambiguate the two system identities (`ai-skill`, `leaderboard`); needs a system key + unique index.
+- No documented path to create the first admin account: registration is blocked for admin addresses and startup hard-fails if none exists.
+- Session-version scope should be resolved to "check on the access path" — `authenticateRequest` already joins `users`, so the check is free; the proposed default leaves the reset-kills-sessions criterion unmet for up to 2 hours.
+- Factual correction: `updateUser` is reachable only from `reset_password` with `passwordHash`; there is no email-change endpoint, so the email-mutation vector described is not live today.

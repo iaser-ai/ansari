@@ -1,0 +1,26 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Auth hardening is well implemented, but the branch and lifecycle documents must be finalized against the current base before integration.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- The branch is 11 commits behind `origin/develop`. Update it and rerun the current base’s full checks; `develop` has changed its Node/tooling and CI requirements since this branch diverged.
+- The spec and plan still have `Status: draft`, with implementation and acceptance checklists unchecked, despite the review claiming completion.
+- The working tree contains several untracked Codev review/context artifacts. Commit intended artifacts explicitly or remove them before handoff.
+- The review’s “Flaky Tests” section says two tests are skipped, while the repository contains three skipped `mcp-complete` tests.
+- Independent verification: `npm run typecheck` passed. `npm test` could not run in this read-only review sandbox because Vitest was denied permission to create its temporary SSR directory; this was an environment failure, not a test failure.
+
+PR_SUMMARY: |
+  ## Summary
+  Hardens authentication and authorization by moving admin and system-account trust into durable database fields, strengthening session revocation and token rotation, and closing the feedback IDOR. It also centralizes validated authentication configuration and adds smaller password, logging, API-key comparison, and token-retention safeguards.
+
+  ## Key Changes
+  - Added durable admin, system-account, and session-version fields with a reviewed migration and deployment runbook.
+  - Made logout, password reset, and refresh rotation transactional and version-aware.
+  - Owner-scoped feedback targets and reserved privileged addresses.
+  - Added extensive unit, route, and pglite integration coverage.
+
+  ## Test Plan
+  - Update the branch from `develop`.
+  - Run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` from `backend/`.
+  - Apply the migration in a disposable database and exercise admin bootstrap, system-account provisioning, logout/refresh revocation, password reset, and cross-user feedback rejection.

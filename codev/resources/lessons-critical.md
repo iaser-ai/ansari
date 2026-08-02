@@ -10,8 +10,8 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - Check for existing work (PRs, git history) before building from scratch.
 - "It compiled" / "tests pass" is not "it works" — verify the real user path before calling it done.
 - When stuck (2 failed hypotheses or ~30 min), get an outside perspective instead of guessing.
-- <Add your project's hard-won, cross-cutting lessons; keep <=10, one line each.>
+- Test transactional/atomic behavior against a real DB (pglite), not mocks — a helper that ignores its `tx` executor passes every mocked test but commits nothing atomically.
+- Never log a raw driver/DB error object — it can embed user content (email, query params, password hash). Log only `{name, code}`.
 
 ## Map of lessons-learned.md (consult when…)
-- <Top-level section> — consult when <situation>.
-- <List your lessons-learned.md's top-level sections here; keep <=12, top-level only.>
+- Auth hardening (spec 4) — consult when working on sessions/tokens, revocation races, anti-oracle responses, or drizzle/pg error handling.

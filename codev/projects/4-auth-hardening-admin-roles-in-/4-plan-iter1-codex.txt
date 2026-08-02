@@ -1,0 +1,13 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong spec coverage and sequencing, but several security-critical implementation mechanics remain contradictory or underspecified.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Phase 2 contradicts itself by directing `request_password_reset` to call `issueTokenPair`, while the actual route issues only a reset token. Explicitly exclude it from pair issuance and only migrate its secret access to `config.auth`.
+- Phase 7 does not explain how transaction-scoped helpers receive the Drizzle transaction client. `issueTokenPair`, token validation/rotation, reset updates, and token deletion currently use the global `db`; they must accept a transaction executor or atomicity will be illusory.
+- The reset/refresh race requires tokens to carry the session version captured when the refresh was authorized. If `issueTokenPair(userId)` re-fetches the user after reset increments the version, a pre-reset refresh can mint version-current tokens that survive reset. Specify passing the validated version into transactional issuance and compare claims for equality, with missing claims treated as version 0.
+- The admin bootstrap is not executable as described. `createUser` requires a password hash, and “create-or-flag—or document register-then-flag” conflicts with reserved registration and the claim that the script is the sole bootstrap path. Define concrete create credentials/password handling, exact `tsx`/package command, idempotency, and tests.
+- System provisioning does not define what email is inserted when the canonical system email is already occupied. Lookup by `system_key` prevents attribution to the attacker but does not prevent the unique-email insert from failing. Specify a deterministic safe alternate identity or make manual remediation a hard deployment precondition.
+- Phase 6 incorrectly calls unauthenticated logout success/no-op the “existing” behavior; the current route returns 401 when no bearer token exists. Define and test the intended no-token and invalid-token wire contract rather than silently changing it.
+- The two remaining design choices are still deferred into implementation. Select the spec defaults—opportunistic natural-expiry sweep and reject-plus-log reuse—or identify the required operator decision as a pre-implementation gate, including the precise sweep hook and failure behavior.

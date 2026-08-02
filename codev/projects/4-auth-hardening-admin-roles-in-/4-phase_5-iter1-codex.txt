@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core system-key reservation works, but provisioning incorrectly treats every database insert failure as an occupied system email.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `backend/lib/db/users.ts:65` catches all insert errors, discards the original failure, and reports a hijacked-email conflict whenever the subsequent key lookup is empty. Database outages, permission errors, or schema failures would therefore produce misleading remediation guidance. Only handle PostgreSQL unique violations (`23505`), re-read for a `system_key` race, report the occupied-email case, and rethrow all unrelated errors unchanged. Add a regression test for a non-unique insert failure.
+- The endpoint tests mock `getOrCreateSystemUser` but never assert that MCP passes `'ai-skill'` and the leaderboard route passes `'leaderboard'`. Those assertions would protect the phase’s critical endpoint-to-identity mapping.

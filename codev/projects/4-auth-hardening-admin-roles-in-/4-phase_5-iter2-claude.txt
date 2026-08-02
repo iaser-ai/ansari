@@ -1,0 +1,40 @@
+I'll review Phase 5 (system-account reservation via `system_key`) by reading the actual implementation files.I read the Phase 5 implementation and tests from disk, ran the phase-5 test files, and then `npm run typecheck` + the full suite (56 files / 530 tests, all green).
+
+## What I verified
+
+**Deliverable 1 — `findSystemUser` / `getOrCreateSystemUser` (`lib/db/users.ts:32-95`)**: lookup is `eq(users.systemKey, systemKey)` — never email. Provisioning inserts `system_key`, `password_hash='nologin'`, `source=systemKey`, and the canonical `@system.ansari.chat` email. I checked the pre-change code (`git show 1554ed0~1`) — the old rows used `source: 'ai-skill'` / `'leaderboard'`, so the Phase 3 backfill predicate matches reality.
+
+**Deliverable 2 — hijack fail-fast**: `isUniqueViolation` (SQLSTATE 23505, walks `.cause` because drizzle wraps the driver error) gates the recovery path. Non-23505 errors re-throw unchanged — this is the right call and is explicitly tested (`system-user.test.ts:93-117`, including a negative assertion that the failure is *not* masked as the occupied-email message). Race path re-reads by key; occupied-email path throws an operator-actionable error. No loop, as the plan required.
+
+**Deliverable 3 — routes**: both `v2/mcp-complete/route.ts:25` and `v1/chat/completions/route.ts:~126` now call `getOrCreateSystemUser('ai-skill' | 'leaderboard')`; `findUserByEmail`/`SYSTEM_USER_EMAIL` are fully gone from `lib/` and `src/` (grepped). Module-level id cache preserved.
+
+**Deliverable 4 — reservation + anti-oracle**: `isReservedAddress` (`lib/auth/reserved.ts:15-20`) extends to the system domain and normalizes internally. In `register/route.ts:38-41` the reserved check is folded into the *same branch* as the existing-account check, before the strength check — the architect-pinned placement. The `reserved + weak password → 409` placement guard test exists.
+
+**Deliverable 5 — single source of truth**: `lib/auth/system-accounts.ts` is the shared constant list feeding both reservation and provisioning (the plan permitted "a `config.system` getter **or** a constant list").
+
+**Tests**: `system-user.test.ts` (7) covers lazy create, idempotency, two-distinct-identities, look-alike-not-resolved, and fail-fast; `reserved.test.ts` covers the domain + normalization; both route tests assert the correct key per endpoint (`'ai-skill'` / `'leaderboard'`).
+
+## Non-blocking observations
+
+1. **The new fail-fast message reaches unauthenticated clients on `mcp-complete`.** `mcp-complete/route.ts:195-196` returns `error.message` in a 500 body, so a hijacked-email deploy would emit `"System account 'ai-skill' cannot be provisioned: its address is already held by a non-system account…"` publicly. Not a Phase 5 regression (the leak predates it), and Phase 9 explicitly scopes "System routes' `error.message` leakage may be addressed here too" — but Phase 5 gave that leak a more interesting payload, so please make sure Phase 9 actually takes it. Note the `v1` path is fine: `getSystemUserId()` sits inside the non-fatal logging `try` (`route.ts:307-324`), so it degrades to a logged Sentry event with no misattribution.
+
+2. **No test wires the real `isReservedAddress` through the register route** — `register-newsletter.test.ts` mocks it via `h.reserved`. The helper is unit-tested and the route's placement is tested, so behavior is covered, but a wiring regression (e.g. someone swapping in a helper that drops the system domain) would pass. One assertion against the unmocked helper would close it.
+
+3. **Misleading message for an unbackfilled-but-legitimate row.** If a legit system row exists with `nologin`/correct `source` but `system_key IS NULL` (migration applied without the backfill matching), the thrown error says "held by a non-system account". Worth a clause pointing the operator at the `system_key` backfill.
+
+4. **Docs**: `docs/self-hosting.md` documents the admin reservation but not that `@system.ansari.chat` is refused at registration. The runbook's inspect-before-apply step mentions "admin/system", so this is minor — it fits the plan's global Documentation Updates item.
+
+None of these block the phase.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 fully implements system-account resolution by `system_key` with correct hijack fail-fast, anti-oracle registration reservation, and solid tests; typecheck and full suite green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Comment) `mcp-complete` returns the new provisioning fail-fast `error.message` to unauthenticated clients in a 500 body — ensure Phase 9's generic-error work covers this route.
+- (Comment) Register-route reserved-address tests mock `isReservedAddress`; no test exercises the real helper through the route, so a wiring regression would be invisible.
+- (Comment) The occupied-email error says "non-system account" even when the occupant is a legit system row missing its `system_key` backfill — add a backfill hint for operators.
+- (Comment) `docs/self-hosting.md` doesn't state that `@system.ansari.chat` registration is refused.

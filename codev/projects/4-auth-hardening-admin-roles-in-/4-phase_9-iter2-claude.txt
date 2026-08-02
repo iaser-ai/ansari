@@ -1,0 +1,34 @@
+I'll review the Phase 9 implementation. Let me start by reading the relevant files.Let me read the Phase 9 iteration context and the core implementation files.I've verified Phase 9 end-to-end against the plan. Here's my review.
+
+## Phase 9 Deliverable Verification
+
+**1. Constant-time leaderboard key compare** — ✅
+`v1/chat/completions/route.ts:126-135`: `timingSafeEqualStr` buffers both sides, length-checks first (avoids the `timingSafeEqual` throw on unequal lengths), then compares. The unconfigured-key 503 path is preserved unchanged (`route.ts:96-104`). Test coverage is better than the plan asked for — `openai-compat.test.ts:134-145` uses a *same-length* wrong key, exercising the actual content comparison rather than just the length short-circuit, plus the existing wrong-length and 503 cases.
+
+**2. Password policy** — ✅
+`lib/auth/password.ts:68` is now `valid: score >= 3`, with a comment documenting the residual bcrypt-72-byte truncation (correctly not over-claimed, per spec Notes). `.max(128)` is on both `register/route.ts:15` and `reset_password/route.ts:15`. Tests: `auth.test.ts:66-71` (`aaaaaaaa` rejected, score < 3), `register-newsletter.test.ts:459-466` (129 chars → 422), strong-password accept retained.
+
+**3. Generic registration error** — ✅ (and the iter-1 fix is real)
+`register/route.ts:99-118` returns `'Registration failed'` and logs only `safeErrorMeta(error)` — error `name` plus SQLSTATE `code`, never message/query/params. The test at `register-newsletter.test.ts:468-494` asserts the driver text (`'constraint'`) leaks neither into the body *nor* into `console.error`, and additionally that the submitted email doesn't appear in logs. This properly resolves codex's iteration-1 REQUEST_CHANGES.
+
+**4. Token sweep + retention reconciliation** — ✅
+`lib/db/users.ts:324-332`: the predicate is now `lt(tokens.expiresAt, now)` only — the old `OR rotatedAt < graceCutoff` clause is deleted, which is exactly the reconciliation Phase 7's reuse detection depends on. Verified against `lookupRefreshToken` (`users.ts:294-302`): expired → `not_found`, rotated-in-grace → `valid`, rotated-past-grace-but-unexpired → `reuse`. The retained row is precisely what makes the `reuse` branch reachable. `maybeSweepExpiredTokens()` (`users.ts:344-350`) is 2% probability, fire-and-forget, error-swallowing, on the global `db` (correctly independent of caller transactions), wired into register/login/refresh_token.
+
+**Required test rewrite** — ✅ `token-grace.test.ts:151-175` is rewritten to the new retention contract, asserting the retained row's continued existence via raw SQL (since `findToken` won't return it). This was an explicit plan deliverable to stop a future builder from "fixing" the code back.
+
+**Gates** — I ran them myself: typecheck clean, **569 passed / 3 skipped / 59 files**, `next build` green with `.env.ci`.
+
+## Minor observations (non-blocking, not Phase 9 deliverables)
+
+- **`reset_password` allows shorter passwords than `register`.** Its `new_password` is `min(1)` (`reset_password/route.ts:14`) while register enforces `min(8)`. Under `score >= 3`, a 4-char password like `Ab1!` scores 4 (lower+upper+digit+special) and is accepted on the reset path. Pre-existing asymmetry, and the plan only specified `.max(128)` here — but a one-token `.min(8)` would close it while you're in this file.
+- **`reset_password`'s catch block still logs the raw error** (`route.ts:82`) — the same class of leak `safeErrorMeta` was just written to prevent. If you apply it, `safeErrorMeta` should move from `register/route.ts` into a shared module rather than being duplicated.
+- **`deleteExpiredTokens` uses `.returning()` purely to count rows.** On the first sweep of a table that has grown unbounded since launch, that materializes every deleted row. `rowCount` would be cheaper. Low severity given fire-and-forget execution.
+
+---
+VERDICT: APPROVE
+SUMMARY: All four Phase 9 hardening items are correctly implemented with the required token-grace retention rewrite; typecheck, 569 tests, and build verified green independently.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Optional follow-ups: `reset_password` lacks `.min(8)` (a 4-char password can pass `score>=3`); `reset_password`'s catch still logs the raw error while `safeErrorMeta` exists (and is private to `register/route.ts`); `deleteExpiredTokens` uses `.returning()` where `rowCount` would suffice.
