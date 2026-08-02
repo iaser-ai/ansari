@@ -243,5 +243,15 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   non-unique propagation test (not masked as "already held"); mcp asserts
   getOrCreateSystemUser('ai-skill'), openai-compat asserts ('leaderboard').
   Result: **530 passed, 3 skipped**; build green.
+- Phase 5 iter2: unanimous APPROVE. Committed (541c612).
+
+## 2026-08-02 — Implement Phase 6 (logout: full session revocation)
+- logout route: now authenticateRequest (401 for no/invalid/wrong-type/unknown token —
+  preserves contract) → deleteUserTokens(user.id) full all-device logout. Dropped the
+  single-token deleteToken path.
+- Tests: new logout-route.test.ts (valid→deleteUserTokens(user.id)+200; no-token→401 no
+  revoke; invalid→401 no revoke). Removed the obsolete deleteToken-based logout test from
+  refresh-token-route.test.ts (kept its deleteToken mock — refresh "not called" assertion
+  still uses it). Result: typecheck clean; **532 passed, 3 skipped**; build green.
 
 

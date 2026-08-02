@@ -32,7 +32,6 @@ vi.mock('@/lib/auth/middleware', () => ({
 }));
 
 import { POST as refresh } from '../src/app/api/v2/users/refresh_token/route';
-import { POST as logout } from '../src/app/api/v2/users/logout/route';
 
 const testUser = {
   id: 'user-123',
@@ -86,18 +85,5 @@ describe('POST /api/v2/users/refresh_token (issue #34)', () => {
     await refresh(makeRefreshRequest('rt'));
     expect(mockMarkTokenRotated).toHaveBeenCalledWith('rt');
     expect(mockDeleteToken).not.toHaveBeenCalled();
-  });
-});
-
-describe('POST /api/v2/users/logout (issue #34)', () => {
-  it('still invalidates the token immediately', async () => {
-    const req = new NextRequest('http://localhost/api/v2/users/logout', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer at' },
-    });
-
-    const res = await logout(req);
-    expect(res.status).toBe(200);
-    expect(mockDeleteToken).toHaveBeenCalledWith('at');
   });
 });

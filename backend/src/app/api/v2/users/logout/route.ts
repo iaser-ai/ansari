@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractBearerToken } from '@/lib/auth/jwt';
-import { deleteToken } from '@/lib/db/users';
-import { createErrorResponse } from '@/lib/auth/middleware';
+import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { deleteUserTokens } from '@/lib/db/users';
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('Authorization');
-    const token = extractBearerToken(authHeader);
+    // Resolve the user from the access token. authenticateRequest returns a 401
+    // for a missing, invalid, wrong-type, or unknown token — preserving the
+    // existing auth-failure contract.
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
 
-    if (!token) {
-      return createErrorResponse('Not authenticated', 401);
-    }
-
-    // Delete the token from the database
-    await deleteToken(token);
+    // Full, all-device logout (spec 4): revoke ALL of the user's tokens so the
+    // 90-day refresh token cannot outlive logout. The request carries only the
+    // access token and there is no per-session grouping, so logout is global.
+    await deleteUserTokens(authResult.user.id);
 
     return NextResponse.json({ message: 'Successfully logged out' });
   } catch (error) {
