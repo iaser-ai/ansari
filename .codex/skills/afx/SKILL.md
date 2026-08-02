@@ -29,7 +29,21 @@ afx spawn [number] [options]
 | `--resume` | Resume builder in existing worktree |
 | `--no-role` | Skip loading role prompt |
 
-**There is NO `-t`, `--title`, `--name`, or `--branch` flag.** The branch name is auto-generated from the issue title.
+**There is NO `-t`, `--title`, or `--name` flag.** The branch name is auto-generated from the issue title. (`--branch <name>` exists but only selects an EXISTING remote branch, e.g. for fork PRs — it does not name a new branch.)
+
+**Global options (go BEFORE the subcommand — they don't appear in `afx spawn --help`):**
+
+```bash
+afx --builder-cmd "codex --dangerously-bypass-approvals-and-sandbox" spawn --task "..."
+```
+
+| Global flag | Description |
+|------|-------------|
+| `--builder-cmd <command>` | Override builder command for this spawn (e.g. run codex instead of claude) |
+| `--architect-cmd <command>` | Override architect command |
+| `--shell-cmd <command>` | Override shell command |
+
+Use these for one-off overrides instead of editing `.codev/config.json`.
 
 **Examples:**
 ```bash
