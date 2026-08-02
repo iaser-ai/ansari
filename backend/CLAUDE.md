@@ -14,7 +14,7 @@ results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), JWT auth
 ## Commands (run inside `backend/`)
 
 ```bash
-npm ci                # install (Node >= 20)
+npm ci                # install (Node >= 22)
 npm run typecheck     # tsc --noEmit
 npm test              # vitest — the full suite runs without external services
 npm run build         # next build
@@ -31,7 +31,7 @@ lockfile. Never use `db:push` against a real database; generate + migrate.
 - `lib/` — engine (facilitator agent, gemini client, tools, auth, db helpers)
 - `lib/ai/prompts/facilitator.ts` — the system prompt; changes need cited justification
 - `src/app/api/` — HTTP surface (`v2/*` product API, `v1/chat/completions` OpenAI-compat, `health`)
-- `tests/` — Vitest suites (`*.test.ts`); `tests/e2e/` is Playwright, local-only
+- `tests/` — Vitest suites (`*.test.ts`); the full suite runs without external services
 
 ## Conventions
 

@@ -5,7 +5,7 @@ the complete environment-variable contract, and deployment notes.
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (`backend/.nvmrc` pins the version)
+- **Node.js ≥ 22** (`backend/.nvmrc` pins the version)
 - **PostgreSQL** (any recent version; the schema is managed by Drizzle migrations)
 - A **Gemini** credential — either a [Google AI Studio API key](https://aistudio.google.com/)
   or a Google Cloud project with Vertex AI enabled
@@ -98,14 +98,17 @@ npm run dev                 # dev server on :3000
 Verify your setup:
 
 ```bash
+npm run lint
 npm run typecheck
 npm test                    # full Vitest suite; no external services needed
 npm run build
+# The healthcheck now verifies the database: 200 only if a live DATABASE_URL
+# answers SELECT 1, otherwise 503. With a running DB and DATABASE_URL set:
 curl localhost:3000/api/health   # {"status":"ok",...,"service":"ansari-backend"}
 ```
 
-CI runs exactly typecheck + test + build with the committed dummy env in
-`backend/.env.ci` — proof that none of them require real secrets.
+CI runs lint + typecheck + test (with coverage) + build with the committed dummy
+env in `backend/.env.ci` — proof that none of them require real secrets.
 
 ## Deployment
 
@@ -115,6 +118,11 @@ The production instance runs on **Railway** with the repository's
 `backend/railway.toml` (nixpacks builder, healthcheck on `/api/health`, restart on
 failure). For a Railway deploy from this monorepo, set the service's root directory
 to `backend/` so the lockfile and `railway.toml` are picked up.
+
+Because `/api/health` now returns 503 when the database is unreachable, it is a real
+deploy gate: a deploy with a broken or unset `DATABASE_URL` will fail its healthcheck
+and be rolled back rather than going live in a broken state. Make sure `DATABASE_URL`
+is set and reachable before deploying.
 
 Database migrations are applied with `npm run db:migrate` against the production
 `DATABASE_URL` (never `db:push`).
