@@ -24,3 +24,12 @@ secrets/
 .idea/
 .vscode/
 *.swp
+
+# Codev (added by codev update 2026-08-02)
+.agent-farm/
+.consult/
+codev/.update-hashes.json
+.builders/
+.architect-role.md
+codev/state/*.md
+!codev/state/*_thread.md
