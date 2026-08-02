@@ -349,3 +349,12 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   auth invariants + cold map), lessons-critical.md (2 new lessons), arch.md (Authentication &
   Authorization section), lessons-learned.md (Auth hardening spec 4 section). Hot files within cap.
 - Next: open PR, run review checks (pr_exists, review_has_arch/lessons_updates, e2e_tests).
+- Opened **PR #15** (base develop). Review checks all pass.
+- PR-review 3-way: Gemini APPROVE; Codex+Claude REQUEST_CHANGES - both on BRANCH FRESHNESS
+  (11 commits behind develop's Open-source-readiness #6: Node 22, eslint ., test:coverage, CI
+  gate), not the security engineering (Claude verified the concurrency invariants + config-bypass
+  closure as correct). -> Merged origin/develop (self-hosting.md auto-merged clean; develop
+  removed the e2e specs); fixed tests/api.test.ts (hand-DDL sync + full config env); finalized
+  spec/plan Status; fixed review flaky count; migration index-lock note. Full new gate green:
+  lint 0-err, typecheck, test:coverage 583 passed/3 skipped, build. Pushed. Wrote rebuttal.
+- `porch done 4` -> **GATE: pr**. Notifying architect. **STOPPED - will NOT merge/self-approve.**
