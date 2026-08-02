@@ -186,5 +186,12 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   register reserved cases (identical 409, case-insensitive, weak-pw placement guard).
 - Result: typecheck clean; **513 passed, 3 skipped**; build green (startup check correctly
   skipped at build via NEXT_PHASE guard).
+- Phase 4 iter1: Gemini+Claude APPROVE, **Codex REQUEST_CHANGES** — sharp catch: grant-admin
+  blindly flagged an existing account while PRESERVING its password → could hand admin to an
+  attacker who pre-registered the address (the very vuln being fixed), and could "succeed" on
+  an unusable nologin hash. → Fix: password now ALWAYS required and SET on both create and
+  promote; promotion resets the password (operator takes credential control, locks out
+  pre-registrant, guarantees login-capable). Test now verifies real password auth: operator
+  pw authenticates, attacker pw does not; + refuses promote without password. 514 passed.
 
 

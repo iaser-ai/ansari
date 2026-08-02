@@ -15,7 +15,11 @@ vi.mock('@/lib/db/index', () => ({
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
+import { verifyPassword, hashPassword } from '@/lib/auth/password';
 import { grantAdmin } from '../scripts/grant-admin';
+
+// Real bcrypt hash, used to seed pre-existing accounts in tests.
+const hashForTest = (pw: string) => hashPassword(pw);
 
 let client: PGlite;
 
@@ -58,28 +62,32 @@ async function rowOf(email: string) {
 }
 
 describe('grantAdmin', () => {
-  it('creates a new admin with a real bcrypt password hash', async () => {
+  it('creates a new login-capable admin (password authenticates)', async () => {
     const result = await grantAdmin('new@admin.chat', 'a-strong-password-123');
     expect(result).toEqual({ created: true });
 
     const row = await rowOf('new@admin.chat');
     expect(row.is_admin).toBe(true);
     expect(row.password_hash).toMatch(/^\$2[aby]\$/); // bcrypt hash prefix
+    expect(await verifyPassword('a-strong-password-123', row.password_hash)).toBe(true);
   });
 
-  it('is idempotent: flags an existing account without creating a duplicate', async () => {
+  it('promotes an existing account AND resets its password (locks out a pre-registrant)', async () => {
+    // Simulate an attacker who pre-registered the admin address with their own password.
+    const attackerHash = await hashForTest('attacker-password-xxx');
     await client.query(
       `INSERT INTO users (email, password_hash, is_admin) VALUES ($1, $2, false)`,
-      ['existing@admin.chat', '$2b$12$existinghash0000000000000000000000000000']
+      ['existing@admin.chat', attackerHash]
     );
 
-    const result = await grantAdmin('existing@admin.chat');
+    const result = await grantAdmin('existing@admin.chat', 'operator-password-999');
     expect(result).toEqual({ created: false });
 
     const row = await rowOf('existing@admin.chat');
     expect(row.is_admin).toBe(true);
-    // Existing password is left untouched.
-    expect(row.password_hash).toBe('$2b$12$existinghash0000000000000000000000000000');
+    // The operator's password now authenticates; the attacker's no longer does.
+    expect(await verifyPassword('operator-password-999', row.password_hash)).toBe(true);
+    expect(await verifyPassword('attacker-password-xxx', row.password_hash)).toBe(false);
 
     const count = await client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM users WHERE email = $1`,
@@ -96,5 +104,15 @@ describe('grantAdmin', () => {
   it('refuses to create a new admin without a sufficiently long password', async () => {
     await expect(grantAdmin('brandnew@admin.chat', 'short')).rejects.toThrow(/at least 12 characters/);
     expect(await rowOf('brandnew@admin.chat')).toBeUndefined();
+  });
+
+  it('refuses to promote an existing account without a password', async () => {
+    await client.query(
+      `INSERT INTO users (email, password_hash, is_admin) VALUES ($1, $2, false)`,
+      ['noflag@admin.chat', await hashForTest('whatever-12chars')]
+    );
+    await expect(grantAdmin('noflag@admin.chat')).rejects.toThrow(/password of at least/);
+    // Not promoted.
+    expect((await rowOf('noflag@admin.chat')).is_admin).toBe(false);
   });
 });

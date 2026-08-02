@@ -12,8 +12,12 @@
  * The password is taken from an env var or an interactive prompt — NEVER a
  * positional CLI arg, which would leak into shell history / the process table.
  *
- * Idempotent: if the account already exists it is flagged is_admin (its password
- * is left untouched); otherwise it is created with a bcrypt hash and is_admin=true.
+ * A password is ALWAYS required and is SET on the account (created or promoted).
+ * Resetting the password on promotion is deliberate and security-critical: if the
+ * address was pre-registered by an attacker — the exact vulnerability spec 4
+ * closes — flagging it admin while preserving their password would hand them
+ * admin. Overwriting the credential with the operator's password locks them out
+ * and guarantees the admin account is login-capable.
  */
 import { createInterface } from 'readline';
 import { eq } from 'drizzle-orm';
@@ -25,9 +29,9 @@ import { users } from '../db/schema';
 const MIN_ADMIN_PASSWORD_LENGTH = 12;
 
 /**
- * Create-or-flag an admin account. Returns whether a new row was created.
- * When the account already exists, only `is_admin` is set (password unchanged),
- * so `password` may be omitted in that case.
+ * Create-or-promote an admin account, always SETTING the supplied password.
+ * Returns whether a new row was created (false = an existing row was promoted).
+ * A password is required in BOTH cases (see the security note above).
  */
 export async function grantAdmin(
   email: string,
@@ -36,24 +40,24 @@ export async function grantAdmin(
   const normalized = email.trim().toLowerCase();
   if (!normalized) throw new Error('email is required');
 
-  const existing = await findUserByEmail(normalized);
-  if (existing) {
-    if (!existing.isAdmin) {
-      await db
-        .update(users)
-        .set({ isAdmin: true, updatedAt: new Date() })
-        .where(eq(users.id, existing.id));
-    }
-    return { created: false };
-  }
-
   if (!password || password.length < MIN_ADMIN_PASSWORD_LENGTH) {
     throw new Error(
-      `a password of at least ${MIN_ADMIN_PASSWORD_LENGTH} characters is required to create a new admin account`
+      `a password of at least ${MIN_ADMIN_PASSWORD_LENGTH} characters is required (it is set on the admin account)`
     );
   }
 
   const passwordHash = await hashPassword(password);
+  const existing = await findUserByEmail(normalized);
+  if (existing) {
+    // Promote AND reset the password to the operator-supplied value — never
+    // preserve a possibly attacker-controlled credential (spec 4).
+    await db
+      .update(users)
+      .set({ isAdmin: true, passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, existing.id));
+    return { created: false };
+  }
+
   await db.insert(users).values({
     email: normalized,
     passwordHash,
@@ -83,14 +87,14 @@ async function main(): Promise<void> {
 
   let password = process.env.GRANT_ADMIN_PASSWORD;
   if (!password) {
-    password = await prompt(`Password for admin ${email} (min ${MIN_ADMIN_PASSWORD_LENGTH} chars, only used if the account is new): `);
+    password = await prompt(`Password to SET for admin ${email} (min ${MIN_ADMIN_PASSWORD_LENGTH} chars): `);
   }
 
   const { created } = await grantAdmin(email, password);
   console.log(
     created
-      ? `Created admin account ${email.toLowerCase()} (is_admin=true).`
-      : `Flagged existing account ${email.toLowerCase()} as admin (is_admin=true).`
+      ? `Created admin account ${email.toLowerCase()} (is_admin=true, password set).`
+      : `Promoted existing account ${email.toLowerCase()} to admin (is_admin=true, password reset).`
   );
   process.exit(0);
 }
