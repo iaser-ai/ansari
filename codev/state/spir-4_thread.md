@@ -95,6 +95,8 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   9. Phase 9 must rewrite token-grace.test.ts:147 (asserts the sweep behavior we reverse).
 - Closed the 2 open design choices: opportunistic sweep (no cron; railway.toml has none),
   reuse = reject+log (no session bump).
-- Wrote rebuttal (4-plan-iter1-rebuttals.md). Committed. Continuing porch.
+- Wrote rebuttal (4-plan-iter1-rebuttals.md). Committed.
+- `porch done 4` → **GATE: plan-approval**. Notified architect. **STOPPED, waiting for
+  human approval.** Will NOT self-approve. After approval → Implement phase (Phase 1 first).
 
 
