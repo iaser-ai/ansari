@@ -1,77 +1,49 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Mock config module
-const mockEmails: string[] = [];
-vi.mock('../lib/config', () => ({
-  config: {
-    get admin() {
-      return { emails: mockEmails };
-    },
-  },
-}));
+// Spec 4: admin authorization is gated on the durable users.is_admin DB flag,
+// NOT on the email being in an allowlist. Mock middleware to control the
+// authenticated user; requireAdmin must consult only the flag.
 
-// Mock middleware module to avoid DB dependency chain
-vi.mock('../lib/auth/middleware', () => ({
+vi.mock('@/lib/auth/middleware', () => ({
   authenticateRequest: vi.fn(),
   createErrorResponse: (detail: string, status: number) =>
     NextResponse.json({ detail }, { status }),
 }));
 
-import { isAdmin, requireAdmin } from '../lib/auth/admin';
-import { authenticateRequest } from '../lib/auth/middleware';
+import { requireAdmin } from '@/lib/auth/admin';
+import { authenticateRequest } from '@/lib/auth/middleware';
 
-function setAdminEmails(emails: string[]) {
-  mockEmails.length = 0;
-  mockEmails.push(...emails);
+const mockAuth = vi.mocked(authenticateRequest);
+
+function makeRequest(): NextRequest {
+  return new NextRequest('http://localhost/api/v2/admin/stats', {
+    headers: { Authorization: 'Bearer test-token' },
+  });
 }
 
-describe('isAdmin', () => {
+function makeUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '1',
+    email: 'user@example.com',
+    passwordHash: '',
+    firstName: null,
+    lastName: null,
+    source: 'web',
+    registeredVia: null,
+    isAdmin: false,
+    systemKey: null,
+    sessionVersion: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+describe('requireAdmin (durable is_admin flag)', () => {
   beforeEach(() => {
-    setAdminEmails([]);
-  });
-
-  it('returns false when ADMIN_EMAILS is empty', () => {
-    expect(isAdmin('anyone@example.com')).toBe(false);
-  });
-
-  it('returns true for an email on the whitelist', () => {
-    setAdminEmails(['admin@example.com']);
-    expect(isAdmin('admin@example.com')).toBe(true);
-  });
-
-  it('is case-insensitive (RFC 5321)', () => {
-    setAdminEmails(['admin@example.com']);
-    expect(isAdmin('ADMIN@EXAMPLE.COM')).toBe(true);
-    expect(isAdmin('Admin@Example.Com')).toBe(true);
-  });
-
-  it('returns false for an email not on the whitelist', () => {
-    setAdminEmails(['admin@example.com']);
-    expect(isAdmin('other@example.com')).toBe(false);
-  });
-
-  it('handles multiple admin emails', () => {
-    setAdminEmails(['admin1@example.com', 'admin2@example.com']);
-    expect(isAdmin('admin1@example.com')).toBe(true);
-    expect(isAdmin('admin2@example.com')).toBe(true);
-    expect(isAdmin('admin3@example.com')).toBe(false);
-  });
-});
-
-describe('requireAdmin', () => {
-  const mockAuth = vi.mocked(authenticateRequest);
-
-  beforeEach(() => {
-    setAdminEmails(['admin@example.com']);
     mockAuth.mockReset();
   });
-
-  function makeRequest(): NextRequest {
-    return new NextRequest('http://localhost/api/v2/admin/stats', {
-      headers: { Authorization: 'Bearer test-token' },
-    });
-  }
 
   it('returns 401 when not authenticated', async () => {
     const errorResponse = NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
@@ -79,15 +51,11 @@ describe('requireAdmin', () => {
 
     const result = await requireAdmin(makeRequest());
     expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.error.status).toBe(401);
-    }
+    if ('error' in result) expect(result.error.status).toBe(401);
   });
 
-  it('returns 403 for authenticated non-admin user', async () => {
-    mockAuth.mockResolvedValue({
-      user: { id: '1', email: 'user@example.com', passwordHash: '', firstName: null, lastName: null, source: 'web', createdAt: new Date(), updatedAt: new Date() },
-    });
+  it('returns 403 for an authenticated user with is_admin=false', async () => {
+    mockAuth.mockResolvedValue({ user: makeUser({ isAdmin: false }) });
 
     const result = await requireAdmin(makeRequest());
     expect('error' in result).toBe(true);
@@ -98,57 +66,23 @@ describe('requireAdmin', () => {
     }
   });
 
-  it('returns user for authenticated admin', async () => {
-    const adminUser = { id: '1', email: 'admin@example.com', passwordHash: '', firstName: null, lastName: null, source: 'web', createdAt: new Date(), updatedAt: new Date() };
-    mockAuth.mockResolvedValue({ user: adminUser });
-
-    const result = await requireAdmin(makeRequest());
-    expect('error' in result).toBe(false);
-    if (!('error' in result)) {
-      expect(result.user.email).toBe('admin@example.com');
-    }
-  });
-
-  it('handles case-insensitive admin email match', async () => {
-    setAdminEmails(['admin@example.com']);
+  it('DENIES a user whose email looks like an admin but has is_admin=false', async () => {
+    // The whole point of spec 4: an allowlisted email string is not enough.
     mockAuth.mockResolvedValue({
-      user: { id: '1', email: 'ADMIN@EXAMPLE.COM', passwordHash: '', firstName: null, lastName: null, source: 'web', createdAt: new Date(), updatedAt: new Date() },
-    });
-
-    const result = await requireAdmin(makeRequest());
-    expect('error' in result).toBe(false);
-  });
-
-  it('returns 403 for all users when ADMIN_EMAILS is empty', async () => {
-    setAdminEmails([]);
-    mockAuth.mockResolvedValue({
-      user: { id: '1', email: 'anyone@example.com', passwordHash: '', firstName: null, lastName: null, source: 'web', createdAt: new Date(), updatedAt: new Date() },
+      user: makeUser({ email: 'admin@ansari.chat', isAdmin: false }),
     });
 
     const result = await requireAdmin(makeRequest());
     expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.error.status).toBe(403);
-    }
-  });
-});
-
-describe('ADMIN_EMAILS parsing logic', () => {
-  it('parses comma-separated emails with trimming and lowering', () => {
-    const raw = 'admin@a.com, Admin@B.COM , user@c.com';
-    const parsed = raw.split(',').map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0);
-    expect(parsed).toEqual(['admin@a.com', 'admin@b.com', 'user@c.com']);
+    if ('error' in result) expect(result.error.status).toBe(403);
   });
 
-  it('handles empty string', () => {
-    const raw = '';
-    const parsed = raw.split(',').map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0);
-    expect(parsed).toEqual([]);
-  });
+  it('returns the user when is_admin=true', async () => {
+    const adminUser = makeUser({ email: 'someone@example.com', isAdmin: true });
+    mockAuth.mockResolvedValue({ user: adminUser });
 
-  it('handles whitespace-only entries', () => {
-    const raw = 'admin@a.com, , ,user@b.com';
-    const parsed = raw.split(',').map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0);
-    expect(parsed).toEqual(['admin@a.com', 'user@b.com']);
+    const result = await requireAdmin(makeRequest());
+    expect('error' in result).toBe(false);
+    if (!('error' in result)) expect(result.user.isAdmin).toBe(true);
   });
 });

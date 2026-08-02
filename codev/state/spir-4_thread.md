@@ -167,5 +167,24 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   ordinary user untouched, many NULLs allowed under unique index.
 - Result: typecheck clean; **504 passed, 3 skipped**; build green; `db:generate` reports
   "No schema changes" (no drift). Migration NOT applied (human applies at deploy; no db:push).
+- Phase 3 iter1: unanimous APPROVE. Committed (e69ebad).
+
+## 2026-08-02 — Implement Phase 4 (durable admin authz + reservation + startup + bootstrap)
+- admin.ts: requireAdmin now gates on `user.isAdmin` (removed email-based isAdmin()).
+- reserved.ts (new): isReservedAddress(normalizedEmail) → config.admin.emails (Phase 5 extends).
+- register: fold reserved check into the existing 409 branch, BEFORE the strength check
+  (architect anti-oracle: `existingUser || isReservedAddress(email.toLowerCase())` → identical
+  409). Placement test proves reserved+weak-pw still returns 409 (not 400).
+- startup-checks.ts (new): assertConfiguredAdminsExist() (throws if a configured admin is
+  missing/unflagged) + shouldRunAdminStartupCheck() gate (prod + nodejs + NEXT_PHASE !=
+  phase-production-build). Wired into instrumentation.ts register() (dynamic import).
+- scripts/grant-admin.ts (new): create-or-flag with real bcrypt hash; idempotent; password
+  via GRANT_ADMIN_PASSWORD env / prompt (never CLI arg); CLI guarded so imports don't run main.
+- Tests: rewrote admin-auth.test.ts (flag-based, incl. admin-looking email w/ isAdmin=false →
+  403); reserved.test.ts; startup-checks.test.ts (throw/pass/gating incl. build-phase skip);
+  grant-admin.test.ts (pglite: create w/ bcrypt, idempotent flag, lowercase, min-len);
+  register reserved cases (identical 409, case-insensitive, weak-pw placement guard).
+- Result: typecheck clean; **513 passed, 3 skipped**; build green (startup check correctly
+  skipped at build via NEXT_PHASE guard).
 
 

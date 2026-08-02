@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
 import { findUserByEmail, createUser, issueTokenPair } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
+import { isReservedAddress } from '@/lib/auth/reserved';
 import { subscribeToNewsletter } from '@/lib/newsletter';
 import { getClientId } from '@/lib/attribution';
 
@@ -29,9 +30,13 @@ export async function POST(request: NextRequest) {
 
     const { email, password, first_name, last_name, register_to_mail_list } = parseResult.data;
 
-    // Check if user already exists
+    // Check if the account exists OR the address is reserved (admin/system, spec 4).
+    // Both return the IDENTICAL 409 response, and this check sits BEFORE the
+    // password-strength check below — otherwise a reserved address paired with a
+    // weak password would return 400 while a taken address returns 409, turning
+    // registration into an oracle for which addresses are privileged.
     const existingUser = await findUserByEmail(email);
-    if (existingUser) {
+    if (existingUser || isReservedAddress(email.toLowerCase())) {
       return createErrorResponse('An account with this email already exists', 409);
     }
 
