@@ -1,9 +1,36 @@
 id: '4'
 title: auth-hardening-admin-roles-in-
 protocol: spir
-phase: plan
-plan_phases: []
-current_plan_phase: null
+phase: implement
+plan_phases:
+  - id: phase_1
+    title: Centralize auth config through config.ts
+    status: in_progress
+  - id: phase_2
+    title: Consolidate token issuance into issueTokenPair
+    status: pending
+  - id: phase_3
+    title: 'Schema migration: is_admin, system_key, session_version + conditional backfill'
+    status: pending
+  - id: phase_4
+    title: Durable admin authorization + reserved-address reservation + startup assertion + bootstrap
+    status: pending
+  - id: phase_5
+    title: System-account reservation via system_key
+    status: pending
+  - id: phase_6
+    title: 'Logout: full session revocation'
+    status: pending
+  - id: phase_7
+    title: Atomic rotation + session version + reliable reset kill + reuse detection
+    status: pending
+  - id: phase_8
+    title: Feedback IDOR fix + oracle uniformity
+    status: pending
+  - id: phase_9
+    title: 'Smaller hardening: timing-safe compare, password policy, generic error, token sweep'
+    status: pending
+current_plan_phase: phase_1
 gates:
   spec-approval:
     status: approved
@@ -18,7 +45,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T12:51:05.375Z'
+updated_at: '2026-08-02T12:51:12.626Z'
