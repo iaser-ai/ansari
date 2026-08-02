@@ -1,7 +1,7 @@
 id: '4'
 title: auth-hardening-admin-roles-in-
 protocol: spir
-phase: specify
+phase: plan
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -16,7 +16,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T06:22:15.817Z'
+updated_at: '2026-08-02T06:22:49.723Z'
