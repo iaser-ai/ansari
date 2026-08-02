@@ -1,6 +1,6 @@
 import { config } from '../config';
 import type { UsulSearchResult } from './types';
-import { fetchWithTimeout } from './resilience';
+import { fetchJsonWithTimeout, ToolFetchError } from './resilience';
 
 /**
  * Shared client for the Usul.ai vector-search API used by SearchMawsuah and
@@ -44,7 +44,7 @@ export async function usulSearch(
 
   const apiToken = config.tools.usul.apiToken;
 
-  const response = await fetchWithTimeout(
+  const data = await fetchJsonWithTimeout<UsulSearchResult>(
     url.toString(),
     {
       headers: {
@@ -58,5 +58,16 @@ export async function usulSearch(
     },
   );
 
-  return (await response.json()) as UsulSearchResult;
+  // Validate the top-level shape (issue #2). A 200 whose body is not `{ results: [...] }`
+  // (an error object, an array, a shape change) previously left `data.results` undefined, so
+  // the calling tools silently returned "No results found" — invisible to the degraded counter
+  // and Sentry. A genuine empty response is `{ results: [] }`; anything without a `results`
+  // array is a malformed/failed response and must degrade loudly through the callers' catch.
+  if (typeof data !== 'object' || data === null || !Array.isArray(data.results)) {
+    throw new ToolFetchError('Usul API error: unexpected response shape (expected { results: [...] })', {
+      errorClass: 'invalid_body',
+    });
+  }
+
+  return data;
 }
