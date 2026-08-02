@@ -407,3 +407,8 @@ Verified against INTEGRATED develop (post-merge):
 - Actual CLI hidden-prompt path (piped stdin) creates a login-capable admin; input hidden.
 - Disposable DB torn down. Deploy runbook confirmed by architect: inspect system rows ->
   migration 0003 psql -> grant-admin -> deploy. Prod deploy HELD (separate).
+
+## 2026-08-02 - COMPLETE
+- verify-approval APPROVED by Waleed. SPIR protocol COMPLETE for spec 4.
+- PR #15 merged to develop; prod deploy held (separate). Architect handles issue closure +
+  worktree cleanup. Nothing further from builder.
