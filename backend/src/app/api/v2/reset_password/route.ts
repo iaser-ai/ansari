@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyToken } from '@/lib/auth/jwt';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { findToken, updateUser, deleteUserTokens } from '@/lib/db/users';
+import { findToken, updateUser, deleteUserTokens, bumpSessionVersion } from '@/lib/db/users';
+import { db } from '@/lib/db/index';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { config } from '@/lib/config';
 
@@ -51,12 +52,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash new password and update user
+    // Hash new password and apply the reset ATOMICALLY (spec 4): set the new
+    // password, bump session_version (invalidates every previously-issued token
+    // via the version check), and delete all existing tokens — all in one
+    // transaction so a refresh racing the reset cannot leave a valid session.
     const passwordHash = await hashPassword(new_password);
-    await updateUser(tokenResult.user.id, { passwordHash });
-
-    // Invalidate ALL tokens for this user (access + refresh + reset)
-    await deleteUserTokens(tokenResult.user.id);
+    await db.transaction(async (tx) => {
+      await updateUser(tokenResult.user.id, { passwordHash }, tx);
+      await bumpSessionVersion(tokenResult.user.id, tx);
+      await deleteUserTokens(tokenResult.user.id, undefined, tx);
+    });
 
     return NextResponse.json({ status: 'success' });
   } catch (error) {

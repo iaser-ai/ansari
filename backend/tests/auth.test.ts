@@ -70,7 +70,7 @@ describe('JWT utilities', () => {
 
   describe('generateToken', () => {
     it('generates a valid JWT', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       expect(token).toBeDefined();
       expect(token.split('.')).toHaveLength(3);
     });
@@ -78,7 +78,7 @@ describe('JWT utilities', () => {
 
   describe('verifyToken', () => {
     it('verifies a valid token', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       const payload = verifyToken(token, testSecret);
       expect(payload).toBeDefined();
       expect(payload?.user_id).toBe('user-123');
@@ -91,7 +91,7 @@ describe('JWT utilities', () => {
     });
 
     it('returns null for wrong secret', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       const payload = verifyToken(token, 'wrong-secret-key-32-characters-long');
       expect(payload).toBeNull();
     });

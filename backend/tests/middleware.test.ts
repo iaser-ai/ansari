@@ -21,10 +21,12 @@ vi.mock('@/lib/config', () => ({
   },
 }));
 
-// Mock the DB lookup so no real db/index (and its config load) is pulled in.
+// Mock the DB lookups so no real db/index (and its config load) is pulled in.
 const mockFindToken = vi.fn();
+const mockLookupRefreshToken = vi.fn();
 vi.mock('@/lib/db/users', () => ({
   findToken: (...args: unknown[]) => mockFindToken(...args),
+  lookupRefreshToken: (...args: unknown[]) => mockLookupRefreshToken(...args),
 }));
 
 // Import after mocks. jwt.ts takes the secret as a parameter (no config import),
@@ -40,6 +42,9 @@ const testUser = {
   lastName: null,
   source: 'web',
   registeredVia: null,
+  isAdmin: false,
+  systemKey: null,
+  sessionVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -57,7 +62,7 @@ beforeEach(() => {
 describe('authenticateRequest uses config.auth.jwtSecret', () => {
   it('accepts an access token signed with the config secret', async () => {
     mockFindToken.mockResolvedValue({ user: testUser });
-    const token = generateToken(testUser.id, 'access', 2, CONFIG_SECRET);
+    const token = generateToken(testUser.id, 'access', 2, CONFIG_SECRET, 0);
 
     const result = await authenticateRequest(requestWithBearer(token));
 
@@ -67,7 +72,7 @@ describe('authenticateRequest uses config.auth.jwtSecret', () => {
   });
 
   it('rejects an access token signed with a different secret (signature checked with config secret)', async () => {
-    const token = generateToken(testUser.id, 'access', 2, OTHER_SECRET);
+    const token = generateToken(testUser.id, 'access', 2, OTHER_SECRET, 0);
 
     const result = await authenticateRequest(requestWithBearer(token));
 
@@ -75,12 +80,27 @@ describe('authenticateRequest uses config.auth.jwtSecret', () => {
     // Signature verification fails before the DB is consulted.
     expect(mockFindToken).not.toHaveBeenCalled();
   });
+
+  it('rejects an access token whose session_version is stale (issued before a reset)', async () => {
+    // User's current version is 1; the token was issued at version 0 (pre-reset).
+    mockFindToken.mockResolvedValue({ user: { ...testUser, sessionVersion: 1 } });
+    const token = generateToken(testUser.id, 'access', 2, CONFIG_SECRET, 0);
+
+    const result = await authenticateRequest(requestWithBearer(token));
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error.status).toBe(401);
+      const body = await result.error.json();
+      expect(body.detail).toBe('Session no longer valid');
+    }
+  });
 });
 
 describe('validateRefreshToken uses config.auth.jwtSecret', () => {
   it('accepts a refresh token signed with the config secret', async () => {
-    mockFindToken.mockResolvedValue({ user: testUser });
-    const token = generateToken(testUser.id, 'refresh', 2160, CONFIG_SECRET);
+    mockLookupRefreshToken.mockResolvedValue({ status: 'valid', user: testUser });
+    const token = generateToken(testUser.id, 'refresh', 2160, CONFIG_SECRET, 0);
 
     const result = await validateRefreshToken(token);
 
@@ -89,11 +109,29 @@ describe('validateRefreshToken uses config.auth.jwtSecret', () => {
   });
 
   it('rejects a refresh token signed with a different secret', async () => {
-    const token = generateToken(testUser.id, 'refresh', 2160, OTHER_SECRET);
+    const token = generateToken(testUser.id, 'refresh', 2160, OTHER_SECRET, 0);
 
     const result = await validateRefreshToken(token);
 
     expect('error' in result).toBe(true);
-    expect(mockFindToken).not.toHaveBeenCalled();
+    expect(mockLookupRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('flags a reuse when the lookup reports a spent (rotated-past-grace) token', async () => {
+    mockLookupRefreshToken.mockResolvedValue({ status: 'reuse' });
+    const token = generateToken(testUser.id, 'refresh', 2160, CONFIG_SECRET, 0);
+
+    const result = await validateRefreshToken(token);
+
+    expect('reuse' in result).toBe(true);
+  });
+
+  it('rejects a refresh token whose session_version is stale', async () => {
+    mockLookupRefreshToken.mockResolvedValue({ status: 'valid', user: { ...testUser, sessionVersion: 1 } });
+    const token = generateToken(testUser.id, 'refresh', 2160, CONFIG_SECRET, 0);
+
+    const result = await validateRefreshToken(token);
+
+    expect('error' in result).toBe(true);
   });
 });

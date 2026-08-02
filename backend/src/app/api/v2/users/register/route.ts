@@ -63,8 +63,9 @@ export async function POST(request: NextRequest) {
       registeredVia,
     });
 
-    // Issue tokens (single consolidated generate-and-store helper)
-    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    // Issue tokens (single consolidated generate-and-store helper). A new user
+    // starts at session_version 0.
+    const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
 
     // Fire-and-forget: subscribe to newsletter (non-blocking), but only when the
     // user explicitly opted in. Guests and opt-outs send false and are skipped.

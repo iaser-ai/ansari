@@ -31,6 +31,12 @@ vi.mock('@/lib/auth/middleware', () => ({
     NextResponse.json({ detail }, { status }),
 }));
 
+// The route rotates + issues atomically via db.transaction. Run the callback
+// with a dummy tx (the inner helpers are mocked, so they ignore it).
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (cb: (tx: unknown) => unknown) => cb({}) },
+}));
+
 import { POST as refresh } from '../src/app/api/v2/users/refresh_token/route';
 
 const testUser = {
@@ -40,6 +46,10 @@ const testUser = {
   firstName: 'Test',
   lastName: 'User',
   source: 'web',
+  registeredVia: null,
+  isAdmin: false,
+  systemKey: null,
+  sessionVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -83,7 +93,14 @@ describe('POST /api/v2/users/refresh_token (issue #34)', () => {
 
   it('rotates the old refresh token instead of hard-deleting it', async () => {
     await refresh(makeRefreshRequest('rt'));
-    expect(mockMarkTokenRotated).toHaveBeenCalledWith('rt');
+    expect(mockMarkTokenRotated).toHaveBeenCalledWith('rt', expect.anything());
     expect(mockDeleteToken).not.toHaveBeenCalled();
+  });
+
+  it('rejects a detected refresh-token reuse with a generic 401', async () => {
+    mockValidateRefreshToken.mockResolvedValueOnce({ reuse: true });
+    const res = await refresh(makeRefreshRequest('spent-rt'));
+    expect(res.status).toBe(401);
+    expect(mockIssueTokenPair).not.toHaveBeenCalled();
   });
 });

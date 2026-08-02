@@ -74,7 +74,7 @@ afterAll(async () => {
 
 describe('issueTokenPair', () => {
   it('returns an access + refresh token signed with the config secret', async () => {
-    const { accessToken, refreshToken } = await issueTokenPair(USER_ID);
+    const { accessToken, refreshToken } = await issueTokenPair(USER_ID, 0);
 
     expect(typeof accessToken).toBe('string');
     expect(typeof refreshToken).toBe('string');
@@ -90,8 +90,14 @@ describe('issueTokenPair', () => {
     expect(refreshPayload!.user_id).toBe(USER_ID);
   });
 
+  it('embeds the passed session_version in both tokens (not re-read from the DB)', async () => {
+    const { accessToken, refreshToken } = await issueTokenPair(USER_ID, 7);
+    expect(verifyToken(accessToken, SECRET)!.session_version).toBe(7);
+    expect(verifyToken(refreshToken, SECRET)!.session_version).toBe(7);
+  });
+
   it('sets token expiries from config (access 2h, refresh 2160h)', async () => {
-    const { accessToken, refreshToken } = await issueTokenPair(USER_ID);
+    const { accessToken, refreshToken } = await issueTokenPair(USER_ID, 0);
     const access = verifyToken(accessToken, SECRET)!;
     const refresh = verifyToken(refreshToken, SECRET)!;
     // jsonwebtoken sets exp = iat + expiresIn(seconds).
@@ -100,7 +106,7 @@ describe('issueTokenPair', () => {
   });
 
   it('stores both tokens (hashed) with the correct types', async () => {
-    const { accessToken, refreshToken } = await issueTokenPair(USER_ID);
+    const { accessToken, refreshToken } = await issueTokenPair(USER_ID, 0);
 
     const rows = await client.query<{ token_type: string; token_hash: string }>(
       `SELECT token_type, token_hash FROM tokens WHERE token_hash IN ($1, $2)`,

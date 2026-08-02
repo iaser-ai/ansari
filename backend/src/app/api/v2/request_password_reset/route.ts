@@ -36,8 +36,9 @@ export async function POST(request: NextRequest) {
       // Delete any existing reset tokens for this user
       await deleteUserTokens(user.id, 'reset');
 
-      // Generate new reset token
-      const resetToken = generateToken(user.id, 'reset', RESET_TOKEN_EXPIRY_HOURS, jwtSecret);
+      // Generate new reset token. Reset tokens are validated by DB existence +
+      // type, not by session_version, so the embedded version is informational.
+      const resetToken = generateToken(user.id, 'reset', RESET_TOKEN_EXPIRY_HOURS, jwtSecret, user.sessionVersion);
 
       // Store token hash in database
       await storeToken({

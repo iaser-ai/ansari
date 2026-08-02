@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { extractBearerToken, verifyToken } from './jwt';
-import { findToken } from '@/lib/db/users';
+import { findToken, lookupRefreshToken } from '@/lib/db/users';
 import { config } from '@/lib/config';
 import type { User } from '@/db/schema';
 
@@ -60,17 +60,30 @@ export async function authenticateRequest(
     };
   }
 
+  // Session-version check (spec 4): reject a token whose embedded version is stale
+  // relative to the user's current session_version — i.e. issued before a password
+  // reset. A missing claim (pre-existing token) is treated as version 0.
+  if ((payload.session_version ?? 0) !== tokenRecord.user.sessionVersion) {
+    return {
+      error: NextResponse.json(
+        { detail: 'Session no longer valid' },
+        { status: 401 }
+      ),
+    };
+  }
+
   Sentry.setUser({ id: tokenRecord.user.id });
   return { user: tokenRecord.user };
 }
 
 /**
- * Validate a refresh token
- * Returns the user if valid
+ * Validate a refresh token (spec 4). Returns the user if valid; a `reuse` flag
+ * when a spent (rotated-past-grace, retained) token is replayed; otherwise an
+ * error. The caller logs the reuse event.
  */
 export async function validateRefreshToken(
   refreshToken: string
-): Promise<{ user: User } | { error: string }> {
+): Promise<{ user: User } | { reuse: true } | { error: string }> {
   const payload = verifyToken(refreshToken, config.auth.jwtSecret);
   if (!payload) {
     return { error: 'Invalid or expired refresh token' };
@@ -80,12 +93,20 @@ export async function validateRefreshToken(
     return { error: 'Invalid token type' };
   }
 
-  const tokenRecord = await findToken(refreshToken);
-  if (!tokenRecord) {
+  const lookup = await lookupRefreshToken(refreshToken);
+  if (lookup.status === 'not_found') {
     return { error: 'Refresh token not found or expired' };
   }
+  if (lookup.status === 'reuse') {
+    return { reuse: true };
+  }
 
-  return { user: tokenRecord.user };
+  // Session-version check: a refresh token issued before a password reset is stale.
+  if ((payload.session_version ?? 0) !== lookup.user.sessionVersion) {
+    return { error: 'Session no longer valid' };
+  }
+
+  return { user: lookup.user };
 }
 
 /**

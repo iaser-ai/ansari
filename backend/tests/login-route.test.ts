@@ -32,6 +32,10 @@ const testUser = {
   firstName: 'Test',
   lastName: 'User',
   source: 'web',
+  registeredVia: null,
+  isAdmin: false,
+  systemKey: null,
+  sessionVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -69,7 +73,7 @@ describe('POST /api/v2/users/login', () => {
       first_name: 'Test',
       last_name: 'User',
     });
-    expect(mockIssueTokenPair).toHaveBeenCalledWith(testUser.id);
+    expect(mockIssueTokenPair).toHaveBeenCalledWith(testUser.id, 0);
   });
 
   it('returns 401 and does not issue tokens for an unknown user', async () => {

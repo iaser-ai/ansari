@@ -8,12 +8,20 @@ const mockDeleteUserTokens = vi.fn();
 const mockFindToken = vi.fn();
 const mockUpdateUser = vi.fn();
 
+const mockBumpSessionVersion = vi.fn();
 vi.mock('@/lib/db/users', () => ({
   findUserByEmail: (...args: unknown[]) => mockFindUserByEmail(...args),
   storeToken: (...args: unknown[]) => mockStoreToken(...args),
   deleteUserTokens: (...args: unknown[]) => mockDeleteUserTokens(...args),
   findToken: (...args: unknown[]) => mockFindToken(...args),
   updateUser: (...args: unknown[]) => mockUpdateUser(...args),
+  bumpSessionVersion: (...args: unknown[]) => mockBumpSessionVersion(...args),
+}));
+
+// reset_password applies the reset in a db.transaction; run the callback with a
+// dummy tx (the inner helpers are mocked).
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (cb: (tx: unknown) => unknown) => cb({}) },
 }));
 
 // Mock JWT
@@ -72,6 +80,10 @@ const testUser = {
   firstName: 'Test',
   lastName: 'User',
   source: 'web',
+  registeredVia: null,
+  isAdmin: false,
+  systemKey: null,
+  sessionVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -104,7 +116,7 @@ describe('POST /api/v2/request_password_reset', () => {
     expect(data.status).toBe('success');
     expect(mockFindUserByEmail).toHaveBeenCalledWith('test@example.com');
     expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123', 'reset');
-    expect(mockGenerateToken).toHaveBeenCalledWith('user-123', 'reset', 1, expect.any(String));
+    expect(mockGenerateToken).toHaveBeenCalledWith('user-123', 'reset', 1, expect.any(String), 0);
     expect(mockStoreToken).toHaveBeenCalledWith({
       userId: 'user-123',
       token: 'mock-reset-token',
@@ -268,8 +280,9 @@ describe('POST /api/v2/reset_password', () => {
     expect(response.status).toBe(200);
     expect(data.status).toBe('success');
     expect(mockHashPassword).toHaveBeenCalledWith('NewStr0ngP@ss!');
-    expect(mockUpdateUser).toHaveBeenCalledWith('user-123', { passwordHash: '$2b$12$newhash' });
-    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123');
+    expect(mockUpdateUser).toHaveBeenCalledWith('user-123', { passwordHash: '$2b$12$newhash' }, expect.anything());
+    expect(mockBumpSessionVersion).toHaveBeenCalledWith('user-123', expect.anything());
+    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123', undefined, expect.anything());
   });
 
   it('returns 400 for invalid JWT (malformed)', async () => {
@@ -379,7 +392,8 @@ describe('POST /api/v2/reset_password', () => {
     await resetPassword(request);
 
     // deleteUserTokens called WITHOUT a type filter = deletes all token types
-    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123');
+    // (now inside the reset transaction, so it receives the tx executor).
+    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123', undefined, expect.anything());
     expect(mockDeleteUserTokens).toHaveBeenCalledTimes(1);
   });
 });

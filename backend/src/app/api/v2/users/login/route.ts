@@ -34,8 +34,9 @@ export async function POST(request: NextRequest) {
       return createErrorResponse('Invalid email or password', 401);
     }
 
-    // Issue tokens (single consolidated generate-and-store helper)
-    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    // Issue tokens (single consolidated generate-and-store helper). Embed the
+    // user's current session_version so a later password reset invalidates them.
+    const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
 
     // Return tokens in Ansari's format (frontend expects status and user info)
     return NextResponse.json({

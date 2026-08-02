@@ -264,5 +264,26 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   token → 401, so its 90-day refresh token can't be revoked (future POST /logout {refresh_token}
   would close it); (c) logout no longer idempotent (2nd call → 401); (d) deleteToken now
   production-dead (removal candidate at PR cleanup).
+- Phase 6 iter2: unanimous APPROVE. Committed (412ee9a).
+
+## 2026-08-02 — Implement Phase 7 (atomic rotation + session version + reset kill + reuse)
+- jwt.ts: generateToken embeds session_version (5th param); TokenPayload adds optional field.
+- users.ts: issueTokenPair(userId, sessionVersion, exec) — embeds CAPTURED version (not re-read);
+  markTokenRotated/deleteUserTokens/updateUser gain exec param; bumpSessionVersion() (sql +1);
+  lookupRefreshToken() classifies valid / in-grace-valid / reuse (past-grace retained) / not_found.
+- middleware.ts: authenticateRequest + validateRefreshToken check (payload.session_version ?? 0)
+  != user.sessionVersion -> 401 'Session no longer valid'. validateRefreshToken uses
+  lookupRefreshToken -> returns {user}|{reuse}|{error}.
+- refresh route: db.transaction(markTokenRotated(tx) + issueTokenPair(captured version, tx));
+  reuse -> generic 401 + console.warn (no user content). Captured version from validateRefreshToken.
+- reset_password: db.transaction(updateUser(tx) + bumpSessionVersion(tx) + deleteUserTokens(tx)).
+- login/register: issueTokenPair(user.id, user.sessionVersion). request_reset: generateToken +version.
+- DECISION (from plan): reuse = reject + log only, no session bump on reuse.
+- Tests: fixed 4 suites for the signature/return changes (added db/index tx mock + sessionVersion
+  to user fixtures + bumpSessionVersion mock). NEW session-version-reuse.test.ts (pglite + real
+  middleware): lookupRefreshToken 5 states, bumpSessionVersion, reset-vs-refresh interleaving
+  (post-reset-issued stale-version token -> 401), reuse end-to-end. middleware stale-version +
+  reuse cases; issueTokenPair embeds-version case. Result: typecheck clean; **549 passed, 3
+  skipped**; build green. pglite = single connection -> races tested as deterministic sequences.
 
 
