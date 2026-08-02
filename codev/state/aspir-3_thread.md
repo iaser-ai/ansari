@@ -33,4 +33,9 @@ Protocol: ASPIR (strict, porch-driven). Issue #3.
   - Phase 3 coverage: `test:coverage` npm script + `npm run test:coverage` (bare vitest not on CI PATH).
   - Phase 4 share test: `shares.thread_id` is notNull FK → seed users→threads→shares in order.
   - Phase 5 healthcheck tests: 2000ms timeout via fake timers; unset-DATABASE_URL via throwing mock factory (honesty note: exercises route try/catch, not real import-time throw). Railway `/api/health` becomes a real deploy gate (`restartPolicyMaxRetries=3`) → post-deploy probe check added.
-- Rebuttal written. Next: re-verify plan, auto-advance to Implement (ASPIR, no plan gate).
+- Rebuttal written. Re-verify triggered iter2 re-consultation.
+- 3-way plan re-review (iter2): Gemini APPROVE, Codex COMMENT, Claude COMMENT — no blockers. 3 minor comments folded in:
+  - Phase 2: `tests/**` → flat config global `ignores` (was contradictory: `eslint .` would lint all ~45 test files).
+  - Phase 2: `next.config.ts` → `eslint.ignoreDuringBuilds: true` (else `next build` runs ESLint once config exists).
+  - Phase 3: `CONTRIBUTING.md:26-33` "CI runs exactly these" gains `npm run lint`.
+- iter2 rebuttal written. Plan is implementation-ready. Advancing toward Implement (ASPIR, no plan gate).

@@ -118,9 +118,15 @@ Copied from the spec's Success Criteria (all must hold at PR time):
 - Make `npm run lint` a real, passing, non-interactive check backed by a Next-15-matched flat config.
 
 #### Deliverables
-- [ ] `backend/eslint.config.mjs` — flat config for Next 15.
+- [ ] `backend/eslint.config.mjs` — flat config for Next 15, with a **global `ignores` including
+      `tests/**`** (plus `.next`, `node_modules`, `coverage`) so the `eslint .` script does not lint the
+      ~45 Vitest files (consistent with `tsconfig.json:31` excluding `tests/**` — see scope decision below).
 - [ ] `backend/package.json`: `"lint": "eslint ."`; repin `eslint-config-next` from `^16.1.4` to the
       Next 15.5.x line; add `@eslint/eslintrc` as a devDependency if `FlatCompat` is needed (see below).
+- [ ] `backend/next.config.ts`: add `eslint: { ignoreDuringBuilds: true }`. Without it, once
+      `eslint.config.mjs` exists `next build` starts running ESLint itself — coupling the build gate to
+      lint. Lint runs as its own CI step (Phase 3), so builds stay decoupled; this keeps Phase 2's own
+      `npm run build` green regardless of Next's build-time lint behavior.
 - [ ] Any lint violations on the current tree fixed trivially or disabled with a scoped, commented rule
       (NO drive-by refactors — spec Constraint).
 
@@ -132,18 +138,21 @@ Copied from the spec's Success Criteria (all must hold at PR time):
   Step: check whether the installed `eslint-config-next@15.5.x` exposes a native flat entry; if it does,
   use it directly; **if not, add `@eslint/eslintrc` as a devDependency and use `FlatCompat`** —
   e.g. `const compat = new FlatCompat({ baseDirectory: import.meta.dirname }); export default [...compat.extends('next/core-web-vitals', 'next/typescript')]`.
-- Ignore `.next`, `node_modules`, `coverage`, and `tests/e2e` (deleted in Phase 4, but harmless to list).
+- Global `ignores`: `.next`, `node_modules`, `coverage`, and **`tests/**`** (all Vitest files — the
+  script is `eslint .`, so without this every test file is linted, contradicting the scope decision).
 - Run `npx eslint .` iteratively; for each finding prefer the minimal in-place fix; where a rule is
   noisy/inappropriate, disable it at config level with a one-line rationale comment (no restructuring).
 - Confirm `eslint .` runs non-interactively (unlike `next lint`).
-- **Conscious scope decision**: the script is exactly `eslint .` (spec-mandated), and the config targets
-  the app source. `tests/**` is already excluded from typecheck (`tsconfig.json:31`); this plan does NOT
-  expand lint to `tests/**` either, to avoid vitest-globals churn and drive-by changes. Noted so the
-  test-file coverage gap is a decision, not an accident.
+- **Conscious scope decision**: the script is exactly `eslint .` (spec-mandated), and `tests/**` is put
+  in the config's global `ignores`. `tests/**` is already excluded from typecheck (`tsconfig.json:31`);
+  this plan does NOT expand lint to `tests/**` either, to avoid vitest-globals churn and drive-by
+  changes. The `ignores` entry makes this consistent (not the contradiction the iter-1 draft had, where
+  `eslint .` would have linted all ~45 test files despite the stated intent). Decision, not accident.
 
 #### Acceptance Criteria
-- [ ] `npm run lint` exits 0 on the current codebase.
+- [ ] `npm run lint` exits 0 on the current codebase; `tests/**` is ignored by the config.
 - [ ] `eslint-config-next` version matches Next 15; no `next lint` remains in scripts.
+- [ ] `next.config.ts` sets `eslint.ignoreDuringBuilds: true`.
 - [ ] `npm run typecheck && npm test && npm run build` still green.
 
 #### Test Plan
@@ -179,6 +188,8 @@ Copied from the spec's Success Criteria (all must hold at PR time):
 - [ ] `@vitest/coverage-v8` added as a devDependency; a `test:coverage` script
       (`vitest run --coverage`); a CI coverage step that invokes it via `npm run test:coverage`
       (report/summary only — no threshold gate).
+- [ ] `CONTRIBUTING.md:26-33` checks contract updated: the "CI runs exactly these" block gains
+      `npm run lint` alongside typecheck/test/build (it becomes inaccurate the moment CI lints).
 
 #### Implementation Details
 - Resolve the current release + SHA for each action (`actions/checkout` and `actions/setup-node` current
@@ -193,12 +204,18 @@ Copied from the spec's Success Criteria (all must hold at PR time):
 - Lint step goes in the `backend` job (already `working-directory: backend`), after Install.
 - **Note for review**: this phase edits `package.json`/lockfile (adding `@vitest/coverage-v8` +
   `test:coverage` script). That is intentional and belongs to the CI area — it is not Phase 1 leakage.
+- **`CONTRIBUTING.md` checks contract**: lines 26-33 claim "CI runs exactly these" and list only
+  typecheck/test/build; adding the CI lint step makes that stale. Add `npm run lint` to that block here,
+  co-located with the CI change so doc and workflow stay in sync in one commit. (Phase 4 separately edits
+  CONTRIBUTING.md to drop the Playwright paragraph — two small, self-consistent edits to the same file
+  across two area-commits, which is fine.)
 - No repository secrets; `.env.ci` stays the sole env source.
 
 #### Acceptance Criteria
 - [ ] `ci.yml` has no mutable action tags; every `uses:` is a SHA with a version comment.
 - [ ] The gitleaks step verifies a checksum before extracting.
 - [ ] `concurrency` and `timeout-minutes` present; lint and coverage steps present.
+- [ ] `CONTRIBUTING.md` checks block lists `npm run lint` alongside typecheck/test/build.
 - [ ] CI is green on a pushed branch (verified via the PR run).
 
 #### Test Plan
@@ -433,6 +450,7 @@ Phase 1 (Node 22 + deps + doc Node bump)
 
 ## Documentation Updates Required
 - [ ] Node-version bump in `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/self-hosting.md` (Phase 1).
+- [ ] `CONTRIBUTING.md` checks contract gains `npm run lint` (Phase 3).
 - [ ] Remove Playwright/e2e refs from `CONTRIBUTING.md`, `README.md`, `AGENTS.md`, `CLAUDE.md` (Phase 4).
 - [ ] `.github/` PR + issue templates (Phase 6).
 - [ ] N/A — API docs / runbooks unchanged (healthcheck body shape preserved).
@@ -446,7 +464,8 @@ Phase 1 (Node 22 + deps + doc Node bump)
 
 ## Expert Review
 **Date**: 2026-08-01
-**Model**: Gemini (APPROVE), Codex (REQUEST_CHANGES), Claude (REQUEST_CHANGES) — 3-way plan consultation.
+**Model**: iter1 — Gemini (APPROVE), Codex (REQUEST_CHANGES), Claude (REQUEST_CHANGES);
+iter2 (post-revision re-review) — Gemini (APPROVE), Codex (COMMENT), Claude (COMMENT). All resolved.
 **Key Feedback**:
 - Phase 4 (old order) broke its own per-phase green-gate invariant: `tests/api.test.ts:21` imports the
   health route unmocked and asserts 200/`ok`, so making the route run `SELECT 1` turned it red.
@@ -471,6 +490,14 @@ Phase 1 (Node 22 + deps + doc Node bump)
   factory, with an honesty note on what it exercises) test approaches; noted the Railway deploy-gate
   implication and added a post-deploy probe check.
 
+**iter2 comments (Codex COMMENT, Claude COMMENT) — folded in**:
+- Phase 2: added `tests/**` to the flat config's global `ignores` so `eslint .` doesn't lint the ~45
+  Vitest files (resolves the stated-scope vs. actual-glob contradiction).
+- Phase 2: added `eslint: { ignoreDuringBuilds: true }` to `next.config.ts` — otherwise `next build`
+  starts running ESLint once `eslint.config.mjs` exists, coupling the build gate to lint.
+- Phase 3: update `CONTRIBUTING.md:26-33` ("CI runs exactly these") to add `npm run lint`, co-located
+  with the CI lint step so the checks contract stays accurate.
+
 ## Approval
 - [ ] Technical Lead Review
 - [ ] Engineering Manager Approval
@@ -481,7 +508,8 @@ Phase 1 (Node 22 + deps + doc Node bump)
 | Date | Change | Reason | Author |
 |------|--------|--------|--------|
 | 2026-08-01 | Initial plan draft | Spec 3 approved (ASPIR, auto) | builder aspir-3 |
-| 2026-08-01 | Revised per 3-way plan review | Fix per-phase gate break, stale docs, lint/coverage/FK/test mechanics | builder aspir-3 |
+| 2026-08-01 | Revised per 3-way plan review (iter1) | Fix per-phase gate break, stale docs, lint/coverage/FK/test mechanics | builder aspir-3 |
+| 2026-08-01 | Folded in iter2 comments | `tests/**` lint ignore, `next.config` ignoreDuringBuilds, CONTRIBUTING lint-contract | builder aspir-3 |
 
 ## Notes
 - ASPIR: plan auto-approves; the PR gate is preserved for human review.
