@@ -11,10 +11,10 @@ plan_phases:
     status: complete
   - id: phase_3
     title: 'Schema migration: is_admin, system_key, session_version + conditional backfill'
-    status: in_progress
+    status: complete
   - id: phase_4
     title: Durable admin authorization + reserved-address reservation + startup assertion + bootstrap
-    status: pending
+    status: in_progress
   - id: phase_5
     title: System-account reservation via system_key
     status: pending
@@ -30,7 +30,7 @@ plan_phases:
   - id: phase_9
     title: 'Smaller hardening: timing-safe compare, password policy, generic error, token sweep'
     status: pending
-current_plan_phase: phase_3
+current_plan_phase: phase_4
 gates:
   spec-approval:
     status: approved
@@ -45,7 +45,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_1
@@ -80,4 +80,4 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_2-iter1-claude.txt
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T13:25:52.580Z'
+updated_at: '2026-08-02T13:29:27.191Z'
