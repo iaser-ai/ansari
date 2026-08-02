@@ -253,5 +253,16 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   revoke; invalid→401 no revoke). Removed the obsolete deleteToken-based logout test from
   refresh-token-route.test.ts (kept its deleteToken mock — refresh "not called" assertion
   still uses it). Result: typecheck clean; **532 passed, 3 skipped**; build green.
+- Phase 6 iter1: Gemini APPROVE, Codex REQUEST_CHANGES, Claude COMMENT (same point):
+  logout-route test mocks deleteUserTokens → proves the route CALLS it but not that a
+  post-logout refresh token is actually rejected; deleteUserTokens had zero DB coverage.
+  → Added DB-level (pglite) test in token-grace.test.ts: deleteUserTokens revokes both
+  access+refresh (findToken misses both) + user-scoping (other user's token survives).
+  Fixed stale comments (refresh-token-route header, token-grace :127). **534 passed**.
+  **PR-BODY RESIDUALS to document** (plan-conformant, not defects): (a) logout now returns
+  401 for an unrecognized bearer (was 200) — client-visible tightening; (b) an EXPIRED access
+  token → 401, so its 90-day refresh token can't be revoked (future POST /logout {refresh_token}
+  would close it); (c) logout no longer idempotent (2nd call → 401); (d) deleteToken now
+  production-dead (removal candidate at PR cleanup).
 
 

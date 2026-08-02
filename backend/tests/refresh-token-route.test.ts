@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Regression tests for issue #34 at the HTTP route layer: the refresh endpoint
 // must rotate (not hard-delete) the old token, so concurrent refreshes with the
-// same token all succeed; logout must still invalidate immediately.
+// same token all succeed.
 
 const mockIssueTokenPair = vi.fn();
 const mockMarkTokenRotated = vi.fn();

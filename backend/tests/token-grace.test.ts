@@ -21,6 +21,7 @@ import { hashToken } from '@/lib/auth/jwt';
 import {
   findToken,
   deleteToken,
+  deleteUserTokens,
   markTokenRotated,
   deleteExpiredTokens,
   REFRESH_TOKEN_GRACE_MS,
@@ -123,8 +124,8 @@ describe('refresh-token grace window (issue #34)', () => {
     expect(await findToken('refresh-old')).toBeUndefined();
   });
 
-  // (d) Logout (deleteToken) invalidates immediately — no grace.
-  it('logout invalidates the token immediately, with no grace', async () => {
+  // (d) deleteToken invalidates a single token immediately — no grace.
+  it('deleteToken invalidates the token immediately, with no grace', async () => {
     await insertToken({ token: 'refresh-logout', type: 'refresh' });
     expect(await deleteToken('refresh-logout')).toBe(true);
     expect(await findToken('refresh-logout')).toBeUndefined();
@@ -159,5 +160,44 @@ describe('refresh-token grace window (issue #34)', () => {
     expect(await deleteExpiredTokens()).toBe(1);
     expect(await findToken('fresh-rotated')).toBeDefined();
     expect(await findToken('active')).toBeDefined();
+  });
+});
+
+// Spec 4 Phase 6: full logout revokes ALL of a user's tokens. This proves the
+// end-to-end criterion — after deleteUserTokens, both access and refresh tokens
+// stop resolving — that the (mocked) logout-route test cannot.
+describe('deleteUserTokens (full logout — spec 4)', () => {
+  const OTHER_USER_ID = '99999999-9999-9999-9999-999999999999';
+
+  it('revokes both the access and refresh tokens so neither validates', async () => {
+    await insertToken({ token: 'at-logout', type: 'access' });
+    await insertToken({ token: 'rt-logout', type: 'refresh' });
+    expect(await findToken('at-logout')).toBeDefined();
+    expect(await findToken('rt-logout')).toBeDefined();
+
+    const removed = await deleteUserTokens(USER_ID);
+    expect(removed).toBeGreaterThanOrEqual(2);
+
+    expect(await findToken('at-logout')).toBeUndefined();
+    expect(await findToken('rt-logout')).toBeUndefined();
+  });
+
+  it('is scoped to the user — another user\'s tokens survive', async () => {
+    await client.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'nologin')
+       ON CONFLICT (id) DO NOTHING`,
+      [OTHER_USER_ID, 'other-logout@example.com']
+    );
+    await client.query(
+      `INSERT INTO tokens (user_id, token_type, token_hash, expires_at)
+       VALUES ($1, 'refresh', $2, now() + interval '1 hour')`,
+      [OTHER_USER_ID, hashToken('other-rt')]
+    );
+    await insertToken({ token: 'mine-rt', type: 'refresh' });
+
+    await deleteUserTokens(USER_ID);
+
+    expect(await findToken('mine-rt')).toBeUndefined(); // mine gone
+    expect(await findToken('other-rt')).toBeDefined();  // theirs intact
   });
 });
