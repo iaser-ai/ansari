@@ -33,3 +33,24 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   Deps: bcrypt ^6, jsonwebtoken ^9, drizzle-orm ^0.45, zod ^4, vitest ^4.
 - Spawned Explore agent for full current-state map of routes/db/middleware.
 
+## 2026-08-01 — Spec drafted + 3-way review (specify iter 1)
+- Wrote full spec (canonical template) → committed "[Spec 4] Initial specification draft".
+- porch checks pass; ran 3-way consult (gemini/codex/claude).
+  - **Gemini: APPROVE.** Codex: REQUEST_CHANGES. Claude: REQUEST_CHANGES. Both
+    change-requests HIGH-confidence and code-grounded — genuinely useful.
+- Key contradictions the reviewers caught + how I resolved them (all baked into spec):
+  1. Rotated-reuse detection vs. the deleteExpiredTokens sweep destroy the same rows
+     → sweep keys on natural expires_at; retain rotated rows until expiry.
+  2. Concurrent-refresh-both-succeed (issue #34) vs. reuse rejection → in-grace accept /
+     post-grace detect / unknown forge, defined precisely.
+  3. `source='system'` can't disambiguate ai-skill vs leaderboard → unique `system_key`.
+  4. Logout has no refresh token in the request → full deleteUserTokens(user.id) (all-device).
+  5. Session-version must be checked on access path too (it's FREE — join already returns user).
+  6. Admin bootstrap deadlock (reserved-addr registration blocked + boot-fail) → documented
+     create-or-flag script; assertion gated to NODE_ENV=production.
+  7. Blind backfill could promote a hijacked row → conditional (password_hash='nologin' + legit source).
+  8. Factual: no email-change endpoint today (updateUser only from reset_password) — corrected wording.
+- Two items left genuinely OPEN for the plan (not architect): deleteExpiredTokens trigger
+  (opportunistic vs cron); rotated-reuse response strength (reject+log vs revoke session).
+
+
