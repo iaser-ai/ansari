@@ -2,7 +2,7 @@
 
 ## Metadata
 - **ID**: plan-2026-08-02-auth-hardening
-- **Status**: draft
+- **Status**: complete — all 9 phases implemented & reviewed (PR #15)
 - **Specification**: [codev/specs/4-auth-hardening-admin-roles-in-.md](../specs/4-auth-hardening-admin-roles-in-.md)
 - **Created**: 2026-08-02
 

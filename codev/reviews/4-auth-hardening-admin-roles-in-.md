@@ -207,7 +207,15 @@ Populated the previously-placeholder HOT governance files and expanded the COLD 
 
 ## Flaky Tests
 
-- No flaky tests were introduced. Two pre-existing `mcp-complete` success-path tests remain `it.skip` (route returns non-JSON streaming — pre-existing, unrelated to this spec); the endpoint→identity mapping is now covered by a separate non-skipped test.
+- No flaky tests were introduced. **Three** pre-existing `mcp-complete`/`chat-completions` success-path tests remain `it.skip` (`tests/mcp-complete.test.ts:104,117,247` — the route returns non-JSON streaming; pre-existing, unrelated to this spec). The endpoint→identity mapping is covered by a separate non-skipped test.
+
+## Post-review integration (PR consultation, Round 1)
+
+Codex + Claude blocked on branch freshness (the security engineering was independently verified correct). Addressed:
+- **Merged `origin/develop`** (11 commits behind, incl. "Open-source readiness #6": Node 22, `eslint .`, `test:coverage`, CI gating). `docs/self-hosting.md` auto-merged cleanly.
+- Ran the **new full gate on the merged tree**: `lint` (0 errors), `typecheck`, `test`/`test:coverage` (**583 passed, 3 skipped**), `build` — all green.
+- Fixed `tests/api.test.ts` (a develop integration test): synced its hand-DDL `users` table with the 3 new columns and set the full required env (auth routes now go through validated `config`).
+- Finalized spec/plan `Status`; corrected the skipped-test count (3, not 2); added a migration index-lock deploy note.
 
 ## Follow-up Items
 

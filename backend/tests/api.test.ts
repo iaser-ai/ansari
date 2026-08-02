@@ -31,7 +31,12 @@ const MISSING_SHARE_ID = '44444444-4444-4444-4444-444444444444';
 const PASSWORD = 'Correct-Horse-Battery-9';
 
 beforeAll(async () => {
+  // Auth routes now source secrets/expiries through validated `config` (spec 4),
+  // which validates the whole env on first access — set every required var.
   process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
+  process.env.DATABASE_URL = 'postgresql://placeholder:placeholder@localhost:5432/placeholder';
+  process.env.KALEMAT_API_KEY = 'placeholder';
+  process.env.USUL_API_TOKEN = 'placeholder';
 
   client = new PGlite();
   h.db = drizzle(client, { schema });
@@ -49,6 +54,9 @@ beforeAll(async () => {
       last_name text,
       source text DEFAULT 'web',
       registered_via text,
+      is_admin boolean NOT NULL DEFAULT false,
+      system_key text,
+      session_version integer NOT NULL DEFAULT 0,
       created_at timestamp with time zone DEFAULT now(),
       updated_at timestamp with time zone DEFAULT now()
     );

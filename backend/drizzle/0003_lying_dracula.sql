@@ -1,3 +1,6 @@
+-- NOTE (deploy): CREATE UNIQUE INDEX below is non-concurrent and briefly locks
+-- writes to "users" while the index builds. Negligible at current scale; for a
+-- large table, build it with CREATE UNIQUE INDEX CONCURRENTLY (outside a tx) instead.
 ALTER TABLE "users" ADD COLUMN "is_admin" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "system_key" text;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "session_version" integer DEFAULT 0 NOT NULL;--> statement-breakpoint

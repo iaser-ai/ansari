@@ -8,7 +8,7 @@ Implementation phases, file paths, code, and sequencing live in codev/plans/4-*.
 
 ## Metadata
 - **ID**: spec-2026-08-01-auth-hardening
-- **Status**: draft
+- **Status**: implemented (PR #15)
 - **Created**: 2026-08-01
 - **Source**: GitHub issue #4 (2026-08-02 multi-model security review)
 
