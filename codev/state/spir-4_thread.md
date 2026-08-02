@@ -340,3 +340,12 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   FULL DB error object, which can carry the submitted email/params/hash (violates no-user-
   content-in-logs). -> Fix: safeErrorMeta(error) logs only {name, code(SQLSTATE)}, never the
   message/query/params. Test asserts logs contain neither 'constraint' nor the email. 569 passed.
+- Phase 9 iter2: unanimous APPROVE. Committed (f2a4b1b). ALL 9 IMPL PHASES DONE.
+
+## 2026-08-02 - Review phase
+- Wrote codev/reviews/4-*.md (full template: spec compliance, deviations, metrics, timelog,
+  consultation summary, lessons, arch/lessons updates, tech debt, follow-ups).
+- Populated the 4 governance docs (were STARTER placeholders): arch-critical.md (6 durable
+  auth invariants + cold map), lessons-critical.md (2 new lessons), arch.md (Authentication &
+  Authorization section), lessons-learned.md (Auth hardening spec 4 section). Hot files within cap.
+- Next: open PR, run review checks (pr_exists, review_has_arch/lessons_updates, e2e_tests).
