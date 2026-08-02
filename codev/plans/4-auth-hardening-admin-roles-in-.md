@@ -82,16 +82,18 @@ Revert the single phase commit; the routes fall back to direct env reads (prior 
 **Dependencies**: Phase 1
 
 #### Objectives
-- Replace the ~4 duplicated generate-and-store blocks with one `issueTokenPair(userId)` helper that reads expiries from `config.auth` and stores hashed access + refresh tokens.
+- Replace the duplicated generate-and-store blocks in the three **pair-issuing** routes with one `issueTokenPair` helper that reads expiries from `config.auth` and stores hashed access + refresh tokens — and give it a **transaction-executor parameter up front** so Phase 7 can call it inside a transaction.
 
 #### Deliverables
-- [ ] New helper `issueTokenPair(userId: string)` (in `lib/db/users.ts` alongside token storage, or a new `lib/auth/token-pair.ts`) returning `{ accessToken, refreshToken }`, using `generateToken` + `storeToken` and `config.auth` expiries.
-- [ ] Migrate `v2/users/register`, `v2/users/login`, `v2/users/refresh_token`, `v2/request_password_reset` (reset-token issuance stays its own single-token path if it differs) to call the helper; remove their inline `process.env.JWT_SECRET!` / `parseInt(...)` blocks.
-- [ ] Tests: `issueTokenPair` unit (returns two valid, correctly-typed, stored tokens); each migrated route still issues working tokens; a **repo-wide assertion test** that greps the auth routes for `process.env.JWT_SECRET` and fails if any remain.
+- [ ] New helper `issueTokenPair(userId: string, exec: Executor = db)` (in `lib/db/users.ts` alongside token storage) returning `{ accessToken, refreshToken }`, using `generateToken` + `storeToken` and `config.auth` expiries. **The `exec` (Drizzle db-or-tx) parameter is defined now** even though Phase 1/2 always pass the default `db`; Phase 7 passes a `tx`. `storeToken` also gains the `exec` parameter so the inserts run on the caller's executor.
+- [ ] Migrate the **pair-issuing** sites only — `v2/users/register`, `v2/users/login`, `v2/users/refresh_token` — to call `issueTokenPair`; remove their inline `process.env.JWT_SECRET!` / `parseInt(...)` blocks.
+- [ ] `v2/request_password_reset` issues a **single reset token**, not a pair — it is **explicitly excluded** from `issueTokenPair`. In this phase it only has its `process.env.JWT_SECRET!` read replaced with `config.auth.jwtSecret` (already partly covered by Phase 1; ensure its reset-token generate/store uses config, not `issueTokenPair`).
+- [ ] Tests: `issueTokenPair` unit (returns two valid, correctly-typed, stored tokens; token `exp` matches `config.auth`); each migrated route still issues working tokens; a **repo-wide assertion test** that greps the auth routes for `process.env.JWT_SECRET` and fails if any remain.
 
 #### Implementation Details
-- Preserve exact response shapes each route returns today (e.g. register's `{ status: 'success', ... }`) — this is a pure internal refactor, no wire change.
-- `refresh_token` still performs rotation/mark-rotated around the issuance; only the generate-and-store block is replaced (rotation atomicity is Phase 7).
+- Define an `Executor` type (Drizzle `PgDatabase` | transaction) once so Phase 7's threading is type-clean. `issueTokenPair(userId, exec=db)` and `storeToken(..., exec=db)` default to the module-level `db`, so Phase 1/2 behavior is identical to today.
+- Preserve exact response shapes each route returns today (e.g. register's `{ status: 'success', ... }`) — pure internal refactor, no wire change.
+- `refresh_token` still performs rotation/mark-rotated around the issuance; only the generate-and-store block is replaced here (rotation *atomicity* is Phase 7).
 
 #### Acceptance Criteria
 - [ ] Single generate-and-store implementation; no direct `process.env.JWT_SECRET` in any migrated route.
@@ -113,7 +115,7 @@ Revert commit; routes revert to inline issuance.
 **Dependencies**: None (foundation for Phases 4, 5, 7)
 
 #### Objectives
-- Add the three durable, server-controlled columns in **one reviewable migration**, with a legitimacy-checked backfill for existing system rows.
+- Add the three durable, server-controlled columns in **one reviewable migration**, with a legitimacy-checked backfill for existing system rows — **and keep the repo's hand-written test DDL in sync** so the existing pglite suites don't break.
 
 #### Deliverables
 - [ ] `db/schema/users.ts`: add
@@ -121,28 +123,35 @@ Revert commit; routes revert to inline issuance.
   - `systemKey: text('system_key')` with a **unique** index (nullable; non-null only on system rows)
   - `sessionVersion: integer('session_version').notNull().default(0)`
 - [ ] `npm run db:generate` → produces `drizzle/0003_*.sql` (+ meta snapshot, `_journal.json`). **Review the SQL. Do NOT `db:push`.**
-- [ ] Append/author the **conditional backfill** in the migration (or a clearly-named companion statement, applied together):
+- [ ] Author the **conditional backfill** as SQL applied with the migration:
   `UPDATE users SET system_key = 'ai-skill'    WHERE email = 'ai-skill@system.ansari.chat'    AND password_hash = 'nologin' AND source = 'ai-skill';`
   `UPDATE users SET system_key = 'leaderboard' WHERE email = 'leaderboard@system.ansari.chat' AND password_hash = 'nologin' AND source = 'leaderboard';`
-- [ ] Tests: apply migration on pglite; assert the three columns + unique index on `system_key` exist; assert the backfill marks a legit (`password_hash='nologin'`) row and **does not** mark a hijacked (real-hash) row.
+- [ ] **Sync the hand-written pglite DDL and fixtures (REQUIRED — adding columns breaks these otherwise):**
+  - `tests/token-grace.test.ts` (hand `CREATE TABLE users` at ~line 37): add `is_admin`, `system_key`, `session_version` columns — because drizzle `select()`/`innerJoin(users)` in `findToken` enumerates every schema column, so a missing DB column throws `column users.is_admin does not exist`.
+  - `tests/attribution-schema.test.ts` (hand `CREATE TABLE users` at ~line 35; the file states its DDL "MUST stay in sync with db/schema/*.ts"): add the three columns.
+  - `tests/schema.test.ts` (~lines 5-15): add `expect(users.isAdmin/systemKey/sessionVersion).toBeDefined()` assertions.
+  - Typecheck fixtures that build `User` literals — `tests/refresh-token-route.test.ts:~40` (and any other `User`-typed literal) — now need `isAdmin`/`sessionVersion` (non-optional in `$inferSelect`). Add the fields.
+- [ ] Tests: on hand-DDL pglite, insert a legit system row (`password_hash='nologin'`, matching `source`) and a hijacked row (real bcrypt hash, same email shape) and run the **exact backfill UPDATE** — assert it marks only the legit row. (This validates the backfill *predicate* using the repo's existing hand-DDL pattern; it does **not** introduce a new SQL-file migrator harness.)
 
 #### Implementation Details
-- Unique index on `system_key` must permit multiple NULLs (Postgres unique indexes treat NULLs as distinct — default behavior; verify the generated DDL does not use `NULLS NOT DISTINCT`).
-- No application code reads the new columns in this phase — it is schema-only, so it is safe to land before the feature phases. Existing rows get `is_admin=false`, `session_version=0`, `system_key=NULL` via defaults.
+- Unique index on `system_key` must permit multiple NULLs (Postgres unique indexes treat NULLs as distinct by default; verify the generated DDL does **not** use `NULLS NOT DISTINCT`).
+- **This phase is NOT "schema-only, safe to land" in isolation** — the schema change ripples into the hand-DDL test harness (above). The application code does not yet *read* the new columns, but the column *enumeration* on every `users` select means the DDL sync is mandatory in the same commit. Existing rows get `is_admin=false`, `session_version=0`, `system_key=NULL` via defaults.
+- The repo has **no SQL-file migrator in tests** (tests hand-write DDL); do not add one here. The generated `drizzle/0003_*.sql` is for the human deploy apply, reviewed by eye.
 
 #### Acceptance Criteria
-- [ ] Migration applies cleanly on a fresh pglite DB; columns/index present; backfill predicate is legitimacy-checked.
-- [ ] `typecheck` passes with the new `$inferSelect` types.
+- [ ] `db:generate` produces a reviewed additive migration; `system_key` unique index allows multiple NULLs; backfill predicate is legitimacy-checked.
+- [ ] `npm run typecheck && npm test` green — including the updated hand-DDL suites and `User`-literal fixtures.
 
 #### Test Plan
-- **Unit/Integration** (pglite): migration-apply test; backfill legit-vs-hijacked assertions.
-- **Manual**: read the generated SQL diff; confirm no destructive statements, no `db:push`.
+- **Unit/Integration** (pglite, hand-DDL): backfill legit-vs-hijacked predicate; updated `schema.test.ts` column assertions; existing token-grace/attribution suites still green with the synced DDL.
+- **Manual**: read the generated SQL diff; confirm additive-only, no destructive statements, no `db:push`.
 
 #### Rollback Strategy
-The migration is additive (new nullable/defaulted columns). Rollback = a follow-up migration dropping the columns; not expected. Revert the schema commit before the human applies it if needed.
+The migration is additive (new nullable/defaulted columns). Rollback = a follow-up migration dropping the columns; not expected. Revert the schema commit (which also reverts the DDL/fixture sync) before the human applies the migration if needed.
 
 #### Risks
-- **Risk**: a system email is already hijacked, so the legit row doesn't exist and backfill marks nothing → the endpoint later provisions a fresh system row (Phase 5) but the email is taken (unique). **Mitigation**: Phase 5 resolves system identity by `system_key`, not email; the runbook's inspect-before-apply step surfaces a hijacked row for manual remediation before deploy.
+- **Risk**: adding columns silently breaks the hand-DDL pglite suites. **Mitigation**: the DDL/fixture sync is an explicit same-commit deliverable above.
+- **Risk**: a system email is already hijacked, so the legit row doesn't exist and backfill marks nothing → Phase 5 must provision by key and fail-fast on the taken email. **Mitigation**: Phase 5 resolves identity by `system_key`; the runbook inspect-before-apply step (a hard precondition) surfaces a hijacked row for manual remediation before deploy.
 
 ---
 
@@ -153,15 +162,18 @@ The migration is additive (new nullable/defaulted columns). Rollback = a follow-
 - Gate admin on `users.is_admin`; reserve admin addresses at registration (anti-oracle 409); assert admin existence at production boot; provide a bootstrap path.
 
 #### Deliverables
-- [ ] `lib/auth/admin.ts`: `requireAdmin` grants iff `authResult.user.isAdmin === true` (DB flag). `isAdmin(email)` is removed or repurposed as `isReservedAdminAddress(email)` (see below). `/api/v2/admin/stats` is unaffected structurally.
-- [ ] Reserved-address check (shared helper, e.g. `lib/auth/reserved.ts` `isReservedAddress(normalizedEmail)`): returns true for any configured admin address (`config.admin.emails`). `v2/users/register` calls it on the normalized (lowercased) email and, on match, returns **exactly** `createErrorResponse('An account with this email already exists', 409)` — identical to the existing conflict branch. (Phase 5 extends this helper to system addresses.)
-- [ ] Production startup assertion in `src/instrumentation.ts` `register()`: when `NODE_ENV==='production'` and `NEXT_RUNTIME==='nodejs'`, assert every `config.admin.emails` address has a matching user row with `is_admin=true`; throw (fail-fast) otherwise. Gated off in dev/test/CI.
-- [ ] `scripts/grant-admin.ts` (Typer-free Node/ts script): given an email, create-or-flag — set `is_admin=true` on the existing user, or document the register-then-flag ordering. This is the sole path to create the first admin (reserved-address registration being blocked).
-- [ ] Tests: (a) account whose email ∈ allowlist but `is_admin=false` → `/admin/stats` 403; (b) `is_admin=true` → 200; (c) registering a reserved admin address → **byte-identical** 409 as the existing conflict (assert message + status); (d) startup assertion throws in prod-sim when admin row missing, no-ops in test; (e) bootstrap script sets the flag.
+- [ ] `lib/auth/admin.ts`: `requireAdmin` grants iff `authResult.user.isAdmin === true` (DB flag). The email-based `isAdmin(email)` is **removed**; its reservation role moves to a shared `isReservedAddress` helper (below). `/api/v2/admin/stats` is unaffected structurally.
+- [ ] **Rewrite `tests/admin-auth.test.ts`**: it currently tests `isAdmin(email)` (lines 29-57), which no longer exists. Replace with tests for `requireAdmin` gating on the `is_admin` flag and for `isReservedAddress`.
+- [ ] Reserved-address check (shared helper `lib/auth/reserved.ts` `isReservedAddress(normalizedEmail): boolean`): returns true for any configured admin address (`config.admin.emails`). (Phase 5 extends it to system addresses/domain.)
+- [ ] `v2/users/register`: call `isReservedAddress(email.toLowerCase())` and, on match, return **exactly** `createErrorResponse('An account with this email already exists', 409)`. **Placement is load-bearing (architect-pinned anti-oracle):** the check MUST sit **immediately adjacent to the existing conflict check (register/route.ts:34-36), BEFORE the password-strength check at lines 39-46.** Otherwise `reserved + weak-password` returns 400 while `taken + weak-password` returns 409 — reopening the oracle. Ideally fold reserved-address into the same branch as the existing-account check so both yield the identical 409 at the same point.
+- [ ] Production startup assertion in `src/instrumentation.ts` `register()`: assert every `config.admin.emails` address has a matching user row with `is_admin=true`; throw (fail-fast) otherwise. **Gating (all must hold to run): `NODE_ENV==='production'` AND `NEXT_RUNTIME==='nodejs'` AND `NEXT_PHASE !== 'phase-production-build'`** — the build-phase guard prevents the assertion (a DB query) from executing during `next build`, which CI runs with `.env.ci`'s unreachable `DATABASE_URL`. Verify with a real `npm run build` that boot-assert does not fire at build time.
+- [ ] `scripts/grant-admin.ts` — **the sole bootstrap path** (reserved-address registration is blocked): given an email (and password via prompt/env, NOT a CLI arg that lands in shell history), **create the user with a real bcrypt `password_hash` (via `hashPassword`) and `is_admin=true`**, or set `is_admin=true` if the row already exists (idempotent upsert on email). Invoked as `npx tsx scripts/grant-admin.ts <email>` from `backend/`. It must produce an account that can log in (the admin UI `src/app/admin/analytics/page.tsx:~84` authenticates with email+password before reaching stats).
+- [ ] Tests: (a) allowlisted-email + `is_admin=false` → `/admin/stats` 403; (b) `is_admin=true` → 200; (c) registering a reserved admin address → **byte-identical** 409 as the existing conflict (assert status + message + body shape), including the `reserved + weak-password` case still returning 409 (placement test); (d) startup assertion throws in prod-sim when the admin row is missing, and is skipped when `NEXT_PHASE==='phase-production-build'` / in test; (e) bootstrap script creates a login-capable admin and is idempotent.
 
 #### Implementation Details
-- **Anti-oracle (architect-pinned)**: the reserved-address branch MUST reuse the same `createErrorResponse('An account with this email already exists', 409)` call — same string, same status, same body shape — as line 36. A test asserts the two responses are indistinguishable.
-- The startup DB query couples prod boot to DB reachability (accepted fail-fast); log a clear message on assertion failure (no user content).
+- **Anti-oracle (architect-pinned)**: reuse the exact `createErrorResponse('An account with this email already exists', 409)` call AND place it before the strength check. Both the string/status AND the placement are required.
+- The startup DB query couples prod boot to DB reachability (accepted fail-fast); log a clear message on assertion failure (no user content). The `NEXT_PHASE` build guard is mandatory, not optional.
+- Bootstrap password handling: prompt interactively or read from an env var the operator sets for the run; never accept the password as a positional CLI arg (shell-history leak).
 
 #### Acceptance Criteria
 - [ ] Admin authorization derives solely from `is_admin`; email allowlist is used only for reservation + startup assertion.
@@ -187,29 +199,32 @@ Revert commit → admin reverts to email-match (pre-fix). Because it's one commi
 - Resolve system users by `system_key` (never by attacker-registerable email) and reserve the system domain at registration (anti-oracle 409).
 
 #### Deliverables
-- [ ] `lib/db/users.ts`: `findSystemUser(systemKey: 'ai-skill' | 'leaderboard')` (lookup by `system_key`) and idempotent `getOrCreateSystemUser(systemKey)` that creates a row with `system_key` set and a non-conflicting identity (e.g. `passwordHash='nologin'`, `source=systemKey`); relies on the unique `system_key` index for concurrent-safety.
+- [ ] `lib/db/users.ts`: `findSystemUser(systemKey: 'ai-skill' | 'leaderboard')` (lookup by `system_key`) and idempotent `getOrCreateSystemUser(systemKey)`.
+- [ ] **Define the exact identity of a lazily-created system row.** The row sets `system_key`, `password_hash='nologin'`, `source=systemKey`, and a **deterministic email that cannot collide with a public registration** — the reserved system addresses (`ai-skill@system.ansari.chat` / `leaderboard@system.ansari.chat`). Because registration of the `@system.ansari.chat` domain is blocked (this phase), that email is only ever creatable by this helper going forward.
+- [ ] **Hijacked-row handling (explicit fail-fast, not a retry loop).** If `findSystemUser(key)` returns nothing AND the insert fails on the **unique `email`** constraint (meaning a pre-existing row already holds that email but has no `system_key` — i.e. it was hijacked before the reservation landed), do **not** re-read by `system_key` (that returns nothing and would loop). Instead **fail fast**, logging an operator-actionable message ("system email X is occupied by a non-system account; run the inspect-before-apply remediation"). This case is prevented in normal deploys by the runbook's inspect-before-apply hard precondition; the code fails loudly rather than silently misbehaving.
 - [ ] `v2/mcp-complete/route.ts` and `v1/chat/completions/route.ts`: replace `findUserByEmail(SYSTEM_USER_EMAIL) || createUser(...)` with `getOrCreateSystemUser('ai-skill' | 'leaderboard')`. Keep the module-level id cache.
-- [ ] Extend the shared reserved-address helper (Phase 4) to also match the configured system domain (`@system.ansari.chat`) / configured system addresses; `register` returns the **identical** 409 on match.
+- [ ] Extend the shared `isReservedAddress` helper (Phase 4) to also match the configured system domain (`@system.ansari.chat`) / configured system addresses; `register` returns the **identical** 409 on match, **at the same pre-strength-check placement** as Phase 4 (anti-oracle).
 - [ ] Config: add the system-address/domain source (a `config.system` getter or a constant list) so reservation and lookup share one source of truth.
-- [ ] Tests: (a) registering `ai-skill@system.ansari.chat` / `leaderboard@system.ansari.chat` / arbitrary `@system.ansari.chat` → identical 409; (b) `findSystemUser('ai-skill')` and `('leaderboard')` each resolve the correct row; (c) a pre-registered look-alike (no `system_key`) is **not** returned by `findSystemUser`.
+- [ ] Tests: (a) registering `ai-skill@system.ansari.chat` / `leaderboard@system.ansari.chat` / arbitrary `@system.ansari.chat` → identical 409 (incl. reserved + weak-password → still 409); (b) `findSystemUser('ai-skill')` and `('leaderboard')` each resolve the correct row; (c) a pre-registered look-alike (no `system_key`) is **not** returned by `findSystemUser`; (d) the hijacked-email insert path fails fast with the operator log (not an infinite retry).
 
 #### Implementation Details
-- System identity is fully decoupled from email: lookup is by `system_key`. Existing legit rows were marked by Phase 3's backfill; new deploys create them lazily by key.
-- Concurrent provisioning: rely on the unique index; on insert conflict, re-read by `system_key`.
+- System identity is fully decoupled from email *for authorization/attribution* (lookup is by `system_key`), but the row still carries the canonical email as a value; the unique-email constraint is what the hijack case trips, hence the explicit fail-fast above.
+- Concurrent provisioning (normal case): on a unique-`system_key` conflict from a race between two lazy creators, re-read by `system_key` and use that row.
 
 #### Acceptance Criteria
-- [ ] No system endpoint resolves its identity by email.
-- [ ] System-domain registration is indistinguishable from an existing-account conflict.
+- [ ] No system endpoint resolves its identity by email; lookup is by `system_key`.
+- [ ] System-domain registration is indistinguishable from an existing-account conflict (same 409, same placement).
+- [ ] The hijacked-email case fails fast with an actionable log, never a silent misroute or loop.
 
 #### Test Plan
-- **Integration**: system-address registration oracle-uniformity; system lookup-by-key for both identities; hijack-attempt not resolved.
-- **Unit**: `getOrCreateSystemUser` idempotency (simulate existing row).
+- **Integration**: system-address registration oracle-uniformity; system lookup-by-key for both identities; hijack-attempt not resolved; fail-fast on occupied email.
+- **Unit**: `getOrCreateSystemUser` idempotency (existing-row race) and fail-fast (occupied email) branches.
 
 #### Rollback Strategy
 Revert commit → endpoints revert to email lookup. (Do not revert Phase 3 columns.)
 
 #### Risks
-- **Risk**: an already-hijacked system email blocks lazy creation (unique email). **Mitigation**: identity is `system_key`, not email; runbook inspect-before-apply flags the hijacked row for manual cleanup.
+- **Risk**: an already-hijacked system email blocks lazy creation (unique email). **Mitigation**: runbook inspect-before-apply is a hard precondition; code fails fast with an operator-actionable log instead of misrouting.
 
 ---
 
@@ -220,23 +235,26 @@ Revert commit → endpoints revert to email lookup. (Do not revert Phase 3 colum
 - Make logout reliably end the session by revoking all of the user's tokens.
 
 #### Deliverables
-- [ ] `v2/users/logout/route.ts`: resolve the user from the access token (via `authenticateRequest`/`verifyToken`) and call `deleteUserTokens(user.id)` (full, all-device logout) instead of `deleteToken(accessToken)`.
-- [ ] Tests: after logout, the user's refresh token is rejected by `refresh_token`; the access token is rejected by an authenticated endpoint.
+- [ ] `v2/users/logout/route.ts`: resolve the user from the access token (verify it and load the user), then call `deleteUserTokens(user.id)` (full, all-device logout) instead of `deleteToken(token)`.
+- [ ] **Preserve the existing wire contract for the auth-failure paths**: the route currently returns `createErrorResponse('Not authenticated', 401)` when no bearer token is present (`logout/route.ts:12`). **Keep the 401** for missing token; an **invalid/unverifiable** token also returns 401 (do not silently succeed). Only a valid access token proceeds to `deleteUserTokens`.
+- [ ] Tests: after logout with a valid token, the user's refresh token is rejected by `refresh_token` and the access token is rejected by an authenticated endpoint; **no-token → 401; invalid-token → 401** (contract preserved).
 
 #### Implementation Details
-- Full logout is the pinned decision (spec Desired State #3): the request carries only the bearer access token and there's no per-device session grouping. Update the existing logout test (`refresh-token-route.test.ts` currently asserts single-token deletion) to the new contract.
+- Full logout is the pinned decision (spec Desired State #3): the request carries only the bearer access token and there's no per-device session grouping. **Update the existing logout test** (`tests/refresh-token-route.test.ts` currently asserts `deleteToken('at')` single-token deletion) to the new `deleteUserTokens(user.id)` contract.
+- Do **not** change the no-token behavior to success/no-op — it returns 401 today and must continue to.
 
 #### Acceptance Criteria
-- [ ] Post-logout refresh token is rejected; the all-device behavior is covered by a test and documented.
+- [ ] Valid-token logout revokes all the user's tokens (post-logout refresh rejected); all-device behavior documented.
+- [ ] No-token and invalid-token both return 401 (unchanged contract).
 
 #### Test Plan
-- **Integration**: login → logout → refresh (expect reject) and authed request (expect 401).
+- **Integration**: login → logout → refresh (expect reject) and authed request (expect 401); no-token logout → 401; invalid-token logout → 401.
 
 #### Rollback Strategy
 Revert commit → logout reverts to access-token-only deletion.
 
 #### Risks
-- **Risk**: unauthenticated logout (no/invalid token) now needs graceful handling. **Mitigation**: return the existing success/no-op shape without throwing; test the no-token path.
+- **Risk**: broadening deletion changes the (currently single-token) logout test. **Mitigation**: update that test to the full-logout contract as a listed deliverable; keep the 401 auth-failure assertions intact.
 
 ---
 
@@ -247,31 +265,35 @@ Revert commit → logout reverts to access-token-only deletion.
 - Make refresh rotation atomic; bump `session_version` on password reset; check it on **every** token validation (access + refresh); retain rotated rows until natural expiry so rotated-token reuse is detected.
 
 #### Deliverables
-- [ ] `lib/db/users.ts`: wrap validate → mark-rotated → issue-pair in a **DB transaction** (`db.transaction(...)`), row-scoped so concurrent unrelated requests aren't serialized. Preserve issue #34 concurrent-refresh-both-succeed within the 60s grace.
-- [ ] Session version: embed the issuing `session_version` in the token payload (extend `generateToken`/`issueTokenPair`); `authenticateRequest` and `validateRefreshToken` reject when the token's version < the user's current `session_version`. The version compare piggybacks on the existing `findToken` `innerJoin users` (no extra query).
-- [ ] `v2/reset_password/route.ts`: inside the reset transaction, bump `users.session_version` (increment) in addition to `deleteUserTokens(user.id)`, so a token minted by a racing refresh just before revocation is invalidated by the version bump even if its row survives.
-- [ ] Rotated-token reuse: `findToken` distinguishes (a) valid, (b) rotated-within-grace (accept), (c) rotated-past-grace (retained row → **detected reuse**: reject + log), (d) unknown hash (forged: reject). Log detected reuse (no user content, no raw token). *(Open: whether detection also bumps `session_version` to kill the session — default reject+log; decide in review.)*
-- [ ] Tests: reset-vs-refresh interleavings (both orderings) prove no post-reset-valid pair survives; session-version invalidates a pre-reset access token on the access path; rotated-token replay past grace is detected; in-grace concurrent refresh still both succeed.
+- [ ] **Thread the transaction executor through every helper the rotation/reset paths touch** (this is what makes atomicity real — `db.transaction()` is a no-op unless inner queries use the `tx` handle, and today `storeToken`, `markTokenRotated`, `findToken`, `deleteUserTokens`, `updateUser`, and `issueTokenPair` all close over the module-level `db`). Add the `exec: Executor = db` parameter (introduced in Phase 2 for `issueTokenPair`/`storeToken`) to `markTokenRotated`, `findToken`, `deleteUserTokens`, and `updateUser`. Enumerate each signature change as a deliverable.
+- [ ] `lib/db/users.ts`: wrap validate → mark-rotated → issue-pair in a **DB transaction** (`db.transaction(async (tx) => …)`), passing `tx` to every inner helper. Preserve issue #34 concurrent-refresh-both-succeed within the 60s grace.
+- [ ] Session version: embed the issuing `session_version` in the token payload (extend `generateToken`/`issueTokenPair`); `authenticateRequest` and `validateRefreshToken` reject when the token's version **≠** the user's current `session_version` (equality check; a **missing claim is treated as version 0**). The compare piggybacks on the existing `findToken` `innerJoin users` (no extra query).
+- [ ] **Capture the session version at authorization time, not re-fetch after mutation.** During a refresh, read the user's `session_version` when the refresh token is validated and pass **that captured value** into transactional issuance, so a refresh racing a concurrent reset cannot mint version-*current* tokens: if the reset already incremented the version, the captured (pre-reset) value is stale and the newly-issued tokens carry the stale version → rejected. Do **not** have `issueTokenPair` re-read `session_version` inside the transaction.
+- [ ] `v2/reset_password/route.ts`: **inside one reset transaction**, `updateUser({passwordHash}, tx)` + increment `users.session_version` (`tx`) + `deleteUserTokens(user.id, tx)`, so revocation and version bump commit atomically.
+- [ ] Rotated-token reuse: `findToken` distinguishes (a) valid, (b) rotated-within-grace (accept), (c) rotated-past-grace but **not yet past natural `expires_at`** (retained row → **detected reuse**: reject + log), (d) unknown hash (forged: reject). Log detected reuse at `warn` (no user content, no raw/unhashed token). **Decision: reject + log only; do NOT bump `session_version` on reuse** (revoke-on-reuse is noted as a future option, not implemented here).
+- [ ] Tests: reset-vs-refresh interleavings (both orderings) as **deterministic sequences** prove no post-reset-valid pair survives; session-version (≠, missing=0) invalidates a pre-reset access token on the access path; rotated-token replay past grace is detected; in-grace concurrent refresh still both succeed.
 
 #### Implementation Details
-- The retention rule lives with the sweep (Phase 9): `deleteExpiredTokens` deletes only rows past natural `expires_at`, never merely past grace — this is what keeps a rotated row available for reuse detection. State this dependency explicitly; if Phase 9 lands after Phase 7, the retention is already the default (nothing sweeps yet).
+- **pglite is a single in-process connection and cannot exercise real concurrency** — the existing "concurrent refresh" coverage (`refresh-token-route.test.ts:~67`) is fully mocked. Test races as **deterministic interleavings** (call the steps in a fixed order), not true parallelism. Also verify `db.transaction()` interacts cleanly with the existing pglite hand-DDL patterns (it may serialize; ensure no deadlock/hang in the suite).
+- The retention rule lives with the sweep (Phase 9): `deleteExpiredTokens` deletes only rows past natural `expires_at`, never merely past grace — this keeps a rotated row available for reuse detection. If Phase 9 lands after Phase 7, retention is already the default (nothing sweeps yet).
 - Embedding `session_version` in the JWT keeps the access-path check to a comparison against the joined user row.
 
 #### Acceptance Criteria
-- [ ] Rotation is transactional and preserves concurrent-refresh semantics.
-- [ ] Password reset reliably kills sessions on both token paths (version-checked).
-- [ ] Rotated-token reuse past grace is detected and logged.
+- [ ] Rotation is genuinely atomic (all inner queries use `tx`) and preserves concurrent-refresh semantics.
+- [ ] Password reset reliably kills sessions on both token paths (version captured at auth-time, checked by equality, missing=0).
+- [ ] Rotated-token reuse past grace (pre-expiry) is detected and logged.
 
 #### Test Plan
-- **Integration (pglite)**: interleaved reset/refresh; reuse-detection; grace-window concurrency; access-path version rejection.
-- **Unit**: `findToken` state machine (valid / in-grace / past-grace-reuse / unknown).
+- **Integration (pglite, deterministic interleavings)**: reset/refresh both orderings; reuse-detection; grace-window concurrency (mocked/sequenced); access-path version rejection.
+- **Unit**: `findToken` state machine (valid / in-grace / past-grace-reuse-pre-expiry / unknown); executor threading (helper called with `tx` writes within the transaction).
 
 #### Rollback Strategy
-Revert commit → rotation reverts to non-transactional soft-mark; session_version column remains unused (harmless).
+Revert commit → rotation reverts to non-transactional soft-mark; `session_version` column remains unused (harmless).
 
 #### Risks
-- **Risk**: transaction serialization regresses refresh throughput. **Mitigation**: row-scoped locking only; regression-test concurrent refresh.
-- **Risk**: embedding version in the JWT changes token payload. **Mitigation**: additive claim; `verifyToken` tolerates its presence/absence (treat missing as version 0 for pre-existing tokens).
+- **Risk**: transaction serialization regresses refresh throughput / hangs pglite. **Mitigation**: row-scoped locking; verify the suite doesn't deadlock; deterministic-interleaving tests.
+- **Risk**: embedding version in the JWT changes token payload. **Mitigation**: additive claim; missing claim treated as version 0 for pre-existing tokens.
+- **Risk**: re-fetching version inside issuance would defeat the race fix. **Mitigation**: capture-at-auth-time is an explicit deliverable; a test asserts a reset-before-issue interleaving yields a rejected token.
 
 ---
 
@@ -313,12 +335,14 @@ Revert commit → feedback reverts to message-in-thread-only check.
 - [ ] `v1/chat/completions/route.ts` `authorize()`: replace `match[1].trim() !== expected` with a constant-time comparison — `crypto.timingSafeEqual` on equal-length buffers (length-check first to avoid throwing; unequal length ⇒ reject).
 - [ ] `lib/auth/password.ts`: raise `checkPasswordStrength` to `valid: score >= 3`; enforce a maximum length via the Zod schemas (`register` `password: z.string().min(8).max(128)`, `reset_password` `.max(128)`). Note in code/comment that bcrypt still truncates at 72 bytes (residual, not eliminated).
 - [ ] `v2/users/register/route.ts`: catch block returns a generic message (e.g. `'Registration failed'`) and logs the detailed error server-side (no user content). (System routes' `error.message` leakage may be addressed here too if low-cost.)
-- [ ] Wire `deleteExpiredTokens`: default to an **opportunistic sweep** (probabilistic invocation on token operations) OR a Railway cron — *decide with the operator*. Adjust its predicate so it deletes only tokens past natural `expires_at` (retaining post-grace rotated rows for reuse detection, per Phase 7).
-- [ ] Tests: timing-safe compare correctness (match / mismatch / length-mismatch); `aaaaaaaa` rejected (score 3), 129-char rejected, strong accepted; register returns generic error (detail not in body); sweep deletes expired but retains post-grace non-expired rotated rows.
+- [ ] Wire `deleteExpiredTokens` as a **low-probability, non-blocking opportunistic sweep** on token operations (**DECISION: opportunistic, not cron** — `railway.toml` has no cron and adding one is infra work outside this PR's shape). Fire-and-forget (don't block the request). Adjust its predicate so it deletes **only tokens past natural `expires_at`** (retaining post-grace-but-unexpired rotated rows for reuse detection, per Phase 7).
+- [ ] **Rewrite the existing green assertion** `tests/token-grace.test.ts:~147` ("deleteExpiredTokens sweeps spent rotated tokens but keeps fresh ones") — it asserts exactly the behavior this phase reverses (post-grace rotated rows must now be **retained** until natural expiry). Update it to the new retention contract so a future builder doesn't "fix" the code back. Explicit deliverable.
+- [ ] Tests: timing-safe compare correctness (match / mismatch / length-mismatch); `aaaaaaaa` rejected (now score < 3), 129-char rejected, strong accepted; register returns generic error (detail not in body, logged server-side); sweep deletes past-`expires_at` rows but **retains** post-grace unexpired rotated rows.
 
 #### Implementation Details
-- `deleteExpiredTokens` trigger mechanism is an open design choice (spec Open Questions): opportunistic needs no infra; cron is deterministic. Pick in consultation/with operator; either way honor the retention rule.
-- Constant-time compare must handle the unconfigured-key path (existing 503) unchanged.
+- **Sweep decision is now closed: opportunistic**, low-probability, non-blocking. No Railway cron. Honor the natural-`expires_at` retention rule so it never deletes a rotated row still needed for reuse detection.
+- Constant-time compare must handle the unconfigured-key path (existing 503) unchanged, and the **length-mismatch case** (reject without calling `timingSafeEqual` on unequal-length buffers, which throws).
+- `score >= 3` at reset/registration only affects new passwords; login compares bcrypt hashes and is unaffected.
 
 #### Acceptance Criteria
 - [ ] Leaderboard compare is constant-time; password policy is `score>=3` + `.max(128)`; register error is generic (detail logged); `deleteExpiredTokens` runs and honors retention.
@@ -354,7 +378,7 @@ Phase 8 (feedback IDOR) ── independent
 
 ### Infrastructure
 - **Database changes**: one migration (`0003_*`) adding `is_admin`, `system_key` (unique), `session_version` + conditional backfill. Human-applied at deploy; **never `db:push`**.
-- **New services**: none. Optional Railway cron if the operator prefers cron over opportunistic sweep for `deleteExpiredTokens`.
+- **New services**: none. `deleteExpiredTokens` runs as an in-process opportunistic sweep (decided — no Railway cron).
 - **Configuration updates**: possibly a `config.system` source for reserved system addresses/domain; document any new env in `lib/config.ts` + `.env.example`.
 
 ## Integration Points
@@ -373,8 +397,14 @@ Phase 8 (feedback IDOR) ── independent
 | Blind backfill promotes a hijacked system row | M | H | Conditional predicate (`password_hash='nologin'` + `source`); inspect-before-apply runbook | builder + operator |
 | Admin bootstrap deadlock (reserved reg + boot assertion) | M | H | Bootstrap script; runbook ordering migration→bootstrap→deploy; assertion prod-only | builder + operator |
 | Config-cache memo defeats short-secret test | L | M | Exported cache-reset hook | builder |
-| Reuse-detection defeated by sweep deleting rotated rows | M | M | Sweep keys on natural `expires_at`; retain post-grace rotated rows | builder |
+| Reuse-detection defeated by sweep deleting rotated rows | M | M | Sweep keys on natural `expires_at`; retain post-grace unexpired rotated rows | builder |
 | Session-version JWT claim breaks pre-existing tokens | L | M | Treat missing claim as version 0 (additive) | builder |
+| Adding schema columns breaks hand-DDL pglite suites (`token-grace`, `attribution-schema`, `schema.test`) | H | M | Same-commit DDL/fixture sync is a Phase 3 deliverable | builder |
+| `db.transaction()` non-atomic because helpers close over global `db` | H | H | Thread an `exec`/`tx` executor param through all rotation/reset helpers (Phase 2 + 7 deliverables) | builder |
+| Startup assertion fires during `next build` (CI/deploy build fails on unreachable `.env.ci` DB) | M | H | Add `NEXT_PHASE !== 'phase-production-build'` guard; verify with real build | builder |
+| Admin bootstrap can't log in (no bcrypt hash) | M | H | `grant-admin.ts` creates the account WITH a bcrypt `password_hash`; register-then-flag removed | builder |
+| System lazy-create fails on occupied (hijacked) email, silent misroute/loop | M | H | Fail fast with operator log; inspect-before-apply runbook precondition | builder + operator |
+| Anti-oracle reopened by check placement after strength check | M | H | Place reserved-address check before the strength check, adjacent to the existing 409 | builder |
 
 ### Schedule Risks
 | Risk | Probability | Impact | Mitigation | Owner |
@@ -408,10 +438,19 @@ Phase 8 (feedback IDOR) ── independent
 - [ ] Security spot-check: attempt the original attacks (register admin/system address, cross-user feedback, post-logout refresh, reset-vs-refresh race) against the built app.
 
 ## Expert Review
-**Date**: (pending — porch 3-way verify for the plan)
-**Model**: GPT-5 Codex, Gemini Pro, Claude
-**Key Feedback**: (to be filled after consultation)
-**Plan Adjustments**: (to be filled)
+**Date**: 2026-08-02 (porch 3-way verify — plan iteration 1)
+**Models**: Gemini Pro **APPROVE**; GPT-5 Codex **REQUEST_CHANGES**; Claude **REQUEST_CHANGES** (both HIGH confidence, code-grounded).
+**Key Feedback & Plan Adjustments** (all accepted; details in `codev/projects/4-.../4-plan-iter1-rebuttals.md`):
+- **Tx executor threading** (codex, claude): `db.transaction()` is a no-op unless inner helpers use the `tx` handle → introduced an `Executor` param in Phase 2 (`issueTokenPair`/`storeToken`) and threaded it through `markTokenRotated`/`findToken`/`deleteUserTokens`/`updateUser` in Phase 7.
+- **Phase 3 not "schema-only safe"** (claude): adding columns breaks the hand-DDL pglite suites (`token-grace`, `attribution-schema`, `schema.test`) and `User`-literal fixtures → made the DDL/fixture sync a same-commit Phase 3 deliverable; dropped the new-migrator harness in favor of the repo's hand-DDL pattern.
+- **Session-version race** (codex): capture the version at refresh-auth time and pass it into transactional issuance (equality check, missing=0); don't re-fetch after the reset increment → Phase 7.
+- **Admin bootstrap** (codex, claude): must create the account WITH a bcrypt hash (admin UI logs in); removed "register-then-flag"; concrete `npx tsx scripts/grant-admin.ts <email>`, idempotent, password not via CLI arg → Phase 4.
+- **Startup assertion during `next build`** (claude): added `NEXT_PHASE !== 'phase-production-build'` guard → Phase 4.
+- **System lazy-create on occupied email** (codex, claude): unique conflict is on `email`, not `system_key` → explicit fail-fast with operator log + inspect-before-apply precondition; defined the created row's email → Phase 5.
+- **Anti-oracle placement** (claude): reserved-address check must precede the password-strength check (adjacent to the existing 409) → Phase 4/5.
+- **Logout 401 contract** (codex, claude): keep the existing 401 on no/invalid token; don't change to success/no-op → Phase 6.
+- **Phase 9 inverts a green test** (claude): explicitly rewrite `token-grace.test.ts:~147` → Phase 9.
+- **Resolve the two open choices** (codex, claude): closed both — opportunistic sweep, reject+log reuse → Phase 7/9 + Notes.
 
 ## Approval
 - [ ] Technical Lead Review
@@ -423,10 +462,11 @@ Phase 8 (feedback IDOR) ── independent
 | Date | Change | Reason | Author |
 |------|--------|--------|--------|
 | 2026-08-02 | Initial plan | Decompose approved spec into 9 phases | builder spir-4 |
+| 2026-08-02 | Plan iter-1 review revisions | Address codex/claude REQUEST_CHANGES: tx-executor threading, Phase 3 hand-DDL sync, session-version race capture, executable admin bootstrap, build-phase startup guard, system lazy-create fail-fast, anti-oracle placement, logout 401, Phase 9 test rewrite, closed 2 open choices | builder spir-4 |
 
 ## Notes
 - **PR strategy**: all nine phase-commits ship in **one PR**, opened during/after Phase 9 — not one PR per phase. The architect may request an earlier/interim PR; only then do we open one early.
 - **Phase ↔ issue-item map**: P1+P2 = item 6; P3 = schema foundation for items 1/2/5; P4 = item 1; P5 = item 2; P6 = item 3; P7 = item 5; P8 = item 4; P9 = item 7.
 - **Deferred / out of scope** (do NOT implement): rate limiting, spend caps, message-size caps, mcp-complete auth, `x-forwarded-for`, CORS, disconnect cancellation.
-- **Two design choices deliberately open** (resolve in implementation/consultation, not with the architect): `deleteExpiredTokens` trigger (opportunistic vs cron); whether rotated-reuse detection also bumps `session_version` to revoke the session.
+- **The two previously-open design choices are now CLOSED** (resolved in this plan iteration per reviewer guidance): (1) `deleteExpiredTokens` trigger = **opportunistic low-probability non-blocking sweep** (no cron; `railway.toml` has none); (2) rotated-reuse response = **reject + log only** (no `session_version` bump on reuse; revoke-on-reuse noted as a future option).
 - Every phase ends with a green `npm run typecheck && npm test && npm run build` from `backend/` and a single atomic commit before the next phase begins.

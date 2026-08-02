@@ -70,4 +70,31 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   6 logout full revoke, 7 atomic rotation+session_version+reset-kill+reuse detect,
   8 feedback IDOR+oracle uniformity, 9 smaller hardening.
 
+## 2026-08-02 — Plan drafted + 3-way review (plan iter 1)
+- Wrote 9-phase plan → "[Spec 4] Initial implementation plan". porch checks pass.
+- 3-way consult: **Gemini APPROVE. Codex REQUEST_CHANGES. Claude REQUEST_CHANGES**
+  (both HIGH confidence; Claude verified against actual worktree code — very valuable).
+- Concrete mid-phase defects caught + fixed (all ACCEPTED, verified against code):
+  1. `db.transaction()` illusory — helpers close over global `db`. → thread `Executor`
+     param through issueTokenPair/storeToken (P2) + markTokenRotated/findToken/
+     deleteUserTokens/updateUser (P7).
+  2. Phase 3 NOT "schema-only safe" — adding cols breaks hand-DDL pglite suites
+     (token-grace.test.ts:37, attribution-schema.test.ts:35 CREATE TABLE users;
+     schema.test.ts col assertions; User-literal fixtures). → same-commit DDL/fixture
+     sync deliverable; dropped new-migrator harness.
+  3. Session-version race: capture version at refresh-auth time, pass into tx issuance
+     (equality, missing=0); don't re-fetch after reset increment.
+  4. Admin bootstrap must create WITH bcrypt hash (admin UI logs in email+pw); removed
+     register-then-flag; `npx tsx scripts/grant-admin.ts <email>`, pw via prompt/env.
+  5. Startup assertion fires during `next build` → add NEXT_PHASE!=='phase-production-build' guard.
+  6. System lazy-create: hijacked conflict is on unique EMAIL not system_key →
+     explicit fail-fast + operator log (not re-read loop); defined created email.
+  7. Anti-oracle needs check PLACEMENT before strength check (register 409 is at :36,
+     before strength at :39-46), not just same error string.
+  8. Logout keeps 401 on no/invalid token (don't change to success/no-op).
+  9. Phase 9 must rewrite token-grace.test.ts:147 (asserts the sweep behavior we reverse).
+- Closed the 2 open design choices: opportunistic sweep (no cron; railway.toml has none),
+  reuse = reject+log (no session bump).
+- Wrote rebuttal (4-plan-iter1-rebuttals.md). Committed. Continuing porch.
+
 
