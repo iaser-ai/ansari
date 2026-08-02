@@ -1,0 +1,16 @@
+id: '3'
+title: open-source-readiness-node-22-
+protocol: aspir
+phase: specify
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+  verify-approval:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-02T04:39:00.304Z'
+updated_at: '2026-08-02T04:39:00.305Z'
