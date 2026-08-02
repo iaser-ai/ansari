@@ -142,17 +142,29 @@ describe('grantAdmin', () => {
     expect(await rowOf('mixedcase@admin.chat')).toBeDefined();
   });
 
-  it('refuses to create a new admin without a sufficiently long password', async () => {
-    await expect(grantAdmin('brandnew@admin.chat', 'short')).rejects.toThrow(/at least 12 characters/);
+  it('refuses to create a new admin with a too-short password', async () => {
+    await expect(grantAdmin('brandnew@admin.chat', 'short')).rejects.toThrow(/12-128 characters/);
     expect(await rowOf('brandnew@admin.chat')).toBeUndefined();
+  });
+
+  it('refuses an over-long (>128 char) password', async () => {
+    await expect(grantAdmin('longpw@admin.chat', 'a'.repeat(129))).rejects.toThrow(/12-128 characters/);
+    expect(await rowOf('longpw@admin.chat')).toBeUndefined();
+  });
+
+  it('refuses a long-but-WEAK password (enforces the strength policy)', async () => {
+    // 12+ chars but a common pattern → checkPasswordStrength score < 3 (the -2
+    // common-pattern penalty pulls it under the threshold).
+    await expect(grantAdmin('weak@admin.chat', 'passwordpassword')).rejects.toThrow(/too weak/);
+    expect(await rowOf('weak@admin.chat')).toBeUndefined();
   });
 
   it('refuses to promote an existing account without a password', async () => {
     await client.query(
       `INSERT INTO users (email, password_hash, is_admin) VALUES ($1, $2, false)`,
-      ['noflag@admin.chat', await hashForTest('whatever-12chars')]
+      ['noflag@admin.chat', await hashForTest('Whatever-12-chars!')]
     );
-    await expect(grantAdmin('noflag@admin.chat')).rejects.toThrow(/password of at least/);
+    await expect(grantAdmin('noflag@admin.chat')).rejects.toThrow(/12-128 characters/);
     // Not promoted.
     expect((await rowOf('noflag@admin.chat')).is_admin).toBe(false);
   });

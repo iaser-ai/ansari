@@ -6,11 +6,11 @@
  *   Deploy runbook ordering: apply migration → run THIS script → deploy.
  *
  * Usage (from backend/):
- *   GRANT_ADMIN_PASSWORD='<strong-password>' npx tsx scripts/grant-admin.ts <email>
- *   # or omit the env var and you'll be prompted (input is read from stdin).
+ *   npx tsx scripts/grant-admin.ts <email>
+ *   # You'll be securely prompted for the password (input is hidden, not echoed).
  *
- * The password is taken from an env var or an interactive prompt — NEVER a
- * positional CLI arg, which would leak into shell history / the process table.
+ * The password is read from a hidden interactive prompt — NEVER a positional CLI
+ * arg (which would leak into shell history / the process table).
  *
  * A password is ALWAYS required and is SET on the account (created or promoted).
  * Resetting the password on promotion is deliberate and security-critical: if the
@@ -23,10 +23,11 @@ import { createInterface } from 'readline';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../lib/db/index';
 import { findUserByEmail } from '../lib/db/users';
-import { hashPassword } from '../lib/auth/password';
+import { hashPassword, checkPasswordStrength } from '../lib/auth/password';
 import { users, tokens } from '../db/schema';
 
 const MIN_ADMIN_PASSWORD_LENGTH = 12;
+const MAX_ADMIN_PASSWORD_LENGTH = 128;
 
 /**
  * Create-or-promote an admin account, always SETTING the supplied password.
@@ -40,9 +41,21 @@ export async function grantAdmin(
   const normalized = email.trim().toLowerCase();
   if (!normalized) throw new Error('email is required');
 
-  if (!password || password.length < MIN_ADMIN_PASSWORD_LENGTH) {
+  // Enforce the same password policy as the product (spec 4): bounded length and
+  // the strength check. An admin credential must not be weaker than a user's.
+  if (
+    !password ||
+    password.length < MIN_ADMIN_PASSWORD_LENGTH ||
+    password.length > MAX_ADMIN_PASSWORD_LENGTH
+  ) {
     throw new Error(
-      `a password of at least ${MIN_ADMIN_PASSWORD_LENGTH} characters is required (it is set on the admin account)`
+      `a password of ${MIN_ADMIN_PASSWORD_LENGTH}-${MAX_ADMIN_PASSWORD_LENGTH} characters is required (it is set on the admin account)`
+    );
+  }
+  const strength = checkPasswordStrength(password);
+  if (!strength.valid) {
+    throw new Error(
+      `the admin password is too weak (${strength.suggestions.join(' ')})`.trim()
     );
   }
 
@@ -80,14 +93,20 @@ export async function grantAdmin(
   return { created: true };
 }
 
-function prompt(question: string): Promise<string> {
-  // Note: input echoes to the terminal (no silent-input mode). Acceptable for an
-  // operator-run, one-off bootstrap; it never lands in shell history (unlike a CLI
-  // arg). Prefer GRANT_ADMIN_PASSWORD in CI/non-interactive contexts.
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+/**
+ * Read a line from stdin with the typed characters HIDDEN (no echo) — for
+ * passwords. The question is written first, then readline is muted so keystrokes
+ * are not shown on screen.
+ */
+function promptHidden(question: string): Promise<string> {
+  process.stdout.write(question);
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  // Suppress echo of everything after the question is printed.
+  (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = () => {};
   return new Promise((resolve) => {
-    rl.question(question, (answer) => {
+    rl.question('', (answer) => {
       rl.close();
+      process.stdout.write('\n');
       resolve(answer);
     });
   });
@@ -97,14 +116,13 @@ async function main(): Promise<void> {
   const email = process.argv[2];
   if (!email) {
     console.error('Usage: npx tsx scripts/grant-admin.ts <email>');
-    console.error("Provide the password via GRANT_ADMIN_PASSWORD or the interactive prompt.");
+    console.error('You will be securely prompted for the password.');
     process.exit(1);
   }
 
-  let password = process.env.GRANT_ADMIN_PASSWORD;
-  if (!password) {
-    password = await prompt(`Password to SET for admin ${email} (min ${MIN_ADMIN_PASSWORD_LENGTH} chars): `);
-  }
+  const password = await promptHidden(
+    `Password to SET for admin ${email} (${MIN_ADMIN_PASSWORD_LENGTH}-${MAX_ADMIN_PASSWORD_LENGTH} chars, hidden): `
+  );
 
   const { created } = await grantAdmin(email, password);
   console.log(

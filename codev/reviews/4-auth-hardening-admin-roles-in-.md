@@ -201,7 +201,7 @@ Populated the previously-placeholder HOT governance files and expanded the COLD 
 
 ## Technical Debt
 
-- `deleteToken` is now production-dead (logout no longer uses it); retained as a repository primitive — removal candidate.
+- `deleteToken` is still live — `reset_password` uses it for the atomic one-time-token consume (Phase 7). (Logout stopped using it, but it is not dead code.)
 - The opportunistic token sweep is probabilistic (~2% on token issuance); adequate but not a guaranteed cadence. A cron could be added later (no `railway.toml` cron today).
 - The same "log the full error" pattern that Phase 9 fixed in `register` exists in other routes (login/reset/refresh/feedback) as pre-existing code — see Follow-up.
 

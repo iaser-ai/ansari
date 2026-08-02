@@ -88,7 +88,7 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 Admin access is gated on the durable `users.is_admin` DB flag, not on `ADMIN_EMAILS`. Because public registration of an `ADMIN_EMAILS` address is refused and a production server asserts at boot that every configured admin account exists, the **only** way to create an admin is the bootstrap script. Deploy in this order:
 
 1. **Apply the migration** (`npm run db:migrate`, or your managed-DB apply step). Before applying, inspect for any pre-existing account holding a reserved admin/system address and remediate it.
-2. **Bootstrap each admin**: `GRANT_ADMIN_PASSWORD='<strong-password>' npx tsx scripts/grant-admin.ts <email>` (from `backend/`). This creates the account with a real password (or promotes and password-resets an existing one, revoking its old sessions).
+2. **Bootstrap each admin**: `npx tsx scripts/grant-admin.ts <email>` (from `backend/`). You are securely prompted for the password (input is hidden). This creates the account with that password (or promotes and password-resets an existing one, revoking its old sessions).
 3. **Deploy.** Production boot then asserts the configured admins exist; if the bootstrap step was skipped it fails fast (identifying the missing entry by its position in `ADMIN_EMAILS`, not by address).
 
 ## Running it

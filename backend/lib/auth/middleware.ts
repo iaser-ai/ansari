@@ -83,7 +83,7 @@ export async function authenticateRequest(
  */
 export async function validateRefreshToken(
   refreshToken: string
-): Promise<{ user: User } | { reuse: true } | { error: string }> {
+): Promise<{ user: User } | { reuse: true; userId: string } | { error: string }> {
   const payload = verifyToken(refreshToken, config.auth.jwtSecret);
   if (!payload) {
     return { error: 'Invalid or expired refresh token' };
@@ -98,7 +98,7 @@ export async function validateRefreshToken(
     return { error: 'Refresh token not found or expired' };
   }
   if (lookup.status === 'reuse') {
-    return { reuse: true };
+    return { reuse: true, userId: lookup.userId };
   }
 
   // Session-version check: a refresh token issued before a password reset is stale.

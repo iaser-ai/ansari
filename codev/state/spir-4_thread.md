@@ -369,3 +369,19 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   d124945 (chore(porch): 4 implement build-complete - old string) and 48699228 (my first
   rename - still-flagged value). Tip fix can't remove them. History rewrite needed.
 - Per architect instruction + Waleed's rule: NOT rewriting history. Reported to architect, awaiting decision.
+
+## 2026-08-02 - PR #15 integration-review items (architect: 5 required)
+1. grant-admin.ts: enforce checkPasswordStrength (score>=3) + 12-128 length cap; tests
+   (too-short/over-long/weak-common-pattern/promote-no-pw). Note: weak-test uses
+   'passwordpassword' (score<3 via -2 common-pattern penalty) since repeated-lowercase
+   scores 3.
+2. Hidden password prompt (promptHidden mutes readline echo); removed GRANT_ADMIN_PASSWORD
+   env support + its inline doc command (self-hosting.md now just `npx tsx ... <email>`).
+3. Fixed false 'deleteToken is dead' claim in PR body + review (deleteToken is used by
+   reset_password's atomic one-time-token consume).
+4. Reuse-detection warn now logs the user UUID (threaded lookupRefreshToken->validateRefreshToken
+   ->route; UUID is an internal id, not user content). Middleware test asserts the id.
+5. gitleaks: .gitleaksignore at repo root pins the 4 fixture fingerprints (d124945 + 48699228,
+   :8/:20) with justification comments (parse OK); NO history rewrite (architect decision).
+   Local `gitleaks detect -c .gitleaks.toml` exits 0.
+- Full gate green: lint, typecheck, test (585 passed/3 skipped), build, gitleaks. Pushing.

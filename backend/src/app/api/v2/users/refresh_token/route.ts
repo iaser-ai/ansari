@@ -26,8 +26,10 @@ export async function POST(request: NextRequest) {
     const result = await validateRefreshToken(refresh_token);
     if ('reuse' in result) {
       // A spent (rotated-past-grace) refresh token was replayed. Reject with a
-      // generic message and log the event (no user content, no raw token).
-      console.warn('Refresh token reuse detected — rejecting.');
+      // generic message and log the event with the user's id (a UUID is an
+      // internal identifier, not user content) so ops can spot token theft per
+      // account. No raw/unhashed token is logged.
+      console.warn('Refresh token reuse detected for user', result.userId);
       return createErrorResponse('Invalid or expired refresh token', 401);
     }
     if ('error' in result) {

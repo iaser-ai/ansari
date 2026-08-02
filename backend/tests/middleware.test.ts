@@ -117,13 +117,15 @@ describe('validateRefreshToken uses config.auth.jwtSecret', () => {
     expect(mockLookupRefreshToken).not.toHaveBeenCalled();
   });
 
-  it('flags a reuse when the lookup reports a spent (rotated-past-grace) token', async () => {
-    mockLookupRefreshToken.mockResolvedValue({ status: 'reuse' });
+  it('flags a reuse (with the user id) when the lookup reports a spent token', async () => {
+    mockLookupRefreshToken.mockResolvedValue({ status: 'reuse', userId: 'user-1' });
     const token = generateToken(testUser.id, 'refresh', 2160, CONFIG_SECRET, 0);
 
     const result = await validateRefreshToken(token);
 
     expect('reuse' in result).toBe(true);
+    // The user id is carried through so the caller can log which account was replayed.
+    if ('reuse' in result) expect(result.userId).toBe('user-1');
   });
 
   it('rejects a refresh token whose session_version is stale', async () => {

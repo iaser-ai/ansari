@@ -276,7 +276,7 @@ export async function markTokenRotated(token: string, exec: Executor = db): Prom
  */
 export type RefreshLookup =
   | { status: 'valid'; user: User }
-  | { status: 'reuse' }
+  | { status: 'reuse'; userId: string }
   | { status: 'not_found' };
 
 export async function lookupRefreshToken(token: string, exec: Executor = db): Promise<RefreshLookup> {
@@ -299,7 +299,8 @@ export async function lookupRefreshToken(token: string, exec: Executor = db): Pr
   // Never rotated, or rotated within the grace window → still valid.
   if (tok.rotatedAt === null || tok.rotatedAt > graceCutoff) return { status: 'valid', user };
   // Rotated before the grace window closed, but retained (not yet expired) → reuse.
-  return { status: 'reuse' };
+  // Carry the user id so the caller can log which account's token was replayed.
+  return { status: 'reuse', userId: user.id };
 }
 
 export async function deleteToken(token: string, exec: Executor = db): Promise<boolean> {
