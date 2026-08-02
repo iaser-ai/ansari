@@ -15,8 +15,15 @@ vi.mock('@/lib/auth/middleware', () => ({
 }));
 
 const mockDeleteUserTokens = vi.fn();
+const mockBumpSessionVersion = vi.fn();
 vi.mock('@/lib/db/users', () => ({
   deleteUserTokens: (...args: unknown[]) => mockDeleteUserTokens(...args),
+  bumpSessionVersion: (...args: unknown[]) => mockBumpSessionVersion(...args),
+}));
+
+// Logout runs its revocation in a db.transaction; run the callback with a dummy tx.
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (cb: (tx: unknown) => unknown) => cb({}) },
 }));
 
 import { POST as logout } from '../src/app/api/v2/users/logout/route';
@@ -46,18 +53,20 @@ function makeRequest(auth?: string): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDeleteUserTokens.mockResolvedValue(3);
+  mockBumpSessionVersion.mockResolvedValue(undefined);
 });
 
 describe('POST /api/v2/users/logout', () => {
-  it('revokes ALL of the user\'s tokens on a valid access token (full logout)', async () => {
+  it('revokes ALL tokens AND bumps session_version on a valid access token (full logout)', async () => {
     mockAuthenticate.mockResolvedValue({ user: testUser });
 
     const res = await logout(makeRequest('Bearer valid-access-token'));
 
     expect(res.status).toBe(200);
-    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123');
     // Full logout, not a single-token delete.
-    expect(mockDeleteUserTokens).toHaveBeenCalledTimes(1);
+    expect(mockDeleteUserTokens).toHaveBeenCalledWith('user-123', undefined, expect.anything());
+    // Version bump closes the logout-vs-refresh race.
+    expect(mockBumpSessionVersion).toHaveBeenCalledWith('user-123', expect.anything());
   });
 
   it('returns 401 and revokes nothing when no token is presented', async () => {

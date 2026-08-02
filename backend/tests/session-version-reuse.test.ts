@@ -25,6 +25,7 @@ vi.mock('@/lib/config', () => ({
 }));
 vi.mock('@sentry/nextjs', () => ({ setUser: vi.fn(), captureRequestError: vi.fn() }));
 
+import jwt from 'jsonwebtoken';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
@@ -35,8 +36,10 @@ import {
   bumpSessionVersion,
   deleteUserTokens,
   markTokenRotated,
+  updateUser,
   REFRESH_TOKEN_GRACE_MS,
 } from '@/lib/db/users';
+import { db } from '@/lib/db/index';
 import { authenticateRequest, validateRefreshToken } from '@/lib/auth/middleware';
 
 let client: PGlite;
@@ -182,5 +185,101 @@ describe('rotated-token reuse end-to-end (validateRefreshToken)', () => {
 
     const result = await validateRefreshToken(token);
     expect('user' in result).toBe(true);
+  });
+});
+
+describe('executor threading against a real transaction', () => {
+  it('rolls back BOTH rotation and issuance when the transaction throws', async () => {
+    // If markTokenRotated/issueTokenPair ignored their `exec` and wrote through the
+    // module-level db, the rollback below could not undo them — this proves threading.
+    await insertRefresh('rollback-rt');
+
+    await expect(
+      db.transaction(async (tx) => {
+        await markTokenRotated('rollback-rt', tx);
+        await issueTokenPair(USER_ID, 0, tx);
+        throw new Error('boom');
+      })
+    ).rejects.toThrow('boom');
+
+    // Rotation undone: rotated_at still NULL.
+    const row = await client.query<{ rotated_at: Date | null }>(
+      `SELECT rotated_at FROM tokens WHERE token_hash = $1`,
+      [hashToken('rollback-rt')]
+    );
+    expect(row.rows[0].rotated_at).toBeNull();
+    // Issuance undone: only the original token row remains.
+    const count = await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM tokens`);
+    expect(count.rows[0].n).toBe(1);
+  });
+});
+
+describe('reset transaction (real DB)', () => {
+  it('applies password change, version bump, and token revocation together', async () => {
+    await insertRefresh('reset-rt');
+
+    await db.transaction(async (tx) => {
+      await updateUser(USER_ID, { passwordHash: 'brand-new-hash' }, tx);
+      await bumpSessionVersion(USER_ID, tx);
+      await deleteUserTokens(USER_ID, undefined, tx);
+    });
+
+    const u = await client.query<{ password_hash: string; session_version: number }>(
+      `SELECT password_hash, session_version FROM users WHERE id = $1`,
+      [USER_ID]
+    );
+    expect(u.rows[0].password_hash).toBe('brand-new-hash');
+    expect(u.rows[0].session_version).toBe(1);
+    const t = await client.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM tokens WHERE user_id = $1`,
+      [USER_ID]
+    );
+    expect(t.rows[0].n).toBe(0);
+  });
+});
+
+describe('reset/logout-vs-refresh, both orderings', () => {
+  it('reverse ordering: a refresh that COMMITTED first is still killed by a later reset', async () => {
+    // Refresh commits: issues a valid pair at the current version (0).
+    const { accessToken } = await issueTokenPair(USER_ID, 0);
+    expect('user' in (await authenticateRequest(bearer(accessToken)))).toBe(true);
+
+    // Reset then commits: bump version + revoke all tokens.
+    await db.transaction(async (tx) => {
+      await bumpSessionVersion(USER_ID, tx);
+      await deleteUserTokens(USER_ID, undefined, tx);
+    });
+
+    // The previously-valid access token is now dead (deleted AND version-stale).
+    expect('error' in (await authenticateRequest(bearer(accessToken)))).toBe(true);
+  });
+
+  it('logout-vs-refresh: a refresh that captured the pre-logout version is rejected', async () => {
+    // Logout commits (bump + delete) — mirrors the logout route's transaction.
+    await db.transaction(async (tx) => {
+      await bumpSessionVersion(USER_ID, tx);
+      await deleteUserTokens(USER_ID, undefined, tx);
+    });
+    // A racing refresh (unaware) issues with the captured pre-logout version (0).
+    const { accessToken } = await issueTokenPair(USER_ID, 0);
+    // Rejected: embedded version 0 != current 1.
+    expect('error' in (await authenticateRequest(bearer(accessToken)))).toBe(true);
+  });
+});
+
+describe('missing session_version claim', () => {
+  it('is treated as version 0 (legacy tokens still authenticate at version 0)', async () => {
+    // A token minted before this field existed carries no session_version claim.
+    const legacy = jwt.sign({ user_id: USER_ID, type: 'access' }, SECRET, {
+      algorithm: 'HS256',
+      expiresIn: '2h',
+    });
+    await client.query(
+      `INSERT INTO tokens (user_id, token_type, token_hash, expires_at)
+       VALUES ($1, 'access', $2, now() + interval '2 hours')`,
+      [USER_ID, hashToken(legacy)]
+    );
+    // User is at version 0 → missing claim (?? 0) matches → accepted.
+    expect('user' in (await authenticateRequest(bearer(legacy)))).toBe(true);
   });
 });

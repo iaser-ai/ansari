@@ -285,5 +285,17 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   (post-reset-issued stale-version token -> 401), reuse end-to-end. middleware stale-version +
   reuse cases; issueTokenPair embeds-version case. Result: typecheck clean; **549 passed, 3
   skipped**; build green. pglite = single connection -> races tested as deterministic sequences.
+- Phase 7 iter1: Gemini APPROVE, Codex+Claude REQUEST_CHANGES. Codex found a real race:
+  concurrent LOGOUT deletes tokens but (Phase 6) did NOT bump session_version, so a racing
+  refresh mints a valid pair surviving logout. → Fix (root cause): **logout now bumps
+  session_version** in its transaction (deleteUserTokens + bumpSessionVersion) — same uniform
+  mechanism as reset; racing-refresh tokens carry stale version -> rejected. Both reviewers:
+  tests mocked db.transaction away, so atomicity/both-orderings unproven. → Added REAL-DB
+  (pglite) tests in session-version-reuse.test.ts: executor-threading ROLLBACK (tx throws ->
+  rotation+issuance undone; proves exec threading), real reset transaction (pw+version+revoke
+  together), reverse ordering (refresh commits first -> reset kills), logout-vs-refresh race
+  (fix verified), missing-claim=version-0 (legacy token). Updated logout-route.test.ts.
+  deleteExpiredTokens retention flip correctly deferred to Phase 9 (both agree). Result:
+  **554 passed, 3 skipped**; build green.
 
 
