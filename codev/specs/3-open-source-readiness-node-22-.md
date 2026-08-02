@@ -17,20 +17,22 @@ the real `backend/` tree rather than asking questions:
 - **Q: What do the e2e specs target?** A: `tests/e2e/{chat,login,registration}.spec.ts` all target a frontend at `localhost:8081` that does not exist in this repo.
 
 ## Problem Statement
-The `ansari` backend is about to be made public. A multi-model review on 2026-08-02 surfaced a
+The `ansari` backend is about to be made public. A recent multi-model review surfaced a
 batch of gaps that new contributors and security-minded readers will hit first. None of these are
 product-behavior changes; they are hygiene and correctness fixes concentrated in `backend/` and the
 repo root:
 
 1. **Stale runtime & vulnerable dependencies.** Node 20 reached end-of-life on 2026-04-30, yet
-   `.nvmrc`/`engines`/CI/Railway all still pin it. `npm audit` reports 31 production-dependency
+   `.nvmrc`/`engines`/CI still pin it (CI reads `node-version-file`; Railway builds the same repo).
+   `npm audit` reports 31 production-dependency
    vulnerabilities with non-breaking fixes, including a SQL-injection advisory in `drizzle-orm`
    (GHSA-gpj5-g38j-94v9) and a critical (dev-only) `vitest` UI-server advisory. Production and dev
    dependencies are also mis-classified (`drizzle-kit`, `typescript`, `@types/*` live in
    `dependencies`; an unused `mongodb` dev dependency lingers).
-2. **Lint does not work.** `npm run lint` invokes the removed-in-Next-16 `next lint`, there is no
-   ESLint configuration anywhere, and `eslint-config-next` is pinned against the wrong Next major.
-   Contributors cannot lint, and CI does not lint.
+2. **Lint does not work.** `npm run lint` invokes `next lint` (deprecated and slated for removal in
+   Next 16) with no ESLint configuration anywhere, and `eslint-config-next` is pinned to `^16` against
+   Next 15 — so the config that does load is for the wrong major. Contributors cannot lint, and CI does
+   not lint.
 3. **CI is not hardened.** Actions are on deprecated majors (Node 20 runner deprecation warnings),
    pinned to mutable tags rather than commit SHAs; the gitleaks binary is downloaded without
    checksum verification; there is no `concurrency` cancellation or per-job timeout; and there is no
@@ -65,8 +67,9 @@ repo root:
   root `.nvmrc`, no `.editorconfig`.
 
 ## Desired State
-- **Runtime/deps**: Node 22 everywhere (`.nvmrc` = `22`, `engines.node` = `>=22`, CI + Railway pick it
-  up via `node-version-file`); build verified green on 22. `npm audit` clean of the fixable prod-dep
+- **Runtime/deps**: Node 22 everywhere (`.nvmrc` = `22`, `engines.node` = `>=22`; CI picks it up via
+  `node-version-file`, and Railway's build honors `.nvmrc`/`engines` — confirmed during implementation);
+  build verified green on 22. `npm audit` clean of the fixable prod-dep
   vulns; `drizzle-orm >= 0.45.2`, latest Next 15.5.x patch, `vitest` 4.1.x, Sentry/Resend transitives
   patched. `drizzle-kit`/`typescript`/`@types/*` in `devDependencies`; `mongodb` removed. A
   `.github/dependabot.yml` (npm weekly + github-actions) prevents recurrence.
@@ -76,9 +79,10 @@ repo root:
   SHAs; gitleaks download checksum-verified before extraction; `concurrency` (cancel-in-progress per
   ref) and `timeout-minutes` on jobs; a coverage step (report/summary only, no threshold gate) using
   `@vitest/coverage-v8`.
-- **Healthcheck**: `/api/health` runs `SELECT 1` through the pool with a short timeout, returns 503
-  on failure, keeps the response shape otherwise identical (`service: 'ansari-backend'`).
-  `tests/health.test.ts` covers both the healthy and DB-down paths.
+- **Healthcheck**: `/api/health` runs `SELECT 1` via the `db` handle raced against a 2000 ms timer,
+  declares `export const dynamic = 'force-dynamic'`, returns 503 (with `status:'error'`, same field
+  set) on query failure, timeout, or unset/unreachable `DATABASE_URL`, and 200 otherwise.
+  `tests/health.test.ts` covers healthy, query-failure, and unset-`DATABASE_URL` paths.
 - **Tests**: the vacuous `api.test.ts` cases are replaced with real route tests (pglite/mock pattern)
   prioritizing `v2/users/login` and public `v2/share/[id]`, or deleted outright. The e2e suite is
   removed (or rewritten as API-level smoke tests with a `webServer` block), and `CONTRIBUTING.md`
@@ -96,22 +100,34 @@ repo root:
 
 ## Success Criteria
 - [ ] `backend/.nvmrc` = `22`; `backend/package.json` `engines.node` = `>=22`; root `.nvmrc` = `22`.
-- [ ] `npm audit` (prod deps) reports no fixable vulnerabilities; `drizzle-orm >= 0.45.2`, Next on
-      latest 15.5.x patch, `vitest` on 4.1.x.
+- [ ] After `drizzle-kit` moves to `devDependencies`, `npm audit --omit=dev` reports **0**
+      vulnerabilities. `npm audit fix --force` is NOT run; any residual advisory fixable only via
+      `--force` (notably the `esbuild`/`@esbuild-kit/*` chain under `drizzle-kit`, whose only offered
+      fix is a breaking downgrade to `drizzle-kit@0.18.1`) is documented in the PR and left in place.
+- [ ] `drizzle-orm >= 0.45.2`, Next on the latest 15.5.x patch, `vitest` on 4.1.x, Sentry/Resend
+      transitives patched — all via non-breaking bumps.
 - [ ] `drizzle-kit`, `typescript`, and all `@types/*` are in `devDependencies`; `mongodb` is gone.
 - [ ] `.github/dependabot.yml` exists with `npm` (weekly) and `github-actions` ecosystems.
-- [ ] `npm run lint` exits 0 on the current codebase via a flat `eslint.config.mjs`; CI runs it.
-- [ ] `eslint-config-next` version matches Next 15.
-- [ ] CI: `checkout`/`setup-node` on current majors, all third-party actions pinned to full commit
-      SHAs; gitleaks download checksum-verified; `concurrency` + `timeout-minutes` present; a coverage
-      step runs (no threshold gate).
-- [ ] `/api/health` returns 200 with `SELECT 1` succeeding and 503 when the DB query fails/times out,
-      response shape otherwise unchanged (`service:'ansari-backend'`). `tests/health.test.ts` covers
-      both paths.
-- [ ] `tests/api.test.ts` no longer contains self-asserting object-literal cases; real login + share
-      route tests exist (or the vacuous cases are deleted).
-- [ ] The e2e suite is either removed or rewritten as runnable API smoke tests; `CONTRIBUTING.md`
-      reflects the choice with no dangling instructions.
+- [ ] `npm run lint` exits 0 on the current codebase; the `lint` script is `eslint .` (non-interactive,
+      no `next lint`) backed by a flat `eslint.config.mjs`; CI runs it.
+- [ ] `eslint-config-next` version matches Next 15 (15.5.x line).
+- [ ] CI: `actions/checkout` and `actions/setup-node` upgraded off the deprecated majors and pinned —
+      like every other third-party action — to a full commit SHA with a trailing `# vX.Y.Z` comment
+      mapping the SHA to its release. gitleaks download checksum-verified before extraction;
+      `concurrency` (cancel-in-progress per ref) + `timeout-minutes` present; a coverage step runs via
+      `@vitest/coverage-v8` (report/summary only, no threshold gate).
+- [ ] `/api/health` returns **200** with body `{ status:'ok', service:'ansari-backend', timestamp }`
+      when `SELECT 1` succeeds, and **503** with body `{ status:'error', service:'ansari-backend',
+      timestamp }` (same field set, `status` flipped to `'error'`, no raw DB error text) when the DB
+      query fails, times out, **or `DATABASE_URL` is unset/unreachable**. The `SELECT 1` is raced
+      against a 2000 ms timer; timeout → 503. The route declares `export const dynamic = 'force-dynamic'`.
+      `tests/health.test.ts` (converted to the `vi.mock('@/lib/db/index')` + pglite pattern) covers the
+      healthy, query-failure, and unset-`DATABASE_URL` paths.
+- [ ] `tests/api.test.ts`'s self-asserting object-literal cases are **replaced** with real route tests
+      (pglite/mock pattern) covering `POST v2/users/login` (valid → token shape; invalid → 401) and
+      public `GET v2/share/[id]` (found → snapshot shape; missing → 404).
+- [ ] The Playwright e2e suite is **removed** — `tests/e2e/`, `playwright.config.ts`, and the
+      `@playwright/test` devDependency all deleted — and `CONTRIBUTING.md` no longer references it.
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md` and at least one `.github/ISSUE_TEMPLATE/*` exist; root
       `.editorconfig` exists.
 - [ ] From `backend/`: `npm run typecheck && npm test && npm run build` are all green on Node 22.
@@ -124,12 +140,18 @@ The following are fixed decisions from the architect's issue and MUST NOT be rel
 - **No product-behavior changes** beyond the healthcheck: no changes to streaming wire formats,
   prompts, or API request/response behavior. The `/api/health` 503-on-dead-DB is the only permitted
   behavior change.
-- **Healthcheck response shape stays identical** apart from the status code: `service` must remain
-  `'ansari-backend'` (frontend and runbooks key on it); keep `status` and `timestamp` fields.
+- **Healthcheck keeps the same field set** (`status`, `service`, `timestamp`) in both the 200 and 503
+  responses; `service` must remain `'ansari-backend'` (frontend and runbooks key on it). Only the
+  `status` value changes (`'ok'` → `'error'`) alongside the HTTP status code; no new fields, no raw DB
+  error text in the body.
 - **No DB schema changes / no migrations** anywhere in this work.
 - **All npm commands run from `backend/`.** `backend/package-lock.json` is the single authoritative
   lockfile; there is deliberately no root `package.json`/lockfile. Do not create one.
 - **Deps bumps must keep `npm run typecheck && npm test && npm run build` green** from `backend/`.
+- **`npm audit fix --force` MUST NOT be run.** Its only offered "fix" for the residual
+  `esbuild`/`@esbuild-kit/*` chain is a breaking downgrade of `drizzle-kit` 0.31.8 → 0.18.1, which
+  would wreck `db:generate`/`db:migrate`. Those advisories leave the prod audit once `drizzle-kit`
+  moves to `devDependencies`; any that remain are documented, not force-fixed.
 - **Lint must pass with no drive-by refactors** — fix or explicitly disable rules; do not restructure
   code to satisfy lint.
 - **`.env.ci` is the single no-secrets CI env source**; no repository secrets are introduced.
@@ -144,7 +166,9 @@ The following are fixed decisions from the architect's issue and MUST NOT be rel
   `typecheck/test/build` gate on 22).
 - The fixable `npm audit` advisories genuinely have non-breaking fixes (per the issue's review).
 - The frontend truly does not live in this repo, so the e2e suite has no valid target here.
-- Railway reads the Node version from `node-version-file`/`.nvmrc` and needs no separate config edit.
+- Railway's build reads the Node version from `.nvmrc`/`engines` (Nixpacks default); this is confirmed
+  during implementation. `backend/railway.toml` carries no explicit Node-version directive today, so no
+  Railway config edit is expected — but if Railway pins Node elsewhere, that pin is updated too.
 - `@vitest/coverage-v8` is compatible with the pinned `vitest` 4.1.x line.
 
 ## Solution Approaches
@@ -185,21 +209,22 @@ six themed commit groups.
 - [ ] None. The issue is fully specified.
 
 ### Important (Affects Design)
-- [ ] **e2e suite: remove vs. rewrite.** The issue permits either "remove the suite" or "rewrite as
-      API-level smoke tests with a `webServer` block." Leaning **remove** (the suite belongs with the
-      frontend, which is not in this repo), updating `CONTRIBUTING.md` accordingly. Final call made in
-      the plan; both options satisfy the constraint.
-- [ ] **api.test.ts: replace vs. delete.** Leaning **replace** the vacuous cases with real
-      login + public-share route tests (pglite/mock pattern), which raises coverage honesty more than
-      deletion. Deletion remains an acceptable fallback per the issue.
+- [x] **e2e suite: remove vs. rewrite — RESOLVED: remove.** The suite belongs with the frontend, which
+      is not in this repo, so there is nothing valid to point a `webServer` at here. Delete `tests/e2e/`,
+      `playwright.config.ts`, and the `@playwright/test` devDependency, and update `CONTRIBUTING.md`.
+- [x] **api.test.ts: replace vs. delete — RESOLVED: replace.** Replace the seven vacuous cases with real
+      route tests (pglite/mock pattern) for `POST v2/users/login` and public `GET v2/share/[id]`, which
+      raises coverage honesty more than deletion.
 
 ### Nice-to-Know (Optimization)
-- [ ] Whether to also pin the first-party `actions/*` to SHAs or only the third-party ones. The issue
-      says "pin all actions to full commit SHAs" → pin all.
+- [x] **Pin first-party `actions/*` to SHAs too — RESOLVED: yes.** The issue says "pin all actions to
+      full commit SHAs"; all actions (including `actions/checkout` and `actions/setup-node`) are pinned
+      to a full SHA with a `# vX.Y.Z` comment.
 
 ## Performance Requirements
-- **Response Time**: `/api/health` must add only a short-timeout `SELECT 1` (a few hundred ms cap);
-  no other latency-sensitive paths change.
+- **Response Time**: `/api/health` adds a single `SELECT 1` raced against a hard 2000 ms timer (the
+  route must not inherit the pool's 5000 ms `connectionTimeoutMillis` hang against an unreachable
+  host); on timeout it returns 503 immediately. No other latency-sensitive paths change.
 - **Throughput**: Unchanged — no hot-path modifications.
 - **Resource Usage**: Unchanged.
 - **Availability**: The healthcheck now reflects true availability (503 when the DB is unreachable),
@@ -216,13 +241,16 @@ six themed commit groups.
 
 ## Test Scenarios
 ### Functional Tests
-1. **Health — happy path**: with a reachable DB (pglite/mock), `GET /api/health` returns 200 and the
-   unchanged shape (`status:'ok'`, `service:'ansari-backend'`, ISO `timestamp`).
-2. **Health — DB down**: with the `SELECT 1` throwing/timing out, `GET /api/health` returns 503 and a
-   generic non-ok body (no raw DB error leaked).
-3. **Login route**: real `POST /api/v2/users/login` against a pglite-backed DB — valid credentials
+1. **Health — happy path**: with a reachable DB (`vi.mock('@/lib/db/index')` + pglite so the top-level
+   import never touches a real `DATABASE_URL`), `GET /api/health` returns 200 and the shape
+   `status:'ok'`, `service:'ansari-backend'`, ISO `timestamp`.
+2. **Health — query failure**: with `SELECT 1` throwing, `GET /api/health` returns 503 with
+   `status:'error'`, same field set, and no raw DB error leaked.
+3. **Health — unset `DATABASE_URL`**: the route yields 503 (not a 500 from an import-time throw) when
+   `DATABASE_URL` is absent/unreachable.
+4. **Login route**: real `POST /api/v2/users/login` against a pglite-backed DB — valid credentials
    return the Ansari token shape; invalid credentials return 401 with the generic message.
-4. **Public share route**: `GET /api/v2/share/[id]` returns the snapshot shape for an existing share
+5. **Public share route**: `GET /api/v2/share/[id]` returns the snapshot shape for an existing share
    and 404 for a missing one.
 
 ### Non-Functional Tests
@@ -256,8 +284,23 @@ six themed commit groups.
 
 ## Expert Consultation
 **Date**: 2026-08-01
-**Models Consulted**: Pending — porch runs the 3-way (Gemini, Codex, Claude) spec consultation.
-**Sections Updated**: To be filled after consultation feedback is incorporated.
+**Models Consulted**: Gemini (APPROVE), Codex (REQUEST_CHANGES), Claude (REQUEST_CHANGES).
+**Sections Updated**:
+- Success Criteria / Constraints: made the audit criterion achievable (`npm audit --omit=dev` = 0 after
+  `drizzle-kit` → devDeps) and forbade `npm audit fix --force` (would downgrade `drizzle-kit`
+  0.31.8→0.18.1) — per Codex & Claude.
+- Success Criteria / Desired State / Performance / Test Scenarios: fully specified the healthcheck —
+  exact 200/503 bodies (same field set, `status` flips to `'error'`), 503 also on unset/unreachable
+  `DATABASE_URL` (module-scope `getPool()` would otherwise throw a 500 at import), a hard 2000 ms raced
+  timeout (vs the pool's 5000 ms), and `export const dynamic = 'force-dynamic'` — per Codex & Claude.
+- Success Criteria: pinned the new `lint` script value (`eslint .`), tightened CI SHA-pinning language
+  (SHA + `# vX.Y.Z` comment, off deprecated majors), and added removal of `@playwright/test` +
+  `playwright.config.ts` to the e2e cleanup — per Codex & Claude.
+- Open Questions: resolved the two deferred choices in the spec (e2e → remove; api.test → replace) and
+  the SHA-pinning scope (pin all actions) — per Codex.
+- Problem Statement / Desired State / Assumptions: softened the Railway Node-version claim
+  (`railway.toml` has no Node directive; confirmed during implementation) and removed the
+  future-dated review reference — per Codex.
 
 ## Approval
 - [ ] Technical Lead Review
@@ -267,5 +310,5 @@ six themed commit groups.
 
 ## Notes
 - This is an ASPIR project: spec and plan auto-approve; the PR gate is preserved for human review.
-- Two design choices (e2e remove-vs-rewrite, api.test replace-vs-delete) are deliberately deferred to
-  the plan; both branches satisfy the issue's constraints, so neither blocks the spec.
+- The two previously-open design choices are now resolved in-spec (e2e → remove; api.test → replace),
+  per the spec-review consultation — nothing material is deferred to the plan.
