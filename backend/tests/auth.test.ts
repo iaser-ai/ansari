@@ -62,6 +62,13 @@ describe('Password utilities', () => {
       const result = checkPasswordStrength('password123');
       expect(result.valid).toBe(false);
     });
+
+    it('rejects a trivial length-only password like "aaaaaaaa" (score < 3, spec 4)', () => {
+      // Under the old score>=2 threshold this passed (length>=8 + lowercase).
+      const result = checkPasswordStrength('aaaaaaaa');
+      expect(result.valid).toBe(false);
+      expect(result.score).toBeLessThan(3);
+    });
   });
 });
 

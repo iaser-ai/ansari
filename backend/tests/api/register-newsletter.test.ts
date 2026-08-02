@@ -10,6 +10,7 @@ vi.mock('../../lib/db/users', () => ({
     accessToken: 'mock-access-token',
     refreshToken: 'mock-refresh-token',
   }),
+  maybeSweepExpiredTokens: () => undefined,
 }));
 
 // Mock password utilities
@@ -435,5 +436,57 @@ describe('Reserved-address registration (spec 4 anti-oracle)', () => {
     expect(response.status).toBe(409);
     const body = await response.json();
     expect(body.detail).toBe('An account with this email already exists');
+  });
+});
+
+describe('Registration hardening (spec 4 Phase 9)', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.reserved.clear();
+    originalEnv = { ...process.env };
+    process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
+    process.env.ACCESS_TOKEN_EXPIRY_HOURS = '2';
+    process.env.REFRESH_TOKEN_EXPIRY_HOURS = '2160';
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('rejects an over-long password (>128 chars) with 422', async () => {
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+    const response = await POST(makeRequest({
+      email: 'longpw@example.com',
+      password: 'a'.repeat(129),
+    }));
+    expect(response.status).toBe(422);
+  });
+
+  it('returns a GENERIC error (no raw detail) when creation throws', async () => {
+    const { checkPasswordStrength } = await import('../../lib/auth/password');
+    // mockReset clears any dangling mockReturnValueOnce queued by an earlier test
+    // whose strength check never ran (e.g. the reserved-address 409 short-circuit).
+    (checkPasswordStrength as ReturnType<typeof vi.fn>).mockReset();
+    (checkPasswordStrength as ReturnType<typeof vi.fn>).mockReturnValue({ valid: true, score: 4, suggestions: [] });
+    const { createUser } = await import('../../lib/db/users');
+    (createUser as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('duplicate key value violates unique constraint "users_email_key"')
+    );
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    const response = await POST(makeRequest({
+      email: 'boom@example.com',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.detail).toBe('Registration failed');
+    // The raw DB/driver text must NOT leak to the client.
+    expect(body.detail).not.toContain('constraint');
+    consoleSpy.mockRestore();
   });
 });

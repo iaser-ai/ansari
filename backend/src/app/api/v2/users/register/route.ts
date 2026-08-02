@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { findUserByEmail, createUser, issueTokenPair } from '@/lib/db/users';
+import { findUserByEmail, createUser, issueTokenPair, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { isReservedAddress } from '@/lib/auth/reserved';
 import { subscribeToNewsletter } from '@/lib/newsletter';
@@ -9,7 +9,10 @@ import { getClientId } from '@/lib/attribution';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password must be at most 128 characters'),
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   // Opt-in newsletter subscription. Defaults to false (opt-in) when omitted so
@@ -67,6 +70,9 @@ export async function POST(request: NextRequest) {
     // starts at session_version 0.
     const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
 
+    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
+    maybeSweepExpiredTokens();
+
     // Fire-and-forget: subscribe to newsletter (non-blocking), but only when the
     // user explicitly opted in. Guests and opt-outs send false and are skipped.
     if (register_to_mail_list === true) {
@@ -91,8 +97,9 @@ export async function POST(request: NextRequest) {
       token_type: 'bearer',
     });
   } catch (error) {
+    // Log the detail server-side; return a generic message so raw driver/DB
+    // error text is never leaked to the client (spec 4).
     console.error('Registration error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return createErrorResponse(`Registration failed: ${message}`, 500);
+    return createErrorResponse('Registration failed', 500);
   }
 }

@@ -21,7 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   runFacilitator,
   type Message,
@@ -105,7 +105,7 @@ function authorize(request: NextRequest): NextResponse | null {
 
   const header = request.headers.get('authorization') ?? '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match || match[1].trim() !== expected) {
+  if (!match || !timingSafeEqualStr(match[1].trim(), expected)) {
     return openAIError(
       'Invalid or missing API key.',
       401,
@@ -115,6 +115,18 @@ function authorize(request: NextRequest): NextResponse | null {
   }
 
   return null;
+}
+
+/**
+ * Constant-time string comparison (spec 4). Guards against timing attacks on the
+ * leaderboard API key. `crypto.timingSafeEqual` throws on unequal-length buffers,
+ * so the length check is done first (a length mismatch already implies inequality).
+ */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 let cachedSystemUserId: string | null = null;

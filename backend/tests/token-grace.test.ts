@@ -148,17 +148,29 @@ describe('refresh-token grace window (issue #34)', () => {
     expect(await readRotatedAt()).toBe(firstRotatedAt);
   });
 
-  it('deleteExpiredTokens sweeps spent rotated tokens but keeps fresh ones', async () => {
+  it('deleteExpiredTokens deletes ONLY past-expiry tokens, retaining rotated-but-unexpired rows for reuse detection', async () => {
+    // Past natural expiry → swept.
+    await insertToken({ token: 'expired', type: 'refresh', expiresInMs: -1000 });
+    // Rotated past the grace window but NOT expired → RETAINED (spec 4 Phase 9),
+    // so its replay is still detectable as reuse rather than reading as unknown.
     await insertToken({
-      token: 'spent',
+      token: 'spent-retained',
       type: 'refresh',
       rotatedAtMs: -(REFRESH_TOKEN_GRACE_MS + 5000),
     });
-    await insertToken({ token: 'fresh-rotated', type: 'refresh', rotatedAtMs: -1000 });
     await insertToken({ token: 'active', type: 'refresh' });
 
+    // Only the truly-expired token is removed.
     expect(await deleteExpiredTokens()).toBe(1);
-    expect(await findToken('fresh-rotated')).toBeDefined();
+
+    // The spent-but-unexpired rotated row is retained (findToken won't return it —
+    // it's past grace — so assert the row's continued existence directly).
+    const retained = await client.query(
+      `SELECT 1 FROM tokens WHERE token_hash = $1`,
+      [hashToken('spent-retained')]
+    );
+    expect(retained.rows.length).toBe(1);
+    // The active token is untouched.
     expect(await findToken('active')).toBeDefined();
   });
 });

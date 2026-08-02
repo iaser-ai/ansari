@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { issueTokenPair, markTokenRotated, lookupRefreshToken } from '@/lib/db/users';
+import { issueTokenPair, markTokenRotated, lookupRefreshToken, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { db } from '@/lib/db/index';
 import { validateRefreshToken, createErrorResponse } from '@/lib/auth/middleware';
 
@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
     if (!pair) {
       return createErrorResponse('Invalid or expired refresh token', 401);
     }
+
+    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
+    maybeSweepExpiredTokens();
 
     // Return new tokens in Ansari's format
     return NextResponse.json({

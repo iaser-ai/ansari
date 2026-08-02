@@ -9,7 +9,10 @@ import { config } from '@/lib/config';
 
 const resetSchema = z.object({
   reset_token: z.string().min(1, 'reset_token is required'),
-  new_password: z.string().min(1, 'new_password is required'),
+  new_password: z
+    .string()
+    .min(1, 'new_password is required')
+    .max(128, 'new_password must be at most 128 characters'),
 });
 
 export async function POST(request: NextRequest) {

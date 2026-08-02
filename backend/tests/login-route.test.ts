@@ -11,6 +11,7 @@ const mockIssueTokenPair = vi.fn();
 vi.mock('@/lib/db/users', () => ({
   findUserByEmail: (...args: unknown[]) => mockFindUserByEmail(...args),
   issueTokenPair: (...args: unknown[]) => mockIssueTokenPair(...args),
+  maybeSweepExpiredTokens: () => undefined,
 }));
 
 const mockVerifyPassword = vi.fn();

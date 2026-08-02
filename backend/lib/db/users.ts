@@ -1,4 +1,4 @@
-import { eq, and, lt, gt, or, isNull, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, lt, gt, or, isNull, sql } from 'drizzle-orm';
 import { db } from './index';
 import { users, tokens, type User, type NewUser, type Token, type NewToken } from '@/db/schema';
 import { hashToken, generateToken } from '@/lib/auth/jwt';
@@ -323,17 +323,28 @@ export async function deleteUserTokens(
 
 export async function deleteExpiredTokens(): Promise<number> {
   const now = new Date();
-  const graceCutoff = new Date(now.getTime() - REFRESH_TOKEN_GRACE_MS);
-  // Remove tokens that are past their expiry, plus rotated refresh tokens whose
-  // grace window has closed (they can no longer authenticate anything).
-  const result = await db
-    .delete(tokens)
-    .where(
-      or(
-        lt(tokens.expiresAt, now),
-        and(isNotNull(tokens.rotatedAt), lt(tokens.rotatedAt, graceCutoff))
-      )
-    )
-    .returning();
+  // Delete ONLY tokens past their natural expiry (spec 4). A rotated refresh token
+  // whose grace window has closed but which has NOT yet expired is deliberately
+  // RETAINED so its replay is still detectable as reuse (lookupRefreshToken →
+  // 'reuse') rather than reading as an unknown/forged token.
+  const result = await db.delete(tokens).where(lt(tokens.expiresAt, now)).returning();
   return result.length;
+}
+
+// Probability that a token-issuing request opportunistically sweeps expired tokens.
+const EXPIRED_SWEEP_PROBABILITY = 0.02;
+
+/**
+ * Opportunistically (low probability, fire-and-forget) sweep past-expiry tokens so
+ * the `tokens` table doesn't grow unbounded (spec 4). No cron — the sweep piggybacks
+ * on token-issuing requests. Non-blocking: it never awaits and swallows errors, so a
+ * sweep failure cannot affect the auth response. Uses the global `db`, independent of
+ * any caller transaction.
+ */
+export function maybeSweepExpiredTokens(): void {
+  if (Math.random() < EXPIRED_SWEEP_PROBABILITY) {
+    deleteExpiredTokens().catch((err) => {
+      console.error('Opportunistic token sweep failed:', err instanceof Error ? err.message : err);
+    });
+  }
 }

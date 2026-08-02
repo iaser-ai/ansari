@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyPassword } from '@/lib/auth/password';
-import { findUserByEmail, issueTokenPair } from '@/lib/db/users';
+import { findUserByEmail, issueTokenPair, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 
 const loginSchema = z.object({
@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
     // Issue tokens (single consolidated generate-and-store helper). Embed the
     // user's current session_version so a later password reset invalidates them.
     const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
+
+    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
+    maybeSweepExpiredTokens();
 
     // Return tokens in Ansari's format (frontend expects status and user info)
     return NextResponse.json({

@@ -321,3 +321,18 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   + oracle-uniformity: nonexistent/foreign/mismatched all identical 404 body). feedback-idor.test.ts
   (pglite, REAL join: owner resolves; other user undefined; nonexistent/wrong-thread undefined).
   Result: typecheck clean; 565 passed, 3 skipped; build green.
+- Phase 8 iter1: unanimous APPROVE. Committed (2775988).
+
+## 2026-08-02 - Implement Phase 9 (smaller hardening) - LAST impl phase
+- v1/chat authorize(): timingSafeEqualStr (crypto.timingSafeEqual on equal-length buffers,
+  length-check first) replaces plain !== on the leaderboard key.
+- password.ts: score >= 3 (was 2); 'aaaaaaaa' now rejected. register+reset schemas: .max(128).
+- register catch: generic 'Registration failed' + log detail (no raw driver text leaked).
+- deleteExpiredTokens: now deletes ONLY past-natural-expires_at (retains rotated-but-unexpired
+  rows for reuse detection). Removed unused isNotNull import. Rewrote token-grace sweep test.
+- maybeSweepExpiredTokens(): low-prob (2%) fire-and-forget opportunistic sweep, wired into
+  login/register/refresh (no cron). Added to their test mocks.
+- Tests: aaaaaaaa reject (auth.test), register .max(128) 422 + generic-error 500 no-leak
+  (gotcha: dangling mockReturnValueOnce from placement test -> mockReset), same-length wrong
+  leaderboard key 401 (constant-time content compare), sweep retention (token-grace).
+  Result: typecheck clean; 569 passed, 3 skipped; build green.

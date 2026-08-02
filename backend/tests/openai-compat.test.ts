@@ -131,6 +131,20 @@ describe('POST /v1/chat/completions', () => {
     expect(res.status).toBe(401);
   });
 
+  it('rejects a wrong key of the SAME length (constant-time content compare, spec 4)', async () => {
+    // Same byte-length as API_KEY but different content — exercises the
+    // timingSafeEqual content comparison, not just the length short-circuit.
+    const sameLenWrong = 'X'.repeat(API_KEY.length);
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        { model: 'ansari-facilitator', messages: [{ role: 'user', content: 'hi' }] },
+        { authorization: `Bearer ${sameLenWrong}` }
+      )
+    );
+    expect(res.status).toBe(401);
+  });
+
   it('returns 503 when LEADERBOARD_API_KEY is not configured', async () => {
     delete process.env.LEADERBOARD_API_KEY;
     const { POST } = await import('../src/app/api/v1/chat/completions/route');

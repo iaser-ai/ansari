@@ -15,6 +15,7 @@ vi.mock('@/lib/db/users', () => ({
   markTokenRotated: (...args: unknown[]) => mockMarkTokenRotated(...args),
   deleteToken: (...args: unknown[]) => mockDeleteToken(...args),
   lookupRefreshToken: (...args: unknown[]) => mockLookupRefreshToken(...args),
+  maybeSweepExpiredTokens: () => undefined,
 }));
 
 const mockGenerateToken = vi.fn();
