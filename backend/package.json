@@ -66,6 +66,9 @@
   },
   "overrides": {
     "postcss": "^8.5.25",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "react-email": {
+      "esbuild": "^0.28.1"
+    }
   }
 }
