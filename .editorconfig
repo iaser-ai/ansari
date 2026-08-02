@@ -1,0 +1,18 @@
+# EditorConfig — https://editorconfig.org
+# Matches the existing repo conventions (2-space indent, LF, UTF-8).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Markdown uses trailing whitespace for hard line breaks.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
