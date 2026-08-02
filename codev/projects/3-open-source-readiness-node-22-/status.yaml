@@ -10,7 +10,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-02T04:39:00.304Z'
-updated_at: '2026-08-02T05:34:05.867Z'
+updated_at: '2026-08-02T05:34:18.928Z'
