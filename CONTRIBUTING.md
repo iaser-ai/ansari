@@ -23,10 +23,11 @@ stray root lockfile; don't.
 
 ## Checks
 
-Before opening a PR, make sure all three pass (CI runs exactly these, with the
+Before opening a PR, make sure all four pass (CI runs exactly these, with the
 dummy env in `backend/.env.ci` — no secrets needed):
 
 ```bash
+npm run lint
 npm run typecheck
 npm test
 npm run build
