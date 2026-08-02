@@ -208,10 +208,15 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_9-iter1-claude.txt
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T15:30:04.235Z'
+updated_at: '2026-08-02T15:36:36.241Z'
 force_advanced:
   phase: phase_4
   iteration: 3
   max_iterations: 3
   rebuttal_file: 4-phase_4-iter3-rebuttals.md
   at: '2026-08-02T13:59:50.600Z'
+pr_history:
+  - phase: review
+    pr_number: 15
+    branch: builder/spir-4
+    created_at: '2026-08-02T15:36:36.241Z'
