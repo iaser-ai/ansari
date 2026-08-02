@@ -52,5 +52,8 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   8. Factual: no email-change endpoint today (updateUser only from reset_password) — corrected wording.
 - Two items left genuinely OPEN for the plan (not architect): deleteExpiredTokens trigger
   (opportunistic vs cron); rotated-reuse response strength (reject+log vs revoke session).
+- Wrote rebuttal (4-specify-iter1-rebuttals.md) — all REQUEST_CHANGES points ACCEPTED,
+  none rejected. `porch done 4` → **GATE: spec-approval**. Notified architect via afx send.
+  **STOPPED, waiting for human approval.** Will NOT self-approve (strict mode + Waleed's rule).
 
 
