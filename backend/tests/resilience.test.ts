@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import * as Sentry from '@sentry/nextjs';
 import {
-  fetchWithTimeout,
+  fetchJsonWithTimeout,
   ToolFetchError,
   toolLabel,
   TOOL_LABELS,
   unavailableResult,
   reportDegradedTool,
   TOOL_FETCH_TIMEOUT_MS,
+  MAX_RESPONSE_BYTES,
 } from '../lib/tools/resilience';
 
 // Sentry must never be hit for real in unit tests, and we assert on its payload.
@@ -38,7 +39,39 @@ function hangingFetch() {
     });
 }
 
-describe('fetchWithTimeout', () => {
+/**
+ * A real 200 Response whose body stream emits `head` immediately, then STALLS until the
+ * request's AbortSignal fires (issue #2: headers arrive, body hangs). Aborting errors the
+ * stream so the reader's next read() rejects with an AbortError — the shape a real stalled
+ * fetch body produces.
+ */
+function bodyHangResponse(head: string) {
+  return (_url: string, init?: RequestInit): Promise<Response> => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (head) controller.enqueue(encoder.encode(head));
+        init?.signal?.addEventListener('abort', () => {
+          controller.error(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      },
+    });
+    return Promise.resolve(new Response(stream, { status: 200, statusText: 'OK' }));
+  };
+}
+
+/** A real 200 Response whose body is a single oversized chunk of `size` bytes (issue #2). */
+function oversizedResponse(size: number): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(size));
+      controller.close();
+    },
+  });
+  return new Response(stream, { status: 200, statusText: 'OK' });
+}
+
+describe('fetchJsonWithTimeout', () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -50,21 +83,82 @@ describe('fetchWithTimeout', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns the Response on a 2xx (single attempt)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(okResponse());
+  it('returns the parsed JSON body on a 2xx (single attempt)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse({ results: [1, 2, 3] }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const response = await fetchWithTimeout(URL_UNDER_TEST, {});
+    const data = await fetchJsonWithTimeout<{ results: number[] }>(URL_UNDER_TEST, {});
 
-    expect(response.ok).toBe(true);
+    expect(data).toEqual({ results: [1, 2, 3] });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds the BODY read by the timeout: headers arrive, body hangs → timeout (issue #2)', async () => {
+    const fetchMock = vi.fn().mockImplementation(bodyHangResponse('{"partial":'));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, { timeoutMs: 40 }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ToolFetchError);
+    expect(err.errorClass).toBe('timeout');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps an oversized response body and degrades as too_large (issue #2)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(oversizedResponse(2048));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, { maxBytes: 1024 }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ToolFetchError);
+    expect(err.errorClass).toBe('too_large');
+  });
+
+  it('degrades a 2xx with an unparseable body as invalid_body (issue #2)', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{not json'));
+        controller.close();
+      },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(stream, { status: 200, statusText: 'OK' }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ToolFetchError);
+    expect(err.errorClass).toBe('invalid_body');
+  });
+
+  it('reads a streamed body inside the timeout window and returns parsed JSON', async () => {
+    // A real streamed 200 (not the json()-only mock) must be read to completion and parsed.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"results":'));
+        controller.enqueue(new TextEncoder().encode('[{"id":"2:255"}]}'));
+        controller.close();
+      },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(stream, { status: 200, statusText: 'OK' }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const data = await fetchJsonWithTimeout<{ results: Array<{ id: string }> }>(URL_UNDER_TEST, {});
+    expect(data).toEqual({ results: [{ id: '2:255' }] });
+  });
+
+  it('exposes an 8 MiB default response cap (issue #2)', () => {
+    expect(MAX_RESPONSE_BYTES).toBe(8 * 1024 * 1024);
   });
 
   it('throws ToolFetchError with http_5xx metadata immediately — no retry (issue #54)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const err = await fetchWithTimeout(URL_UNDER_TEST, {}, {
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, {
       errorPrefix: 'Usul API error',
     }).catch((e) => e);
 
@@ -81,7 +175,7 @@ describe('fetchWithTimeout', () => {
     const fetchMock = vi.fn().mockResolvedValue(errorResponse(400, 'Bad Request'));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const err = await fetchWithTimeout(URL_UNDER_TEST, {}, {
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, {
       errorPrefix: 'Kalemat API error',
     }).catch((e) => e);
 
@@ -97,7 +191,7 @@ describe('fetchWithTimeout', () => {
     const fetchMock = vi.fn().mockImplementation(hangingFetch());
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const err = await fetchWithTimeout(URL_UNDER_TEST, {}, {
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, {
       timeoutMs: 30,
     }).catch((e) => e);
 
@@ -112,7 +206,7 @@ describe('fetchWithTimeout', () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('fetch failed'));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const err = await fetchWithTimeout(URL_UNDER_TEST, {}).catch((e) => e);
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}).catch((e) => e);
 
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('network');
@@ -133,7 +227,7 @@ describe('fetchWithTimeout', () => {
 
       const start = Date.now();
       // No overrides → exercises the DEFAULT (production) flat timeout.
-      const promise = fetchWithTimeout(URL_UNDER_TEST, {}).catch((e) => e);
+      const promise = fetchJsonWithTimeout(URL_UNDER_TEST, {}).catch((e) => e);
       await vi.runAllTimersAsync();
       const err = await promise;
       const elapsed = Date.now() - start;
@@ -151,7 +245,7 @@ describe('fetchWithTimeout', () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse());
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await fetchWithTimeout(URL_UNDER_TEST, { headers: { 'x-api-key': 'k' } });
+    await fetchJsonWithTimeout(URL_UNDER_TEST, { headers: { 'x-api-key': 'k' } });
 
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);

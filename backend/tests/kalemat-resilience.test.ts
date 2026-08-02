@@ -140,6 +140,24 @@ describe.each([
     expect(result.documents[0].title).not.toBe('Source Temporarily Unavailable');
   });
 
+  it('treats a 200 with a non-array body as DEGRADED, never a silent "no results" (issue #2)', async () => {
+    // A shape change / error object at a 200 previously had `data.length === undefined`, so the
+    // tool returned the benign "No results found" — telling the model the source had nothing to
+    // say rather than that it failed (invisible to the degraded counter and Sentry). It must now
+    // degrade loudly through the resilience path.
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(okJson({ error: 'quota exceeded' })) as unknown as typeof fetch;
+
+    const promise = makeTool().run('faith');
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.isDegraded).toBe(true);
+    expect(result.documents[0].title).toBe('Source Temporarily Unavailable');
+    expect(result.content).not.toMatch(emptyContentRe);
+  });
+
   it('reports the degraded event to Sentry with NON-PII fields only', async () => {
     const Sentry = await import('@sentry/nextjs');
     (Sentry.captureMessage as ReturnType<typeof vi.fn>).mockClear();

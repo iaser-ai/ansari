@@ -218,4 +218,26 @@ describe.each([
     expect(serialized).not.toContain('a-private-user-query');
     expect(serialized).not.toContain('?q=');
   });
+
+  it('degrades a 200 whose body lacks a results array, never a silent "no results" (issue #2)', async () => {
+    // A 200 error object / shape change previously left `data.results` undefined, so the tool
+    // returned the benign "No results found" — invisible to the degraded counter and Sentry.
+    // usulSearch now validates the top-level shape and degrades loudly instead.
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ error: 'quota exceeded' }),
+      }) as unknown as typeof fetch;
+
+    const promise = makeTool().run('zakat');
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.isDegraded).toBe(true);
+    expect(result.documents[0].title).toBe('Source Temporarily Unavailable');
+    expect(result.content).not.toMatch(/No results/i);
+  });
 });
