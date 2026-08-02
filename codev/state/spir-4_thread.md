@@ -193,5 +193,14 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   promote; promotion resets the password (operator takes credential control, locks out
   pre-registrant, guarantees login-capable). Test now verifies real password auth: operator
   pw authenticates, attacker pw does not; + refuses promote without password. 514 passed.
+- Phase 4 iter2: **Codex + Claude REQUEST_CHANGES** (same blocker) — password reset alone
+  does NOT revoke the pre-registrant's EXISTING tokens; their 90-day refresh token survives
+  promotion and resolves to the now-admin row → admin access. → Fix: promote branch now calls
+  deleteUserTokens(existing.id) (precedent: reset_password). Test seeds a refresh token,
+  asserts it's gone after promote. Also (Codex): startup-checks logged the admin email
+  (plan: no user content) → report by index #N of M, not the address; + graceful DB-unreachable
+  message (Claude/Codex non-blocking). Docs: fixed docs/self-hosting.md ADMIN_EMAILS
+  (reserve+assert, not grant) + added admin-provisioning runbook. readline echo comment.
+  Result: **517 passed, 3 skipped**; build green.
 
 

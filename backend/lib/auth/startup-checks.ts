@@ -21,17 +21,33 @@ export async function assertConfiguredAdminsExist(): Promise<void> {
   const emails = config.admin.emails;
   if (emails.length === 0) return; // nothing configured → nothing to assert
 
-  for (const email of emails) {
-    const user = await findUserByEmail(email);
+  for (let i = 0; i < emails.length; i++) {
+    // Identify the failing entry by its position in ADMIN_EMAILS, never by the
+    // address itself — this error is logged at boot and must carry no email
+    // content (project logging convention). The operator maps the index back to
+    // their configured list.
+    const label = `configured admin #${i + 1} of ${emails.length} (from ADMIN_EMAILS)`;
+
+    let user;
+    try {
+      user = await findUserByEmail(emails[i]);
+    } catch {
+      // A transient DB outage at boot must read as such, not as a missing admin,
+      // so on-call triage doesn't chase a provisioning problem that isn't there.
+      throw new Error(
+        `Admin bootstrap check could not reach the database while verifying ${label}. Retry once the database is reachable.`
+      );
+    }
+
     if (!user) {
       throw new Error(
-        `Admin bootstrap check failed: configured admin '${email}' has no account. ` +
+        `Admin bootstrap check failed: ${label} has no account. ` +
           `Run scripts/grant-admin.ts before deploy (runbook: migration → bootstrap → deploy).`
       );
     }
     if (!user.isAdmin) {
       throw new Error(
-        `Admin bootstrap check failed: configured admin '${email}' exists but is not flagged is_admin. ` +
+        `Admin bootstrap check failed: ${label} exists but is not flagged is_admin. ` +
           `Run scripts/grant-admin.ts to grant it.`
       );
     }

@@ -54,6 +54,20 @@ describe('assertConfiguredAdminsExist', () => {
     mockFindUserByEmail.mockResolvedValue({ id: '1', email: 'admin@ansari.chat', isAdmin: false });
     await expect(assertConfiguredAdminsExist()).rejects.toThrow(/not flagged is_admin/);
   });
+
+  it('does not leak the admin email address in the error (logs carry no email content)', async () => {
+    setEmails(['secret-admin@ansari.chat']);
+    mockFindUserByEmail.mockResolvedValue(undefined);
+    await expect(assertConfiguredAdminsExist()).rejects.toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining('secret-admin@ansari.chat') })
+    );
+  });
+
+  it('reports a DB-unreachable error distinctly from a missing admin', async () => {
+    setEmails(['admin@ansari.chat']);
+    mockFindUserByEmail.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(assertConfiguredAdminsExist()).rejects.toThrow(/could not reach the database/);
+  });
 });
 
 describe('shouldRunAdminStartupCheck', () => {

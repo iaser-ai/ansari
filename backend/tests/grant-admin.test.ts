@@ -42,6 +42,15 @@ beforeAll(async () => {
       updated_at timestamp with time zone DEFAULT now()
     );
     CREATE UNIQUE INDEX idx_users_system_key ON users (system_key);
+    CREATE TABLE tokens (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_type text NOT NULL,
+      token_hash text NOT NULL,
+      expires_at timestamp with time zone NOT NULL,
+      rotated_at timestamp with time zone,
+      created_at timestamp with time zone DEFAULT now()
+    );
   `);
 });
 
@@ -50,6 +59,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await client.exec(`DELETE FROM tokens;`);
   await client.exec(`DELETE FROM users;`);
 });
 
@@ -94,6 +104,28 @@ describe('grantAdmin', () => {
       ['existing@admin.chat']
     );
     expect(count.rows[0].n).toBe(1);
+  });
+
+  it('revokes the promoted account\'s existing tokens (pre-registrant session lockout)', async () => {
+    await client.query(
+      `INSERT INTO users (id, email, password_hash, is_admin) VALUES ($1, $2, $3, false)`,
+      ['33333333-3333-3333-3333-333333333333', 'tokened@admin.chat', await hashForTest('attacker-password-xxx')]
+    );
+    // Seed a live refresh token the attacker holds.
+    await client.query(
+      `INSERT INTO tokens (user_id, token_type, token_hash, expires_at)
+       VALUES ($1, 'refresh', 'attacker-token-hash', now() + interval '90 days')`,
+      ['33333333-3333-3333-3333-333333333333']
+    );
+
+    await grantAdmin('tokened@admin.chat', 'operator-password-999');
+
+    // The attacker's token row is gone — it can no longer authenticate as the now-admin user.
+    const tokens = await client.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM tokens WHERE user_id = $1`,
+      ['33333333-3333-3333-3333-333333333333']
+    );
+    expect(tokens.rows[0].n).toBe(0);
   });
 
   it('normalizes the email to lowercase', async () => {

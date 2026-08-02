@@ -22,7 +22,7 @@
 import { createInterface } from 'readline';
 import { eq } from 'drizzle-orm';
 import { db } from '../lib/db/index';
-import { findUserByEmail } from '../lib/db/users';
+import { findUserByEmail, deleteUserTokens } from '../lib/db/users';
 import { hashPassword } from '../lib/auth/password';
 import { users } from '../db/schema';
 
@@ -55,6 +55,11 @@ export async function grantAdmin(
       .update(users)
       .set({ isAdmin: true, passwordHash, updatedAt: new Date() })
       .where(eq(users.id, existing.id));
+    // Revoke ALL of the account's existing tokens. Resetting the password alone
+    // does NOT invalidate already-issued access/refresh tokens: a pre-registrant's
+    // 90-day refresh token would otherwise survive promotion and resolve to this
+    // now-admin row. (Same precedent as reset_password's deleteUserTokens.)
+    await deleteUserTokens(existing.id);
     return { created: false };
   }
 
@@ -68,6 +73,9 @@ export async function grantAdmin(
 }
 
 function prompt(question: string): Promise<string> {
+  // Note: input echoes to the terminal (no silent-input mode). Acceptable for an
+  // operator-run, one-off bootstrap; it never lands in shell history (unlike a CLI
+  // arg). Prefer GRANT_ADMIN_PASSWORD in CI/non-interactive contexts.
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
