@@ -97,9 +97,22 @@ export async function POST(request: NextRequest) {
       token_type: 'bearer',
     });
   } catch (error) {
-    // Log the detail server-side; return a generic message so raw driver/DB
-    // error text is never leaked to the client (spec 4).
-    console.error('Registration error:', error);
+    // Log ONLY sanitized metadata (error type + SQLSTATE code). The full driver
+    // error can embed user content — the submitted email, query params, or the
+    // password hash — which must never reach logs (backend CLAUDE.md) or the
+    // client. The client gets a generic message (spec 4).
+    console.error('Registration error:', safeErrorMeta(error));
     return createErrorResponse('Registration failed', 500);
   }
+}
+
+/**
+ * Extract log-safe metadata from an error: its type name and, for DB driver
+ * errors, the SQLSTATE `code` — never the message, query text, or params (any of
+ * which can carry user content).
+ */
+function safeErrorMeta(error: unknown): { name: string; code?: string } {
+  const name = error instanceof Error ? error.name : typeof error;
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? { name, code } : { name };
 }

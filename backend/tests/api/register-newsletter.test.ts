@@ -485,8 +485,11 @@ describe('Registration hardening (spec 4 Phase 9)', () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.detail).toBe('Registration failed');
-    // The raw DB/driver text must NOT leak to the client.
+    // The raw DB/driver text must NOT leak to the client...
     expect(body.detail).not.toContain('constraint');
+    // ...NOR into the logs (no user content: no email, params, or hash).
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('constraint');
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('boom@example.com');
     consoleSpy.mockRestore();
   });
 });

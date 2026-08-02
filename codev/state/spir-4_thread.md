@@ -336,3 +336,7 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   (gotcha: dangling mockReturnValueOnce from placement test -> mockReset), same-length wrong
   leaderboard key 401 (constant-time content compare), sweep retention (token-grace).
   Result: typecheck clean; 569 passed, 3 skipped; build green.
+- Phase 9 iter1: Gemini+Claude APPROVE, Codex REQUEST_CHANGES - register catch logged the
+  FULL DB error object, which can carry the submitted email/params/hash (violates no-user-
+  content-in-logs). -> Fix: safeErrorMeta(error) logs only {name, code(SQLSTATE)}, never the
+  message/query/params. Test asserts logs contain neither 'constraint' nor the email. 569 passed.
