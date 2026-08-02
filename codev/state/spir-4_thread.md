@@ -358,3 +358,14 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   spec/plan Status; fixed review flaky count; migration index-lock note. Full new gate green:
   lint 0-err, typecheck, test:coverage 583 passed/3 skipped, build. Pushed. Wrote rebuttal.
 - `porch done 4` -> **GATE: pr**. Notifying architect. **STOPPED - will NOT merge/self-approve.**
+
+## 2026-08-02 - gitleaks on PR #15
+- Renamed the phase-7 dummy JWT fixture. IMPORTANT: the architect's suggested value
+  'phase7-test-secret-at-least-32-chars-long-xx' ALSO trips gitleaks generic-api-key
+  (the SECRET/jwtSecret identifier + a value lacking the right stopwords). Verified locally
+  that 'phase7-testing-secret-for-purposes-only-32chars' passes (has 'testing'/'purposes'/'only').
+  Tip is now gitleaks-clean.
+- BUT gitleaks scans PR commit history: 4 findings remain in 2 HISTORIC commits:
+  d124945 (chore(porch): 4 implement build-complete - old string) and 48699228 (my first
+  rename - still-flagged value). Tip fix can't remove them. History rewrite needed.
+- Per architect instruction + Waleed's rule: NOT rewriting history. Reported to architect, awaiting decision.
