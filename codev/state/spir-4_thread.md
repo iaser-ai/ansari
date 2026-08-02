@@ -149,5 +149,23 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   pair + response contract + issueTokenPair called with user.id; unknown user 401 no-issue;
   wrong pw 401 no-issue). Now 502 passed, 3 skipped; build green. Staged all Phase 2 files
   so the re-review diff includes the 3 new test files.
+- Phase 2 iter2: unanimous APPROVE. Committed (063c2e2).
+
+## 2026-08-02 — Implement Phase 3 (schema migration + backfill + DDL sync)
+- Schema: users +is_admin(bool,notNull,default false) +system_key(text,nullable,unique index
+  idx_users_system_key) +session_version(int,notNull,default 0).
+- `db:generate` → drizzle/0003_lying_dracula.sql: 3 ADD COLUMN + CREATE UNIQUE INDEX
+  (additive, no destructive stmts; NULLs-distinct so many real users don't collide).
+- Appended CONDITIONAL backfill to 0003 SQL: mark ai-skill/leaderboard system rows with
+  system_key ONLY where password_hash='nologin' AND matching source (hijacked real-hash rows
+  NOT promoted → manual remediation via runbook).
+- Synced hand-DDL (else drizzle column-enumeration breaks pglite selects): token-grace.test.ts,
+  attribution-schema.test.ts, issue-token-pair.test.ts CREATE TABLE users +3 cols;
+  schema.test.ts +3 col assertions. User-literal fixtures did NOT break typecheck (not
+  strictly typed as User).
+- New test: system-key-backfill.test.ts — legit row marked, hijacked (real hash) refused,
+  ordinary user untouched, many NULLs allowed under unique index.
+- Result: typecheck clean; **504 passed, 3 skipped**; build green; `db:generate` reports
+  "No schema changes" (no drift). Migration NOT applied (human applies at deploy; no db:push).
 
 
