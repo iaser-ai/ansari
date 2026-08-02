@@ -202,5 +202,12 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   message (Claude/Codex non-blocking). Docs: fixed docs/self-hosting.md ADMIN_EMAILS
   (reserve+assert, not grant) + added admin-provisioning runbook. readline echo comment.
   Result: **517 passed, 3 skipped**; build green.
+- Phase 4 iter3: Gemini+Claude APPROVE, **Codex REQUEST_CHANGES** — (1) promote+deleteTokens
+  were separate statements (race: refresh can mint tokens between); (2) plan wants route-level
+  /admin/stats integration test (existing one mocks requireAdmin). → Fix: promote now in ONE
+  db.transaction (set is_admin+password+`session_version+1`+delete tokens); test asserts
+  session_version bumped to 1 + tokens gone. Added admin-stats-authz.test.ts exercising REAL
+  requireAdmin: is_admin=false→403, true→200, unauth→401. session_version bump is forward-compat
+  (Phase 7 enforces). Result: **520 passed, 3 skipped**; build green.
 
 

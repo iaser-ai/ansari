@@ -20,11 +20,11 @@
  * and guarantees the admin account is login-capable.
  */
 import { createInterface } from 'readline';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../lib/db/index';
-import { findUserByEmail, deleteUserTokens } from '../lib/db/users';
+import { findUserByEmail } from '../lib/db/users';
 import { hashPassword } from '../lib/auth/password';
-import { users } from '../db/schema';
+import { users, tokens } from '../db/schema';
 
 const MIN_ADMIN_PASSWORD_LENGTH = 12;
 
@@ -49,17 +49,25 @@ export async function grantAdmin(
   const passwordHash = await hashPassword(password);
   const existing = await findUserByEmail(normalized);
   if (existing) {
-    // Promote AND reset the password to the operator-supplied value — never
-    // preserve a possibly attacker-controlled credential (spec 4).
-    await db
-      .update(users)
-      .set({ isAdmin: true, passwordHash, updatedAt: new Date() })
-      .where(eq(users.id, existing.id));
-    // Revoke ALL of the account's existing tokens. Resetting the password alone
-    // does NOT invalidate already-issued access/refresh tokens: a pre-registrant's
-    // 90-day refresh token would otherwise survive promotion and resolve to this
-    // now-admin row. (Same precedent as reset_password's deleteUserTokens.)
-    await deleteUserTokens(existing.id);
+    // Promote atomically in one transaction so there is no window in which the
+    // account is admin-with-live-attacker-tokens (spec 4):
+    //   - set is_admin + reset the password (never preserve an attacker credential)
+    //   - bump session_version: Phase 7 embeds this in issued tokens and rejects any
+    //     with a stale version, so even a token minted by a refresh racing this
+    //     promotion is invalidated (forward-compatible; no enforcement until Phase 7)
+    //   - delete all existing tokens (immediate revocation of current sessions)
+    await db.transaction(async (tx) => {
+      await tx
+        .update(users)
+        .set({
+          isAdmin: true,
+          passwordHash,
+          sessionVersion: sql`${users.sessionVersion} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existing.id));
+      await tx.delete(tokens).where(eq(tokens.userId, existing.id));
+    });
     return { created: false };
   }
 

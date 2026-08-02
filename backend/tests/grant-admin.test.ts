@@ -106,9 +106,9 @@ describe('grantAdmin', () => {
     expect(count.rows[0].n).toBe(1);
   });
 
-  it('revokes the promoted account\'s existing tokens (pre-registrant session lockout)', async () => {
+  it('atomically revokes tokens and bumps session_version on promotion (pre-registrant lockout)', async () => {
     await client.query(
-      `INSERT INTO users (id, email, password_hash, is_admin) VALUES ($1, $2, $3, false)`,
+      `INSERT INTO users (id, email, password_hash, is_admin, session_version) VALUES ($1, $2, $3, false, 0)`,
       ['33333333-3333-3333-3333-333333333333', 'tokened@admin.chat', await hashForTest('attacker-password-xxx')]
     );
     // Seed a live refresh token the attacker holds.
@@ -121,11 +121,20 @@ describe('grantAdmin', () => {
     await grantAdmin('tokened@admin.chat', 'operator-password-999');
 
     // The attacker's token row is gone — it can no longer authenticate as the now-admin user.
-    const tokens = await client.query<{ n: number }>(
+    const tokenRows = await client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM tokens WHERE user_id = $1`,
       ['33333333-3333-3333-3333-333333333333']
     );
-    expect(tokens.rows[0].n).toBe(0);
+    expect(tokenRows.rows[0].n).toBe(0);
+
+    // session_version is bumped so any token minted by a refresh racing the promotion
+    // (carrying the old version) is rejected once Phase 7's version check is in place.
+    const userRow = await client.query<{ is_admin: boolean; session_version: number }>(
+      `SELECT is_admin, session_version FROM users WHERE id = $1`,
+      ['33333333-3333-3333-3333-333333333333']
+    );
+    expect(userRow.rows[0].is_admin).toBe(true);
+    expect(userRow.rows[0].session_version).toBe(1);
   });
 
   it('normalizes the email to lowercase', async () => {
