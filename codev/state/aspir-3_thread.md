@@ -26,3 +26,11 @@ Protocol: ASPIR (strict, porch-driven). Issue #3.
 - 6 phases = the issue's 6 numbered areas, one atomic commit each. Order dependency-driven: (1) Node22+deps → (2) lint → (3) CI → (4) healthcheck → (5) test honesty → (6) contributor polish.
 - Deliberate deviation: ALL `ci.yml` edits consolidated into Phase 3 (workflow touched once), so area 2's "add lint step to CI" lands in Phase 3 while lint config/script land in Phase 2. Documented in plan Notes.
 - Plan written to `codev/plans/3-open-source-readiness-node-22-.md`; running checks + 3-way plan review.
+- 3-way plan review: Gemini APPROVE, Codex + Claude REQUEST_CHANGES. All verified against tree + accepted:
+  - **Load-bearing fix**: swapped Phase 4 & 5. `tests/api.test.ts:21` imports the health route UNMOCKED and asserts 200/`ok`; making the route run `SELECT 1` would turn it red. Test-honesty (deletes that case) now runs BEFORE healthcheck → per-phase gate stays green.
+  - Named every stale doc: Node-20 refs (README:33,39,44 / AGENTS:17 / CLAUDE:17 / self-hosting:8) → Phase 1; Playwright refs (README:39 / AGENTS:34 / CLAUDE:34 / tsconfig:33 exclude / .gitignore:8-9) → Phase 4.
+  - Phase 2 ESLint: use `FlatCompat` + `@eslint/eslintrc` (Next 15 has no native flat spread), verify-then-install. tests/** left unlinted = conscious decision.
+  - Phase 3 coverage: `test:coverage` npm script + `npm run test:coverage` (bare vitest not on CI PATH).
+  - Phase 4 share test: `shares.thread_id` is notNull FK → seed users→threads→shares in order.
+  - Phase 5 healthcheck tests: 2000ms timeout via fake timers; unset-DATABASE_URL via throwing mock factory (honesty note: exercises route try/catch, not real import-time throw). Railway `/api/health` becomes a real deploy gate (`restartPolicyMaxRetries=3`) → post-deploy probe check added.
+- Rebuttal written. Next: re-verify plan, auto-advance to Implement (ASPIR, no plan gate).
