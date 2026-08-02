@@ -209,5 +209,39 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   session_version bumped to 1 + tokens gone. Added admin-stats-authz.test.ts exercising REAL
   requireAdmin: is_admin=false→403, true→200, unauth→401. session_version bump is forward-compat
   (Phase 7 enforces). Result: **520 passed, 3 skipped**; build green.
+- **porch has a 3-ITERATION SAFETY CEILING**: after iter3, porch force-advanced Phase 4
+  (commit "force-advance (safety ceiling reached at iter 3)") to phase_5. My Phase 4 code
+  IS committed (porch chore commits absorbed my staged files; verified grant-admin tx +
+  session_version + admin.ts flag in HEAD). All Codex/Claude blockers were addressed in my
+  iter3 fixes, so the committed state is fully corrected. Phase 4 ✓.
+  NOTE: porch also pre-marked phase_5 "build-complete" on the phase_4 tree — I must implement
+  phase_5, re-run porch done to re-validate, THEN consult.
+
+## 2026-08-02 — Implement Phase 5 (system-account reservation via system_key)
+- system-accounts.ts (new): SYSTEM_EMAIL_DOMAIN + SYSTEM_ACCOUNTS registry (ai-skill,
+  leaderboard) + isSystemAddress() — single source of truth.
+- users.ts: findSystemUser(key) (lookup by system_key), getOrCreateSystemUser(key) (lazy
+  create w/ system_key + nologin + canonical email; on unique conflict re-read by key for
+  race, else FAIL FAST — email held by non-system/hijacked row).
+- reserved.ts: now normalizes internally + reserves the @system.ansari.chat domain
+  (addresses Claude's Phase 4 note). register call unchanged (still passes lowercased; helper
+  double-normalizes).
+- mcp-complete + v1/chat/completions: getSystemUserId now uses getOrCreateSystemUser (by key),
+  removed email-based findUserByEmail||createUser. Kept SOURCE_TAG (used elsewhere in v1).
+- Tests: reserved.test.ts (admin + system domain + case-insensitive); system-user.test.ts
+  (create-by-key, idempotent, two distinct identities, look-alike NOT resolved + fail-fast);
+  updated mcp-complete + openai-compat mocks to getOrCreateSystemUser; register system-address
+  409 case. Result: typecheck clean; **526 passed, 3 skipped**; build green.
+- NOTE: porch pre-marked phase_5 build-complete on the phase_4 tree (force-advance artifact);
+  re-running porch done to re-validate against the real phase_5 tree, then consult.
+- Phase 5 iter1: Gemini+Claude APPROVE, **Codex REQUEST_CHANGES** — (1) catch-all in
+  getOrCreateSystemUser reported "occupied email" for ANY insert failure (outage/schema
+  would be misreported); (2) endpoint tests didn't assert the endpoint→identity key mapping.
+  → Fix: added isUniqueViolation() (walks .cause chain — drizzle wraps the driver 23505);
+  only 23505 → interpret (race re-read / occupied-email), else rethrow raw. Tests:
+  isUniqueViolation unit (top-level + cause-nested 23505; other codes false); DROP-table
+  non-unique propagation test (not masked as "already held"); mcp asserts
+  getOrCreateSystemUser('ai-skill'), openai-compat asserts ('leaderboard').
+  Result: **530 passed, 3 skipped**; build green.
 
 

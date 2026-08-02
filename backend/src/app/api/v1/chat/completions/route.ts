@@ -28,13 +28,12 @@ import {
   type FacilitatorStreamEvent,
 } from '@/lib/facilitator/agent';
 import { createThread, createMessage } from '@/lib/db/threads';
-import { findUserByEmail, createUser } from '@/lib/db/users';
+import { getOrCreateSystemUser } from '@/lib/db/users';
 import { getClientId } from '@/lib/attribution';
 import { isInklingConfigured } from '@/lib/ai/inkling-client';
 import type { ContentBlock } from '@/db/schema/messages';
 import { config } from '@/lib/config';
 
-const SYSTEM_USER_EMAIL = 'leaderboard@system.ansari.chat';
 const SOURCE_TAG = 'leaderboard';
 
 // Served model ids (issue #74 scope amendment). Both run the identical full
@@ -123,16 +122,8 @@ let cachedSystemUserId: string | null = null;
 async function getSystemUserId(): Promise<string> {
   if (cachedSystemUserId) return cachedSystemUserId;
 
-  let user = await findUserByEmail(SYSTEM_USER_EMAIL);
-  if (!user) {
-    user = await createUser({
-      email: SYSTEM_USER_EMAIL,
-      passwordHash: 'nologin',
-      firstName: 'Leaderboard',
-      lastName: 'System User',
-      source: SOURCE_TAG,
-    });
-  }
+  // Resolve by durable system_key, never by email (spec 4).
+  const user = await getOrCreateSystemUser('leaderboard');
   cachedSystemUserId = user.id;
   return cachedSystemUserId;
 }

@@ -383,6 +383,20 @@ describe('Reserved-address registration (spec 4 anti-oracle)', () => {
     expect(issueTokenPair).not.toHaveBeenCalled();
   });
 
+  it('refuses a system-domain address with the same 409 (spec 4 Phase 5)', async () => {
+    h.reserved.add('ai-skill@system.ansari.chat');
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    const response = await POST(makeRequest({
+      email: 'ai-skill@system.ansari.chat',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.detail).toBe('An account with this email already exists');
+  });
+
   it('matches reserved addresses case-insensitively (normalized before the check)', async () => {
     h.reserved.add('admin@ansari.chat');
     const { POST } = await import('../../src/app/api/v2/users/register/route');

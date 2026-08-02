@@ -28,15 +28,13 @@ beforeEach(() => {
 });
 
 // Default-allow mocks for DB and facilitator. Individual tests override.
-const mockFindUserByEmail = vi.fn();
-const mockCreateUser = vi.fn();
+const mockGetOrCreateSystemUser = vi.fn();
 const mockCreateThread = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockRunFacilitator = vi.fn();
 
 vi.mock('@/lib/db/users', () => ({
-  findUserByEmail: (...args: unknown[]) => mockFindUserByEmail(...args),
-  createUser: (...args: unknown[]) => mockCreateUser(...args),
+  getOrCreateSystemUser: (...args: unknown[]) => mockGetOrCreateSystemUser(...args),
 }));
 vi.mock('@/lib/db/threads', () => ({
   createThread: (...args: unknown[]) => mockCreateThread(...args),
@@ -96,7 +94,7 @@ async function* facilitatorEmits(text: string, usage?: Record<string, number>) {
 }
 
 function setupSuccessfulMocks(text = 'Sample answer', usage?: Record<string, number>) {
-  mockFindUserByEmail.mockResolvedValue(SYSTEM_USER);
+  mockGetOrCreateSystemUser.mockResolvedValue(SYSTEM_USER);
   mockCreateThread.mockResolvedValue(MOCK_THREAD);
   mockCreateMessage.mockResolvedValue({ id: 'msg-1' });
   mockRunFacilitator.mockReturnValue(facilitatorEmits(text, usage));
@@ -177,6 +175,9 @@ describe('POST /v1/chat/completions', () => {
       )
     );
     expect(res.status).toBe(200);
+    // Endpoint→identity mapping (spec 4): the leaderboard endpoint resolves its
+    // system user by the 'leaderboard' key.
+    expect(mockGetOrCreateSystemUser).toHaveBeenCalledWith('leaderboard');
     const body = await res.json();
     expect(body.object).toBe('chat.completion');
     // Response.model is the backend's id, not the caller's input, per OpenAI spec.

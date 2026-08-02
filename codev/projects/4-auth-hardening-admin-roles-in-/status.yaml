@@ -44,8 +44,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 1
-build_complete: true
+iteration: 2
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_1
@@ -127,8 +127,24 @@ history:
         verdict: APPROVE
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_4-iter3-claude.txt
+  - iteration: 1
+    plan_phase: phase_5
+    build_output: ''
+    reviews:
+      - model: gemini
+        verdict: APPROVE
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_5-iter1-gemini.txt
+      - model: codex
+        verdict: REQUEST_CHANGES
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_5-iter1-codex.txt
+      - model: claude
+        verdict: APPROVE
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_5-iter1-claude.txt
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T14:00:09.330Z'
+updated_at: '2026-08-02T14:16:58.396Z'
 force_advanced:
   phase: phase_4
   iteration: 3
