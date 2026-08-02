@@ -93,6 +93,21 @@ tree. Escalated to the architect with the exact override (drafted in scratchpad
 `porch-checks-override.json`). Waiting on: architect to apply the override to the shared config
 (or advise). This blocks advancing out of the fix phase; the fix itself is done and committed.
 
+## PR phase — PR #5 open, at the `pr` gate (2026-08-02)
+
+Architect applied the `porch.checks` override to the shared `.codev/config.json`; fix-phase checks
+now pass (build 7.5s, tests 6.4s). Advanced to PR phase.
+
+- **PR #5** opened against `develop` with `Fixes #2`.
+- **CMAP**: gemini=APPROVE, codex=COMMENT (its review sandbox couldn't run tests; no substantive
+  objection), claude=APPROVE. No REQUEST_CHANGES.
+- Disclosed in the PR body: issue #3's `search-mawsuah` per-result dual-shape sub-item is
+  intentionally deferred (top-level usul shape validation covers the reported failure mode) so
+  `Fixes #2` doesn't silently close it — recommend a follow-up issue if per-result unification is wanted.
+- `porch done` → `porch gate` requested the **`pr` gate**. STOPPED, waiting for human approval
+  (`porch approve bugfix-2 pr --a-human-explicitly-approved-this`). On approval: `gh pr merge --merge`
+  (NOT `--delete-branch` — checked out in this worktree), then `porch done`, then notify architect.
+
 ## Constraints honored
 No streaming wire-format changes (heartbeats/ZWSP/SSE shapes). No facilitator prompt changes.
 Every fix gets a regression test. Full suite: `npm run typecheck && npm test && npm run build`.
