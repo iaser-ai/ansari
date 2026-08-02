@@ -1,0 +1,51 @@
+I'll review Phase 6 (logout — full session revocation) by reading the actual implementation.Now let me verify the supporting pieces: middleware contract, `deleteUserTokens`, and the pre-existing logout test the plan said must be updated.Let me check the prior logout implementation and whether any DB-level test proves post-logout refresh rejection.Let me verify the tests actually pass.## Review — Phase 6: Logout, full session revocation
+
+I read the route, the new test, the middleware contract, `deleteUserTokens`, and the diff against the PR base (`baf430d...HEAD`), and ran the affected suites (12/12 green).
+
+### What's correct
+
+**`backend/src/app/api/v2/users/logout/route.ts`** — the implementation is clean and matches every pinned decision in the plan's Phase 6:
+
+- Resolves the user via `authenticateRequest` and calls `deleteUserTokens(authResult.user.id)` — full all-device revocation, as pinned in spec Desired State #3.
+- The 401 contract is preserved by delegation rather than re-implemented: `middleware.ts:22-29` returns `Not authenticated` for a missing token, `:33-40` for an unverifiable one, `:43-50` for a wrong-type token, `:54-61` for a token absent from the DB. All four land as 401 — the plan required no-token → 401 and invalid → 401, and this covers strictly more.
+- Note this *tightens* the pre-existing behavior: previously an unrecognized bearer string returned 200 (`deleteToken` returned `false`, route still succeeded). Now it's 401. That's what the plan asked for, but it is a client-visible change worth a line in the PR body.
+- Error path unchanged (500 `Logout failed`, detail logged, no user content).
+
+**Plan deliverable "update the existing logout test"** — done correctly. `tests/refresh-token-route.test.ts:90-102` (the old `expect(mockDeleteToken).toHaveBeenCalledWith('at')` block) was removed and replaced by a dedicated `tests/logout-route.test.ts` covering valid-token full revocation, no-token 401, and invalid-token 401, each asserting `deleteUserTokens` was/wasn't called. The `deleteToken` mock retained in the refresh test is still load-bearing — it backs the issue-#34 "rotates instead of hard-deletes" assertion at `:87`.
+
+### Gaps worth closing
+
+**1. The spec's success criterion isn't literally proven by a test.** Spec says *"After logout, the user's refresh token is rejected (test)"*, and the plan's Phase 6 test plan says *"login → logout → refresh (expect reject)"*. `logout-route.test.ts` fully mocks `@/lib/db/users`, so it proves the route *calls* `deleteUserTokens('user-123')` — not that the refresh token subsequently fails validation. I checked: `deleteUserTokens` has **no DB-level coverage anywhere** (`password-reset.test.ts:14` mocks it; `token-grace.test.ts` never exercises it). The composition — route → delete-by-userId → `findToken` miss — is currently unverified end to end.
+
+Low-cost fix in the existing pglite harness (`tests/token-grace.test.ts` already has `insertToken` + `findToken` wired):
+
+```ts
+it('deleteUserTokens revokes the refresh token too (full logout)', async () => {
+  await insertToken({ token: 'at', type: 'access' });
+  await insertToken({ token: 'rt', type: 'refresh' });
+  expect(await deleteUserTokens(TEST_USER_ID)).toBe(2);
+  expect(await findToken('rt')).toBeUndefined();
+  expect(await findToken('at')).toBeUndefined();
+});
+```
+
+Risk of an actual bug here is low (`users.ts:255-264` is a 3-line delete-by-userId), which is why I'm not blocking — but this criterion is explicitly checkbox'd in the spec and gets audited at the plan's "Before PR" checkpoint, so close it before then rather than rediscovering it at PR review.
+
+**2. An expired access token can no longer revoke the 90-day refresh token.** `findToken` filters `gt(tokens.expiresAt, now)` (`users.ts:221`), so a client whose 2h access token lapsed gets 401 from logout and its refresh token survives — the exact tail the phase set out to cut. In practice clients refresh before logging out, and the plan explicitly pinned "only a valid access token proceeds," so this is plan-conformant, not a defect. Worth one sentence in the PR body as a known residual (a future `POST /logout {refresh_token}` variant would close it). Related: logout is no longer idempotent — a second call returns 401 since the access token is gone.
+
+### Nits
+
+- `tests/refresh-token-route.test.ts:5-6` header comment still reads "logout must still invalidate immediately," but the logout test moved out of that file.
+- `tests/token-grace.test.ts:126` comment "(d) Logout (`deleteToken`) invalidates immediately" is now stale — logout no longer uses `deleteToken`. The test is still a valid `deleteToken` unit test; just reword the comment.
+- `deleteToken` (`users.ts:249`) is now dead in production code (only `users.ts` + tests reference it). Nothing in Phase 7 needs it. Fine to leave, but it's a removal candidate at PR cleanup.
+
+---
+VERDICT: COMMENT
+SUMMARY: Logout route correctly implements full all-device revocation with the pinned 401 contract; the only gap is that no test actually proves a post-logout refresh token is rejected.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Spec criterion "after logout the refresh token is rejected (test)" is not proven — `logout-route.test.ts` mocks `deleteUserTokens`, and that function has zero DB-level coverage anywhere in the suite. Add a pglite assertion in `tests/token-grace.test.ts` (~10 lines) before the PR checkpoint.
+- Residual (plan-conformant, document only): an expired access token yields 401, so the 90-day refresh token cannot be revoked; logout is also no longer idempotent. Note both in the PR body.
+- Nits: stale logout comments at `tests/refresh-token-route.test.ts:5-6` and `tests/token-grace.test.ts:126`; `deleteToken` is now production-dead code.
