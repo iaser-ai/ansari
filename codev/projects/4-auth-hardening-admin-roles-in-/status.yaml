@@ -14,10 +14,10 @@ plan_phases:
     status: complete
   - id: phase_4
     title: Durable admin authorization + reserved-address reservation + startup assertion + bootstrap
-    status: in_progress
+    status: complete
   - id: phase_5
     title: System-account reservation via system_key
-    status: pending
+    status: in_progress
   - id: phase_6
     title: 'Logout: full session revocation'
     status: pending
@@ -30,7 +30,7 @@ plan_phases:
   - id: phase_9
     title: 'Smaller hardening: timing-safe compare, password policy, generic error, token sweep'
     status: pending
-current_plan_phase: phase_4
+current_plan_phase: phase_5
 gates:
   spec-approval:
     status: approved
@@ -44,8 +44,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 3
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_1
@@ -128,7 +128,7 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_4-iter3-claude.txt
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T13:59:50.601Z'
+updated_at: '2026-08-02T13:59:52.229Z'
 force_advanced:
   phase: phase_4
   iteration: 3
