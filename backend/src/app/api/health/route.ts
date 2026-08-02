@@ -22,8 +22,16 @@ async function pingDatabase(): Promise<void> {
     timer = setTimeout(() => reject(new Error('database health check timed out')), DB_PING_TIMEOUT_MS);
   });
 
+  // If the timeout wins the race, this query promise is still pending and will
+  // reject later (up to the pool's 5000ms connect timeout). Attach a no-op catch
+  // so that late rejection isn't logged as an unhandled rejection on every probe
+  // against a dead database. The race below still sees the real rejection first
+  // when the query fails fast.
+  const query = Promise.resolve(db.execute(sql`SELECT 1`));
+  query.catch(() => {});
+
   try {
-    await Promise.race([db.execute(sql`SELECT 1`), timeout]);
+    await Promise.race([query, timeout]);
   } finally {
     clearTimeout(timer);
   }

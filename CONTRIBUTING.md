@@ -23,8 +23,8 @@ stray root lockfile; don't.
 
 ## Checks
 
-Before opening a PR, make sure all four pass (CI runs exactly these, with the
-dummy env in `backend/.env.ci` — no secrets needed):
+Before opening a PR, make sure all four pass (CI runs these — it runs the test
+step with coverage — using the dummy env in `backend/.env.ci`, no secrets needed):
 
 ```bash
 npm run lint
