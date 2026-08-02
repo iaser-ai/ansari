@@ -56,4 +56,18 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   none rejected. `porch done 4` → **GATE: spec-approval**. Notified architect via afx send.
   **STOPPED, waiting for human approval.** Will NOT self-approve (strict mode + Waleed's rule).
 
+## 2026-08-02 — spec-approval APPROVED by Waleed → Plan phase
+- Two NON-NEGOTIABLE requirements to carry into the plan (from architect review):
+  1. **Reserved-address registration rejections (admin + system) MUST return the
+     IDENTICAL response to the existing "account already exists" 409** —
+     `createErrorResponse('An account with this email already exists', 409)`
+     (register/route.ts:36). Otherwise registration is an oracle for admin emails.
+  2. **Deploy runbook ordering: migration → admin bootstrap → deploy** (prod boot
+     asserts admin existence). Bake into plan's runbook + Phase 3/4.
+- Phasing (foundation-first, then severity order): 1 config-centralize, 2 issueTokenPair,
+  3 schema migration (is_admin/system_key/session_version + conditional backfill),
+  4 admin authz+reservation+startup assertion+bootstrap script, 5 system_key reservation,
+  6 logout full revoke, 7 atomic rotation+session_version+reset-kill+reuse detect,
+  8 feedback IDOR+oracle uniformity, 9 smaller hardening.
+
 
