@@ -387,3 +387,8 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
 - Full gate green: lint, typecheck, test (585 passed/3 skipped), build, gitleaks. Pushing.
 - CI GREEN on PR #15: backend (lint/typecheck/test/build) pass 1m53s; gitleaks pass 8s.
   All 5 integration-review items done. Waiting for architect approval — NOT merging.
+
+## 2026-08-02 - MERGED
+- pr gate APPROVED by Waleed. CI green on HEAD (backend 1m43s, gitleaks 5s), merge state CLEAN.
+- Merged PR #15 into develop (--merge). porch done 4 --merged 15. Advanced to VERIFY phase.
+- Reminder: MERGE ONLY. Prod deploy is separate and HELD (runbook + frontend confirmation pending).
