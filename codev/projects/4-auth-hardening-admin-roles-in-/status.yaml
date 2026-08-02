@@ -20,17 +20,17 @@ plan_phases:
     status: complete
   - id: phase_6
     title: 'Logout: full session revocation'
-    status: in_progress
+    status: complete
   - id: phase_7
     title: Atomic rotation + session version + reliable reset kill + reuse detection
-    status: pending
+    status: in_progress
   - id: phase_8
     title: Feedback IDOR fix + oracle uniformity
     status: pending
   - id: phase_9
     title: 'Smaller hardening: timing-safe compare, password policy, generic error, token sweep'
     status: pending
-current_plan_phase: phase_6
+current_plan_phase: phase_7
 gates:
   spec-approval:
     status: approved
@@ -44,8 +44,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 2
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_1
@@ -160,7 +160,7 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-4/codev/projects/4-auth-hardening-admin-roles-in-/4-phase_6-iter1-claude.txt
 started_at: '2026-08-02T04:41:12.886Z'
-updated_at: '2026-08-02T14:28:29.158Z'
+updated_at: '2026-08-02T14:30:23.106Z'
 force_advanced:
   phase: phase_4
   iteration: 3
