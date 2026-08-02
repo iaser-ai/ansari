@@ -36,7 +36,7 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 - **Validation**: Zod (strict env + request validation)
 - **Email**: Resend + react-email (password reset)
 - **Observability**: Sentry (optional — disabled when `SENTRY_DSN` is unset; no user content is logged)
-- **Tests**: Vitest (unit/integration), Playwright (e2e, run locally)
+- **Tests**: Vitest (unit/integration)
 
 ## Getting Started
 

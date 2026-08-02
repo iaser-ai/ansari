@@ -31,7 +31,7 @@ lockfile. Never use `db:push` against a real database; generate + migrate.
 - `lib/` — engine (facilitator agent, gemini client, tools, auth, db helpers)
 - `lib/ai/prompts/facilitator.ts` — the system prompt; changes need cited justification
 - `src/app/api/` — HTTP surface (`v2/*` product API, `v1/chat/completions` OpenAI-compat, `health`)
-- `tests/` — Vitest suites (`*.test.ts`); `tests/e2e/` is Playwright, local-only
+- `tests/` — Vitest suites (`*.test.ts`); the full suite runs without external services
 
 ## Conventions
 

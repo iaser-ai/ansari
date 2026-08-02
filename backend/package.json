@@ -48,7 +48,6 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3",
     "@eslint/eslintrc": "^3.3.1",
-    "@playwright/test": "^1.57.0",
     "@testing-library/react": "^16.3.2",
     "@types/bcrypt": "^6.0.0",
     "@types/jsonwebtoken": "^9.0.10",

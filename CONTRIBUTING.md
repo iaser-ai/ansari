@@ -33,10 +33,6 @@ npm test
 npm run build
 ```
 
-Playwright e2e tests (`tests/e2e/*.spec.ts`) are not run in CI — they need a live
-app and database. Run them locally with `npx playwright test` if your change
-touches user-facing flows.
-
 ## Pull requests
 
 - Keep PRs focused: one change per PR.
