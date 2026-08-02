@@ -1,0 +1,44 @@
+I'll review the phase_2 implementation. Let me start by reading the key files.I read the phase 2 files from disk and independently verified the gate (typecheck, full suite, build).
+
+## Verification performed
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` | **502 passed, 3 skipped** (50 files) |
+| `npm run build` (with `.env.ci`) | green |
+| Repo grep for `process.env.JWT_SECRET` / `*_TOKEN_EXPIRY_HOURS` in prod code | none outside tests; `drizzle.config.ts` `DATABASE_URL` is the plan's documented CLI exception |
+| Repo grep for `generateToken(` / `storeToken(` in prod code | only `lib/db/users.ts` (the helper) + `request_password_reset` (explicitly excluded by the plan) |
+
+## Deliverable-by-deliverable
+
+- **`issueTokenPair(userId, exec = db)`** — `lib/db/users.ts:104-134`. Sources `jwtSecret`/`accessTokenExpiryHours`/`refreshTokenExpiryHours` from `config.auth`, generates + stores both tokens hashed. Returns `{accessToken, refreshToken}`. ✅
+- **`storeToken` gains `exec`** — `users.ts:77-96`, defaulted to `db`, insert runs on `exec`. Backwards-compatible (the reset path calls it without `exec`). ✅
+- **`Executor` type defined up-front** (`users.ts:17`) as the plan required, so Phase 7 threading is type-clean. ✅
+- **Three pair-issuing routes migrated** — I diffed `51e454a`: register/login/refresh each drop the identical 8-line `process.env.JWT_SECRET!` + `parseInt` + two-`storeToken` block for one `issueTokenPair(user.id)` call. Faithful, no wire change: login still returns `status/access_token/refresh_token/token_type/first_name/last_name`, register `status:'success'`, refresh the bare token triple. `markTokenRotated` before issuance is preserved (rotation *atomicity* correctly deferred to Phase 7). ✅
+- **`request_password_reset` excluded** — still issues a single `reset` token via `generateToken` + `storeToken` with `config.auth.jwtSecret` (`route.ts:34-48`). Correct per plan. ✅
+- **Tests** — `issue-token-pair.test.ts` is the real one (pglite, not mocked at the helper level): asserts distinct access/refresh tokens, verifiable under the config secret, correct `type`/`user_id` claims, `exp - iat` exactly `2h`/`2160h` (the plan's expiry-drift guard), and both rows stored under `hashToken`. `login-route.test.ts` covers the one route that previously had no route-level test, including the two negative paths asserting `issueTokenPair` is *not* called. `auth-config-bypass.test.ts` is the repo-wide grep guard. Existing refresh/register suites updated to the new mock. ✅
+
+## Non-blocking observations
+
+**1. The phase code landed under a `chore(porch)` commit, not a phase commit.** `51e454a "chore(porch): 4 implement re-iter (iter 2)"` carries all of `lib/db/users.ts`, the three routes, and the five test files. Phase 1's equivalent (`16bfe9d`) is correctly labeled `[Spec 4][Phase: config-centralization] feat: …`. The plan says each phase is "a single atomic **git commit**" and `CLAUDE.md` pins the `[Spec 4][Phase: …]` format. Revertability is technically intact (it's still one commit, plus status.yaml/thread bookkeeping), so I'm not blocking — but if history hasn't been pushed, a reword would make the phase-per-commit rollback story in the PR readable. Worth a decision by you/the architect rather than a silent skip.
+
+**2. `register`'s catch block now leaks config-validation text.** `register/route.ts:90` returns `Registration failed: ${error.message}`. Post-Phase-1/2, a misconfigured deploy makes that message the Zod env-validation string (e.g. "JWT_SECRET must be at least 32 characters") rather than a driver error. No secret *values* leak, and **Phase 9 explicitly makes this generic** — so this is scoped-out, just flagging that the surface shifted slightly rather than shrank. `login`/`refresh` already return generic text.
+
+**3. `auth-config-bypass.test.ts` hardcodes six paths.** A future auth route added with a direct `process.env.JWT_SECRET` read wouldn't trip the guard. Globbing `src/app/api/**/*.ts` + `lib/auth/**` would make it a genuine repo-wide invariant for ~2 lines. Cheap, optional.
+
+**4. Forward note for Phase 7:** `Executor` is module-local to `users.ts` (not exported). That's fine for `markTokenRotated`/`findToken`/`deleteUserTokens`/`updateUser`, but `reset_password/route.ts` opens its transaction from *outside* that module — either export `Executor` then, or put the reset transaction behind a `users.ts` function. Not a Phase 2 defect; just don't rediscover it cold.
+
+**5. Nits:** `refresh-token-route.test.ts:18` `mockGenerateToken` is now dead (the route no longer imports `generateToken`; the `@/lib/auth/jwt` mock is still needed for the logout route's `extractBearerToken`). Neither refresh nor register asserts `issueTokenPair` was called with `user.id` the way login does.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 token consolidation is complete and faithful to the plan — `issueTokenPair` is the single generate-and-store site, all three pair-issuing routes migrated with no wire change, the `Executor` param is in place for Phase 7, and typecheck/502 tests/build are green on my own run.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Phase code committed under `chore(porch): 4 implement re-iter (iter 2)` instead of a `[Spec 4][Phase: …] feat:` commit (plan + CLAUDE.md convention); revertability intact, so hygiene only — reword if history is unpushed.
+- `register`'s `Registration failed: ${error.message}` now surfaces Zod env-validation text on misconfiguration; already scheduled for Phase 9, noted so it isn't lost.
+- `auth-config-bypass.test.ts` hardcodes six file paths rather than globbing, so it won't catch a bypass in a newly-added auth route.
+- Forward note: `Executor` is not exported from `lib/db/users.ts`; Phase 7's `reset_password` transaction will need it exported or the transaction moved inside the module.
