@@ -1,0 +1,27 @@
+I have completed the review for **Phase 7** (`Atomic rotation + session version + reliable reset kill + reuse detection`) of the Auth Hardening specification and plan.
+
+### Key Observations & Verification
+
+1. **Atomic Rotation & Token Issuance (`backend/src/app/api/v2/users/refresh_token/route.ts` & `backend/lib/db/users.ts`)**:
+   - Refresh rotation occurs inside a database transaction (`db.transaction(...)`). `markTokenRotated` and `issueTokenPair` execute atomically with the transaction handle (`tx`).
+   - The user's `sessionVersion` is captured at validation time (`validateRefreshToken`) and passed into `issueTokenPair`, preventing race conditions where a concurrent password reset increments `sessionVersion` while token issuance occurs.
+
+2. **Session-Version Revocation & Password Reset (`backend/src/app/api/v2/reset_password/route.ts` & `backend/lib/auth/middleware.ts`)**:
+   - `reset_password` executes `updateUser`, `bumpSessionVersion`, and `deleteUserTokens` in a single transaction.
+   - `session_version` is embedded in all issued JWT payloads (`TokenPayload`).
+   - Both `authenticateRequest` (access token path) and `validateRefreshToken` (refresh token path) check that the token's embedded `session_version` matches `user.sessionVersion` from DB (treating missing claims as version `0`). Pre-reset tokens are rejected immediately.
+
+3. **Rotated-Token Reuse Detection (`backend/lib/db/users.ts`)**:
+   - `lookupRefreshToken` distinguishes `valid` (fresh or in-grace), `reuse` (rotated past grace window but prior to natural `expiresAt`), and `not_found` (expired or unknown).
+   - Attempted reuse of a rotated token past grace logs a warning (without sensitive payload) and returns a generic 401 response.
+
+4. **Test Coverage (`backend/tests/session-version-reuse.test.ts`, `refresh-token-route.test.ts`, `password-reset.test.ts`)**:
+   - Includes coverage for lookup states (`valid`, `reuse`, `not_found`), session version increments, and reset-vs-refresh interleavings.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 7 atomic rotation, session-version validation, reset session revocation, and refresh reuse detection are fully implemented and verified with tests.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
