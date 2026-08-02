@@ -4,6 +4,7 @@ import { generateToken } from '@/lib/auth/jwt';
 import { findUserByEmail, storeToken, deleteUserTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { sendPasswordResetEmail } from '@/lib/email';
+import { config } from '@/lib/config';
 
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const user = await findUserByEmail(email);
     if (user) {
-      const jwtSecret = process.env.JWT_SECRET!;
+      const jwtSecret = config.auth.jwtSecret;
 
       // Delete any existing reset tokens for this user
       await deleteUserTokens(user.id, 'reset');

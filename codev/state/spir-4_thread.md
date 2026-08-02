@@ -99,4 +99,32 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
 - `porch done 4` → **GATE: plan-approval**. Notified architect. **STOPPED, waiting for
   human approval.** Will NOT self-approve. After approval → Implement phase (Phase 1 first).
 
+## 2026-08-02 — plan-approval APPROVED → Implement Phase 1 (config centralization)
+- Installed backend deps (worktree had no node_modules). Baseline: 471 passed, 3 skipped.
+- Implemented Phase 1:
+  - config.ts: expiry vars now `int().positive()`; added test-only `resetEnvCache()`.
+  - db/index.ts: connection string via `config.database.url` (safe — proven no test loads
+    db/index unmocked, since DATABASE_URL unset & suite green).
+  - middleware.ts: dropped `getJwtSecret()`, uses `config.auth.jwtSecret`.
+  - request_password_reset + reset_password routes: `config.auth.jwtSecret`.
+- Test fallout (as predicted): password-reset.test.ts (11) broke because routes now hit
+  config → full getEnv() validation (KALEMAT/USUL unset). Fix = mock `@/lib/config` in
+  that test (established pattern from admin-auth.test.ts). Dropped its stale
+  process.env.JWT_SECRET line.
+- Added tests/config.test.ts (9 tests): secret<32 reject, empty reject, expiry 0/neg/
+  non-int reject, positive-int accept, missing-required reject, resetEnvCache re-parse.
+- Result: typecheck clean; **480 passed, 3 skipped**; `next build` green with .env.ci.
+  No `process.env.JWT_SECRET/DATABASE_URL` left in the 5 touched files.
+- drizzle.config.ts left reading process.env.DATABASE_URL directly (build-time CLI,
+  documented exception per plan).
+- Phase 1 impl 3-way review: **Gemini APPROVE. Codex + Claude REQUEST_CHANGES** — both
+  flag ONE blocker: the listed deliverable "middleware verifies using the config secret"
+  had no test (all suites mock middleware wholesale → the swap had no regression guard).
+  → Added tests/middleware.test.ts (4 tests): real JWT signed with config secret accepted;
+  signed with a DIFFERENT secret rejected (proves middleware passes config.auth.jwtSecret
+  to verifyToken). Now 484 passed, 3 skipped; build green.
+  Non-blocking notes acknowledged: db/index import now triggers full env schema (intended
+  fail-fast; confirm Railway build carries all vars — PR note); `.int()` rejects fractional
+  hours (matches plan; no deploy sets one).
+
 

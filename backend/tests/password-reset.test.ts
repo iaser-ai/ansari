@@ -48,6 +48,19 @@ vi.mock('@/lib/auth/middleware', () => ({
     NextResponse.json({ detail }, { status }),
 }));
 
+// Mock config — the reset routes now source the JWT secret from `config.auth`
+// (Phase 1: config centralization). Mocking it avoids triggering full env
+// validation in this unit test, matching the pattern in admin-auth.test.ts.
+vi.mock('@/lib/config', () => ({
+  config: {
+    auth: {
+      jwtSecret: 'test-secret-key-for-testing-purposes-only-32chars',
+      accessTokenExpiryHours: 2,
+      refreshTokenExpiryHours: 2160,
+    },
+  },
+}));
+
 // Import route handlers after mocks
 import { POST as requestPasswordReset } from '../src/app/api/v2/request_password_reset/route';
 import { POST as resetPassword } from '../src/app/api/v2/reset_password/route';
@@ -73,7 +86,6 @@ function makePostRequest(body: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   mockSendPasswordResetEmail.mockResolvedValue({ success: true });
   mockStoreToken.mockResolvedValue({ id: 'token-1' });
   mockDeleteUserTokens.mockResolvedValue(1);

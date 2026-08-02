@@ -1,0 +1,20 @@
+### Review Summary: Phase 1 — Centralize auth config through `config.ts`
+
+#### Spec & Plan Adherence
+The changes for **Phase 1** satisfy all objectives and deliverables outlined in the implementation plan:
+- **`lib/config.ts`**: The `envSchema` has been updated with `.coerce.number().int().positive()` constraints on `ACCESS_TOKEN_EXPIRY_HOURS` and `REFRESH_TOKEN_EXPIRY_HOURS`. `config.auth` exposes `jwtSecret`, `accessTokenExpiryHours`, and `refreshTokenExpiryHours`. `resetEnvCache()` is exported for test isolation.
+- **`lib/db/index.ts`**: Uses [`config.database.url`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/db/index.ts#L13) instead of direct `process.env.DATABASE_URL` access.
+- **`lib/auth/middleware.ts`**: Sources the JWT secret via [`config.auth.jwtSecret`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/auth/middleware.ts#L32) for both request authentication and refresh token validation.
+- **Password Reset Routes**: Sourced JWT secrets from [`config.auth.jwtSecret`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/request_password_reset/route.ts#L34) in both [`request_password_reset/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/request_password_reset/route.ts#L34) and [`reset_password/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/reset_password/route.ts#L33).
+
+#### Code Quality & Test Coverage
+- **Code Quality**: Clean, minimal refactoring with proper TypeScript types.
+- **Test Coverage**: [`backend/tests/config.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/config.test.ts) provides unit test coverage for validation edge cases (short `<32` character JWT secrets, missing vars, zero, negative, and non-integer expiry values) as well as verifying that `resetEnvCache()` properly clears memoized environment state. `backend/tests/password-reset.test.ts` was appropriately updated to mock `@/lib/config`.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 implementation cleanly centralizes auth and database configuration through `lib/config.ts`, enforces positive integer bounds on expiry settings, exports `resetEnvCache` for test environments, and updates request-time routes and middleware to use `config`.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

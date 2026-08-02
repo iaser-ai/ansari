@@ -4,6 +4,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
 import { findToken, updateUser, deleteUserTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
+import { config } from '@/lib/config';
 
 const resetSchema = z.object({
   reset_token: z.string().min(1, 'reset_token is required'),
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     const { reset_token, new_password } = parseResult.data;
 
     // Verify JWT signature and expiry
-    const jwtSecret = process.env.JWT_SECRET!;
+    const jwtSecret = config.auth.jwtSecret;
     const payload = verifyToken(reset_token, jwtSecret);
     if (!payload || payload.type !== 'reset') {
       return createErrorResponse('Invalid or expired reset token', 400);

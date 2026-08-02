@@ -2,16 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { extractBearerToken, verifyToken } from './jwt';
 import { findToken } from '@/lib/db/users';
+import { config } from '@/lib/config';
 import type { User } from '@/db/schema';
-
-// Config is loaded lazily to avoid issues during build
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET not configured');
-  }
-  return secret;
-}
 
 export type AuthenticatedRequest = NextRequest & {
   user: User;
@@ -37,7 +29,7 @@ export async function authenticateRequest(
   }
 
   // Verify the token signature
-  const payload = verifyToken(token, getJwtSecret());
+  const payload = verifyToken(token, config.auth.jwtSecret);
   if (!payload) {
     return {
       error: NextResponse.json(
@@ -79,7 +71,7 @@ export async function authenticateRequest(
 export async function validateRefreshToken(
   refreshToken: string
 ): Promise<{ user: User } | { error: string }> {
-  const payload = verifyToken(refreshToken, getJwtSecret());
+  const payload = verifyToken(refreshToken, config.auth.jwtSecret);
   if (!payload) {
     return { error: 'Invalid or expired refresh token' };
   }
