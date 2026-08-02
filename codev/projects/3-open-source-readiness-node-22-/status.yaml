@@ -9,8 +9,23 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 1
-build_complete: true
-history: []
+iteration: 2
+build_complete: false
+history:
+  - iteration: 1
+    build_output: ''
+    reviews:
+      - model: gemini
+        verdict: APPROVE
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/aspir-3/codev/projects/3-open-source-readiness-node-22-/3-plan-iter1-gemini.txt
+      - model: codex
+        verdict: REQUEST_CHANGES
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/aspir-3/codev/projects/3-open-source-readiness-node-22-/3-plan-iter1-codex.txt
+      - model: claude
+        verdict: REQUEST_CHANGES
+        file: >-
+          /Users/mwk/Development/iaser/ansari/.builders/aspir-3/codev/projects/3-open-source-readiness-node-22-/3-plan-iter1-claude.txt
 started_at: '2026-08-02T04:39:00.304Z'
-updated_at: '2026-08-02T04:51:31.389Z'
+updated_at: '2026-08-02T04:57:53.915Z'
