@@ -1,7 +1,7 @@
 id: '3'
 title: open-source-readiness-node-22-
 protocol: aspir
-phase: implement
+phase: plan
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,4 +13,5 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-02T04:39:00.304Z'
-updated_at: '2026-08-02T05:34:18.928Z'
+updated_at: '2026-08-02T05:36:09.472Z'
+pr_ready_for_human: false
