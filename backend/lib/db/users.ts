@@ -1,12 +1,20 @@
 import { eq, and, lt, gt, or, isNull, isNotNull } from 'drizzle-orm';
 import { db } from './index';
 import { users, tokens, type User, type NewUser, type Token, type NewToken } from '@/db/schema';
-import { hashToken } from '@/lib/auth/jwt';
+import { hashToken, generateToken } from '@/lib/auth/jwt';
+import { config } from '@/lib/config';
 
 // Grace window during which a rotated refresh token stays valid. Lets the
 // concurrent refreshes a SPA fires on access-token expiry all succeed instead
 // of racing to delete the token and logging the user out (issue #34).
 export const REFRESH_TOKEN_GRACE_MS = 60 * 1000;
+
+// A database executor: either the module-level `db` or a transaction handle
+// passed to `db.transaction(async (tx) => ...)`. Token helpers accept this so a
+// caller (e.g. atomic refresh rotation) can run them inside one transaction.
+// Defined here in Phase 2 (config/token consolidation); Phase 7 threads a `tx`
+// through the rotation/reset path. Until then every caller passes the default `db`.
+type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // User operations
 
@@ -66,13 +74,16 @@ export async function deleteUser(id: string): Promise<boolean> {
 
 // Token operations
 
-export async function storeToken(data: {
-  userId: string;
-  token: string;
-  tokenType: 'access' | 'refresh' | 'reset';
-  expiresAt: Date;
-}): Promise<Token> {
-  const result = await db
+export async function storeToken(
+  data: {
+    userId: string;
+    token: string;
+    tokenType: 'access' | 'refresh' | 'reset';
+    expiresAt: Date;
+  },
+  exec: Executor = db
+): Promise<Token> {
+  const result = await exec
     .insert(tokens)
     .values({
       userId: data.userId,
@@ -82,6 +93,44 @@ export async function storeToken(data: {
     })
     .returning();
   return result[0];
+}
+
+/**
+ * Issue a fresh access + refresh token pair for a user, storing both (hashed).
+ * The single generate-and-store site for the login/register/refresh routes,
+ * sourcing the JWT secret and expiries from validated `config.auth` (not
+ * process.env). Pass `exec` to run the inserts inside a transaction (Phase 7).
+ */
+export async function issueTokenPair(
+  userId: string,
+  exec: Executor = db
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const { jwtSecret, accessTokenExpiryHours, refreshTokenExpiryHours } = config.auth;
+
+  const accessToken = generateToken(userId, 'access', accessTokenExpiryHours, jwtSecret);
+  const refreshToken = generateToken(userId, 'refresh', refreshTokenExpiryHours, jwtSecret);
+
+  const now = Date.now();
+  await storeToken(
+    {
+      userId,
+      token: accessToken,
+      tokenType: 'access',
+      expiresAt: new Date(now + accessTokenExpiryHours * 60 * 60 * 1000),
+    },
+    exec
+  );
+  await storeToken(
+    {
+      userId,
+      token: refreshToken,
+      tokenType: 'refresh',
+      expiresAt: new Date(now + refreshTokenExpiryHours * 60 * 60 * 1000),
+    },
+    exec
+  );
+
+  return { accessToken, refreshToken };
 }
 
 export async function findToken(token: string): Promise<(Token & { user: User }) | undefined> {

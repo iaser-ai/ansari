@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyPassword } from '@/lib/auth/password';
-import { generateToken } from '@/lib/auth/jwt';
-import { findUserByEmail, storeToken } from '@/lib/db/users';
+import { findUserByEmail, issueTokenPair } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 
 const loginSchema = z.object({
@@ -35,28 +34,8 @@ export async function POST(request: NextRequest) {
       return createErrorResponse('Invalid email or password', 401);
     }
 
-    // Generate tokens
-    const jwtSecret = process.env.JWT_SECRET!;
-    const accessExpiryHours = parseInt(process.env.ACCESS_TOKEN_EXPIRY_HOURS || '2');
-    const refreshExpiryHours = parseInt(process.env.REFRESH_TOKEN_EXPIRY_HOURS || '2160');
-
-    const accessToken = generateToken(user.id, 'access', accessExpiryHours, jwtSecret);
-    const refreshToken = generateToken(user.id, 'refresh', refreshExpiryHours, jwtSecret);
-
-    // Store tokens
-    await storeToken({
-      userId: user.id,
-      token: accessToken,
-      tokenType: 'access',
-      expiresAt: new Date(Date.now() + accessExpiryHours * 60 * 60 * 1000),
-    });
-
-    await storeToken({
-      userId: user.id,
-      token: refreshToken,
-      tokenType: 'refresh',
-      expiresAt: new Date(Date.now() + refreshExpiryHours * 60 * 60 * 1000),
-    });
+    // Issue tokens (single consolidated generate-and-store helper)
+    const { accessToken, refreshToken } = await issueTokenPair(user.id);
 
     // Return tokens in Ansari's format (frontend expects status and user info)
     return NextResponse.json({

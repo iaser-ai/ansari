@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateToken } from '@/lib/auth/jwt';
-import { storeToken, markTokenRotated } from '@/lib/db/users';
+import { issueTokenPair, markTokenRotated } from '@/lib/db/users';
 import { validateRefreshToken, createErrorResponse } from '@/lib/auth/middleware';
 
 const refreshSchema = z.object({
@@ -32,28 +31,9 @@ export async function POST(request: NextRequest) {
     // concurrent refreshes with the same token still succeed (issue #34).
     await markTokenRotated(refresh_token);
 
-    // Generate new tokens
-    const jwtSecret = process.env.JWT_SECRET!;
-    const accessExpiryHours = parseInt(process.env.ACCESS_TOKEN_EXPIRY_HOURS || '2');
-    const refreshExpiryHours = parseInt(process.env.REFRESH_TOKEN_EXPIRY_HOURS || '2160');
-
-    const newAccessToken = generateToken(user.id, 'access', accessExpiryHours, jwtSecret);
-    const newRefreshToken = generateToken(user.id, 'refresh', refreshExpiryHours, jwtSecret);
-
-    // Store new tokens
-    await storeToken({
-      userId: user.id,
-      token: newAccessToken,
-      tokenType: 'access',
-      expiresAt: new Date(Date.now() + accessExpiryHours * 60 * 60 * 1000),
-    });
-
-    await storeToken({
-      userId: user.id,
-      token: newRefreshToken,
-      tokenType: 'refresh',
-      expiresAt: new Date(Date.now() + refreshExpiryHours * 60 * 60 * 1000),
-    });
+    // Issue new tokens (single consolidated generate-and-store helper)
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
+      await issueTokenPair(user.id);
 
     // Return new tokens in Ansari's format
     return NextResponse.json({

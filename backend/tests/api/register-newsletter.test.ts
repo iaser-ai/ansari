@@ -1,22 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// Mock the DB users module
+// Mock the DB users module. The register route issues tokens via the
+// consolidated issueTokenPair helper (Phase 2: token consolidation).
 vi.mock('../../lib/db/users', () => ({
   findUserByEmail: vi.fn().mockResolvedValue(null),
   createUser: vi.fn().mockResolvedValue({ id: 'new-user-uuid' }),
-  storeToken: vi.fn().mockResolvedValue(undefined),
+  issueTokenPair: vi.fn().mockResolvedValue({
+    accessToken: 'mock-access-token',
+    refreshToken: 'mock-refresh-token',
+  }),
 }));
 
 // Mock password utilities
 vi.mock('../../lib/auth/password', () => ({
   hashPassword: vi.fn().mockResolvedValue('hashed-password'),
   checkPasswordStrength: vi.fn().mockReturnValue({ valid: true, suggestions: [] }),
-}));
-
-// Mock JWT
-vi.mock('../../lib/auth/jwt', () => ({
-  generateToken: vi.fn().mockReturnValue('mock-token'),
 }));
 
 // Mock the newsletter module — we spy on the actual function

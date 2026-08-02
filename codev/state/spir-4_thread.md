@@ -126,5 +126,28 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
   Non-blocking notes acknowledged: db/index import now triggers full env schema (intended
   fail-fast; confirm Railway build carries all vars — PR note); `.int()` rejects fractional
   hours (matches plan; no deploy sets one).
+- **Phase 1 committed** myself (16bfe9d) — porch only makes chore commits, does NOT
+  commit my code. WORKFLOW NOTE for phases 2-9: after unanimous approval, I commit the
+  phase's code+tests myself with explicit paths ([Spec 4][Phase: name] ...), no git add -A.
+
+## 2026-08-02 — Implement Phase 2 (issueTokenPair consolidation)
+- Added `Executor` type (`typeof db | tx`) + `issueTokenPair(userId, exec=db)` in users.ts;
+  storeToken gained `exec=db` param. Sources secret/expiries from config.auth.
+- Migrated register/login/refresh_token to `issueTokenPair`; removed their inline
+  process.env.JWT_SECRET + parseInt blocks and now-unused generateToken/storeToken imports.
+- request_password_reset stays single-reset-token (excluded), already on config from Phase 1.
+- Test fallout: refresh-token-route.test.ts + api/register-newsletter.test.ts mocked
+  storeToken; swapped to mock issueTokenPair → {accessToken,refreshToken}. Both green.
+- New tests: issue-token-pair.test.ts (pglite: two tokens, config-secret signed, exp from
+  config 2h/2160h, both stored hashed) + auth-config-bypass.test.ts (guard: no
+  process.env.JWT_SECRET/expiry in the 6 auth files).
+- Result: typecheck clean; **499 passed, 3 skipped**; build green. Config bypass (item 6)
+  fully closed across login/register/refresh/reset/middleware.
+- Phase 2 review iter1: **Gemini + Claude APPROVE. Codex REQUEST_CHANGES** — (1) said the
+  new tests weren't in the diff (they were untracked → not shown; staged them now); (2) real
+  gap: no login route test. → Added tests/login-route.test.ts (3 tests: valid creds issue
+  pair + response contract + issueTokenPair called with user.id; unknown user 401 no-issue;
+  wrong pw 401 no-issue). Now 502 passed, 3 skipped; build green. Staged all Phase 2 files
+  so the re-review diff includes the 3 new test files.
 
 

@@ -5,12 +5,12 @@ import { NextRequest, NextResponse } from 'next/server';
 // must rotate (not hard-delete) the old token, so concurrent refreshes with the
 // same token all succeed; logout must still invalidate immediately.
 
-const mockStoreToken = vi.fn();
+const mockIssueTokenPair = vi.fn();
 const mockMarkTokenRotated = vi.fn();
 const mockDeleteToken = vi.fn();
 
 vi.mock('@/lib/db/users', () => ({
-  storeToken: (...args: unknown[]) => mockStoreToken(...args),
+  issueTokenPair: (...args: unknown[]) => mockIssueTokenPair(...args),
   markTokenRotated: (...args: unknown[]) => mockMarkTokenRotated(...args),
   deleteToken: (...args: unknown[]) => mockDeleteToken(...args),
 }));
@@ -55,10 +55,11 @@ function makeRefreshRequest(refreshToken: string): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   mockValidateRefreshToken.mockResolvedValue({ user: testUser });
-  mockGenerateToken.mockReturnValue('new-token');
-  mockStoreToken.mockResolvedValue({ id: 'token-1' });
+  mockIssueTokenPair.mockResolvedValue({
+    accessToken: 'new-access-token',
+    refreshToken: 'new-refresh-token',
+  });
   mockMarkTokenRotated.mockResolvedValue(true);
   mockDeleteToken.mockResolvedValue(true);
 });
