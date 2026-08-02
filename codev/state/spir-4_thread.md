@@ -385,3 +385,5 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
    :8/:20) with justification comments (parse OK); NO history rewrite (architect decision).
    Local `gitleaks detect -c .gitleaks.toml` exits 0.
 - Full gate green: lint, typecheck, test (585 passed/3 skipped), build, gitleaks. Pushing.
+- CI GREEN on PR #15: backend (lint/typecheck/test/build) pass 1m53s; gitleaks pass 8s.
+  All 5 integration-review items done. Waiting for architect approval — NOT merging.
