@@ -31,11 +31,31 @@ import type { ToolResult } from './types';
  */
 export const TOOL_FETCH_TIMEOUT_MS = 10_000;
 
-/** Classification of why a fetch failed. All NON-PII. */
-export type ToolFetchErrorClass = 'http_5xx' | 'http_4xx' | 'network' | 'timeout';
+/**
+ * Hard cap on the response body a tool will buffer (issue #2). A provider that streams an
+ * unbounded body would otherwise exhaust memory even while staying under the wall-clock
+ * timeout. 8 MiB is far above any real search-tool payload (a handful of documents), so a
+ * healthy response never trips it; an anomalous/oversized one degrades loudly instead.
+ */
+export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /**
- * Rich error thrown by {@link fetchWithTimeout} on failure. Carries the
+ * Classification of why a fetch failed. All NON-PII.
+ * - `too_large`: the response body exceeded {@link MAX_RESPONSE_BYTES} (issue #2).
+ * - `invalid_body`: a 2xx whose body was not the JSON shape the tool requires — unparseable
+ *   JSON, or a valid-JSON-but-wrong-shape response caught by a caller's shape check (issue #2).
+ *   Both surface loudly through the degraded path instead of masquerading as "no results".
+ */
+export type ToolFetchErrorClass =
+  | 'http_5xx'
+  | 'http_4xx'
+  | 'network'
+  | 'timeout'
+  | 'too_large'
+  | 'invalid_body';
+
+/**
+ * Rich error thrown by {@link fetchJsonWithTimeout} on failure. Carries the
  * structured, NON-PII fields callers forward to {@link reportDegradedTool}.
  *
  * IMPORTANT: the request URL (which contains `?q=<query>`) is deliberately never
@@ -70,6 +90,8 @@ export interface FetchTimeoutOptions {
    * (e.g. 'Usul API error' → "Usul API error: 502 Bad Gateway"). Default 'HTTP error'.
    */
   errorPrefix?: string;
+  /** Max response body bytes before degrading. Default {@link MAX_RESPONSE_BYTES}. */
+  maxBytes?: number;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -77,54 +99,139 @@ function isAbortError(err: unknown): boolean {
 }
 
 /**
- * Fetch a URL with a single flat timeout (issue #54) — one attempt, no retry,
- * no backoff. Returns the successful `Response` (caller reads the body); throws a
- * {@link ToolFetchError} on any non-2xx status, network error, or timeout.
+ * Read a Response body as text with a hard byte cap, cancelling the stream the moment the
+ * cap is exceeded (issue #2). Runs INSIDE the caller's AbortController window, so a body that
+ * stalls mid-stream is aborted by the same timeout that bounds the headers — the abort surfaces
+ * as an AbortError the caller maps to `timeout`.
  *
- * The timeout is enforced with an AbortController so a hung request is actually
- * cancelled (the reported "loading indefinitely" failure mode), not merely raced.
- * Callers convert the thrown error into a graceful degraded result, so the total
- * per-tool wall-clock is bounded by `timeoutMs` (≤{@link TOOL_FETCH_TIMEOUT_MS}).
+ * Responses without a readable `body` stream (e.g. unit-test mocks that expose only `json()`)
+ * fall back to their own `text()`/`json()` — the cap still applies to the buffered string.
  */
-export async function fetchWithTimeout(
+async function readBodyText(
+  response: Response,
+  maxBytes: number,
+  errorPrefix: string,
+): Promise<string> {
+  const body = response.body as ReadableStream<Uint8Array> | null | undefined;
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let total = 0;
+    let text = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw new ToolFetchError(
+            `${errorPrefix}: response body exceeded ${maxBytes} bytes`,
+            { errorClass: 'too_large' },
+          );
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+      return text;
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  // No stream available (mocked/legacy Response). Buffer via text() if present, else json().
+  if (typeof response.text === 'function') {
+    const text = await response.text();
+    if (text.length > maxBytes) {
+      throw new ToolFetchError(`${errorPrefix}: response body exceeded ${maxBytes} bytes`, {
+        errorClass: 'too_large',
+      });
+    }
+    return text;
+  }
+  return JSON.stringify(await response.json());
+}
+
+/**
+ * Fetch a URL and return its parsed JSON body with a single flat timeout that covers BOTH the
+ * headers AND the body (issue #2), one attempt, no retry, no backoff.
+ *
+ * The predecessor (`fetchWithTimeout`, issue #54) cleared its abort timer the moment `fetch()`
+ * resolved — i.e. after headers — and returned the raw `Response`, so the caller's
+ * `response.json()` ran with no timeout and no size bound. A provider that returned headers then
+ * stalled the body bypassed both the per-tool cap and the facilitator wall-clock guarantee. This
+ * wrapper reads, size-caps, and parses the body inside the AbortController window, so the whole
+ * per-tool wall-clock is bounded by `timeoutMs` (≤{@link TOOL_FETCH_TIMEOUT_MS}) and an oversized
+ * body degrades loudly.
+ *
+ * Throws a {@link ToolFetchError} on any non-2xx status, network error, timeout, oversized body,
+ * or unparseable JSON. Callers convert the thrown error into a graceful degraded result.
+ */
+export async function fetchJsonWithTimeout<T>(
   url: string,
   init: RequestInit,
   options: FetchTimeoutOptions = {},
-): Promise<Response> {
-  const { timeoutMs = TOOL_FETCH_TIMEOUT_MS, errorPrefix = 'HTTP error' } = options;
+): Promise<T> {
+  const {
+    timeoutMs = TOOL_FETCH_TIMEOUT_MS,
+    errorPrefix = 'HTTP error',
+    maxBytes = MAX_RESPONSE_BYTES,
+  } = options;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    // Either the timeout fired (AbortError) or a network-level failure.
-    if (isAbortError(err)) {
-      throw new ToolFetchError(`${errorPrefix}: request timed out after ${timeoutMs}ms`, {
-        errorClass: 'timeout',
+    let response: Response;
+    try {
+      response = await fetch(url, { ...init, signal: controller.signal });
+    } catch (err) {
+      // Either the timeout fired (AbortError) or a network-level failure.
+      if (isAbortError(err)) {
+        throw new ToolFetchError(`${errorPrefix}: request timed out after ${timeoutMs}ms`, {
+          errorClass: 'timeout',
+        });
+      }
+      throw new ToolFetchError(err instanceof Error ? err.message : String(err), {
+        errorClass: 'network',
       });
     }
-    throw new ToolFetchError(err instanceof Error ? err.message : String(err), {
-      errorClass: 'network',
-    });
+
+    if (!response.ok) {
+      // Any non-2xx degrades immediately (single attempt — no retry). The 4xx/5xx
+      // split is preserved only to keep the NON-PII errorClass useful for monitoring.
+      const errorClass: ToolFetchErrorClass =
+        response.status >= 400 && response.status < 500 ? 'http_4xx' : 'http_5xx';
+      throw new ToolFetchError(`${errorPrefix}: ${response.status} ${response.statusText}`, {
+        status: response.status,
+        errorClass,
+      });
+    }
+
+    // Body read/parse happens INSIDE the timeout window (the #2 fix).
+    let raw: string;
+    try {
+      raw = await readBodyText(response, maxBytes, errorPrefix);
+    } catch (err) {
+      // A body that stalls is aborted by the shared timer → AbortError → timeout.
+      if (isAbortError(err)) {
+        throw new ToolFetchError(`${errorPrefix}: request timed out after ${timeoutMs}ms`, {
+          errorClass: 'timeout',
+        });
+      }
+      throw err; // ToolFetchError (too_large) or a genuine read failure — surface as-is.
+    }
+
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      throw new ToolFetchError(`${errorPrefix}: response body was not valid JSON`, {
+        errorClass: 'invalid_body',
+      });
+    }
   } finally {
     clearTimeout(timer);
   }
-
-  if (response.ok) {
-    return response;
-  }
-
-  // Any non-2xx degrades immediately (single attempt — no retry). The 4xx/5xx
-  // split is preserved only to keep the NON-PII errorClass useful for monitoring.
-  const errorClass: ToolFetchErrorClass =
-    response.status >= 400 && response.status < 500 ? 'http_4xx' : 'http_5xx';
-  throw new ToolFetchError(`${errorPrefix}: ${response.status} ${response.statusText}`, {
-    status: response.status,
-    errorClass,
-  });
 }
 
 /**

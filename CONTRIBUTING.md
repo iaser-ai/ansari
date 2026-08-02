@@ -23,18 +23,15 @@ stray root lockfile; don't.
 
 ## Checks
 
-Before opening a PR, make sure all three pass (CI runs exactly these, with the
-dummy env in `backend/.env.ci` — no secrets needed):
+Before opening a PR, make sure all four pass (CI runs these — it runs the test
+step with coverage — using the dummy env in `backend/.env.ci`, no secrets needed):
 
 ```bash
+npm run lint
 npm run typecheck
 npm test
 npm run build
 ```
-
-Playwright e2e tests (`tests/e2e/*.spec.ts`) are not run in CI — they need a live
-app and database. Run them locally with `npx playwright test` if your change
-touches user-facing flows.
 
 ## Pull requests
 

@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Backend npm dependencies. backend/package-lock.json is the single lockfile
+  # (there is deliberately no root package.json), so the directory is /backend.
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # GitHub Actions used by the workflows in .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10

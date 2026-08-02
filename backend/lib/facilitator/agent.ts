@@ -453,8 +453,15 @@ export async function* runFacilitator(
       return;
     }
 
-    // "Usable text" = non-empty after trim. Otherwise a clean bounded error, never silence.
-    if (synthText.trim().length === 0) {
+    // A usable synthesis must be a PROVEN completion, not just non-empty text (issue #2):
+    //  - a terminal `done` event must have arrived (synthResponse set) — a stream that ends
+    //    without one is truncated (the Inkling last rung now throws on early EOF, but a
+    //    streamGemini cut can still end silently), and
+    //  - the visible text must clear the same degenerate-final gate the main loop applies
+    //    (classifyDegenerateFinal: not empty, not a lone punctuation fragment).
+    // Otherwise a clean bounded error, never silence and never a truncated/degenerate reply
+    // shipped as a successful `done`.
+    if (!synthResponse || classifyDegenerateFinal(synthText) !== null) {
       logShortCircuit('error');
       yield { type: 'error', data: BUDGET_ERROR_MESSAGE };
       return;
@@ -656,9 +663,14 @@ export async function* runFacilitator(
       }
 
       // Process tool calls
-      // On first iteration, add the user message to history
-      // (It was removed to send as currentQuery, but we need it in history for context)
-      if (iterations === 1) {
+      // Add the user message to history the first time we continue past a model turn
+      // (it was removed to send as currentQuery, but we need it in history for context).
+      // Guard on the flag, NOT `iterations === 1`: a degenerate-final retry (empty/fragment/
+      // MALFORMED, or the Inkling rescue) does `continue` after `iterations++`, so if the FIRST
+      // call fails and the retry then requests a tool, we are at iterations === 2 here and the
+      // user's question would otherwise never enter history — every continuation would ask the
+      // model to answer a question it never saw (issue #2).
+      if (!userMessageInHistory) {
         geminiHistory.push({
           role: 'user',
           parts: [{ text: userQuery }],
