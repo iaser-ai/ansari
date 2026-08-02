@@ -5,7 +5,7 @@ the complete environment-variable contract, and deployment notes.
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (`backend/.nvmrc` pins the version)
+- **Node.js ≥ 22** (`backend/.nvmrc` pins the version)
 - **PostgreSQL** (any recent version; the schema is managed by Drizzle migrations)
 - A **Gemini** credential — either a [Google AI Studio API key](https://aistudio.google.com/)
   or a Google Cloud project with Vertex AI enabled

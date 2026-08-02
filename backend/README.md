@@ -30,7 +30,7 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 
 ## Tech Stack
 
-- **Runtime**: Next.js 15 (App Router, API routes), Node ≥ 20, TypeScript
+- **Runtime**: Next.js 15 (App Router, API routes), Node ≥ 22, TypeScript
 - **AI**: Google Gemini via Vertex AI (preferred) or the public Gemini API, with model fallback on capacity errors
 - **Database**: PostgreSQL with Drizzle ORM (migrations in `drizzle/`)
 - **Validation**: Zod (strict env + request validation)
@@ -41,7 +41,7 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 ## Getting Started
 
 ```bash
-# Install (Node >= 20, see .nvmrc)
+# Install (Node >= 22, see .nvmrc)
 npm ci
 
 # Configure — see .env.example for the full contract
