@@ -392,3 +392,18 @@ reservation, logout/rotation fixes, feedback IDOR, config-validation bypass.
 - pr gate APPROVED by Waleed. CI green on HEAD (backend 1m43s, gitleaks 5s), merge state CLEAN.
 - Merged PR #15 into develop (--merge). porch done 4 --merged 15. Advanced to VERIFY phase.
 - Reminder: MERGE ONLY. Prod deploy is separate and HELD (runbook + frontend confirmation pending).
+
+## 2026-08-02 - VERIFY phase (full, real — architect requested no skip)
+Verified against INTEGRATED develop (post-merge):
+- Full gate GREEN: lint, typecheck, 585 tests / 3 skipped, build, gitleaks.
+- Real migration chain 0000->0003 applied to a disposable Postgres 16 (docker) via db:migrate:
+  users has is_admin(bool,notNull,default false) + system_key(text) + session_version(int,notNull,
+  default 0) + UNIQUE idx_users_system_key. Applied cleanly.
+- Bootstrap end-to-end: grant-admin created a LOGIN-CAPABLE admin (is_admin=true, bcrypt hash,
+  verifyPassword=true). Weak password ('passwordpassword') REJECTED by the strength policy.
+- System accounts: getOrCreateSystemUser('ai-skill'/'leaderboard') provisions by system_key
+  (nologin hash, canonical email); idempotent (same row); a pre-registered look-alike is NOT
+  resolved as system (hijack protection holds).
+- Actual CLI hidden-prompt path (piped stdin) creates a login-capable admin; input hidden.
+- Disposable DB torn down. Deploy runbook confirmed by architect: inspect system rows ->
+  migration 0003 psql -> grant-admin -> deploy. Prod deploy HELD (separate).
