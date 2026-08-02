@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 // the reset-vs-refresh interleaving. Exercised against pglite with the real
 // helpers and the real middleware; only db/index, config, and Sentry are mocked.
 
-const SECRET = 'phase7-secret-at-least-32-characters-long-xx';
+const SECRET = 'phase7-test-secret-at-least-32-chars-long-xx';
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('@/lib/db/index', () => ({
@@ -17,7 +17,7 @@ vi.mock('@/lib/db/index', () => ({
 vi.mock('@/lib/config', () => ({
   config: {
     auth: {
-      jwtSecret: 'phase7-secret-at-least-32-characters-long-xx',
+      jwtSecret: 'phase7-test-secret-at-least-32-chars-long-xx',
       accessTokenExpiryHours: 2,
       refreshTokenExpiryHours: 2160,
     },
