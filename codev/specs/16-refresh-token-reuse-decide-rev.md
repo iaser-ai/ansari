@@ -17,7 +17,8 @@ issue body, the PR #15 review record, and the merged spec-4 code:
 
 1. **What decision is being requested?** Whether detected reuse of a spent (rotated
    past grace) refresh token should revoke the token family, per OAuth 2.0 Security
-   BCP (RFC 9700) §4.13.2 — and, separately, whether the discarded boolean result of
+   BCP (RFC 9700 §4.14.2; the issue cites it under the pre-RFC draft numbering,
+   §4.13.2) — and, separately, whether the discarded boolean result of
    `markTokenRotated` in the rotation transaction is a latent bug or provably safe.
 2. **Is the revocation primitive in scope to build?** No — `bumpSessionVersion`
    already exists (spec 4) and is the project's uniform "kill all sessions" primitive.
@@ -29,14 +30,14 @@ issue body, the PR #15 review record, and the merged spec-4 code:
 ## Problem Statement
 Spec 4 (PR #15) added rotated-token reuse *detection*: replaying a refresh token more
 than the 60-second grace window after rotation is recognized (`lookupRefreshToken` →
-`'reuse'`), rejected with a generic 401, and logged with the user's UUID. But nothing
-is *done* about it. RFC 9700 §4.13.2 (OAuth 2.0 Security BCP) recommends that on
-detected reuse the authorization server revoke the whole token family, because reuse
-of a spent token is high-signal evidence that the token was stolen — and the server
-cannot tell whether the replaying party or the holder of the newer token is the
-attacker. Today a thief who exfiltrated a refresh token that has since been rotated
-gets a 401 and a log line, while any sessions they may have established (by refreshing
-*before* the victim did) survive untouched.
+`'reuse'`), rejected with a 401, and logged with the user's UUID. But nothing is
+*done* about it. RFC 9700 §4.14.2 (OAuth 2.0 Security BCP) recommends that on
+detected reuse the authorization server revoke the refresh-token lineage, because
+reuse of a spent token is high-signal evidence that the token was stolen — and the
+server cannot tell whether the replaying party or the holder of the newer token is
+the attacker. Today a thief who exfiltrated a refresh token that has since been
+rotated gets a 401 and a log line, while any sessions they may have established (by
+refreshing *before* the victim did) survive untouched.
 
 Separately, the rotation transaction discards `markTokenRotated`'s boolean result.
 A `false` return conflates two very different situations — a benign concurrent
@@ -50,16 +51,28 @@ proceeding to issue tokens in a state the code did not anticipate.
   never rotated or within grace), `reuse` (rotated past grace but retained until
   natural expiry — deliberately kept for detection), or `not_found`.
 - On `reuse`, the refresh route logs `"Refresh token reuse detected for user <uuid>"`
-  and returns the generic 401. **No revocation occurs.** The attacker's other
-  sessions (if any) remain live; the victim is not protected.
+  and returns a 401. **No revocation occurs.** The attacker's other sessions (if
+  any) remain live; the victim is not protected.
+- The refresh path's 401 bodies are **not uniform today**: reuse returns
+  `"Invalid or expired refresh token"`, an unknown/expired token returns
+  `"Refresh token not found or expired"`, and a stale `session_version` returns
+  `"Session no longer valid"`. The three cases are therefore already
+  distinguishable to a caller — a pre-existing (minor) oracle on the refresh path.
 - Reuse can also surface at a **second site**: the in-transaction recheck that
   serializes rotation against concurrent logout/reset. There it produces only a
-  silent generic 401 — no log, and (a fortiori) no policy applied.
+  silent 401 — no log, and (a fortiori) no policy applied. A `not_found` at the
+  same recheck is the *normal* outcome of a logout/reset winning the race and is not
+  a security signal.
+- The presented token's embedded `session_version` is checked against the user row
+  only in pre-transaction validation, not re-checked inside the rotation
+  transaction.
 - `markTokenRotated(token, tx)` returns `true` only if it transitioned `rotated_at`
   from NULL. The refresh route ignores the result. The implicit safety argument —
   that any concurrent revocation bumps `session_version`, so tokens minted from the
   pre-revocation user row are dead on arrival at validation — is real but recorded
-  nowhere in the code.
+  nowhere in the code. The in-transaction recheck runs under READ COMMITTED with no
+  row lock, so a concurrent delete can land between the recheck's read and the
+  rotation UPDATE.
 - Existing coverage: `session-version-reuse.test.ts` and `token-grace.test.ts` pin
   detection, grace-window behavior, and reset/logout-vs-refresh interleavings against
   a real (pglite) database.
@@ -67,18 +80,30 @@ proceeding to issue tokens in a state the code did not anticipate.
 ## Desired State
 - A **ratified, documented revoke-on-reuse policy**, implemented: detected reuse of a
   spent refresh token protects the account according to the chosen policy (see
-  Solution Approaches; the recommendation is bounded family revocation), applied
-  consistently at **both** detection sites.
-- Repeated replays of the same stolen spent token cannot be used to harass the
-  legitimate user indefinitely (the DoS vector from the issue is bounded by design).
-- The external response for reuse remains byte-identical to other invalid-token
-  failures (anti-oracle), and logging still carries only internal identifiers.
-- `markTokenRotated`'s result is either acted upon (fail fast when the row vanished;
-  proceed when already-rotated-in-grace) or its discard is justified by an
-  explicit code comment stating the `session_version` safety argument — with the
-  decision recorded in this spec. The desired state distinguishes the two `false`
-  cases rather than conflating them.
-- Tests pin the new behavior, including the interleavings, against a real database.
+  Solution Approaches; the recommendation is bounded family revocation). The policy
+  applies wherever a token is classified as `reuse` — at pre-validation and at the
+  in-transaction recheck — and **only** on `reuse`: a `not_found` (including the
+  normal logout-wins-the-race outcome at the recheck) never triggers revocation or
+  a reuse log.
+- Revocation is **exactly-once per spent token**: only the request that atomically
+  consumes the spent token row applies the bump and emits the containment log, even
+  under concurrent replays of the same token.
+- Repeated replays of a stolen spent token cannot be used to harass the legitimate
+  user (the DoS vector from the issue is bounded by design), and the bound is
+  **per-compromise**, not merely per-token: acting on reuse also removes the user's
+  other outstanding refresh-token rows, so a bulk leak of N spent rows cannot yield
+  N separate forced logouts.
+- The refresh path's 401 responses are **unified** (single status + body for reuse,
+  not-found/expired, and stale-version rejections), *establishing* the anti-oracle
+  property the policy depends on — in particular, a second replay of a consumed
+  token must not be distinguishable from the first (which would confirm to the
+  attacker that revocation fired).
+- `markTokenRotated`'s result is either acted upon or provably irrelevant under the
+  chosen concurrency option (see the sub-decision in Solution Approaches), with the
+  reasoning recorded as a code comment. The two `false` cases are no longer
+  conflated silently.
+- Tests pin the new behavior, including the concurrency interleavings, against a
+  real database.
 
 ## Stakeholders
 - **Primary Users**: Ansari end users — protected when their refresh token is stolen;
@@ -93,18 +118,28 @@ proceeding to issue tokens in a state the code did not anticipate.
 ## Success Criteria
 - [ ] Replaying a refresh token rotated more than the grace window ago triggers the
       ratified reuse policy (recommended: session-version bump revoking all of the
-      user's outstanding tokens) — verified by an end-to-end test against pglite.
-- [ ] A second replay of the *same* spent token does **not** re-trigger revocation
-      (bounded-DoS property) — verified by test.
-- [ ] Reuse surfacing via the in-transaction recheck applies the same policy and
-      logging as the pre-validation site — verified by test.
-- [ ] Concurrent refreshes within the grace window still both succeed (issue #34
-      regression guard) and do not trigger the reuse policy.
-- [ ] The rotation step no longer silently ignores a vanished token row: issuance
-      does not proceed in that case (or, if the document-only option is ratified, a
-      code comment states the session_version safety argument verbatim).
-- [ ] The HTTP response for reuse is identical (status + body) to that for an
-      unknown/expired refresh token (anti-oracle preserved).
+      user's outstanding tokens, plus removal of the user's refresh-token rows) —
+      verified by an end-to-end test against pglite.
+- [ ] Revocation is exactly-once: two concurrent replays of the same spent token
+      produce exactly one version bump and one reuse log — verified by a
+      concurrent-replay test.
+- [ ] A later replay of the *same* spent token does **not** re-trigger revocation
+      (bounded-DoS property), and its response is indistinguishable from the first
+      replay's — verified by test.
+- [ ] At the in-transaction recheck, `reuse` applies the same policy and logging as
+      the pre-validation site, while `not_found` (logout/reset won the race) aborts
+      issuance with the generic 401 and **no** revocation or reuse log — both
+      verified by test.
+- [ ] A refresh that was authorized before a reuse-triggered bump cannot mint a
+      token pair that survives the bump: the presented token's embedded
+      `session_version` is re-verified against the user row inside the serialized
+      rotation transaction — verified by an ordering test.
+- [ ] The rotation step no longer silently ignores an unanticipated
+      `markTokenRotated` outcome, per the ratified concurrency option (fail fast on
+      a vanished row, or eliminate the vanished-row case via locking); the benign
+      already-rotated-in-grace case still proceeds (issue #34).
+- [ ] The refresh path returns a single unified 401 status + body for reuse,
+      unknown/expired, and stale-version rejections (anti-oracle established).
 - [ ] No new log line contains user content or raw token material.
 - [ ] All tests pass; no reduction in coverage of the auth suites.
 - [ ] Documentation updated (arch/lessons per the Review phase's tier routing).
@@ -118,11 +153,12 @@ proceeding to issue tokens in a state the code did not anticipate.
   parameter threading (spec 4); new writes in those paths must use the transaction.
 - Rotated-but-unexpired token rows are deliberately **retained** so replay is
   detectable; the sweep (`deleteExpiredTokens`) only removes past-natural-expiry
-  rows. Any policy that consumes a token on reuse must not silently break this
-  retention rationale — it may consume the row precisely *because* detection has
-  already served its purpose for that token.
-- Auth error responses are uniform/generic (anti-oracle, spec 4); reuse handling
-  must not become distinguishable from ordinary invalid-token rejection.
+  rows. Consuming a row on detected reuse is consistent with this rationale —
+  retention exists precisely to enable first-reuse detection, which has then served
+  its purpose for that token.
+- Auth error responses must be uniform/generic. The refresh path does not fully
+  satisfy this today (three distinct 401 bodies); unifying them is **in scope** as a
+  prerequisite of the reuse policy.
 - No user content in logs or Sentry; user UUIDs are acceptable internal identifiers.
 - Fail fast, no silent fallbacks (project development principle #1).
 - The full test suite must run without external services (pglite in-process DB).
@@ -130,7 +166,8 @@ proceeding to issue tokens in a state the code did not anticipate.
 ### Business Constraints
 - Follow-up scope from PR #15's review: intentionally small; no expansion into
   adjacent auth work (e.g. logout coverage, safeErrorMeta extension are separate
-  issues).
+  issues). The 401-body unification above is the one deliberate addition, because
+  the policy's anti-oracle requirement is unmeetable without it.
 - No baked decisions in issue #16 — the policy choice is this spec's deliverable,
   ratified at the spec-approval gate.
 
@@ -158,7 +195,7 @@ and spec why revocation was rejected.
 - No code change beyond comments.
 
 **Cons**:
-- Ignores RFC 9700 §4.13.2 guidance for the exact scenario it targets: when reuse is
+- Ignores RFC 9700 §4.14.2 guidance for the exact scenario it targets: when reuse is
   detected, the attacker may be the one holding the *newer* token (they refreshed
   first; the victim's replay is what trips detection). Log-only leaves the attacker's
   live session running.
@@ -169,13 +206,13 @@ and spec why revocation was rejected.
 **Estimated Complexity**: Low
 **Risk Level**: Medium (accepts ongoing exposure the detection was built to catch)
 
-### Approach 2: Unbounded family revocation (bump on every reuse)
+### Approach 2: Unbounded account revocation (bump on every reuse)
 **Description**: On every `reuse` classification, bump the user's `session_version`
 (revoking all access + refresh tokens on all devices) and log.
 
 **Pros**:
-- Directly implements the BCP recommendation; attacker-held newer tokens die
-  immediately, regardless of which party trips detection.
+- Implements the BCP's revocation goal; attacker-held newer tokens die immediately,
+  regardless of which party trips detection.
 - Simplest possible policy: one primitive call at the detection sites.
 
 **Cons**:
@@ -189,33 +226,46 @@ and spec why revocation was rejected.
 **Estimated Complexity**: Low
 **Risk Level**: High (weaponizable against the legitimate user)
 
-### Approach 3 (RECOMMENDED): Bounded family revocation — revoke once, then consume the spent token
-**Description**: On reuse, atomically (a) bump `session_version` — revoking the
-entire family per the BCP — and (b) consume the replayed token row (remove it or
-otherwise make it unable to re-trigger), so any further replay of that token reads as
-`not_found` and is inert. One stolen spent token buys the attacker exactly one forced
-re-login of the victim, never a loop. Applied identically at both detection sites,
-with the existing log line kept (emitted at revocation time).
+### Approach 3 (RECOMMENDED): Bounded account revocation — revoke once, consume the family
+**Description**: On `reuse`, atomically and exactly-once: (a) bump `session_version`,
+and (b) consume the replayed token row **and the user's other outstanding
+refresh-token rows** via the existing deletion primitives (`deleteToken` /
+`deleteUserTokens(userId, 'refresh')`), so no retained row for this account can
+re-trigger revocation. Any further replay reads as `not_found` and is inert. The
+"atomically and exactly-once" requirement means the bump and log are applied only by
+the request whose consume of the spent row actually took effect — two concurrent
+replays of the same token must yield one bump and one log, not two. Applied
+identically at both detection sites, on `reuse` only.
+
+Note on strength: this is deliberately **stronger** than RFC 9700 §4.14.2's minimum
+(revoking the refresh-token lineage). `session_version` revokes *every* session and
+access token for the account, because it is the project's single sanctioned
+revocation primitive (arch-critical) and theft of one token gives no assurance about
+which sessions are the attacker's.
 
 **Pros**:
-- Implements the BCP's actual security goal: on evidence of theft, no token from the
-  compromised family — including a newer one the attacker may hold — survives.
-- Caps the DoS vector by construction: replay #2 of the same token cannot revoke
-  anything. The victim experiences at most one surprise re-login per genuinely
-  compromised token, which is arguably the correct UX for "your token was stolen."
-- Consuming the row is consistent with the retention rationale — the row was
-  retained *to detect first reuse*; once detected and acted on, retention has
-  served its purpose.
-- Uses only existing primitives (`bumpSessionVersion`, token deletion) inside the
-  established transactional pattern.
+- Implements the BCP's security goal: on evidence of theft, no token from the
+  compromised account — including a newer one the attacker may hold — survives.
+- Caps the DoS vector by construction, **per compromise**: after one revocation, no
+  retained row for the account remains to replay, so even a bulk leak of N spent
+  rows yields one forced re-login, not N. The victim experiences at most one
+  surprise re-login per compromise, which is arguably the correct UX for "your
+  token was stolen."
+- Consuming rows is consistent with the retention rationale — rows are retained *to
+  detect first reuse*; once detected and acted on, retention has served its purpose
+  for that account's outstanding tokens.
+- Uses only existing primitives (`bumpSessionVersion`, `deleteToken`,
+  `deleteUserTokens`) inside the established transactional pattern.
 
 **Cons**:
 - The false-positive scenario (client loses the rotation response, retries after >60s)
   now logs out all of the user's devices once. Judged acceptable: the window is
   narrow, the event is rare, recovery is a normal login, and the server provably
   cannot distinguish this from theft (RFC 9700's own argument).
-- Second-replay events are no longer log-distinguishable as "reuse" (the row is
-  gone); the first-reuse log line is the lasting record. Minor observability trade.
+- Later replay events are no longer log-distinguishable as "reuse" (the rows are
+  gone); the first-reuse log line is the lasting record. Minor observability trade —
+  and required anyway, since distinguishing them in the *response* would hand the
+  attacker confirmation that revocation fired.
 
 **Estimated Complexity**: Medium
 **Risk Level**: Low
@@ -246,18 +296,29 @@ safety: `false` means either already-rotated-in-grace (benign, must proceed — 
 #34) or row-vanished under concurrent revocation (tokens minted from the stale user
 row embed a stale `session_version` and die at validation).
 
-**Option B (RECOMMENDED): Distinguish and fail fast.** Make the rotation step
-report *which* of the two `false` cases occurred. Proceed on already-rotated (grace
-concurrency is a supported flow); abort issuance (generic 401) when the row vanished,
-instead of minting tokens known to be dead on arrival. Rationale: aligns with the
-fail-fast principle; removes sole reliance on the version-check backstop; the
-distinction is cheap because the in-transaction recheck has already read the row.
-Option B also keeps the safety comment for the already-rotated path.
+**Option B: Distinguish and fail fast.** Make the rotation step report *which* of
+the two `false` cases occurred; proceed on already-rotated, abort issuance (generic
+401) on row-vanished. Caveat identified in review: the in-transaction recheck runs
+under READ COMMITTED without a row lock, so it cannot disambiguate by itself — a
+concurrent delete can commit after the recheck's read. Distinguishing requires an
+additional read after the failed update, making this less cheap than it first
+appears.
+
+**Option C (RECOMMENDED): Eliminate the race with a row lock.** Have the
+in-transaction recheck take a row-level lock on the token row (`SELECT … FOR
+UPDATE` semantics), serializing the rotation transaction against any concurrent
+logout/reset delete. The vanished-row case then cannot occur *within* the
+transaction: either the recheck sees the row (locked until commit — rotation
+proceeds; a benign `false` from `markTokenRotated` can only mean
+already-rotated-in-grace) or the delete won and the recheck reports
+`not_found`/`reuse` and issuance never starts. This makes the discard of the
+boolean **provably safe by construction**; a code comment records the argument, and
+lock-ordering against the logout/reset transactions is a plan-phase concern.
 
 ## Open Questions
 
 ### Critical (Blocks Progress)
-- [ ] None. The policy recommendation (Approach 3 + Option B) is this spec's
+- [ ] None. The policy recommendation (Approach 3 + Option C) is this spec's
       proposal; ratification happens at the spec-approval gate.
 
 ### Important (Affects Design)
@@ -265,9 +326,6 @@ Option B also keeps the safety comment for the already-rotated path.
       message without user content) so ops can alert on it, or is `console.warn`
       sufficient for now? (Default: keep `console.warn`; structured audit logging is
       out of scope.)
-- [ ] On reuse detected at the in-transaction recheck, is it acceptable to apply the
-      bump inside that same transaction (serialized with the rotation it aborts)?
-      (Default: yes — same transactional pattern as reset/logout.)
 
 ### Nice-to-Know (Optimization)
 - [ ] Whether the frontend should surface a distinct "you were signed out for
@@ -276,10 +334,10 @@ Option B also keeps the safety comment for the already-rotated path.
 
 ## Performance Requirements
 - **Response Time**: No measurable regression on the refresh path — the reuse branch
-  adds at most one UPDATE and one DELETE on an already-failing (401) request; the
-  happy path adds no queries.
+  adds writes only on an already-failing (401) request; the happy path adds no
+  queries beyond the (already-performed) recheck now taking a row lock.
 - **Throughput**: Unchanged; no new hot-path work.
-- **Resource Usage**: Strictly reduced token-row retention (consumed reuse rows are
+- **Resource Usage**: Strictly reduced token-row retention (consumed rows are
   removed earlier than natural expiry).
 - **Availability**: No new external dependencies.
 
@@ -287,56 +345,83 @@ Option B also keeps the safety comment for the already-rotated path.
 - **Threat model**: attacker exfiltrates a refresh token (device theft, log leak,
   network capture). If they refresh first, the victim's next refresh trips reuse; if
   the victim refreshed first, the attacker's replay trips it. In both cases the
-  server cannot tell who is who — family revocation (Approach 3) is the only response
-  that contains the attacker in both orderings.
-- **Anti-oracle**: the reuse response must remain byte-identical to the generic
-  invalid-token 401. Revocation must not change status, body, or observable timing
-  class.
-- **DoS resistance**: bounded by consume-on-reuse — one revocation per stolen spent
-  token, never a loop.
+  server cannot tell who is who — account-wide revocation (Approach 3) is the only
+  response that contains the attacker in both orderings.
+- **Anti-oracle**: the refresh path's 401s must be unified — one status + body for
+  reuse, unknown/expired, and stale-version rejections — so neither a reuse
+  classification nor a subsequent already-consumed replay is externally
+  distinguishable. Scope: response **status and body semantics** only. A
+  timing-side-channel guarantee is explicitly out of scope (the reuse branch
+  performs extra writes; no practical timing-equality criterion or test exists at
+  this layer), and is acceptable because timing tells the attacker nothing
+  actionable that the unified response doesn't already deny.
+- **Exactly-once revocation**: under concurrent replays of one spent token, the
+  bump and containment log must be applied by exactly one request — the one whose
+  atomic consume of the row succeeded.
+- **DoS resistance**: bounded per-compromise — consume-on-reuse removes the
+  replayed row and the account's other outstanding refresh rows, so no retained
+  token remains to re-trigger revocation.
+- **Stale-authorization gap**: a refresh authorized *before* a reuse-triggered bump
+  must not issue a surviving pair *after* it. The presented token's embedded
+  `session_version` must therefore be re-verified against the user row **inside**
+  the serialized rotation transaction — the pre-transaction check alone leaves the
+  authorized-before-bump / issuing-after-bump interleaving open (the in-transaction
+  read would otherwise observe the *new* version and mint tokens that survive).
+  With that in-transaction re-verification (plus the refresh-row deletion of
+  Approach 3), no interleaving lets a minted pair outlive the bump; a dedicated
+  ordering test pins this. No additional locking beyond Option C's row lock is
+  required — the plan should not invent more.
 - **Logging**: user UUID only; never raw or hashed token material, never user
   content. Unchanged from spec 4 discipline.
-- **Atomicity**: revocation on reuse must not race token issuance into a state where
-  a new pair survives the bump (the bump must be ordered/transacted such that any
-  concurrently-minted pair embeds the pre-bump version and therefore dies).
 
 ## Test Scenarios
 ### Functional Tests
 1. **Happy path regression**: valid refresh still rotates and issues; concurrent
    refresh within grace still succeeds for both callers (issue #34).
-2. **Reuse revokes family**: replay a token rotated past grace → 401 generic body;
-   user's previously-valid access and refresh tokens now fail validation.
-3. **Bounded DoS**: replay the same spent token a second time → 401, `not_found`
-   classification, session_version unchanged from the first reuse; a fresh
+2. **Reuse revokes account**: replay a token rotated past grace → unified 401 body;
+   the user's previously-valid access and refresh tokens now fail validation; the
+   user's other refresh rows are gone.
+3. **Bounded DoS**: replay the same spent token again → unified 401, `not_found`
+   classification, `session_version` unchanged from the first reuse; a fresh
    post-reuse login session is unaffected.
-4. **In-transaction detection site**: revocation/logout racing a refresh such that
-   reuse/not_found is first seen at the recheck → same policy outcome, no token pair
-   issued.
-5. **Vanished-row rotation** (Option B): token row deleted between validation and
-   rotation → no tokens issued, generic 401.
-6. **False-positive path**: legitimate retry after >grace (lost response) → treated
-   as reuse (documented, asserted) — family revoked once, password login recovers.
+4. **Recheck-site `reuse`**: interleaving where reuse is first classified at the
+   in-transaction recheck → policy applied (bump + consume + log), no pair issued.
+5. **Recheck-site `not_found`** (logout/reset wins the race): issuance aborts with
+   the unified 401, **no** bump, **no** reuse log — the normal-race outcome is not
+   treated as an attack.
+6. **Concurrent replays, exactly-once**: two simultaneous replays of the same spent
+   token → exactly one version bump and one reuse log; both receive the unified 401.
+7. **Stale-authorization ordering**: refresh authorized pre-bump, issuing post-bump
+   → no surviving pair (in-transaction version re-verification rejects it).
+8. **Rotation concurrency under Option C**: with the row lock, a benign
+   already-rotated-in-grace `false` still proceeds; a logout-delete serialized
+   before the recheck yields `not_found` and no issuance.
+9. **False-positive path**: legitimate retry after >grace (lost response) → treated
+   as reuse (documented, asserted) — account revoked once, password login recovers.
 
 ### Non-Functional Tests
-1. **Anti-oracle**: response status + body for reuse === response for unknown token.
+1. **Anti-oracle**: response status + body are identical across reuse,
+   unknown-token, expired, stale-version, and already-consumed-replay rejections on
+   the refresh path.
 2. **Log hygiene**: reuse log contains UUID only (no token material, no email).
-3. **Atomicity under interleaving**: reuse-triggered bump vs concurrent refresh
-   issuance — minted pair must not survive (pglite transaction test).
 
 ## Dependencies
 - **External Services**: None.
 - **Internal Systems**: spec-4 auth machinery — `session_version` validation,
   `lookupRefreshToken` classification, transactional token lifecycle, grace window.
-- **Libraries/Frameworks**: Existing stack only (Drizzle, pglite for tests). No new
-  dependencies.
+- **Libraries/Frameworks**: Existing stack only (Drizzle, pglite for tests — noting
+  pglite's transaction/locking semantics must actually exercise the row-lock
+  behavior; if it cannot, the plan must say how the Option C path is verified). No
+  new dependencies.
 
 ## References
 - GitHub issue #16 (this project) — filed from PR #15 integration review.
 - PR #15 / spec 4: `codev/specs/4-auth-hardening-admin-roles-in-.md` (reuse
   detection, session_version, transactional rotation).
-- RFC 9700 (OAuth 2.0 Security Best Current Practice) §4.13.2 — refresh token
-  rotation and revocation on reuse detection. (The issue cites this as "OAuth BCP
-  §4.13.2".)
+- RFC 9700 (OAuth 2.0 Security Best Current Practice) **§4.14.2** — refresh token
+  rotation and revocation on reuse detection. The issue and PR #15 review cite this
+  as "OAuth BCP §4.13.2" (pre-RFC draft numbering); code comments must cite the RFC
+  section.
 - Issue #34 — refresh-token grace window for concurrent SPA refreshes.
 - `codev/resources/arch-critical.md` — session_version as the uniform revocation
   primitive; transactional `exec` threading.
@@ -344,31 +429,58 @@ Option B also keeps the safety comment for the already-rotated path.
 ## Risks and Mitigation
 | Risk | Probability | Impact | Mitigation Strategy |
 |------|------------|--------|-------------------|
-| Legit user logged out by lost-response retry (false positive) | Low | Medium | Bounded to one event per token; grace window absorbs normal retries; normal login recovers; behavior asserted in tests so it's a documented decision, not an accident |
-| Attacker loops revocation with one spent token (DoS) | — | High if unmitigated | Eliminated by design: token consumed on first reuse; replay reads `not_found` |
-| Revocation races issuance, new pair survives bump | Low | High | Transactional ordering requirement in Security Considerations; dedicated interleaving test on pglite |
-| Reuse response becomes distinguishable (oracle) | Low | Medium | Anti-oracle equality test (status + body) |
-| Scope creep into adjacent auth follow-ups | Medium | Low | Constraints section pins scope to issue #16's two items |
+| Legit user logged out by lost-response retry (false positive) | Low | Medium | Bounded to one event per compromise; grace window absorbs normal retries; normal login recovers; behavior asserted in tests so it's a documented decision, not an accident |
+| Attacker loops revocation with spent token(s) (DoS) | — | High if unmitigated | Eliminated by design: replayed row and the account's other refresh rows consumed on first reuse; replay reads `not_found` |
+| Double-bump under concurrent replays | Medium | Low | Exactly-once requirement: bump/log gated on winning the atomic consume; concurrent-replay test |
+| Refresh authorized pre-bump issues a surviving pair | Low | High | In-transaction re-verification of the embedded session_version; dedicated ordering test |
+| Reuse response becomes distinguishable (oracle) | Medium (exists today as 3 distinct bodies) | Medium | Unify refresh-path 401 bodies (in scope); equality test across all five rejection cases |
+| Row-lock (Option C) introduces deadlock with logout/reset | Low | Medium | Lock-ordering analysis is a mandated plan-phase item; interleaving tests on pglite |
+| Scope creep into adjacent auth follow-ups | Medium | Low | Constraints section pins scope to issue #16's two items + the 401-unification prerequisite |
 
 ## Expert Consultation
-<!-- Populated after porch-run 3-way consultation -->
-**Date**: pending
-**Models Consulted**: pending (Gemini, Codex, Claude via porch verify)
-**Sections Updated**: pending
+**Date**: 2026-08-02
+**Models Consulted**: Gemini (APPROVE), Codex (REQUEST_CHANGES), Claude
+(REQUEST_CHANGES) — 3-way porch consultation, iteration 1. Rebuttal:
+`codev/projects/16-refresh-token-reuse-decide-rev/16-specify-iter1-rebuttals.md`.
+**Sections Updated**:
+- Problem Statement / References: RFC citation corrected to RFC 9700 §4.14.2 (issue
+  cited draft numbering §4.13.2); session_version bump described as deliberately
+  stronger than the RFC's lineage revocation (Codex).
+- Current State: documented the three distinct 401 bodies (pre-existing oracle) and
+  the READ COMMITTED / no-row-lock recheck semantics (Claude).
+- Desired State / Constraints / Success Criteria: 401-body unification scoped IN as
+  a prerequisite ("establishing", not "preserving", the anti-oracle property);
+  exactly-once revocation; per-compromise DoS bound via
+  `deleteUserTokens(userId,'refresh')` (Codex + Claude).
+- Solution Approaches: `reuse`-only trigger made explicit (never `not_found`);
+  consume mechanism named (`deleteToken`/`deleteUserTokens`); Option C
+  (row lock, eliminates the vanished-row race) added and recommended over Option B,
+  whose "cheap distinction" rationale was corrected (Claude).
+- Security Considerations: anti-oracle scoped to status+body semantics with timing
+  explicitly out of scope (Codex); stale-authorization gap (authorized-pre-bump /
+  issuing-post-bump) closed via in-transaction session_version re-verification
+  (Codex), stated as verify-and-test with no extra locking beyond Option C (Claude).
+- Test Scenarios: recheck-site `reuse` and `not_found` split into separate scenarios
+  with opposite expectations; concurrent-replay exactly-once and
+  stale-authorization ordering tests added (Codex + Claude).
 
 ## Approval
 - [ ] Technical Lead Review
 - [ ] Product Owner Review
 - [ ] Stakeholder Sign-off
-- [ ] Expert AI Consultation Complete
+- [x] Expert AI Consultation Complete
 
 ## Notes
 - The builder branch predated PR #15's merge; `origin/develop` was merged in
   (commit 5ab8a9d) before drafting so this spec describes the actual integrated
   code, not the pre-spec-4 state.
-- Recommendation summary for the gate: **Approach 3** (revoke family once via
-  `session_version` bump, consume the spent token so replays are inert) plus
-  **Option B** for `markTokenRotated` (distinguish already-rotated from vanished;
-  fail fast on vanished). Approach 1 (log-only) is the fallback if the architect
-  judges any forced-logout risk unacceptable; it should then be recorded as an
-  explicit accepted-risk decision in code comments and lessons-learned.
+- Recommendation summary for the gate: **Approach 3** (exactly-once account
+  revocation via `session_version` bump; consume the replayed row and the account's
+  other refresh rows so replays are inert) plus **Option C** for `markTokenRotated`
+  (row lock in the recheck eliminates the vanished-row race; discard becomes
+  provably safe and is documented). Approach 1 (log-only) is the fallback if the
+  architect judges any forced-logout risk unacceptable; it should then be recorded
+  as an explicit accepted-risk decision in code comments and lessons-learned.
+- **Ratification sequencing**: before the Plan phase starts, this spec will be
+  edited to state the ratified choice as *the* decision (collapsing the
+  conditional phrasing), so the plan and implementation have a single target.

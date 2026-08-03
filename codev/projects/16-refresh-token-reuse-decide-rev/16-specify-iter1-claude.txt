@@ -1,0 +1,51 @@
+I'll verify the spec's claims against the actual codebase before assessing.I read the spec, the actual auth code, and issue #16. The spec is well-structured (template-compliant, all 20 headings in order) and the decision framing is genuinely good — Approaches 1–4 are weighed honestly and the recommendation is defensible. But three claims don't survive contact with the code.
+
+## Verified findings
+
+### 1. The anti-oracle premise is factually wrong (blocking)
+
+The spec says the reuse response "**remains** byte-identical to other invalid-token failures" and lists as a success criterion that this is "**preserved**." It isn't true today. `backend/lib/auth/middleware.ts:84-110` returns three distinct strings, and `refresh_token/route.ts:36` pipes `result.error` straight into the body:
+
+| Case | Body (all 401) |
+|---|---|
+| reuse | `{"detail":"Invalid or expired refresh token"}` (route.ts:33) |
+| not_found / expired | `{"detail":"Refresh token not found or expired"}` (middleware.ts:98) |
+| stale session_version | `{"detail":"Session no longer valid"}` (middleware.ts:106) |
+
+Test scenario NF1 ("response for reuse === response for unknown token") **fails against current code**. Worse, Approach 3 amplifies the leak: replay #1 returns "Invalid or expired refresh token", replay #2 (row consumed → `not_found`) returns "Refresh token not found or expired" — giving an attacker positive confirmation that family revocation fired.
+
+This needs to be scoped *in*, not asserted as pre-existing. Blast radius is tiny: I grepped every use of these strings; the only test assertion is `middleware.test.ts:95`, which covers the **access-token** path (middleware.ts:69), not `validateRefreshToken`. Unifying the three refresh-path bodies is a ~3-line change with zero test churn.
+
+### 2. Option B's "the distinction is cheap" is not accurate
+
+`markTokenRotated` (users.ts:256-264) is `UPDATE ... WHERE hash = ? AND rotated_at IS NULL RETURNING *`. `false` means row-gone **or** already-rotated, and the in-transaction recheck SELECT does *not* disambiguate — under READ COMMITTED it holds no lock, so the concurrent delete commits *after* that read. You'd need a second read post-failed-update.
+
+**Missing option worth adding as Option C:** take a row lock in the recheck (`SELECT ... FOR UPDATE` on the token row). That serializes the racing logout/reset delete and makes the vanished-row case *impossible* rather than *detectable* — strictly simpler than reporting it, and it fits the existing transactional `exec` pattern. Deadlock ordering vs. logout/reset is a plan-phase concern, but the option belongs in the spec.
+
+### 3. Test scenario 4 conflates `reuse` and `not_found` at the recheck
+
+"reuse/not_found is first seen at the recheck → same policy outcome." These must *not* share a policy. `not_found` at the recheck is the **normal** logout-wins-the-race outcome; bumping `session_version` there would mean every logout-racing-refresh silently bumps. State explicitly: revoke on `reuse` only; `not_found` → 401, no policy.
+
+## Secondary points
+
+- **DoS bound is per-token, not per-compromise.** A leaked log or DB dump with N retained spent rows yields N forced logouts. Relatedly, the spec never says whether the reuse handler should *also* `deleteUserTokens(userId, 'refresh')`. If it doesn't, the victim's other retained spent rows stay replay-able as revocation triggers after they re-login. Deleting them is arguably the truer reading of "family revocation" and tightens the bound to one event per compromise. Currently unspecified — decide it.
+- **The atomicity requirement is already satisfied.** Tracing the code: a refresh reading the user row pre-bump mints version-N tokens that the bump to N+1 kills; a refresh starting post-bump fails the `payload.session_version !== user.sessionVersion` check at middleware.ts:105 *before* minting. The property holds without new machinery. Restate it as "verify and test" rather than "must be ordered/transacted," or the plan will invent locking it doesn't need.
+- **"Consume the row" is left abstract** ("remove it or otherwise make it unable to re-trigger"). Name the mechanism — `deleteToken` exists (users.ts:306); the alternative of backdating `expiresAt` has different sweep semantics.
+- **Ratification sequencing.** Desired State and success criterion 5 are written conditionally on the gate outcome. Fine for a decision spec, but say plainly that the spec gets edited to the ratified choice before Plan starts, so the builder has one target.
+- **Citation:** verify RFC 9700's section number for refresh-token replay before it lands in a permanent code comment — the pre-RFC BCP draft numbered this differently.
+
+Everything else checks out: Current State accurately describes the two detection sites and the discarded boolean, the constraints correctly reflect arch-critical (`session_version` as sole primitive, `exec` threading, retention rationale in `deleteExpiredTokens`), and Approach 3 is the right recommendation.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Sound decision framing and correct recommendation, but the anti-oracle claim is false against current code, Option B's feasibility rationale doesn't hold, and reuse-vs-not_found at the recheck is dangerously conflated.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Anti-oracle "preserved/remains" is factually wrong: reuse and not_found return different 401 bodies today (middleware.ts:98 vs route.ts:33); test scenario NF1 fails as written, and Approach 3 widens the leak. Scope the message unification in (only middleware.test.ts:95 touches these strings, and it's the unaffected access-token path).
+- Option B's "cheap because the recheck already read the row" is incorrect — the recheck holds no lock under READ COMMITTED and cannot distinguish row-vanished from already-rotated. Add `SELECT ... FOR UPDATE` in the recheck as Option C (eliminates the race rather than detecting it).
+- Test scenario 4 applies "the same policy outcome" to both `reuse` and `not_found` at the in-transaction recheck; `not_found` is the normal logout-wins case and must not trigger revocation.
+- Unspecified: whether reuse revocation also deletes the user's other retained refresh rows. Without it the DoS bound is per-token (N leaked spent rows = N forced logouts), not per-compromise.
+- Atomicity requirement in Security Considerations is already guaranteed by the existing session_version check at middleware.ts:105; stating it as a design constraint risks the plan adding unnecessary locking.
+- "Consume the row" left mechanism-agnostic; name `deleteToken` explicitly.

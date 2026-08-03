@@ -1,0 +1,11 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong and well-structured, but concurrency semantics and RFC framing must be corrected before implementation.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- **Exactly-once revocation is underspecified.** Two simultaneous replays can both classify the token as reuse and bump `session_version` before one discovers the row was already consumed. Require that only the request which atomically claims/consumes the spent token may bump and log; add a concurrent-replay test asserting exactly one bump and one containment event.
+- **Concurrent refresh can survive the reuse bump.** The current in-transaction lookup returns the latest user version. A request authorized before the bump but issuing afterward could mint tokens with the new version. Require the transaction to reject a presented token whose embedded version is stale after serialization, and test precisely this ordering.
+- **The RFC citation and characterization are inaccurate.** Refresh-token rotation recommendations are in RFC 9700 **§4.14.2**, not §4.13.2. The RFC describes revoking the active refresh token/grant lineage; this project’s `session_version` bump revokes every account session and access token, which is deliberately stronger and should be described as such rather than called ordinary “family” revocation. [RFC 9700 §4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2)
+- **The second-site test conflates `reuse` and `not_found`.** Concurrent logout/reset produces `not_found`, which has no user ID and should not independently trigger the reuse policy. Specify separate expected behavior: `not_found` aborts issuance without another bump/log, while a genuine in-transaction `reuse` applies the policy.
+- **Anti-oracle requirements conflict.** The spec requires no observable timing-class difference while acknowledging reuse performs additional writes, but tests only status and body. Either limit the requirement to identical response semantics or define a feasible timing criterion and test strategy.

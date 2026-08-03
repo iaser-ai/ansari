@@ -1,0 +1,44 @@
+# Specification Review: Refresh-Token Reuse — Revoke-on-Reuse Policy + markTokenRotated Result Handling (`spec-2026-08-02-refresh-token-reuse-decide-rev`)
+
+## Summary & Assessment
+
+The feature specification addresses GitHub issue #16 regarding refresh token reuse handling and `markTokenRotated` return value handling. The specification is thorough, technically sound, well-structured, and directly addresses the security guidance in RFC 9700 §4.13.2 while mitigating potential denial-of-service (DoS) abuse vectors.
+
+---
+
+## Detailed Review
+
+### 1. Structure & Template Compliance
+- **Heading Verification**: All 20 canonical spec template headings are present and appear in the exact required order (`## Metadata` through `## Notes`).
+- **Boundaries**: Maintains a strict SPEC vs. PLAN boundary (defines *WHAT* and *WHY* without stepping into execution timelines or code diff details).
+
+### 2. Technical Feasibility & Solution Analysis
+- **Reuse Policy (Approach 3 - Recommended)**: Bounded family revocation (bumping `session_version` on first reuse, then deleting/consuming the spent token row) is an elegant solution to the DoS vs. Theft trade-off:
+  - It aligns with RFC 9700 §4.13.2 by revoking the entire token family when theft is detected.
+  - It bounds the DoS vector: an attacker holding a spent token can only force a single re-login of the victim rather than an infinite loop.
+  - It preserves existing architecture by using `bumpSessionVersion` as the uniform revocation primitive.
+- **`markTokenRotated` Handling (Option B - Recommended)**: Distinguishing between benign grace-window concurrency (`rotated_at` already populated) and mid-transaction row disappearance (due to concurrent revocation) adheres strictly to the project's *fail-fast* principle, preventing dead-on-arrival token minting.
+
+### 3. Security Considerations & Edge Cases
+- **Anti-Oracle**: The spec explicitly requires that `reuse` responses remain byte-identical (status code and body) to normal invalid/unknown token responses (`not_found`).
+- **Privacy & Logging**: Strict requirement to log only user UUIDs, never raw or hashed token data or user content.
+- **Concurrency & Atomicity**: Addresses race conditions between token rotation, in-transaction rechecks, and session version bumps.
+- **Detection Sites**: Ensures the revoke-on-reuse policy is applied uniformly across both the pre-validation site (`lookupRefreshToken`) and the in-transaction recheck site.
+
+### 4. Testing Strategy
+- Functional and non-functional test scenarios cover:
+  - Happy path & grace window concurrency (issue #34 regression guard).
+  - First-replay revocation vs. second-replay bounded DoS check (`not_found` on replay #2).
+  - In-transaction recheck behavior.
+  - Anti-oracle HTTP response parity.
+  - Integration tests executed locally against `pglite`.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Well-designed spec that solves RFC 9700 reuse revocation while bounding DoS risks and adhering 100% to template structure.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
