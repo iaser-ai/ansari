@@ -54,3 +54,12 @@ Next: draft spec → porch check → porch done → 3-way consultation.
   documented instead). Test matrix slimmed to 3 focused tests.
 - Spec rewritten to state the ratified decision as THE decision (5018353);
   alternatives/cuts retained as decision record. **Gate re-requested; waiting.**
+
+## 2026-08-03 — Scope amendment: no externally-visible API changes
+
+- New standing constraint from the human: mobile app in the wild can't be updated →
+  NO API-visible changes. 401-body unification CUT; refresh-path responses stay
+  byte-for-byte; anti-oracle property explicitly WAIVED as accepted trade-off
+  (leak is confirmation-of-containment only, never access). Containment core and
+  Option A unchanged. Test 3 now asserts reuse responses UNCHANGED from current
+  behavior. Committed b989fe5. **Gate re-requested; waiting.**
