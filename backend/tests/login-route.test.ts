@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
+import { DrizzleQueryError } from 'drizzle-orm/errors';
 
 // Phase 2 (token consolidation): the login route issues tokens via the shared
 // issueTokenPair helper. This proves login calls it and preserves its response
@@ -95,10 +96,17 @@ describe('POST /api/v2/users/login', () => {
   });
 
   it('logs only sanitized metadata (no raw driver error) when the DB throws (issue #19)', async () => {
-    const driverError = new Error(
+    // Real drizzle shape: the pg error (with the SQLSTATE and user content) is
+    // wrapped in DrizzleQueryError, which also carries query text and params.
+    const pgError = new Error(
       'duplicate key value violates unique constraint: (boom@example.com)'
     ) as Error & { code: string };
-    driverError.code = '23505';
+    pgError.code = '23505';
+    const driverError = new DrizzleQueryError(
+      'select * from "users" where "email" = $1',
+      ['boom@example.com'],
+      pgError
+    );
     mockFindUserByEmail.mockRejectedValueOnce(driverError);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

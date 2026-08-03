@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { DrizzleQueryError } from 'drizzle-orm/errors';
 import { safeErrorMeta } from '../lib/log';
 
 // safeErrorMeta (issue #19) is the shared sanitizer behind every route's
@@ -14,6 +15,28 @@ describe('safeErrorMeta', () => {
     err.code = '23505';
 
     expect(safeErrorMeta(err)).toEqual({ name: 'Error', code: '23505' });
+  });
+
+  it('finds the SQLSTATE nested under .cause on a REAL DrizzleQueryError (how drizzle wraps pg errors)', () => {
+    // drizzle-orm wraps every driver failure: the wrapper has name='Error', no
+    // top-level code, and carries the pg error (with the SQLSTATE) at .cause —
+    // plus the raw query text and bound params, which must never be logged.
+    const pgError = new Error(
+      'duplicate key value violates unique constraint "users_email_key"'
+    ) as Error & { code: string };
+    pgError.code = '23505';
+    const wrapped = new DrizzleQueryError(
+      'insert into "users" ("email", "password_hash") values ($1, $2)',
+      ['leak@example.com', '$2b$12$somehash'],
+      pgError
+    );
+
+    const meta = safeErrorMeta(wrapped);
+    expect(meta).toEqual({ name: 'DrizzleQueryError', code: '23505' });
+    const serialized = JSON.stringify(meta);
+    expect(serialized).not.toContain('leak@example.com');
+    expect(serialized).not.toContain('somehash');
+    expect(serialized).not.toContain('insert into');
   });
 
   it('returns only the name when the error has no code', () => {

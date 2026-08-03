@@ -27,3 +27,17 @@
 - Opened PR #29 against `develop` with the AIR review embedded in the body
   (summary, key decisions, test plan). Porch checks (pr_exists, e2e_tests)
   passed; PR gate requested. Waiting for human approval.
+
+## Review iteration 1 (architect REQUEST_CHANGES)
+
+- Defect confirmed: drizzle wraps pg errors in `DrizzleQueryError` (name
+  `'Error'`, no top-level `code`, SQLSTATE at `.cause.code`), so the original
+  `safeErrorMeta` returned a useless `{name:'Error'}` on real DB failures.
+- Fix: `.cause`-chain walk (same traversal as `isUniqueViolation`,
+  lib/db/users.ts) + `constructor.name` so the wrapper logs as
+  `DrizzleQueryError` instead of `Error`.
+- Tests: unit fixture built from the REAL `DrizzleQueryError` (imported from
+  `drizzle-orm/errors`, query text + params as leak canaries) and the login
+  route leak test upgraded to the wrapped shape. 596 passed / 3 skipped.
+- Non-blocking review items intentionally NOT picked up (architect filing
+  follow-up issues; no scope expansion).
