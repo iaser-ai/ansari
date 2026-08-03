@@ -16,3 +16,9 @@
   triage table's distinguishing phrases exist in BOTH `startup-checks.ts` error
   text and the docs, so either side changing breaks CI.
 - `porch check 21`: build ✓, tests ✓.
+
+## PR
+
+- PR #23 opened against develop (review embedded in PR body per AIR).
+- porch pr-phase checks passed (pr_exists, e2e_tests); `porch gate 21` requested.
+- Waiting at pr gate for human approval; architect notified via afx send.
