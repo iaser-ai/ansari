@@ -25,3 +25,20 @@
     first reuse (replays then read `not_found` and cannot re-trigger revocation).
 
 Next: draft spec → porch check → porch done → 3-way consultation.
+
+## 2026-08-02 — Spec drafted, CMAP iter 1 done, spec-approval gate reached
+
+- Initial spec committed (77bde78). 3-way consultation: Gemini APPROVE, Codex
+  REQUEST_CHANGES, Claude REQUEST_CHANGES — high-quality convergent feedback.
+- Substantive fixes incorporated (fa552e9): RFC citation corrected to 9700 §4.14.2;
+  the pre-existing three-distinct-401-bodies oracle documented and 401 unification
+  scoped IN; `reuse` vs `not_found` at the recheck given opposite policies;
+  exactly-once revocation under concurrent replays; per-compromise DoS bound
+  (also delete the user's other refresh rows); new Option C (row lock in recheck)
+  replaces Option B as the markTokenRotated recommendation; Codex found a real
+  stale-authorization gap (refresh authorized pre-bump, issuing post-bump embeds
+  the NEW version) → in-transaction session_version re-verification required.
+- Recommendation at the gate: **Approach 3** (bounded, exactly-once account
+  revocation via session_version bump + consume replayed row + user's other
+  refresh rows) + **Option C** (row lock; boolean discard becomes provably safe).
+- **spec-approval gate requested. Waiting for human.**
