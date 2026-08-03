@@ -45,3 +45,17 @@
 - Existing mocked route tests updated: db.transaction passthrough mock + tx arg in
   createThread/createMessage assertions.
 - Suite 61 files / 594 passed, typecheck + build green.
+
+## 2026-08-03 — PR gate approved
+
+- Human approved the `pr` gate. `porch next` reports status=complete, phase=verified;
+  the only remaining task is merging PR #26 (regular merge commit, NOT squash — the
+  protocol wants development history preserved).
+- Merge blocked at check time: CI backend job (lint/typecheck/test/build) still
+  IN_PROGRESS on run 30839793517; gitleaks already SUCCESS. Waiting on the backend
+  job in a tracked background watch rather than a foreground poll loop.
+- CI came back green: backend (lint/typecheck/test/build) pass 1m59s, gitleaks pass 6s.
+- PR #26 merged into develop as merge commit 47ba22a (regular merge, not squash).
+  Porch phase `verified`; project 20 complete.
+- NOTE: this final entry lands after #26 merged, so it exists only on the builder
+  branch. Everything through the PR-gate entry is already on develop via #26.
