@@ -30,3 +30,18 @@
   (origin held only the pre-rebase porch-init commit; content preserved).
 - PR #26 opened against develop with the review in the body. Porch at `pr` gate;
   architect notified via afx. Waiting for human approval.
+
+## 2026-08-03 — Direction change: first real consumers (architect instruction)
+
+- Architect extended the PR scope: don't merge plumbing-only. Wrapped thread-creation +
+  inbound-message persistence in `db.transaction` in the two ingestion routes
+  (v1/chat/completions, v2/mcp-complete), scoped strictly to pre-stream/pre-facilitator
+  persistence — never held across runFacilitator.
+- On v1 the DB failure path stays non-fatal (caller still gets an answer), but threadId
+  now stays undefined on rollback so no assistant reply attaches to a partial log.
+- New `tests/route-persistence-rollback.test.ts`: pglite through the ACTUAL route
+  boundary; a CHECK constraint (sentinel __BOOM__) forces the inbound insert to fail;
+  asserts zero threads and zero messages remain (both routes), plus success-path sanity.
+- Existing mocked route tests updated: db.transaction passthrough mock + tx arg in
+  createThread/createMessage assertions.
+- Suite 61 files / 594 passed, typecheck + build green.

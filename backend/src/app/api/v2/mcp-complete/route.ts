@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
 import type { ContentBlock } from '@/db/schema/messages';
+import { db } from '@/lib/db/index';
 import { getOrCreateSystemUser } from '@/lib/db/users';
 import { createThread, createMessage } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
@@ -125,17 +126,26 @@ async function handleMcpComplete(
   // 'ai-skill' (product surface); `client` is the per-request X-Ansari-Client
   // attribution (spec 56), NULL when the header is absent.
   const systemUserId = await getSystemUserId();
-  const thread = await createThread({ userId: systemUserId, source: 'ai-skill', client });
 
-  for (const msg of inputMessages) {
-    await createMessage({
-      threadId: thread.id,
-      role: msg.role,
-      content: [{ type: 'text', text: msg.content }],
-      source: 'ai-skill',
-      client,
-    });
-  }
+  // Thread + inbound messages persist atomically (issue #20): a failed message
+  // insert rolls back the thread instead of orphaning it. Scoped to this
+  // pre-facilitator persistence only — never held across the facilitator call.
+  const thread = await db.transaction(async (tx) => {
+    const created = await createThread({ userId: systemUserId, source: 'ai-skill', client }, tx);
+    for (const msg of inputMessages) {
+      await createMessage(
+        {
+          threadId: created.id,
+          role: msg.role,
+          content: [{ type: 'text', text: msg.content }],
+          source: 'ai-skill',
+          client,
+        },
+        tx
+      );
+    }
+    return created;
+  });
 
   // Run facilitator to completion
   const { text: responseText, usage } = await collectFacilitatorResponse(messages);

@@ -15,6 +15,12 @@ vi.mock('@/lib/db/threads', () => ({
   createMessage: (...args: unknown[]) => mockCreateMessage(...args),
 }));
 
+// The route wraps pre-facilitator persistence in db.transaction (issue #20);
+// pass the callback straight through so the mocked helpers above still run.
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}) },
+}));
+
 // Mock facilitator
 const mockRunFacilitator = vi.fn();
 vi.mock('@/lib/facilitator/agent', () => ({
@@ -211,20 +217,24 @@ describe('POST /api/v2/mcp-complete', () => {
 
     await POST(request);
 
-    expect(mockCreateThread).toHaveBeenCalledWith({
-      userId: SYSTEM_USER.id,
-      source: 'ai-skill',
-      client: null,
-    });
+    expect(mockCreateThread).toHaveBeenCalledWith(
+      {
+        userId: SYSTEM_USER.id,
+        source: 'ai-skill',
+        client: null,
+      },
+      expect.anything() // tx executor (issue #20)
+    );
     // User message + assistant response = 2 createMessage calls
     expect(mockCreateMessage).toHaveBeenCalledTimes(2);
-    // First call: user message
+    // First call: user message (inside the persistence transaction)
     expect(mockCreateMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: MOCK_THREAD.id,
         role: 'user',
         source: 'ai-skill',
-      })
+      }),
+      expect.anything()
     );
     // Second call: assistant message
     expect(mockCreateMessage).toHaveBeenCalledWith(
@@ -387,7 +397,8 @@ describe('mcp-complete client attribution (spec 56)', () => {
     await POST(makePostRequest({ messages: [{ role: 'user', content: 'Q' }] }, 'muslimpedia'));
 
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' })
+      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }),
+      expect.anything()
     );
     for (const [arg] of mockCreateMessage.mock.calls) {
       expect(arg).toEqual(expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }));
@@ -398,7 +409,8 @@ describe('mcp-complete client attribution (spec 56)', () => {
     await GET(makeGetRequest('What is Islam?', 'muslimpedia'));
 
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' })
+      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }),
+      expect.anything()
     );
     for (const [arg] of mockCreateMessage.mock.calls) {
       expect(arg).toEqual(expect.objectContaining({ client: 'muslimpedia' }));
@@ -408,7 +420,8 @@ describe('mcp-complete client attribution (spec 56)', () => {
   it('client is null when the header is absent (unchanged behavior)', async () => {
     await POST(makePostRequest({ messages: [{ role: 'user', content: 'Q' }] }));
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: null })
+      expect.objectContaining({ source: 'ai-skill', client: null }),
+      expect.anything()
     );
   });
 });
