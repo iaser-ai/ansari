@@ -40,6 +40,9 @@ beforeAll(async () => {
       last_name text,
       source text DEFAULT 'web',
       registered_via text,
+      is_admin boolean NOT NULL DEFAULT false,
+      system_key text,
+      session_version integer NOT NULL DEFAULT 0,
       created_at timestamp with time zone DEFAULT now(),
       updated_at timestamp with time zone DEFAULT now()
     );

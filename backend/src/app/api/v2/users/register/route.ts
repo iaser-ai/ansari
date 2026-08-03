@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { generateToken } from '@/lib/auth/jwt';
-import { findUserByEmail, createUser, storeToken } from '@/lib/db/users';
+import { findUserByEmail, createUser, issueTokenPair, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
+import { isReservedAddress } from '@/lib/auth/reserved';
 import { subscribeToNewsletter } from '@/lib/newsletter';
 import { getClientId } from '@/lib/attribution';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password must be at most 128 characters'),
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   // Opt-in newsletter subscription. Defaults to false (opt-in) when omitted so
@@ -30,9 +33,13 @@ export async function POST(request: NextRequest) {
 
     const { email, password, first_name, last_name, register_to_mail_list } = parseResult.data;
 
-    // Check if user already exists
+    // Check if the account exists OR the address is reserved (admin/system, spec 4).
+    // Both return the IDENTICAL 409 response, and this check sits BEFORE the
+    // password-strength check below — otherwise a reserved address paired with a
+    // weak password would return 400 while a taken address returns 409, turning
+    // registration into an oracle for which addresses are privileged.
     const existingUser = await findUserByEmail(email);
-    if (existingUser) {
+    if (existingUser || isReservedAddress(email.toLowerCase())) {
       return createErrorResponse('An account with this email already exists', 409);
     }
 
@@ -59,28 +66,12 @@ export async function POST(request: NextRequest) {
       registeredVia,
     });
 
-    // Generate tokens
-    const jwtSecret = process.env.JWT_SECRET!;
-    const accessExpiryHours = parseInt(process.env.ACCESS_TOKEN_EXPIRY_HOURS || '2');
-    const refreshExpiryHours = parseInt(process.env.REFRESH_TOKEN_EXPIRY_HOURS || '2160');
+    // Issue tokens (single consolidated generate-and-store helper). A new user
+    // starts at session_version 0.
+    const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
 
-    const accessToken = generateToken(user.id, 'access', accessExpiryHours, jwtSecret);
-    const refreshToken = generateToken(user.id, 'refresh', refreshExpiryHours, jwtSecret);
-
-    // Store tokens
-    await storeToken({
-      userId: user.id,
-      token: accessToken,
-      tokenType: 'access',
-      expiresAt: new Date(Date.now() + accessExpiryHours * 60 * 60 * 1000),
-    });
-
-    await storeToken({
-      userId: user.id,
-      token: refreshToken,
-      tokenType: 'refresh',
-      expiresAt: new Date(Date.now() + refreshExpiryHours * 60 * 60 * 1000),
-    });
+    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
+    maybeSweepExpiredTokens();
 
     // Fire-and-forget: subscribe to newsletter (non-blocking), but only when the
     // user explicitly opted in. Guests and opt-outs send false and are skipped.
@@ -106,8 +97,22 @@ export async function POST(request: NextRequest) {
       token_type: 'bearer',
     });
   } catch (error) {
-    console.error('Registration error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return createErrorResponse(`Registration failed: ${message}`, 500);
+    // Log ONLY sanitized metadata (error type + SQLSTATE code). The full driver
+    // error can embed user content — the submitted email, query params, or the
+    // password hash — which must never reach logs (backend CLAUDE.md) or the
+    // client. The client gets a generic message (spec 4).
+    console.error('Registration error:', safeErrorMeta(error));
+    return createErrorResponse('Registration failed', 500);
   }
+}
+
+/**
+ * Extract log-safe metadata from an error: its type name and, for DB driver
+ * errors, the SQLSTATE `code` — never the message, query text, or params (any of
+ * which can carry user content).
+ */
+function safeErrorMeta(error: unknown): { name: string; code?: string } {
+  const name = error instanceof Error ? error.name : typeof error;
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? { name, code } : { name };
 }

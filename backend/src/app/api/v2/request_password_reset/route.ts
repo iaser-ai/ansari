@@ -4,6 +4,7 @@ import { generateToken } from '@/lib/auth/jwt';
 import { findUserByEmail, storeToken, deleteUserTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { sendPasswordResetEmail } from '@/lib/email';
+import { config } from '@/lib/config';
 
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
@@ -30,13 +31,14 @@ export async function POST(request: NextRequest) {
 
     const user = await findUserByEmail(email);
     if (user) {
-      const jwtSecret = process.env.JWT_SECRET!;
+      const jwtSecret = config.auth.jwtSecret;
 
       // Delete any existing reset tokens for this user
       await deleteUserTokens(user.id, 'reset');
 
-      // Generate new reset token
-      const resetToken = generateToken(user.id, 'reset', RESET_TOKEN_EXPIRY_HOURS, jwtSecret);
+      // Generate new reset token. Reset tokens are validated by DB existence +
+      // type, not by session_version, so the embedded version is informational.
+      const resetToken = generateToken(user.id, 'reset', RESET_TOKEN_EXPIRY_HOURS, jwtSecret, user.sessionVersion);
 
       // Store token hash in database
       await storeToken({

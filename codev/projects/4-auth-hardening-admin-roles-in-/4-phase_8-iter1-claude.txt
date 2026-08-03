@@ -1,0 +1,38 @@
+I'll review phase_8 (Feedback IDOR fix + oracle uniformity). Let me read the relevant files.Let me check the phase 8 commit specifically and verify surrounding context.## Review — Phase 8: Feedback IDOR fix + oracle uniformity
+
+I read the actual files on disk, verified the git history for what landed in this phase, and ran the suite.
+
+### Spec/plan adherence — met
+
+| Plan deliverable | Status |
+|---|---|
+| Single owner-scoped repository function joining `messages → threads` | ✅ `lib/db/threads.ts:116-134` — `findMessageInOwnedThread` does one query: `innerJoin(threads, messages.thread_id = threads.id)` with `AND` on `messages.id`, `messages.thread_id`, `threads.user_id`. No fetch-then-check, so no TOCTOU gap. |
+| Route uses the scoped function | ✅ `v2/feedback/route.ts:43` passes `(message_id, thread_id, user.id)`; the old unscoped `findMessageById(message_id, thread_id)` import is gone. |
+| Uniform failure response | ✅ `route.ts:44-46` — one `createErrorResponse('Message not found', 404)` covers nonexistent / foreign-owned / mismatched. Only one failure branch exists, so uniformity is structural, not incidental. |
+| Tests: cross-user rejected, owner accepted, three-way oracle uniformity | ✅ `tests/feedback-idor.test.ts` (pglite, real SQL: owner resolves, other user `undefined`, nonexistent `undefined`, wrong-thread `undefined`) + `tests/api/feedback.test.ts:125-162` (scoping args asserted, cross-user → 404 with no `createFeedback` call, identical status+body across all three modes). |
+
+Verified independently: `grep` confirms `v2/feedback/route.ts` is the **only** caller of `createFeedback` anywhere in `src/` and `lib/`, so there's no second write path bypassing the scoping. The insert still uses the request's `thread_id`, which is safe because the query already proved message ∈ thread ∧ thread owned by caller.
+
+**Gates:** `npm run typecheck` clean; full suite `59 files / 565 passed, 3 skipped`.
+
+### Non-blocking observations
+
+1. **Dead unscoped helper left behind** — `findMessageById` (`lib/db/threads.ts:96-106`) now has zero callers repo-wide (verified by grep). It's still exported and is exactly the footgun this phase removed. Consider deleting it, or adding a comment warning it is not authorization-safe, so a future contributor doesn't reach for it. Low cost, real regression-prevention value.
+
+2. **Commit hygiene deviates from the plan** — the plan says each phase is "a single atomic **git commit**", and `backend/CLAUDE.md` prescribes `[Spec 4][Phase: ...]` messages. Phase 8's code actually landed inside `512a4e4 chore(porch): 4 implement build-complete`, not a feature commit (phase 7 has the same shape — `4f39024` contains only consultation `.txt` files). Everything ships in one PR so this is cosmetic, but the per-phase "revert the phase commit" rollback strategy no longer works cleanly.
+
+3. **Route-level uniformity test is mock-tautological** — in `feedback.test.ts:142-162` all three cases are driven by the same `mockResolvedValue(undefined)`, so the "identical body" assertion can't fail. That's acceptable *because* `feedback-idor.test.ts` proves at the SQL level that all three genuinely produce a miss. Noting it so it isn't mistaken for end-to-end proof.
+
+4. **422-vs-404 is not an oracle** — malformed UUIDs return 422 from Zod while well-formed misses return 404. That distinction keys on input *shape*, not on existence or ownership, so it doesn't reopen the oracle. No change needed.
+
+---
+VERDICT: APPROVE
+SUMMARY: Owner-scoped single-join query and a single uniform 404 correctly close both the feedback write-IDOR and the existence oracle, with real pglite coverage; typecheck and full suite green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking
+- (Minor) `findMessageById` in `lib/db/threads.ts:96` is now dead, unscoped code — delete it or mark it not-authorization-safe
+- (Minor) Phase 8 code landed in `chore(porch): 4 implement build-complete` rather than a `[Spec 4][Phase: ...]` commit, weakening the plan's per-phase revert strategy
+- (Minor) Route-level oracle-uniformity assertion is tautological under mocks; the pglite test is what actually proves it

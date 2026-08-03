@@ -1,0 +1,49 @@
+I'll start by reading the key implementation files for phase 7.## Review — Phase 7: Atomic rotation + session version + reliable reset kill + reuse detection
+
+I read the implementation files from disk, ran `npm run typecheck` (clean) and `npm test` (58 files / 549 tests green).
+
+### What's correct
+
+**Executor threading** (`lib/db/users.ts`) — the plan's #1 risk ("`db.transaction()` is a no-op unless inner helpers use the `tx` handle") is addressed properly. `updateUser:128`, `bumpSessionVersion:148`, `storeToken:169`, `issueTokenPair:192`, `markTokenRotated:256`, `lookupRefreshToken:282`, `deleteUserTokens:314` all take `exec: Executor = db` and use it. No helper on the rotation/reset path silently closes over the module-level `db`.
+
+**Atomic rotation** (`refresh_token/route.ts:43-48`) — `markTokenRotated(tx)` + `issueTokenPair(tx)` inside one `db.transaction`. `deleteToken` is gone; issue #34 grace semantics preserved.
+
+**Capture-at-auth-time** — this is the subtle part and it's right. `validateRefreshToken` returns the user read *before* the transaction (`route.ts:26`), and `issueTokenPair(user.id, user.sessionVersion, tx)` receives that captured value; `issueTokenPair` explicitly never re-reads it (`users.ts:196-199`). Under READ COMMITTED, a reset committing mid-refresh leaves the newly-minted pair carrying the pre-reset version → rejected. The reverse ordering is covered by the token deletion. Correct on both interleavings.
+
+**Session version** — additive optional claim (`jwt.ts:13`), equality check with `?? 0` on both paths (`middleware.ts:66`, `middleware.ts:105`), piggybacking the existing join. Reset applies `updateUser` + `bumpSessionVersion` + `deleteUserTokens` in one transaction (`reset_password/route.ts:60-64`).
+
+**Reuse detection** — `lookupRefreshToken` (`users.ts:282-303`) is a clean four-state machine keyed on `token_type='refresh'`, with natural-expiry checked *before* the grace comparison so past-expiry reads as `not_found` rather than `reuse`. Reject + `console.warn` with no user content and no raw token (`route.ts:30`) — matches the pinned "reject + log only, no version bump" decision.
+
+### Issues
+
+**1. No real-DB test proves the executor threading / transaction atomicity.** Both transactional routes are tested with `db: { transaction: async (cb) => cb({}) }` (`refresh-token-route.test.ts:37`, `password-reset.test.ts:24`) *and* fully mocked helpers. A helper that ignored its `exec` and wrote through the global `db` would pass every test in the suite. The plan lists this explicitly as a deliverable — *"Unit: executor threading (helper called with `tx` writes within the transaction)"* — and it's the risk table's highest-impact row. `session-version-reuse.test.ts` already has a real pglite `db` and the real helpers; ~15 lines there would close it:
+
+```ts
+await expect(db.transaction(async (tx) => {
+  await markTokenRotated(t, tx);
+  await issueTokenPair(USER_ID, 0, tx);
+  throw new Error('boom');
+})).rejects.toThrow();
+// assert: rotated_at still NULL, no new token rows
+```
+The plan also asked to *"verify `db.transaction()` interacts cleanly with the existing pglite hand-DDL patterns (ensure no deadlock/hang)"* — currently no Phase-7 test executes a real `db.transaction` at all. (`grant-admin.ts:59` does, against pglite, but with raw `tx` queries, not these helpers.)
+
+**2. Only one reset-vs-refresh ordering is tested, and the reset transaction has no real-DB coverage.** The plan requires *"reset-vs-refresh interleavings (both orderings) as deterministic sequences."* `session-version-reuse.test.ts:146` covers reset-commits-then-stale-issue; the reverse (refresh commits first → reset revokes + bumps → both the old and the just-minted pair are dead) isn't asserted anywhere, and `password-reset.test.ts` mocks `updateUser`/`bumpSessionVersion`/`deleteUserTokens`/`db.transaction`, so nothing verifies the reset actually bumps and revokes together against a real DB.
+
+### Non-blocking notes
+
+- **`deleteExpiredTokens` currently defeats reuse detection** (`users.ts:329-337` still deletes rotated-past-grace rows; `token-grace.test.ts:151` still asserts that). Correctly deferred — Phase 9 owns the retention flip and the test rewrite, and the sweep isn't wired to any caller yet, so nothing regresses today. Flagging only so it doesn't get lost.
+- **`findToken` didn't get the `exec` param** the plan listed. Harmless — it's never called inside a transaction, and refresh validation now goes through `lookupRefreshToken`. Reasonable deviation, no change needed.
+- **Orphan token rows**: when a refresh loses the race with a reset, its pair is inserted after the reset's delete and lingers until natural expiry (90d) while always failing the version check. Harmless, just noting the sweep won't reclaim them early.
+- The reuse warning carries no identifier at all; a hashed user id would make it actionable for operators without violating the no-user-content rule. Optional.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 7 logic is correct and complete — capture-at-auth-time, tx threading, version checks on both paths, and the reuse state machine all check out — but the atomicity and both-orderings claims rest on tests that mock `db.transaction` away, leaving the plan's top risk unverified.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- No real-DB (pglite) test exercises `db.transaction` with the Phase-7 helpers; a rollback assertion is needed to prove `exec` threading actually works — the plan lists this as a deliverable and as its highest-impact risk.
+- Only one reset-vs-refresh ordering is tested; the reverse ordering and the reset route's transaction (updateUser + bumpSessionVersion + deleteUserTokens committing together) have no unmocked coverage.
+- (Non-blocking) `deleteExpiredTokens` still sweeps rotated-past-grace rows, which will defeat reuse detection once wired — Phase 9 must flip it along with `token-grace.test.ts:151`.

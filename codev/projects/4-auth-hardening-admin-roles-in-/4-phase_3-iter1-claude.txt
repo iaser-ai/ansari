@@ -1,0 +1,49 @@
+I'll review the phase_3 implementation. Let me start by reading the key files.I've read all the phase_3 files and independently verified the implementation. Here's my review.
+
+## What I verified
+
+**Schema (`backend/db/schema/users.ts`)** — all three columns match the plan exactly: `isAdmin` (`boolean`, notNull, default false), `systemKey` (`text`, nullable) with `uniqueIndex('idx_users_system_key')`, `sessionVersion` (`integer`, notNull, default 0). Comments explain *why* each exists, which is the right level of documentation for a security-relevant schema.
+
+**Migration (`drizzle/0003_lying_dracula.sql`)** — additive only (3× `ADD COLUMN`, 1× `CREATE UNIQUE INDEX`, 2× `UPDATE`). No destructive statements. `_journal.json` idx 3 and `0003_snapshot.json` are committed; snapshot shows `isUnique: true` with no `nullsNotDistinct`, and the raw DDL is a plain `CREATE UNIQUE INDEX` — so multiple NULLs are permitted, as required. Builder reports `db:generate` now says "No schema changes" (no drift).
+
+**Backfill predicate — I checked it against the real production code paths, which is the thing that actually determines whether it works:**
+- `src/app/api/v2/mcp-complete/route.ts:11,29,32` → email `ai-skill@system.ansari.chat`, `passwordHash: 'nologin'`, `source: 'ai-skill'`
+- `src/app/api/v1/chat/completions/route.ts:37-38,129,132` → `leaderboard@system.ansari.chat`, `'nologin'`, `SOURCE_TAG='leaderboard'`
+
+Both match the `UPDATE … WHERE` predicates byte-for-byte. This is the failure mode that would have been silent (backfill marks nothing → Phase 5 fail-fasts on an occupied email in prod), and it's clean.
+
+**Hand-DDL sync** — complete across all four pglite suites: `token-grace.test.ts:45-47`, `attribution-schema.test.ts:43-45`, `issue-token-pair.test.ts:48-50`, plus `schema.test.ts:13-15` assertions. Nothing missed.
+
+**Gate commands, run by me:**
+- `npm run typecheck` — clean
+- `npm test` — 51 files, **504 passed / 3 skipped**
+- `npm run build` — green (my first attempt failed on `USUL_API_TOKEN`; that was my own omission — `.env.ci` isn't auto-loaded by Next. Re-run with `env $(grep -v '^#' .env.ci | xargs)` per the CI workflow: green.)
+
+**No privilege-escalation surface introduced**: `createUser` (`lib/db/users.ts:30-36`) and `updateUser` (`:52-55`, `Partial<Pick<User, 'email'|'passwordHash'|'firstName'|'lastName'>>`) both deliberately exclude the three new columns, so no request path can set `is_admin`/`system_key`. Good.
+
+## Feedback (none blocking)
+
+1. **`tests/system-key-backfill.test.ts:10-21` validates a *copy* of the SQL, not the shipped file.** The constants carry a comment saying they "MUST stay identical to `drizzle/0003_lying_dracula.sql`", but nothing enforces that — a future edit to either side diverges silently while the suite stays green. Since the predicate *is* the security control (hijacked-row refusal), bind the test to the real file:
+   ```ts
+   const sql = readFileSync(new URL('../drizzle/0003_lying_dracula.sql', import.meta.url), 'utf8');
+   const backfills = sql.split('--> statement-breakpoint').filter(s => /\bUPDATE\b/.test(s));
+   expect(backfills).toHaveLength(2);
+   for (const s of backfills) await client.exec(s);
+   ```
+   The plan's deliverable said "run the **exact backfill UPDATE**" — this makes it literally exact. ~5 lines.
+
+2. **Runbook note for Phase 4's doc deliverable**: `CREATE UNIQUE INDEX` (non-`CONCURRENTLY`) takes a lock blocking writes on `users` for the index build. Fine at current table size, but worth one line next to the inspect-before-apply step so the operator isn't surprised.
+
+3. **Forward-looking, for Phases 4/7**: the builder's thread notes the `User`-literal fixtures didn't break typecheck because they aren't strictly typed as `User`. That means mocks like those in `refresh-token-route.test.ts` yield `isAdmin: undefined` / `sessionVersion: undefined`. Harmless now, but don't let those mocks be the proof of flag/version behavior later — `undefined` is falsy, and `undefined !== 0` would make an equality version check reject. Use real DB rows for those assertions.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 schema, migration, conditional backfill, and hand-DDL sync are complete and correct; predicate independently verified against the real system-user creation paths, and typecheck/test/build are green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Minor) `tests/system-key-backfill.test.ts:10-21` duplicates the backfill SQL instead of executing `drizzle/0003_lying_dracula.sql`, so migration/test drift can go undetected — read the statements from the file (~5 lines).
+- (Doc, Phase 4) Note the non-concurrent `CREATE UNIQUE INDEX` write-lock in the deploy runbook.
+- (Forward-looking, Phases 4/7) Loosely-typed `User` mocks yield `isAdmin`/`sessionVersion` as `undefined`; don't rely on them to prove flag/version behavior.

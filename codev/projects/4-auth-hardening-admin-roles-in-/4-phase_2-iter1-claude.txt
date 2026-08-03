@@ -1,0 +1,52 @@
+I'll review the phase_2 implementation. Let me start by reading the key files.I've read all the phase_2 files from disk, plus the surrounding auth/config code, and run typecheck and the full test suite.
+
+## Verification performed
+
+- `npm run typecheck` → exit 0
+- `npm test` → **49 files, 499 passed, 3 skipped**, exit 0
+- Repo-wide grep for `process.env.JWT_SECRET` / `*_TOKEN_EXPIRY_HOURS` in non-test code → only `drizzle.config.ts` (`DATABASE_URL`), the documented build-time CLI exception from Phase 1
+- Grep for `generateToken|storeToken` in `lib/` + `src/` → the only remaining direct generate-and-store is `request_password_reset` (single **reset** token), exactly as the plan excludes
+
+## Phase 2 deliverables — all met
+
+| Deliverable | Status |
+|---|---|
+| `issueTokenPair(userId, exec: Executor = db)` in `lib/db/users.ts:104` | ✅ reads `config.auth` for secret + both expiries |
+| `Executor` param defined *now* for Phase 7 | ✅ `users.ts:17`; `storeToken` also gained `exec` (`users.ts:84`) and threads it (`users.ts:121,130`) |
+| Migrate the three pair-issuing routes | ✅ `register:62`, `login:38`, `refresh_token:35-36` — inline `process.env.JWT_SECRET!` / `parseInt` blocks removed |
+| `request_password_reset` explicitly **excluded** | ✅ still `generateToken(... 'reset' ...)` + `storeToken`, using `config.auth.jwtSecret` (`route.ts:34`) |
+| Response shapes unchanged | ✅ verified against the diff — pure internal refactor, no wire change |
+| Rotation still wraps issuance in `refresh_token` | ✅ `markTokenRotated` before `issueTokenPair`; atomicity correctly deferred to Phase 7 |
+| Unit test: two valid, correctly-typed, stored tokens | ✅ `tests/issue-token-pair.test.ts` (pglite, config mocked) |
+| Unit test: token `exp` matches `config.auth` | ✅ asserts `exp - iat === 2*3600` / `2160*3600` |
+| Grep-guard test for reintroduced bypass | ✅ `tests/auth-config-bypass.test.ts` |
+| Route tests updated | ✅ `register-newsletter.test.ts`, `refresh-token-route.test.ts` re-mocked to `issueTokenPair`; the issue-#34 concurrent-refresh and rotate-not-delete regressions still assert correctly |
+
+## Non-blocking observations
+
+1. **Phase 2 code is uncommitted** (`git status` shows the 4 source files modified and both new test files **untracked**). Per the plan each phase ends in one atomic commit — remember to stage `backend/tests/issue-token-pair.test.ts` and `backend/tests/auth-config-bypass.test.ts` explicitly (no `git add -A`); untracked test files are the classic thing that gets left out.
+
+2. **The bypass guard is a hardcoded 6-file list, not a scan.** `auth-config-bypass.test.ts:9-16` won't catch a *new* auth route that reintroduces `process.env.JWT_SECRET`. Globbing `src/app/api/**/route.ts` + `lib/auth/*.ts` would make the guard actually repo-wide (the plan's wording) at essentially zero cost.
+
+3. **`login` has no vitest coverage** — only `tests/e2e/login.spec.ts` (Playwright, local-only). Register and refresh both got their mocks updated; login's migration is verified only by typecheck. It's a pre-existing gap and the substitution is mechanical, so not a blocker, but a ~20-line route test mocking `issueTokenPair` would close the plan's "login→me" integration item.
+
+4. **Dead mock**: `mockGenerateToken` in `refresh-token-route.test.ts:18` is now never configured or asserted (the `@/lib/auth/jwt` mock is still needed for `extractBearerToken`/`hashToken` in the logout path, but `generateToken` itself is vestigial). Harmless; delete when convenient.
+
+5. **Forward note for Phase 3**: the new `issue-token-pair.test.ts` adds a *third* hand-written `CREATE TABLE users` DDL (lines 40-50) beyond the two the plan enumerates (`token-grace`, `attribution-schema`). It happens to be safe — `issueTokenPair` never `select()`s from `users`, so column enumeration isn't triggered — but add it to the Phase 3 sync checklist if any `users` select is introduced there.
+
+6. `type Executor` (`users.ts:17`) is module-private. Phase 7 threads `tx` through `markTokenRotated`/`findToken`/`deleteUserTokens`/`updateUser` in this same file so that's fine today; export it if `updateUser` callers outside `lib/db/users.ts` need to construct one.
+
+Scope discipline is good: no Phase 3+ work leaked in, and `register`'s raw `error.message` leak (`register/route.ts:89-90`) is correctly left for Phase 9.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 token-issuance consolidation is complete and correct — single `issueTokenPair` helper sourcing validated config, Executor param pre-wired for Phase 7, reset-token path correctly excluded, typecheck and 499 tests green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Minor) Phase 2 changes are uncommitted and the two new test files are untracked — stage them explicitly before the phase commit.
+- (Minor) `auth-config-bypass.test.ts` uses a hardcoded file list rather than a glob, so it won't guard future auth routes.
+- (Minor) `login/route.ts` has no vitest-level coverage; its migration is verified only by typecheck.
+- (Nit) `mockGenerateToken` in `refresh-token-route.test.ts:18` is now unused.

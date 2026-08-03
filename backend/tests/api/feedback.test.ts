@@ -13,9 +13,9 @@ vi.mock('@/lib/db/feedback', () => ({
   createFeedback: (...args: unknown[]) => mockCreateFeedback(...args),
 }));
 
-const mockFindMessageById = vi.fn();
+const mockFindMessageInOwnedThread = vi.fn();
 vi.mock('@/lib/db/threads', () => ({
-  findMessageById: (...args: unknown[]) => mockFindMessageById(...args),
+  findMessageInOwnedThread: (...args: unknown[]) => mockFindMessageInOwnedThread(...args),
 }));
 
 import { POST } from '../../src/app/api/v2/feedback/route';
@@ -49,7 +49,7 @@ describe('POST /api/v2/feedback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthenticateRequest.mockResolvedValue({ user });
-    mockFindMessageById.mockResolvedValue({ id: MESSAGE_ID, threadId: THREAD_ID });
+    mockFindMessageInOwnedThread.mockResolvedValue({ id: MESSAGE_ID, threadId: THREAD_ID });
     mockCreateFeedback.mockImplementation(async (data) => ({
       id: 'feedback-uuid',
       threadId: data.threadId,
@@ -120,5 +120,44 @@ describe('POST /api/v2/feedback', () => {
     );
     expect(response.status).toBe(422);
     expect(mockCreateFeedback).not.toHaveBeenCalled();
+  });
+
+  it('scopes the lookup to the authenticated user (owner-scoped query)', async () => {
+    await POST(
+      makeRequest({ thread_id: THREAD_ID, message_id: MESSAGE_ID, feedback_class: 'thumbs_up' }),
+    );
+    expect(mockFindMessageInOwnedThread).toHaveBeenCalledWith(MESSAGE_ID, THREAD_ID, user.id);
+  });
+
+  it('rejects a cross-user (foreign-thread) target and creates NO feedback', async () => {
+    // The owner-scoped query returns nothing when the thread belongs to someone else.
+    mockFindMessageInOwnedThread.mockResolvedValue(undefined);
+    const response = await POST(
+      makeRequest({ thread_id: THREAD_ID, message_id: MESSAGE_ID, feedback_class: 'report' }),
+    );
+    expect(response.status).toBe(404);
+    expect(mockCreateFeedback).not.toHaveBeenCalled();
+  });
+
+  it('returns an IDENTICAL response for nonexistent, foreign-owned, and mismatched targets (no oracle)', async () => {
+    // All three failure modes surface as the same owner-scoped miss.
+    mockFindMessageInOwnedThread.mockResolvedValue(undefined);
+
+    const bodies: unknown[] = [];
+    const statuses: number[] = [];
+    for (const [thread_id, message_id] of [
+      ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'], // nonexistent
+      [THREAD_ID, MESSAGE_ID], // foreign-owned
+      [THREAD_ID, '55555555-5555-4555-8555-555555555555'], // mismatched message
+    ]) {
+      const res = await POST(makeRequest({ thread_id, message_id, feedback_class: 'thumbs_up' }));
+      statuses.push(res.status);
+      bodies.push(await res.json());
+    }
+
+    // Same status and same body shape for every failure mode.
+    expect(statuses).toEqual([404, 404, 404]);
+    expect(bodies[0]).toEqual(bodies[1]);
+    expect(bodies[1]).toEqual(bodies[2]);
   });
 });

@@ -1,0 +1,29 @@
+I have completed the review of the implementation for **Phase 7: Atomic rotation + session version + reliable reset kill + reuse detection**.
+
+### Key Observations & Verification
+
+1. **Spec & Plan Adherence**
+   - **Atomic Rotation**: `v2/users/refresh_token/route.ts` wraps `markTokenRotated` and `issueTokenPair` in a single `db.transaction`. The `exec: Executor = db` parameter is threaded through all underlying helper functions (`markTokenRotated`, `storeToken`, `issueTokenPair`, `updateUser`, `deleteUserTokens`, `bumpSessionVersion`), ensuring queries execute within the active transaction context and roll back atomically on failure.
+   - **Reliable Session Revocation on Reset**: `v2/reset_password/route.ts` updates the password hash, increments `session_version` via `bumpSessionVersion`, and purges user tokens via `deleteUserTokens` in a single transaction.
+   - **Session-Version Verification (Access + Refresh)**: `lib/auth/middleware.ts` asserts `payload.session_version ?? 0 === user.sessionVersion` in both `authenticateRequest` and `validateRefreshToken`. Pre-existing/legacy tokens lacking `session_version` gracefully default to `0`.
+   - **Captured Session Version at Auth-Time**: `v2/users/refresh_token/route.ts` uses the `sessionVersion` captured during initial refresh token validation when issuing new tokens (`issueTokenPair(user.id, user.sessionVersion, tx)`), preventing race conditions where a concurrent password reset occurs between authorization and issuance.
+   - **Rotated-Token Reuse Detection**: `lookupRefreshToken` distinguishes valid, in-grace, post-grace-unexpired (`reuse`), and expired/unknown (`not_found`) tokens. In `v2/users/refresh_token/route.ts`, detected reuse logs a sanitized warning and returns a 401 error.
+
+2. **Test Coverage**
+   - `tests/session-version-reuse.test.ts` provides comprehensive coverage:
+     - Evaluates all `lookupRefreshToken` states (`valid`, `reuse`, `not_found`).
+     - Verifies atomic transaction rollback for both token rotation and issuance via executor parameter tests.
+     - Tests reset-vs-refresh interleavings and reverse orderings.
+     - Confirms legacy tokens without `session_version` claims remain valid for users with `session_version = 0`.
+
+3. **Code Quality & Error Handling**
+   - Clean type definitions (`Executor`, `RefreshLookup`, `TokenPayload`).
+   - Logging for token reuse events is warning-level and omits sensitive token or user data.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 7 deliverables for atomic rotation, session-version enforcement, reset transaction isolation, and rotated-token reuse detection are fully implemented and verified with comprehensive tests.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
