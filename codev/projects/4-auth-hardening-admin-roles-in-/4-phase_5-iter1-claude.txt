@@ -1,0 +1,43 @@
+I'll review Phase 5 (System-account reservation via `system_key`). Let me read the relevant files.I've read the Phase 5 implementation, its tests, the surrounding routes, and verified the suite and typecheck are green.
+
+## Verification performed
+- `npm run typecheck` → clean; full `npx vitest run` → **56 files / 526 passed, 3 skipped**.
+- Confirmed no remaining email-based system-identity resolution anywhere in `backend/src` (grep for `findUserByEmail` shows only login/register/reset call sites).
+
+## Phase 5 deliverables — all present
+
+| Plan deliverable | Status |
+|---|---|
+| `findSystemUser(systemKey)` / `getOrCreateSystemUser(systemKey)` by `system_key` | ✅ `lib/db/users.ts:32-76` |
+| Deterministic identity of the lazily-created row (`system_key`, `nologin`, `source=systemKey`, canonical reserved email) | ✅ `users.ts:51-63`; `source` values match the Phase 3 backfill predicate exactly (`'ai-skill'` / `'leaderboard'`) — important, and correct |
+| Hijacked-email fail-fast (no retry loop) | ✅ `users.ts:65-75`: re-read by key handles the *system_key race*, otherwise throws an operator-actionable error |
+| Both routes switched to `getOrCreateSystemUser`, module cache kept | ✅ `mcp-complete/route.ts:20-28`, `v1/chat/completions/route.ts:120-129` |
+| `isReservedAddress` extended to the system domain, same pre-strength-check 409 | ✅ `lib/auth/reserved.ts`, `register/route.ts:38-41` — reserved check folded into the *same branch* as the existing conflict, so the anti-oracle property holds by construction |
+| Single source of truth for system addresses | ✅ `lib/auth/system-accounts.ts` (plan explicitly allowed "a `config.system` getter **or a constant list**") |
+| Tests (a)–(d) | ✅ `reserved.test.ts`, `register-newsletter.test.ts` (incl. reserved+weak-password placement guard, case-insensitivity), `system-user.test.ts` (both identities distinct, look-alike not resolved, fail-fast) |
+
+The anti-oracle placement test (`register-newsletter.test.ts:414-438`) is genuinely load-bearing and correctly written — it forces `checkPasswordStrength` to fail and asserts 409, which would catch a future regression that moves the check.
+
+## Non-blocking observations
+
+1. **`catch { … }` in `getOrCreateSystemUser` (users.ts:65) swallows the original error entirely.** Any insert failure — DB unreachable, missing column, a not-yet-applied migration — falls into the same branch and surfaces as *"its address is already held by a non-system account"*, which is actively misleading during an incident. The plan's deliverable also says the failure should be **logged**; today it only throws. Suggest `catch (error)` → `console.error('[system-account] provisioning failed', error)` and `new Error(msg, { cause: error })`.
+
+2. **The fail-fast message reaches unauthenticated callers on `mcp-complete`.** That route's outer handler returns `error.message` in the 500 body (`mcp-complete/route.ts:195`), so a hijack condition would echo the internal wording publicly. Minor disclosure; Phase 9 already lists "System routes' `error.message` leakage may be addressed here too if low-cost" — flagging so it isn't forgotten. (`v1/chat/completions` is safe: its logging block is non-fatal try/caught.)
+
+3. **The `raced` re-read branch (users.ts:68-69) has no direct test.** The idempotency test exercises the early-return path (`findSystemUser` hits first), never the catch→re-read path. The plan's test plan called for "idempotency (existing-row race) **and** fail-fast (occupied email) **branches**". A one-liner mocking `findSystemUser` to miss once would close it.
+
+4. **Docs don't mention the reserved system domain.** `docs/self-hosting.md:66` documents `ADMIN_EMAILS` reservation well, but nothing tells a self-hoster that `*@system.ansari.chat` registration is permanently refused (hardcoded, not configurable). One line under "Provisioning admins" would cover it.
+
+None of these affect the security properties this phase exists to establish: system identity is now resolved solely by the unregisterable `system_key`, a pre-registered look-alike is provably never resolved, and registration of the system domain is indistinguishable from an ordinary conflict.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 fully implements system-account reservation by `system_key` with correct anti-oracle placement and fail-fast hijack handling; suite and typecheck green, with four minor non-blocking polish items.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Non-blocking: bare `catch {}` in `getOrCreateSystemUser` (lib/db/users.ts:65) discards the underlying error and misreports unrelated DB failures as a hijacked address; add logging and `{ cause }`.
+- Non-blocking: the hijack error message is echoed to unauthenticated clients via `mcp-complete/route.ts:195` (`error.message` in the 500 body) — Phase 9 already scopes this.
+- Non-blocking: the concurrent-creation `raced` re-read branch (lib/db/users.ts:68) is untested; the idempotency test only covers the early-return path.
+- Non-blocking: `docs/self-hosting.md` documents `ADMIN_EMAILS` reservation but not the hardcoded `*@system.ansari.chat` registration reservation.

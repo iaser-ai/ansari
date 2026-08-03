@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Session-version enforcement is sound, but refresh rotation is not fully atomic and required race coverage is incomplete.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `refresh_token/route.ts:26-48` validates outside the transaction, while `findToken` at `lib/db/users.ts:224` lacks the planned executor parameter. A concurrent logout can delete all tokens after validation; `markTokenRotated` then returns `false`, but the route ignores it and issues a new, valid pair because logout does not bump `session_version`. Move lookup/version validation into the transaction with appropriate row locking or equivalent serialization, and do not issue when the original row was concurrently revoked.
+- `tests/session-version-reuse.test.ts:145-168` covers only stale issuance after a version bump and a normal current-version token. It does not test both reset/refresh orderings, the actual transactional rotation/reset paths, missing-claim-as-version-0 behavior, or transaction/executor rollback. These are explicit Phase 7 test deliverables.
+- Typecheck passed. Tests could not execute in this read-only review environment because Vitest attempted to create a temporary SSR directory and received `EPERM`; this is environmental rather than an implementation failure.

@@ -2,14 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // Mock DB operations
-const mockFindUserByEmail = vi.fn();
-const mockCreateUser = vi.fn();
+const mockGetOrCreateSystemUser = vi.fn();
 const mockCreateThread = vi.fn();
 const mockCreateMessage = vi.fn();
 
 vi.mock('@/lib/db/users', () => ({
-  findUserByEmail: (...args: unknown[]) => mockFindUserByEmail(...args),
-  createUser: (...args: unknown[]) => mockCreateUser(...args),
+  getOrCreateSystemUser: (...args: unknown[]) => mockGetOrCreateSystemUser(...args),
 }));
 
 vi.mock('@/lib/db/threads', () => ({
@@ -91,7 +89,7 @@ async function* mockFacilitatorError(errorMsg: string) {
 }
 
 function setupSuccessfulMocks() {
-  mockFindUserByEmail.mockResolvedValue(SYSTEM_USER);
+  mockGetOrCreateSystemUser.mockResolvedValue(SYSTEM_USER);
   mockCreateThread.mockResolvedValue(MOCK_THREAD);
   mockCreateMessage.mockResolvedValue({ id: 'msg-1' });
   mockRunFacilitator.mockReturnValue(mockFacilitatorGenerator('Patience (sabr) is mentioned many times in the Quran.'));
@@ -126,6 +124,14 @@ describe('POST /api/v2/mcp-complete', () => {
 
     expect(body.response).toContain('ansari.chat');
     expect(body.response).toContain('Full references and citations are available upon request');
+  });
+
+  it('resolves the system user by the ai-skill system key (endpoint→identity mapping, spec 4)', async () => {
+    const request = makePostRequest({
+      messages: [{ role: 'user', content: 'What is patience in Islam?' }],
+    });
+    await POST(request);
+    expect(mockGetOrCreateSystemUser).toHaveBeenCalledWith('ai-skill');
   });
 
   it('returns 400 for empty messages array', async () => {

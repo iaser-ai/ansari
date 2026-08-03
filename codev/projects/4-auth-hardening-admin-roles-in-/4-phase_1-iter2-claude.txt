@@ -1,0 +1,40 @@
+I'll start by reading the actual implementation files.I read every changed file from disk, plus the two untracked new test files (`backend/tests/config.test.ts`, `backend/tests/middleware.test.ts` — they don't appear in the changed-file list because they're untracked, not because they're missing), and independently verified the build.
+
+## Verification performed
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| Full suite w/ `.env.ci` | **484 passed, 3 skipped, 47 files** — matches the builder's claim |
+| `npm run build` w/ `.env.ci` | exit 0 |
+| Grep for remaining `process.env.JWT_SECRET`/`DATABASE_URL` | only `register`/`login`/`refresh_token` (Phase 2 scope) + `drizzle.config.ts` (documented plan exception) |
+
+## Phase 1 deliverables — all present
+
+- **`lib/config.ts:9-18`** — both expiry vars are `z.coerce.number().int().positive()` with defaults 2/2160 preserved. `resetEnvCache()` (`:99-101`) exported with a clear test-only docstring.
+- **`lib/db/index.ts:13`** — `config.database.url` replaces the raw read; the previous manual `if (!connectionString) throw` is correctly dropped since Zod's `min(1)` now covers it.
+- **`lib/auth/middleware.ts:32,74`** — `getJwtSecret()` removed; both call sites use `config.auth.jwtSecret`. Laziness is preserved (the getter defers `getEnv()` to call time), so the deleted "loaded lazily to avoid issues during build" comment's intent still holds — and the green build confirms it.
+- **`request_password_reset:34`, `reset_password:33`** — both on `config.auth.jwtSecret`.
+
+## Iteration-1 blocker: closed
+
+The codex/claude change-request was the missing "middleware verifies using the config secret" test. `tests/middleware.test.ts` is a genuine regression guard, not a tautology: it signs with `OTHER_SECRET` and asserts rejection **plus** that `mockFindToken` is never reached — so a revert to `process.env.JWT_SECRET` would make those cases pass and the tests fail. `tests/config.test.ts` covers <32, empty, zero, negative, non-integer, valid override, missing required var, and the memoization-reset semantics itself.
+
+## Non-blocking notes for the builder
+
+1. **Commit hygiene (most important action).** `config.test.ts` and `middleware.test.ts` are still untracked. Stage them explicitly (no `git add -A`) with the phase commit — otherwise the phase lands with none of its test evidence.
+2. **Import-time env surface widened.** `lib/db/index.ts:25` calls `getPool()` at module eval, so importing `@/lib/db` now validates the *entire* schema (`KALEMAT_API_KEY`, `USUL_API_TOKEN`, `JWT_SECRET` length…), not just `DATABASE_URL`. You already accepted this as intended fail-fast; the follow-through that matters is confirming the Railway **build** environment (not just runtime) carries those vars. Worth a PR-description line. (Checked: `error.toString()` prints Zod paths/messages only, no env *values* — no secret leak in the failure dump.)
+3. **`middleware.test.ts:17`** duplicates the secret literal inside the hoisted `vi.mock` factory. The comment flags it, and drift would fail loudly (the accept-case breaks), so this is fine as-is.
+4. `config.auth` invokes `getEnv()` three times per access — memoized, so purely cosmetic.
+
+Nothing here belongs to phase_1's scope as a defect. `issueTokenPair` and the `register`/`login`/`refresh_token` env reads are Phase 2 by design and I did not treat them as gaps.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 config centralization is complete and correct; the iteration-1 blocker (missing middleware regression test) is genuinely closed, and typecheck/484 tests/build all verified green independently.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Action before commit: explicitly stage the two untracked test files (`backend/tests/config.test.ts`, `backend/tests/middleware.test.ts`) so the phase commit carries its own test evidence.
+- Note in the PR description: `lib/db/index.ts` now triggers full env validation at import time (widened from `DATABASE_URL` only); confirm the Railway build environment carries `KALEMAT_API_KEY`/`USUL_API_TOKEN`.

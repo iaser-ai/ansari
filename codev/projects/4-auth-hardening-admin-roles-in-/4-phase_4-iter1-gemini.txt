@@ -1,0 +1,33 @@
+# Implementation Review: Phase 4 — Durable Admin Roles, Reserved-Address Reservation, Startup Assertion & Bootstrap Script
+
+I have completed the review for **Phase 4** of the Auth Hardening plan (`codev/plans/4-auth-hardening-admin-roles-in-.md`).
+
+---
+
+## Focus Area Assessments
+
+### 1. Spec & Plan Adherence
+- **Durable Admin Authorization**: `lib/auth/admin.ts` (`requireAdmin`) strictly checks `authResult.user.isAdmin === true` (the DB column). Email string allowlist matching has been completely removed from authorization decisions, preventing email-based identity spoofing.
+- **Reserved Address Registration Guard (Anti-Oracle)**: In `src/app/api/v2/users/register/route.ts`, `isReservedAddress(email.toLowerCase())` is checked in the exact same branch as `existingUser`. It returns the byte-identical 409 response `createErrorResponse('An account with this email already exists', 409)`. Crucially, this check sits **before** `checkPasswordStrength`, ensuring registration cannot be used as an oracle to discover reserved/admin addresses via differential error responses.
+- **Production Startup Assertion**: `lib/auth/startup-checks.ts` implements `assertConfiguredAdminsExist()` to assert that every `config.admin.emails` account exists and has `is_admin = true`. The `shouldRunAdminStartupCheck` guard correctly restricts execution to `NODE_ENV === 'production'`, `NEXT_RUNTIME === 'nodejs'`, and `NEXT_PHASE !== 'phase-production-build'`, preventing DB calls during `next build` or CI runs. `src/instrumentation.ts` dynamically imports and triggers the check.
+- **Admin Bootstrap Script**: `scripts/grant-admin.ts` provides the out-of-band administration path (`grantAdmin`). It handles creation with a secure bcrypt password hash (`password.length >= 12`) or idempotent flagging of existing accounts without overwriting credentials. Passwords are provided via environment variable or interactive prompt (`readline`), never via CLI positional arguments.
+
+### 2. Code Quality & Architecture
+- **Separation of Concerns**: Reserved address checking (`lib/auth/reserved.ts`), startup assertion (`lib/auth/startup-checks.ts`), and administrative CLI scripts (`scripts/grant-admin.ts`) are well-modularized and decoupled.
+- **Performance & Security**: Dynamic imports inside Next.js `instrumentation.ts` ensure server-only DB and configuration logic are not pulled into non-Node runtimes or client bundles.
+
+### 3. Test Coverage
+- `tests/admin-auth.test.ts`: Verifies `requireAdmin` denies users with `isAdmin = false` (even if their email matches an admin address) and grants access when `isAdmin = true`.
+- `tests/reserved.test.ts`: Exercises `isReservedAddress` against normalized email inputs.
+- `tests/startup-checks.test.ts`: Tests `assertConfiguredAdminsExist` for missing/unflagged accounts and verifies `shouldRunAdminStartupCheck` environment guards.
+- `tests/grant-admin.test.ts`: Validates idempotent creation/flagging against a local `pglite` test database with real bcrypt hashing.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 deliverables for durable admin authorization, reserved-address reservation, startup assertions, and administrative bootstrapping are fully implemented and verified.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

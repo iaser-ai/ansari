@@ -6,24 +6,30 @@ export type TokenType = 'access' | 'refresh' | 'reset';
 export interface TokenPayload {
   user_id: string;
   type: TokenType;
+  // Per-user session/credential version at issue time (spec 4). Checked on
+  // validation against the user's current session_version so a password reset
+  // (which bumps the version) invalidates every previously-issued token. Absent
+  // on tokens minted before this field existed → treated as version 0.
+  session_version?: number;
   iat: number;
   exp: number;
 }
 
 /**
  * Generate a JWT token
- * Matches Ansari's token structure: HS256 with user_id and type claims
+ * Matches Ansari's token structure: HS256 with user_id, type, and session_version claims
  */
 export function generateToken(
   userId: string,
   tokenType: TokenType,
   expiryHours: number,
-  secret: string
+  secret: string,
+  sessionVersion: number
 ): string {
-  const now = Math.floor(Date.now() / 1000);
   const payload: Omit<TokenPayload, 'iat' | 'exp'> = {
     user_id: userId,
     type: tokenType,
+    session_version: sessionVersion,
   };
 
   return jwt.sign(payload, secret, {

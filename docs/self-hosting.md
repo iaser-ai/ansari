@@ -63,7 +63,7 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 | `ACCESS_TOKEN_EXPIRY_HOURS` | `2` | JWT access-token lifetime |
 | `REFRESH_TOKEN_EXPIRY_HOURS` | `2160` | Refresh-token lifetime (90 days) |
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |
-| `ADMIN_EMAILS` | empty | Comma-separated allowlist for the admin dashboard (`/admin/analytics`, `/api/v2/admin/stats`) |
+| `ADMIN_EMAILS` | empty | Comma-separated addresses that are **reserved** (public registration of them is refused) and **asserted at production boot** to already exist as admins. It does **not** grant admin on its own — admin access is gated on the durable `users.is_admin` DB flag. See the admin-provisioning note below. |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
@@ -82,6 +82,14 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 | `SENTRY_DSN` | `sentry.*.config.ts` | Optional. Sentry is disabled when unset (and always disabled under test). No user content is ever sent to Sentry |
 | `RAILWAY_ENVIRONMENT` | `sentry.server.config.ts` | Auto-injected by Railway; used as the Sentry environment tag. Falls back to `NODE_ENV`; never set manually |
 | `SENTRY_AUTH_TOKEN` | build-time only | Optional — source-map uploads during `next build`. The build succeeds without it |
+
+### Provisioning admins
+
+Admin access is gated on the durable `users.is_admin` DB flag, not on `ADMIN_EMAILS`. Because public registration of an `ADMIN_EMAILS` address is refused and a production server asserts at boot that every configured admin account exists, the **only** way to create an admin is the bootstrap script. Deploy in this order:
+
+1. **Apply the migration** (`npm run db:migrate`, or your managed-DB apply step). Before applying, inspect for any pre-existing account holding a reserved admin/system address and remediate it.
+2. **Bootstrap each admin**: `npx tsx scripts/grant-admin.ts <email>` (from `backend/`). You are securely prompted for the password (input is hidden). This creates the account with that password (or promotes and password-resets an existing one, revoking its old sessions).
+3. **Deploy.** Production boot then asserts the configured admins exist; if the bootstrap step was skipped it fails fast (identifying the missing entry by its position in `ADMIN_EMAILS`, not by address).
 
 ## Running it
 

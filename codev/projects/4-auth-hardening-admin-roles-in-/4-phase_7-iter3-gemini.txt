@@ -1,0 +1,23 @@
+---
+VERDICT: APPROVE
+SUMMARY: Phase 7 implementation fully satisfies all spec and plan deliverables for atomic rotation, session-version enforcement across both access and refresh paths, reliable password reset revocation, and rotated-token reuse detection with comprehensive test coverage.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+### Phase 7 Review Summary
+
+#### 1. Spec & Plan Adherence
+- **Atomic Refresh Rotation**: `POST /api/v2/users/refresh_token` now executes `lookupRefreshToken`, `markTokenRotated`, and `issueTokenPair` inside a single DB transaction (`db.transaction`). The `Executor` parameter is properly threaded across all lower-level DB helpers (`storeToken`, `issueTokenPair`, `markTokenRotated`, `lookupRefreshToken`, `updateUser`, `bumpSessionVersion`, `deleteUserTokens`, `deleteToken`), ensuring changes roll back atomically on failure.
+- **Concurrent-Refresh Grace**: Issue #34 behavior is preserved. Tokens rotated within `REFRESH_TOKEN_GRACE_MS` (60s) continue to return `status: 'valid'`.
+- **Session-Version Verification**:
+  - `session_version` is embedded in the JWT payload during token generation (`generateToken` / `issueTokenPair`).
+  - Missing claims on legacy tokens default to version `0` (`payload.session_version ?? 0`).
+  - Both `authenticateRequest` (access path) and `validateRefreshToken` (refresh path) check token `session_version` against the user's current DB `sessionVersion`.
+- **Reliable Password Reset Kill**: `POST /api/v2/reset_password` executes token consumption (`deleteToken`), password update (`updateUser`), session version bump (`bumpSessionVersion`), and user token purging (`deleteUserTokens`) inside a single atomic transaction.
+- **Rotated-Token Reuse Detection**: `lookupRefreshToken` differentiates between valid, in-grace rotated, expired, and spent-but-unexpired tokens (`status: 'reuse'`). Spent token replay is logged with `console.warn` (no sensitive/raw tokens logged) and rejected with a generic 401.
+
+#### 2. Code Quality & Test Coverage
+- **Unit & Integration Tests**: `backend/tests/session-version-reuse.test.ts` thoroughly tests all `lookupRefreshToken` states, `bumpSessionVersion`, reset-vs-refresh interleavings (both orderings), token reuse handling, rollback behavior on transaction errors, atomic single-use reset tokens, and missing claim defaults against a real PGlite database context.
+- **Updated Test Suites**: `refresh-token-route.test.ts` and `password-reset.test.ts` are updated to match the transactional signatures and mock schemas.

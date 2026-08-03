@@ -21,20 +21,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   runFacilitator,
   type Message,
   type FacilitatorStreamEvent,
 } from '@/lib/facilitator/agent';
 import { createThread, createMessage } from '@/lib/db/threads';
-import { findUserByEmail, createUser } from '@/lib/db/users';
+import { getOrCreateSystemUser } from '@/lib/db/users';
 import { getClientId } from '@/lib/attribution';
 import { isInklingConfigured } from '@/lib/ai/inkling-client';
 import type { ContentBlock } from '@/db/schema/messages';
 import { config } from '@/lib/config';
 
-const SYSTEM_USER_EMAIL = 'leaderboard@system.ansari.chat';
 const SOURCE_TAG = 'leaderboard';
 
 // Served model ids (issue #74 scope amendment). Both run the identical full
@@ -106,7 +105,7 @@ function authorize(request: NextRequest): NextResponse | null {
 
   const header = request.headers.get('authorization') ?? '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match || match[1].trim() !== expected) {
+  if (!match || !timingSafeEqualStr(match[1].trim(), expected)) {
     return openAIError(
       'Invalid or missing API key.',
       401,
@@ -118,21 +117,25 @@ function authorize(request: NextRequest): NextResponse | null {
   return null;
 }
 
+/**
+ * Constant-time string comparison (spec 4). Guards against timing attacks on the
+ * leaderboard API key. `crypto.timingSafeEqual` throws on unequal-length buffers,
+ * so the length check is done first (a length mismatch already implies inequality).
+ */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 let cachedSystemUserId: string | null = null;
 
 async function getSystemUserId(): Promise<string> {
   if (cachedSystemUserId) return cachedSystemUserId;
 
-  let user = await findUserByEmail(SYSTEM_USER_EMAIL);
-  if (!user) {
-    user = await createUser({
-      email: SYSTEM_USER_EMAIL,
-      passwordHash: 'nologin',
-      firstName: 'Leaderboard',
-      lastName: 'System User',
-      source: SOURCE_TAG,
-    });
-  }
+  // Resolve by durable system_key, never by email (spec 4).
+  const user = await getOrCreateSystemUser('leaderboard');
   cachedSystemUserId = user.id;
   return cachedSystemUserId;
 }

@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Config routing is implemented correctly, but Phase 1’s required tests are not fully included or complete.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- The required config-validation suite is absent from the canonical changed-file list. `backend/tests/config.test.ts` exists only as an untracked file, so the reviewed phase would ship without tests for short secrets, invalid expiries, and cache resetting. Add it explicitly to the phase commit.
+- No test verifies that `authenticateRequest` and `validateRefreshToken` use `config.auth.jwtSecret` at `backend/lib/auth/middleware.ts:32` and `backend/lib/auth/middleware.ts:74`, despite this being an explicit Phase 1 deliverable. Add a focused middleware test that mocks `verifyToken` and asserts it receives the configured secret.

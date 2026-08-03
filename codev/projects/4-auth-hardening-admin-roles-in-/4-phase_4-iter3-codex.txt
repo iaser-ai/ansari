@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core admin gating and reservation are correct, but bootstrap promotion still has a session-revocation race.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `backend/scripts/grant-admin.ts:54-62` promotes the account and deletes tokens in separate statements. A pre-registrant’s refresh request can validate before deletion and issue new tokens afterward; the account also becomes admin before revocation completes. Make promotion atomic and increment `session_version` so Phase 7’s validation rejects any concurrently minted stale-version tokens. Add a deterministic regression test for this interleaving.
+- The plan explicitly requires `/api/v2/admin/stats` integration tests proving `is_admin=false` returns 403 and `is_admin=true` returns 200. `tests/admin-auth.test.ts` tests `requireAdmin` alone, while `tests/admin-stats-endpoint.test.ts:5-8` mocks `requireAdmin`, so the complete authorization chain is never exercised. Add the planned route-level integration coverage.
