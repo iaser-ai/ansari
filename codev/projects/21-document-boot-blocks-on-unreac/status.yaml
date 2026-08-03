@@ -1,0 +1,14 @@
+id: '21'
+title: document-boot-blocks-on-unreac
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-03T00:11:00.967Z'
+updated_at: '2026-08-03T00:11:00.968Z'
