@@ -27,3 +27,15 @@
 - Opened PR #24 (base develop) with the review embedded in the body per AIR.
 - Porch pr checks green (pr_exists, e2e_tests). At **pr gate** — architect notified via
   afx send; waiting for human approval (`porch approve 18 pr`).
+
+## Complete
+
+- Gate approved; `porch next` reported the air protocol complete (phase `verified`).
+- Merge was briefly blocked: porch's own bookkeeping commits (`pr gate-approved`,
+  `protocol complete`) landed on the branch and retriggered CI. Waited for it — both
+  checks passed (backend 1m50s, gitleaks 8s). Nothing about the code changed.
+- PR #24 was merged by waleedkadous at 18:08:56 while that CI wait was in flight, so the
+  forge `pr-merge.sh` call was a no-op ("already merged"). Merge commit `2112db7` on
+  develop, a real merge commit — history preserved, no squash.
+- Landed: `logout-route-pglite.test.ts` (164 lines), the guard comment in
+  `logout-route.test.ts`, status.yaml, and this thread. Worktree awaits architect cleanup.
