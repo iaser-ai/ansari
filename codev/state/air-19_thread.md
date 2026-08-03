@@ -1,0 +1,23 @@
+# air-19 thread — Extend safeErrorMeta sanitized logging (issue #19)
+
+## Implement
+
+- Branch base (`bf164ae`) predated PR #15's merge, so `safeErrorMeta` didn't exist
+  here yet. Merged `origin/develop` (1915e60, includes PR #15) to build on it.
+- Extracted `safeErrorMeta` from `register/route.ts` into a shared module
+  `backend/lib/log.ts` — exactly what PR #15's own review recommended instead of
+  duplicating it per route.
+- Applied it to the final catch-block logging in five routes: `users/login`,
+  `reset_password`, `request_password_reset`, `users/refresh_token`, `feedback`.
+  Register now imports the shared copy.
+- Left the fire-and-forget email/newsletter logs alone — they already log only
+  strings (`result.error` is typed `string` in `lib/email.ts`), not raw driver
+  objects, and the issue scopes to raw `console.error(error)` sites.
+- Tests: new `tests/safe-error-meta.test.ts` unit suite (name/code extraction,
+  non-string code, non-Error throwables, no-leak property) plus a per-route
+  leak-regression test in each existing route suite, following the register
+  pattern from PR #15 (spy console.error, throw a driver-like error carrying
+  user content, assert the content reaches neither the response nor the logs,
+  and that the SQLSTATE code does).
+- Verified: typecheck clean, full suite 595 passed / 3 pre-existing skips,
+  `next build` green with the CI dummy env (`.env.ci`).

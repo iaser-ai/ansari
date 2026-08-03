@@ -5,6 +5,7 @@ import { findUserByEmail, storeToken, deleteUserTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { sendPasswordResetEmail } from '@/lib/email';
 import { config } from '@/lib/config';
+import { safeErrorMeta } from '@/lib/log';
 
 const RESET_TOKEN_EXPIRY_HOURS = 1;
 
@@ -63,8 +64,10 @@ export async function POST(request: NextRequest) {
     // Always return success regardless of whether email exists
     return NextResponse.json({ status: 'success' });
   } catch (error) {
-    // Return success even on unexpected errors to prevent user enumeration
-    console.error('Request password reset error:', error);
+    // Return success even on unexpected errors to prevent user enumeration.
+    // Log ONLY sanitized metadata — a raw driver error can embed user content
+    // (email, query params). See @/lib/log (issue #19).
+    console.error('Request password reset error:', safeErrorMeta(error));
     return NextResponse.json({ status: 'success' });
   }
 }

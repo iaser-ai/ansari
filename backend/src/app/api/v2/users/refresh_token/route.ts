@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { issueTokenPair, markTokenRotated, lookupRefreshToken, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { db } from '@/lib/db/index';
 import { validateRefreshToken, createErrorResponse } from '@/lib/auth/middleware';
+import { safeErrorMeta } from '@/lib/log';
 
 const refreshSchema = z.object({
   refresh_token: z.string().min(1, 'Refresh token is required'),
@@ -66,7 +67,9 @@ export async function POST(request: NextRequest) {
       token_type: 'bearer',
     });
   } catch (error) {
-    console.error('Token refresh error:', error);
+    // Log ONLY sanitized metadata — a raw driver error can embed user content
+    // (query params, token material). See @/lib/log (issue #19).
+    console.error('Token refresh error:', safeErrorMeta(error));
     return createErrorResponse('Token refresh failed', 500);
   }
 }

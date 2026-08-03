@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
 import { createFeedback } from '@/lib/db/feedback';
 import { findMessageInOwnedThread } from '@/lib/db/threads';
+import { safeErrorMeta } from '@/lib/log';
 
 const feedbackSchema = z.object({
   thread_id: z.string().uuid('Invalid thread ID'),
@@ -63,7 +64,9 @@ export async function POST(request: NextRequest) {
       created_at: feedback.createdAt?.toISOString(),
     });
   } catch (error) {
-    console.error('Feedback error:', error);
+    // Log ONLY sanitized metadata — a raw driver error can embed user content
+    // (the feedback comment, query params). See @/lib/log (issue #19).
+    console.error('Feedback error:', safeErrorMeta(error));
     return createErrorResponse('Failed to submit feedback', 500);
   }
 }

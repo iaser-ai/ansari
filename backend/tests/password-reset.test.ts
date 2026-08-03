@@ -417,4 +417,51 @@ describe('POST /api/v2/reset_password', () => {
     expect(mockBumpSessionVersion).not.toHaveBeenCalled();
     expect(mockDeleteUserTokens).not.toHaveBeenCalled();
   });
+
+  it('logs only sanitized metadata (no raw driver error) when the DB throws (issue #19)', async () => {
+    mockVerifyToken.mockReturnValue({ user_id: 'user-123', type: 'reset' });
+    const driverError = new Error(
+      'update failed: params = ($2b$12$leakedpasswordhash)'
+    ) as Error & { code: string };
+    driverError.code = '40001';
+    mockFindToken.mockRejectedValueOnce(driverError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await resetPassword(
+      makePostRequest({ reset_token: 'valid-jwt', new_password: 'NewStr0ngP@ss!' })
+    );
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).detail).toBe('Password reset failed');
+    // Only {name, code} may reach the logs — never message/query/params.
+    const logged = JSON.stringify(consoleSpy.mock.calls);
+    expect(logged).toContain('40001');
+    expect(logged).not.toContain('leakedpasswordhash');
+    expect(logged).not.toContain('update failed');
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('sanitized error logging in request_password_reset (issue #19)', () => {
+  it('still returns success (anti-enumeration) and logs only sanitized metadata when the DB throws', async () => {
+    const driverError = new Error(
+      'select failed: params = (leak@example.com)'
+    ) as Error & { code: string };
+    driverError.code = '57P01';
+    mockFindUserByEmail.mockRejectedValueOnce(driverError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await requestPasswordReset(
+      makePostRequest({ email: 'leak@example.com' })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('success');
+    // Only {name, code} may reach the logs — never message/query/params.
+    const logged = JSON.stringify(consoleSpy.mock.calls);
+    expect(logged).toContain('57P01');
+    expect(logged).not.toContain('leak@example.com');
+    expect(logged).not.toContain('select failed');
+    consoleSpy.mockRestore();
+  });
 });
