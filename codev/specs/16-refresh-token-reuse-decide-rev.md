@@ -21,16 +21,20 @@ The alternatives and cut refinements are retained below only as decision record.
    transactionally: bumps the user's `session_version`, deletes the user's
    refresh-token rows (`deleteUserTokens(userId, 'refresh')`), and emits the
    containment log line (user UUID only).
-2. **Unified generic 401 at the route boundary.** All refresh-route rejections
-   share one generic 401 status + body, normalized at the route boundary only —
-   internal classification strings/results are not refactored.
+2. **No externally-visible API changes** (standing constraint, added 2026-08-03:
+   the mobile app in the wild cannot be updated). The refresh path's existing 401
+   statuses and bodies stay **byte-for-byte as they are today**. The previously
+   scoped 401-body unification is **CUT**; consequently the anti-oracle property is
+   **explicitly waived** as an accepted trade-off — mobile backward-compatibility
+   outranks closing a low-value oracle.
 3. **`markTokenRotated`: Option A (document-only).** The discarded boolean stays
    discarded, with a code comment recording the safety argument.
 4. **Deliberately cut** (accepted-risk / documented-not-prevented — see Security
    Considerations): exactly-once winner semantics for concurrent replays (a benign
    double bump/log is accepted and documented); Option C's row lock; in-transaction
    stale-authorization re-verification (stale pairs die at `session_version`
-   validation — document, don't prevent).
+   validation — document, don't prevent); 401-body unification and the anti-oracle
+   property (see item 2).
 
 ## Clarifying Questions Asked
 This project runs autonomously from GitHub issue #16, which was filed from the PR #15
@@ -105,11 +109,13 @@ both is safe.
   revocation, no retained refresh row for the account remains, so any later replay
   of the same (or any other previously-leaked) spent token reads `not_found` and is
   inert. A fresh post-reuse login is unaffected by further replays.
-- The refresh route returns **one unified generic 401** (single status + body) for
-  every rejection — reuse, unknown, expired, stale-version, and replay-after-
-  consume — normalized at the route boundary; internal classification results and
-  their strings are unchanged. This establishes the anti-oracle property the policy
-  depends on (in particular, a later replay must not confirm that revocation fired).
+- The refresh route's rejection responses are **byte-for-byte unchanged** from
+  current behavior — statuses, bodies, and which case maps to which body (standing
+  no-API-change constraint). Consequence, accepted and recorded: the pre-existing
+  response oracle stays open — in particular, a later replay of a consumed token
+  returns the `not_found` body rather than the reuse body, which can confirm to an
+  attacker that revocation fired. This anti-oracle gap is explicitly waived; it
+  leaks only the fact of containment, not anything that restores access.
 - `markTokenRotated`'s discarded result is documented in place with the safety
   argument (Option A); the two `false` cases are no longer conflated *silently*.
 - Tests pin the new behavior against a real database (see Test Scenarios — slim
@@ -132,10 +138,11 @@ both is safe.
       refresh tokens all fail validation afterward (pglite end-to-end test).
 - [ ] A later replay of the same spent token is inert: classified `not_found`, no
       further bump, and a fresh post-reuse login session is unaffected (test).
-- [ ] Every refresh-route rejection returns the same generic 401 status + body
-      (anti-oracle established; test).
+- [ ] Refresh-route rejection responses are byte-for-byte unchanged from current
+      behavior; in particular the reuse response (status + body) is identical
+      before and after containment is added (regression test).
 - [ ] Reuse at the in-transaction recheck applies the same policy + log; `not_found`
-      there aborts issuance with the generic 401 and no revocation and no reuse log.
+      there aborts issuance with the existing 401 and no revocation and no reuse log.
 - [ ] `markTokenRotated`'s call site carries the Option A safety comment.
 - [ ] Concurrent refreshes within the grace window still both succeed (issue #34 —
       existing suite must stay green).
@@ -157,18 +164,18 @@ both is safe.
   rows. Consuming the account's refresh rows on detected reuse is consistent with
   this rationale — retention exists to enable first-reuse detection, which has then
   served its purpose for that account.
-- Auth error responses must be uniform/generic. The refresh route does not satisfy
-  this today (three distinct 401 bodies); unifying them **at the route boundary
-  only** is in scope as a prerequisite of the reuse policy. Internal classification
-  strings are not refactored.
+- **No externally-visible API changes** (standing constraint): the mobile app in
+  the wild cannot be updated, so the refresh path's response statuses and bodies —
+  including the three distinct 401 bodies documented in Current State — must stay
+  byte-for-byte as they are today. The spec-4 uniform-response ideal is therefore
+  waived on this path (see Security Considerations).
 - No user content in logs or Sentry; user UUIDs are acceptable internal identifiers.
 - The full test suite must run without external services (pglite in-process DB).
 
 ### Business Constraints
 - Follow-up scope from PR #15's review: intentionally small; no expansion into
   adjacent auth work (e.g. logout coverage, safeErrorMeta extension are separate
-  issues). The route-boundary 401 unification is the one deliberate addition,
-  because the policy's anti-oracle requirement is unmeetable without it.
+  issues). No response-surface changes of any kind.
 - The policy choice was the spec's deliverable; it is ratified (see Ratified
   Decision) and is not to be re-litigated in plan or implementation.
 
@@ -224,9 +231,10 @@ Accepted costs (documented, not mitigated):
   lines. Harmless — the deletes are idempotent, all pre-reuse tokens are equally
   dead, and no legitimate session exists at that moment to disturb.
 - **Observability**: later replays are not log-distinguishable as "reuse" (rows are
-  gone); the first-reuse log line is the lasting record — required anyway, since
-  distinguishing them in the response would confirm to the attacker that revocation
-  fired.
+  gone); the first-reuse log line is the lasting record. On the response side, a
+  later replay returns the `not_found` body while the first reuse returned the
+  reuse body — with response unification cut (no-API-change constraint), this
+  confirmation-of-containment oracle is accepted.
 
 ### Approach 4: Partial revocation (refresh tokens only, no version bump) — REJECTED
 Deleting refresh rows while leaving access tokens (≤2h) alive contradicts acting on
@@ -284,12 +292,15 @@ no behavioral gain over the documented safety argument.
   the victim refreshed first, the attacker's replay trips it. In both cases the
   server cannot tell who is who — account-wide revocation is the only response that
   contains the attacker in both orderings.
-- **Anti-oracle**: one generic 401 status + body for every refresh-route rejection,
-  normalized at the route boundary. Scope is response **status and body** only; a
-  timing-side-channel guarantee is explicitly out of scope (the containment branch
-  performs extra writes; no practical timing-equality criterion exists at this
-  layer, and timing tells the attacker nothing actionable that the unified response
-  doesn't already deny).
+- **Anti-oracle — WAIVED (accepted trade-off, human-ratified 2026-08-03)**: the
+  refresh path's three distinct 401 bodies remain as-is under the standing
+  no-externally-visible-API-change constraint (the deployed mobile app depends on
+  current behavior). What the open oracle leaks: which rejection class occurred,
+  including confirmation that a replayed token was consumed (containment fired).
+  What it does not leak: anything that restores access, forges a token, or
+  identifies an account. Judged low-value to an attacker versus the certain cost of
+  breaking un-updatable clients; mobile backward-compatibility outranks closing it.
+  Timing side channels remain likewise out of scope.
 - **Concurrent replays (double bump) — accepted**: winner-selection ("exactly-once")
   semantics were deliberately cut. A double bump/double log is benign (idempotent
   deletes; all stale tokens equally dead; no live legitimate session at that
@@ -316,14 +327,15 @@ reset/logout-vs-refresh interleavings, and must remain green.
 
 ### Functional Tests
 1. **First reuse contains the compromise**: replay a token rotated past grace →
-   generic 401; `session_version` bumped; the user's refresh rows are deleted;
+   401; `session_version` bumped; the user's refresh rows are deleted;
    previously-valid access and refresh tokens now fail validation; containment log
    emitted (UUID only).
-2. **Later replay is inert**: replay the same spent token again → generic 401 via
+2. **Later replay is inert**: replay the same spent token again → 401 via
    `not_found`, no further bump — and a fresh post-reuse login session is
    unaffected by the replay.
-3. **Unified 401**: refresh-route rejections (reuse, unknown token, expired,
-   stale-version, replay-after-consume) share one generic status + body.
+3. **Responses unchanged (backward-compat regression)**: the reuse rejection's
+   status + body are byte-for-byte identical to current (pre-containment)
+   behavior — adding containment must not alter any refresh-path response.
 
 ### Non-Functional Tests
 1. Log-hygiene assertion folded into test 1 (UUID only; no token material) — no
@@ -356,7 +368,7 @@ reset/logout-vs-refresh interleavings, and must remain green.
 | Attacker loops revocation with spent token(s) (DoS) | — | High if unmitigated | Eliminated by design: replayed row and the account's other refresh rows consumed on first reuse; replay reads `not_found` |
 | Double bump under concurrent replays | Medium | Low (benign) | Accepted and documented (idempotent deletes; no winner semantics — deliberate cut) |
 | Refresh racing containment mints a surviving pair | Low | High if real | Shown impossible by snapshot argument (old-version pair dies at validation; post-commit sees `not_found`); documented in code, existing stale-version suite covers the kill mechanism |
-| Reuse response distinguishable (oracle) | Medium (exists today as 3 distinct bodies) | Medium | Route-boundary 401 unification (in scope); equality test across all rejection cases |
+| Reuse response distinguishable (oracle) | Certain (3 distinct bodies today; stays) | Low | Accepted trade-off (waived, human-ratified): no-API-change constraint outranks it; leak is confirmation-of-containment only, never access |
 | Scope creep into adjacent auth follow-ups | Medium | Low | Constraints pin scope to issue #16's two items + the route-boundary 401 unification |
 
 ## Expert Consultation
@@ -381,6 +393,13 @@ semantics; Option C row lock; in-transaction stale-authorization re-verification
 as machinery preventing already-harmless outcomes. The cuts and their safety
 arguments are recorded in Ratified Decision, Solution Approaches, and Security
 Considerations; the test matrix was slimmed to three focused tests accordingly.
+
+**Scope amendment (2026-08-03, human)**: a new standing constraint — no
+externally-visible API changes (the deployed mobile app cannot be updated) — cut
+the 401-body unification entirely. Refresh-path responses stay byte-for-byte as
+today; the anti-oracle property is explicitly waived as an accepted trade-off
+(mobile backward-compat outranks closing a low-value oracle). Test 3 became a
+responses-unchanged backward-compat regression assertion.
 
 ## Approval
 - [ ] Technical Lead Review
