@@ -89,7 +89,7 @@ Admin access is gated on the durable `users.is_admin` DB flag, not on `ADMIN_EMA
 
 1. **Apply the migration** (`npm run db:migrate`, or your managed-DB apply step). Before applying, inspect for any pre-existing account holding a reserved admin/system address and remediate it.
 2. **Bootstrap each admin**: `npx tsx scripts/grant-admin.ts <email>` (from `backend/`). You are securely prompted for the password (input is hidden). This creates the account with that password (or promotes and password-resets an existing one, revoking its old sessions).
-3. **Deploy.** Production boot then asserts the configured admins exist; if the bootstrap step was skipped it fails fast (identifying the missing entry by its position in `ADMIN_EMAILS`, not by address).
+3. **Deploy.** Production boot then asserts the configured admins exist; if the bootstrap step was skipped it fails fast (identifying the missing entry by its position in `ADMIN_EMAILS`, not by address). The same check also fails when the database is unreachable at boot — see [Troubleshooting: crash loop at boot](#troubleshooting-crash-loop-at-boot-admin-bootstrap-check) before assuming a provisioning error.
 
 ## Running it
 
@@ -134,3 +134,36 @@ is set and reachable before deploying.
 
 Database migrations are applied with `npm run db:migrate` against the production
 `DATABASE_URL` (never `db:push`).
+
+### Troubleshooting: crash loop at boot (admin bootstrap check)
+
+A production server (`NODE_ENV=production`) runs the admin bootstrap check at boot
+(`assertConfiguredAdminsExist` in `backend/lib/auth/startup-checks.ts`): it queries
+the database to verify that every `ADMIN_EMAILS` entry already exists as an admin,
+and **throws if it cannot verify this** — including when the database is simply
+unreachable. Coupling boot to database reachability is deliberate fail-fast
+behavior: a server that cannot verify its admins refuses to start rather than
+serving with unknown admin state.
+
+**Symptom.** On platforms that restart on crash (e.g. Railway with
+`restartPolicyType = "ON_FAILURE"`), a database blip while the process boots
+presents as a **crash loop** that looks identical to a mis-provisioned deploy. The
+check runs only on a real production boot — never during `next build`, dev, or
+tests — so this only ever appears in production.
+
+**Triage: read the boot error text — it distinguishes the two cases.**
+
+| Boot error contains | Meaning | What to do |
+|---|---|---|
+| `Admin bootstrap check could not reach the database` | The database was unreachable when boot ran. This is an **outage, not a provisioning error** — do not re-run the bootstrap script. | Restore database reachability (`DATABASE_URL` correct, network path open, database up). The next restart succeeds once the database answers; on restart-on-crash platforms recovery is automatic. |
+| `has no account` or `exists but is not flagged is_admin` | A real provisioning gap: the configured admin was never bootstrapped, or was deleted/demoted since. Restarting will not fix it. | Run `npx tsx scripts/grant-admin.ts <email>` for the identified entry (see [Provisioning admins](#provisioning-admins)), then restart. |
+
+The error identifies the failing entry by its **position** in `ADMIN_EMAILS`
+(e.g. `configured admin #2 of 3`), never by the address itself — boot logs carry
+no email content. Map the index back to your configured list.
+
+Timing note: during a fresh deploy, a database outage surfaces as a failed
+`/api/health` healthcheck and a rollback (the old version keeps serving). The
+crash-loop presentation above is what you see when an **already-deployed** instance
+restarts (crash, platform maintenance, scale event) while the database is
+unreachable.
