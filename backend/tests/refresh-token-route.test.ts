@@ -116,4 +116,24 @@ describe('POST /api/v2/users/refresh_token (issue #34)', () => {
     expect(res.status).toBe(401);
     expect(mockIssueTokenPair).not.toHaveBeenCalled();
   });
+
+  it('logs only sanitized metadata (no raw driver error) when the DB throws (issue #19)', async () => {
+    const driverError = new Error(
+      'canceling statement: params = (raw-refresh-token-material)'
+    ) as Error & { code: string };
+    driverError.code = '57014';
+    mockValidateRefreshToken.mockRejectedValueOnce(driverError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await refresh(makeRefreshRequest('rt'));
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).detail).toBe('Token refresh failed');
+    // Only {name, code} may reach the logs — never message/query/params.
+    const logged = JSON.stringify(consoleSpy.mock.calls);
+    expect(logged).toContain('57014');
+    expect(logged).not.toContain('raw-refresh-token-material');
+    expect(logged).not.toContain('canceling statement');
+    consoleSpy.mockRestore();
+  });
 });

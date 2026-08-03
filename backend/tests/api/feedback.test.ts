@@ -160,4 +160,31 @@ describe('POST /api/v2/feedback', () => {
     expect(bodies[0]).toEqual(bodies[1]);
     expect(bodies[1]).toEqual(bodies[2]);
   });
+
+  it('logs only sanitized metadata (no raw driver error) when the DB throws (issue #19)', async () => {
+    const driverError = new Error(
+      'insert failed: params = (my private feedback comment)'
+    ) as Error & { code: string };
+    driverError.code = '23503';
+    mockCreateFeedback.mockRejectedValueOnce(driverError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(
+      makeRequest({
+        thread_id: THREAD_ID,
+        message_id: MESSAGE_ID,
+        feedback_class: 'thumbs_up',
+        comment: 'my private feedback comment',
+      }),
+    );
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).detail).toBe('Failed to submit feedback');
+    // Only {name, code} may reach the logs — never message/query/params.
+    const logged = JSON.stringify(consoleSpy.mock.calls);
+    expect(logged).toContain('23503');
+    expect(logged).not.toContain('my private feedback comment');
+    expect(logged).not.toContain('insert failed');
+    consoleSpy.mockRestore();
+  });
 });

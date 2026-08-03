@@ -6,6 +6,7 @@ import { findToken, updateUser, deleteUserTokens, bumpSessionVersion, deleteToke
 import { db } from '@/lib/db/index';
 import { createErrorResponse } from '@/lib/auth/middleware';
 import { config } from '@/lib/config';
+import { safeErrorMeta } from '@/lib/log';
 
 const resetSchema = z.object({
   reset_token: z.string().min(1, 'reset_token is required'),
@@ -79,7 +80,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ status: 'success' });
   } catch (error) {
-    console.error('Reset password error:', error);
+    // Log ONLY sanitized metadata — a raw driver error can embed user content
+    // (email, query params, password hash). See @/lib/log (issue #19).
+    console.error('Reset password error:', safeErrorMeta(error));
     return createErrorResponse('Password reset failed', 500);
   }
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
+import { DrizzleQueryError } from 'drizzle-orm/errors';
 
 // Phase 2 (token consolidation): the login route issues tokens via the shared
 // issueTokenPair helper. This proves login calls it and preserves its response
@@ -92,5 +93,32 @@ describe('POST /api/v2/users/login', () => {
     const res = await login(makeLoginRequest({ email: 'test@example.com', password: 'wrong' }));
     expect(res.status).toBe(401);
     expect(mockIssueTokenPair).not.toHaveBeenCalled();
+  });
+
+  it('logs only sanitized metadata (no raw driver error) when the DB throws (issue #19)', async () => {
+    // Real drizzle shape: the pg error (with the SQLSTATE and user content) is
+    // wrapped in DrizzleQueryError, which also carries query text and params.
+    const pgError = new Error(
+      'duplicate key value violates unique constraint: (boom@example.com)'
+    ) as Error & { code: string };
+    pgError.code = '23505';
+    const driverError = new DrizzleQueryError(
+      'select * from "users" where "email" = $1',
+      ['boom@example.com'],
+      pgError
+    );
+    mockFindUserByEmail.mockRejectedValueOnce(driverError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await login(makeLoginRequest({ email: 'boom@example.com', password: 'pw' }));
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).detail).toBe('Login failed');
+    // Only {name, code} may reach the logs — never message/query/params.
+    const logged = JSON.stringify(consoleSpy.mock.calls);
+    expect(logged).toContain('23505');
+    expect(logged).not.toContain('constraint');
+    expect(logged).not.toContain('boom@example.com');
+    consoleSpy.mockRestore();
   });
 });

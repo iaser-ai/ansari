@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { verifyPassword } from '@/lib/auth/password';
 import { findUserByEmail, issueTokenPair, maybeSweepExpiredTokens } from '@/lib/db/users';
 import { createErrorResponse } from '@/lib/auth/middleware';
+import { safeErrorMeta } from '@/lib/log';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -51,7 +52,9 @@ export async function POST(request: NextRequest) {
       last_name: user.lastName || '',
     });
   } catch (error) {
-    console.error('Login error:', error);
+    // Log ONLY sanitized metadata — a raw driver error can embed user content
+    // (email, query params, password hash). See @/lib/log (issue #19).
+    console.error('Login error:', safeErrorMeta(error));
     return createErrorResponse('Login failed', 500);
   }
 }

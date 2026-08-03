@@ -6,6 +6,7 @@ import { createErrorResponse } from '@/lib/auth/middleware';
 import { isReservedAddress } from '@/lib/auth/reserved';
 import { subscribeToNewsletter } from '@/lib/newsletter';
 import { getClientId } from '@/lib/attribution';
+import { safeErrorMeta } from '@/lib/log';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -104,15 +105,4 @@ export async function POST(request: NextRequest) {
     console.error('Registration error:', safeErrorMeta(error));
     return createErrorResponse('Registration failed', 500);
   }
-}
-
-/**
- * Extract log-safe metadata from an error: its type name and, for DB driver
- * errors, the SQLSTATE `code` — never the message, query text, or params (any of
- * which can carry user content).
- */
-function safeErrorMeta(error: unknown): { name: string; code?: string } {
-  const name = error instanceof Error ? error.name : typeof error;
-  const code = (error as { code?: unknown })?.code;
-  return typeof code === 'string' ? { name, code } : { name };
 }
