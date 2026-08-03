@@ -1,7 +1,7 @@
 id: '21'
 title: document-boot-blocks-on-unreac
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,5 +13,5 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-03T00:11:00.967Z'
-updated_at: '2026-08-03T18:06:38.736Z'
+updated_at: '2026-08-03T18:06:43.805Z'
 pr_ready_for_human: false
