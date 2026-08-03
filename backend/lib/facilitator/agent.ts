@@ -10,6 +10,7 @@ import * as Sentry from '@sentry/nextjs';
 import {
   streamGemini,
   type Content,
+  type Part,
   type GeminiToolCall,
   type GeminiResponse,
   type GeminiStreamEvent,
@@ -293,7 +294,7 @@ function convertToGeminiHistory(messages: Message[]): Content[] {
 /**
  * Format tool result for Gemini's functionResponse
  */
-function formatToolResultForGemini(toolName: string, result: ToolResult): object {
+function formatToolResultForGemini(toolName: string, result: ToolResult): Record<string, unknown> {
   return {
     results: result.documents.map((doc) => ({
       title: doc.title,
@@ -687,6 +688,14 @@ export async function* runFacilitator(
       // results). On either, stop calling tools but still append a synthetic functionResponse
       // (and emit a tool_result) for every remaining requested call — Gemini rejects a turn
       // with an unmatched functionCall.
+      //
+      // ALL of the round's functionResponse parts go into ONE user Content (issue #14).
+      // Gemini requires the turn following a functionCall turn to carry exactly as many
+      // functionResponse parts as the model emitted functionCall parts; pushing one
+      // single-part Content per call left the parallel-call case as a turn with 1 response
+      // part vs N call parts, which Vertex rejects with 400 "number of function response
+      // parts is [not] equal to the number of function call parts of the function call turn".
+      const responseParts: Part[] = [];
       let shortCircuitTrigger: 'T1' | 'T2' | null = null;
       for (const tc of toolCallsCollected) {
         if (!shortCircuitTrigger && Date.now() >= softDeadline) {
@@ -702,17 +711,12 @@ export async function* runFacilitator(
             content: 'Skipped: request time budget reached before this tool was called.',
             documents: [],
           };
-          geminiHistory.push({
-            role: 'user',
-            parts: [
-              {
-                functionResponse: {
-                  name: tc.name,
-                  response: formatToolResultForGemini(tc.name, skipped),
-                },
-              },
-            ],
-          } as Content);
+          responseParts.push({
+            functionResponse: {
+              name: tc.name,
+              response: formatToolResultForGemini(tc.name, skipped),
+            },
+          });
           continue;
         }
 
@@ -727,21 +731,12 @@ export async function* runFacilitator(
           }),
         };
 
-        // Add tool result to history as function response.
-        // @google/genai requires 'user' role for Content carrying a
-        // functionResponse part (the old @google/generative-ai SDK used
-        // 'function'; that's now rejected with "Role must be user or model").
-        geminiHistory.push({
-          role: 'user',
-          parts: [
-            {
-              functionResponse: {
-                name: tc.name,
-                response: formatToolResultForGemini(tc.name, result),
-              },
-            },
-          ],
-        } as Content);
+        responseParts.push({
+          functionResponse: {
+            name: tc.name,
+            response: formatToolResultForGemini(tc.name, result),
+          },
+        });
 
         // T1 (fail-fast): count degraded results via #54's machine-readable marker (not
         // string-matching). Both degraded paths carry it — the tool's own degraded return and
@@ -754,6 +749,12 @@ export async function* runFacilitator(
           }
         }
       }
+
+      // Tool results enter history as functionResponse parts on a single 'user'-role
+      // Content — @google/genai requires 'user' for functionResponse (the old
+      // @google/generative-ai SDK's 'function' role is rejected), and the synthesis
+      // path below relies on this push too, so it happens before the short-circuit.
+      geminiHistory.push({ role: 'user', parts: responseParts });
 
       // If either trigger fired mid-loop, synthesize now instead of another tool-gathering turn.
       if (shortCircuitTrigger) {

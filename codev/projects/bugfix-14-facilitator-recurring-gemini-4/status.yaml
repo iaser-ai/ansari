@@ -1,0 +1,16 @@
+id: bugfix-14
+title: facilitator-recurring-gemini-4
+protocol: bugfix
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+    requested_at: '2026-08-03T00:21:29.631Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-03T00:10:38.574Z'
+updated_at: '2026-08-03T00:21:29.632Z'
+pr_ready_for_human: true
