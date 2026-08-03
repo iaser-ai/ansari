@@ -40,6 +40,12 @@ vi.mock('@/lib/db/threads', () => ({
   createThread: (...args: unknown[]) => mockCreateThread(...args),
   createMessage: (...args: unknown[]) => mockCreateMessage(...args),
 }));
+
+// The route wraps pre-stream persistence in db.transaction (issue #20);
+// pass the callback straight through so the mocked helpers above still run.
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({}) },
+}));
 vi.mock('@/lib/facilitator/agent', () => ({
   runFacilitator: (...args: unknown[]) => mockRunFacilitator(...args),
 }));
@@ -290,7 +296,8 @@ describe('POST /v1/chat/completions', () => {
 
     // Thread carries client (not just messages) while source stays leaderboard.
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'leaderboard', client: 'muslimpedia' })
+      expect.objectContaining({ source: 'leaderboard', client: 'muslimpedia' }),
+      expect.anything()
     );
     for (const [arg] of mockCreateMessage.mock.calls) {
       expect(arg).toEqual(expect.objectContaining({ source: 'leaderboard', client: 'muslimpedia' }));
@@ -306,7 +313,8 @@ describe('POST /v1/chat/completions', () => {
     );
 
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'leaderboard', client: null })
+      expect.objectContaining({ source: 'leaderboard', client: null }),
+      expect.anything()
     );
   });
 });

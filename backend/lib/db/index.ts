@@ -24,6 +24,12 @@ function getPool(): Pool {
 // Create drizzle instance with schema
 export const db = drizzle(getPool(), { schema });
 
+// A database executor: either the module-level `db` or a transaction handle
+// passed to `db.transaction(async (tx) => ...)`. DB helpers accept this so a
+// caller can compose multi-step writes into one transaction. Shared by
+// users.ts, threads.ts, and feedback.ts (issue #20).
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // Export schema for convenience
 export { schema };
 

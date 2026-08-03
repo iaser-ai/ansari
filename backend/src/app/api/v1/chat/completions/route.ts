@@ -27,6 +27,7 @@ import {
   type Message,
   type FacilitatorStreamEvent,
 } from '@/lib/facilitator/agent';
+import { db } from '@/lib/db/index';
 import { createThread, createMessage } from '@/lib/db/threads';
 import { getOrCreateSystemUser } from '@/lib/db/users';
 import { getClientId } from '@/lib/attribution';
@@ -318,18 +319,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let threadId: string | undefined;
   try {
     const systemUserId = await getSystemUserId();
-    const thread = await createThread({ userId: systemUserId, source: SOURCE_TAG, client });
-    threadId = thread.id;
-    for (const m of req.messages) {
-      if (m.role === 'system') continue;
-      await createMessage({
-        threadId: thread.id,
-        role: m.role,
-        content: [{ type: 'text', text: m.content }],
-        source: SOURCE_TAG,
-        client,
-      });
-    }
+    // Thread + inbound messages persist atomically (issue #20): a failed message
+    // insert rolls back the thread instead of orphaning it, and threadId stays
+    // undefined so the assistant reply isn't attached to a partial log. Scoped
+    // to this pre-stream persistence only — never held across the facilitator.
+    threadId = await db.transaction(async (tx) => {
+      const thread = await createThread({ userId: systemUserId, source: SOURCE_TAG, client }, tx);
+      for (const m of req.messages) {
+        if (m.role === 'system') continue;
+        await createMessage(
+          {
+            threadId: thread.id,
+            role: m.role,
+            content: [{ type: 'text', text: m.content }],
+            source: SOURCE_TAG,
+            client,
+          },
+          tx
+        );
+      }
+      return thread.id;
+    });
   } catch (err) {
     console.error('[leaderboard] failed to log inbound messages:', err);
     Sentry.captureException(err);
