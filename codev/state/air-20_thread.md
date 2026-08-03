@@ -23,3 +23,10 @@
   thread.updated_at bump through the tx.
 - Verified: typecheck clean, full suite 60 files / 590 passed (3 pre-existing skips),
   `next build` green with .env.ci loaded (matches CI).
+
+## 2026-08-02 — PR gate
+
+- `porch check` green (build + tests). Rebase required a `--force-with-lease` push
+  (origin held only the pre-rebase porch-init commit; content preserved).
+- PR #26 opened against develop with the review in the body. Porch at `pr` gate;
+  architect notified via afx. Waiting for human approval.
