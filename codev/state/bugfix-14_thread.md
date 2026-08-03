@@ -63,3 +63,16 @@ with the fix.
 Checks: typecheck clean, full suite 489 passed / 3 skipped, `next build` green
 with CI dummy env, lint 0 errors (8 pre-existing warnings, untouched files).
 Commits 264edad (fix) + d2ec5af (test).
+
+## 2026-08-02 — PR phase
+
+PR #27 open against develop with `Fixes #14`.
+
+CMAP 3-way review (protocol bugfix, type pr): **gemini=APPROVE, codex=APPROVE,
+claude=APPROVE**, all HIGH confidence, no blocking issues. Non-blocking notes
+from claude: (1) root cause is code-reading + prod-correlation, not a live
+Vertex repro — monitor the 400 signature post-merge; (2) `functionResponse.id`
+is not propagated for same-name parallel calls (pre-existing; possible
+follow-up issue).
+
+`pr` gate requested via porch; waiting for human approval.
