@@ -42,3 +42,15 @@ Next: draft spec → porch check → porch done → 3-way consultation.
   revocation via session_version bump + consume replayed row + user's other
   refresh rows) + **Option C** (row lock; boolean discard becomes provably safe).
 - **spec-approval gate requested. Waiting for human.**
+
+## 2026-08-03 — Policy ratified by human; spec amended; gate re-requested
+
+- Architect relayed the human decision: **slim Approach 3 + Option A** ratified.
+  Kept: reuse → transactional bump + deleteUserTokens(userId,'refresh') +
+  containment log (reuse only, never not_found); unified generic 401 at the
+  refresh route boundary only; markTokenRotated document-only comment.
+  Cut: exactly-once winner semantics (benign double bump accepted), Option C row
+  lock, in-transaction stale-authorization re-verification (snapshot argument
+  documented instead). Test matrix slimmed to 3 focused tests.
+- Spec rewritten to state the ratified decision as THE decision (5018353);
+  alternatives/cuts retained as decision record. **Gate re-requested; waiting.**
