@@ -29,3 +29,7 @@
   package.json; every db:push mention is a prohibition; every /api/ path maps to a real
   route.ts; referenced repo files exist; domains pinned. All pass.
 - porch check 22: build ✓ tests ✓. Committing → porch done → PR phase.
+
+## 2026-08-02 — PR gate
+- PR #28 opened (base develop) with full review in body. porch checks pr_exists + e2e_tests ✓.
+- Gate 'pr' requested; architect notified via afx send. STOPPED — waiting for human approval.
