@@ -17,3 +17,14 @@
   that switches the rule off for `lib/config.ts` + `drizzle.config.ts`.
 - Test: vitest suite lints virtual files through the real `eslint.config.mjs` (ESLint
   Node API) — rule fires in lib/src, silent in allowlisted files.
+
+## 2026-08-02 — PR gate
+
+- Implemented, checks green (build, tests, lint, typecheck). Grep test deleted; rule +
+  guard-of-the-guard test added (9 tests, incl. getEnv() sidestep + allowlist silence +
+  real-tree lintFiles sweep).
+- PR #25 open against develop: https://github.com/iaser-ai/ansari/pull/25 — review in PR body.
+- Kept ACCESS/REFRESH_TOKEN_EXPIRY_HOURS entries for parity with the old grep test.
+- Known limitation (parity with grep): destructuring `const { JWT_SECRET } = process.env`
+  is not caught by no-restricted-properties.
+- Porch: pr gate requested. STOPPED, waiting for human approval (`porch approve 17 pr`).
