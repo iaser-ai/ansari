@@ -22,3 +22,10 @@
 - PR #23 opened against develop (review embedded in PR body per AIR).
 - porch pr-phase checks passed (pr_exists, e2e_tests); `porch gate 21` requested.
 - Waiting at pr gate for human approval; architect notified via afx send.
+- pr gate approved by human. `porch next` reports the air protocol complete
+  (phase `verified`); remaining task is the merge itself. Merge is blocked on
+  in-flight CI (backend lint/typecheck/test/build + gitleaks), waiting on that
+  before merging with a regular merge commit (no squash).
+- CI green (backend lint/typecheck/test/build ✓, gitleaks ✓). PR #23 merged into
+  develop via regular merge commit d5cda1c. Project 21 complete; architect
+  notified, worktree ready for architect-driven cleanup.
