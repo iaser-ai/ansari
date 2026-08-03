@@ -1,0 +1,51 @@
+I'll review phase_4 by reading the actual implementation files.# Phase 4 Review — Durable admin authorization, address reservation, startup assertion, bootstrap
+
+I read every phase-4 file from disk, then verified behavior empirically (tests, typecheck, two real `next build` runs, and two real `next start` runs).
+
+## Verification performed
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| `npm test` (full suite) | ✅ 513 passed / 3 skipped, 54 files |
+| Phase-4 test files in isolation | ✅ 35 passed |
+| `npm run build` with `.env.ci` | ✅ green |
+| `npm run build` with `ADMIN_EMAILS=nobody@example.com` + unreachable DB | ✅ **build does NOT fire the assertion** — the `NEXT_PHASE` guard works (this was the plan's flagged HIGH risk) |
+| `next start`, `NODE_ENV=production`, missing admin | ✅ assertion fires; **every** route (incl. `/api/health`) → 500 |
+| Control run, `ADMIN_EMAILS=''`, same env | ✅ serves normally (`/api/health` 200, `/users/me` 401) — proves the 500s came from the assertion, not the fake DB |
+
+The fail-fast is operationally real: `railway.toml` sets `healthcheckPath = "/api/health"`, and a failed assertion makes that path 500, so a mis-provisioned deploy never goes live. Worth recording precisely, though: **Next 15.5.9 does not exit the process** — it logs `Failed to prepare server` and 500s all traffic. Safe, but "fails fast" means "serves nothing," not "process dies."
+
+## Spec/plan adherence — all Phase 4 deliverables present
+
+- `lib/auth/admin.ts:22` — `requireAdmin` gates solely on `authResult.user.isAdmin`; `isAdmin(email)` is gone (grep-verified: zero remaining callers repo-wide).
+- `lib/auth/reserved.ts` — shared helper reading `config.admin.emails`; correctly scoped to admin only (system domain is Phase 5).
+- `register/route.ts:38-41` — **the load-bearing anti-oracle placement is correct**: `existingUser || isReservedAddress(...)` collapsed into the *same branch* as the existing conflict, emitting the identical `createErrorResponse('An account with this email already exists', 409)`, and sitting **before** the strength check at line 44. The placement-guard test (`register-newsletter.test.ts:400`) forces `checkPasswordStrength` to fail and asserts 409 — exactly the regression that would reopen the oracle. Also verified the earlier Zod `min(8)` 422 is not an oracle: reserved and taken addresses both 422 there.
+- `lib/auth/startup-checks.ts` — assertion + `shouldRunAdminStartupCheck` split for testability; all three gates (`NODE_ENV`, `NEXT_RUNTIME`, `NEXT_PHASE`) present and tested.
+- `instrumentation.ts:11` — dynamic import keeps db/config out of non-node runtimes. Good call.
+- `scripts/grant-admin.ts` — creates with a **real bcrypt hash** (login-capable, per the iter-1 codex finding), idempotent flag-only path for existing rows, password via env/prompt never argv. Test asserts the `$2[aby]$` prefix and no-duplicate idempotency.
+- `admin-auth.test.ts` fully rewritten (the old `isAdmin(email)` suite is gone), including the money test: allowlisted-looking email + `isAdmin:false` → 403.
+
+## Follow-ups (none block the phase)
+
+1. **`docs/self-hosting.md:66` is now factually wrong and operationally dangerous.** It still reads "Comma-separated allowlist for the admin dashboard." Post-phase-4, `ADMIN_EMAILS` grants nothing — it reserves + asserts — and a non-empty value makes production boot depend on a flagged DB row. A self-hoster upgrading with a value set gets a fully-500ing deploy and no explanation. The diff contains no docs changes. This is on the plan's pre-PR "Documentation Updates Required" list (`.env.example`, self-hosting table, runbook ordering migration → `grant-admin.ts` → deploy) — just don't let it slip past Phase 9.
+
+2. **`isReservedAddress` requires pre-normalized input** and returns `false` for `Admin@Ansari.Chat` (tested as the contract at `reserved.test.ts:28`). Only one caller today and it lowercases — but Phase 5 adds a domain check and more surface. Normalizing inside the helper (`email.trim().toLowerCase()`) costs one line and removes a bypass-by-forgetting footgun.
+
+3. **Transient-DB boot coupling** (spec Notes asked the plan to address this; empirically confirmed above): with `ADMIN_EMAILS` set, a DB blip at boot bricks the instance into permanent 500s with no retry, even when admins are correctly provisioned. Railway's `restartPolicyMaxRetries = 3` plus healthcheck contains the blast radius, so this is acceptable as-is — but consider distinguishing a connection error (retry/clearer message) from "admin missing," or at minimum record the observed failure mode in the runbook so an on-call sees `Failed to prepare server` and knows where to look.
+
+4. **`grantAdmin` enforces only a 12-char minimum**, bypassing `checkPasswordStrength`. Phase 9 raises the app policy to `score >= 3`, so the highest-privilege account in the system would be the one allowed to use `aaaaaaaaaaaa`. Reusing the existing strength check in the script is nearly free.
+
+5. Minor: `tsconfig.json` excludes `scripts/**`, so `npm run typecheck` doesn't cover `grant-admin.ts` — it's covered by `grant-admin.test.ts` instead. Pre-existing repo convention; no action needed, just be aware the script has no static safety net.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 is complete and correct — admin gates on the durable flag, the anti-oracle 409 placement is right and regression-tested, and I empirically confirmed both the `next build` guard and the production boot fail-fast; only docs and small hardening nits remain.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `docs/self-hosting.md:66` still describes `ADMIN_EMAILS` as an access allowlist; it now reserves + gates boot. Must land before the PR (already on the plan's pre-PR doc checklist).
+- `isReservedAddress` depends on callers pre-lowercasing; normalizing inside the helper would remove a Phase 5 footgun.
+- Failed startup assertion 500s all traffic but does not exit the process (Next 15.5.9); Railway healthcheck covers it — worth documenting the observed signature in the runbook.
+- `grantAdmin` skips `checkPasswordStrength` (12-char minimum only) for the highest-privilege account.

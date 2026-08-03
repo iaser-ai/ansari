@@ -6,8 +6,16 @@ const envSchema = z.object({
 
   // Auth
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  ACCESS_TOKEN_EXPIRY_HOURS: z.coerce.number().default(2),
-  REFRESH_TOKEN_EXPIRY_HOURS: z.coerce.number().default(2160), // 90 days
+  ACCESS_TOKEN_EXPIRY_HOURS: z.coerce
+    .number()
+    .int('ACCESS_TOKEN_EXPIRY_HOURS must be an integer')
+    .positive('ACCESS_TOKEN_EXPIRY_HOURS must be greater than 0')
+    .default(2),
+  REFRESH_TOKEN_EXPIRY_HOURS: z.coerce
+    .number()
+    .int('REFRESH_TOKEN_EXPIRY_HOURS must be an integer')
+    .positive('REFRESH_TOKEN_EXPIRY_HOURS must be greater than 0')
+    .default(2160), // 90 days
 
   // AI - Facilitator (Gemini)
   // Either Vertex AI (preferred) or the public Gemini API must be configured.
@@ -80,6 +88,16 @@ export function getEnv(): Env {
 
   cachedEnv = result.data;
   return cachedEnv;
+}
+
+/**
+ * Test-only: clear the memoized env so a subsequent `getEnv()` re-parses
+ * `process.env`. Needed because `getEnv()` caches the first successful parse,
+ * and config-validation tests must exercise multiple env states in one file.
+ * Has no effect on production behavior (only ever called from tests).
+ */
+export function resetEnvCache(): void {
+  cachedEnv = null;
 }
 
 // For use in server-side code only

@@ -1,0 +1,17 @@
+### Assessment Summary for Phase 5: System-Account Reservation via `system_key`
+
+Phase 5 focuses on system-account reservation and durable identity resolution by `system_key`. All objectives, deliverables, and acceptance criteria for Phase 5 have been fully met:
+
+1. **System Identity Resolution**: `findSystemUser` and `getOrCreateSystemUser` in [`backend/lib/db/users.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/db/users.ts#L32-L76) resolve system accounts strictly using the unique `users.system_key` column (`'ai-skill'` or `'leaderboard'`), decoupling identity from registerable email addresses.
+2. **System Registration Reservation**: Reserved system addresses under `@system.ansari.chat` are checked via [`isReservedAddress`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/auth/reserved.ts#L15-L20) in [`register/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/users/register/route.ts#L39-L41). Rejections return the byte-identical 409 conflict error prior to password strength validation (preventing registration oracle leaks).
+3. **Hijacked-Row Fail-Fast Handling**: If a pre-registered/hijacked account occupies the system email, `getOrCreateSystemUser` detects the unique constraint conflict and fails fast with an operator-actionable exception rather than looping or misrouting system data.
+4. **Endpoint Integration**: Both `v1/chat/completions` and `v2/mcp-complete` route handlers have been updated to use `getOrCreateSystemUser` with module-level ID caching.
+5. **Comprehensive Test Coverage**: Tests in `system-user.test.ts`, `reserved.test.ts`, and `system-key-backfill.test.ts` verify lookups, race handling, reservation logic, and backfill rules.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 is fully implemented and well-tested according to the spec and plan.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core admin gating and reservation are correct, but promoting a pre-registered account leaves the attacker’s existing sessions authorized as admin.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `backend/scripts/grant-admin.ts:50-58` resets the existing account’s password and enables `is_admin`, but does not revoke its stored access/refresh tokens. An attacker who pre-registered the address can retain a valid token; after promotion, `authenticateRequest` loads the now-admin user row, granting that token admin access. Revoke all existing tokens during promotion and add a regression test seeding a token and proving it no longer authenticates. The current “locks out a pre-registrant” test at `backend/tests/grant-admin.test.ts:75-97` checks only password authentication.
+- `backend/lib/auth/startup-checks.ts:27-35` includes administrator email addresses in errors that Next logs. This conflicts with the plan’s explicit “no user content” startup logging requirement and the backend logging convention. Report the failing configured entry without emitting the address.

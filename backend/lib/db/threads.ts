@@ -105,6 +105,34 @@ export async function findMessageById(
   return result[0];
 }
 
+/**
+ * Resolve a message ONLY when it belongs to `threadId` AND that thread is owned
+ * by `userId` (spec 4). A single owner-scoped join closes the feedback IDOR: a
+ * caller cannot attach feedback to — or probe the existence of — another user's
+ * thread/message. Returns undefined for a nonexistent, foreign-owned, or
+ * mismatched target alike, so the caller can return one uniform response and the
+ * endpoint is not an existence oracle.
+ */
+export async function findMessageInOwnedThread(
+  messageId: string,
+  threadId: string,
+  userId: string
+): Promise<Message | undefined> {
+  const result = await db
+    .select({ message: messages })
+    .from(messages)
+    .innerJoin(threads, eq(messages.threadId, threads.id))
+    .where(
+      and(
+        eq(messages.id, messageId),
+        eq(messages.threadId, threadId),
+        eq(threads.userId, userId)
+      )
+    )
+    .limit(1);
+  return result[0]?.message;
+}
+
 // Get thread with all messages
 export async function getThreadWithMessages(
   threadId: string,
