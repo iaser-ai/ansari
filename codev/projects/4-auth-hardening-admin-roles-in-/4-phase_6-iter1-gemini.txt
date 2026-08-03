@@ -1,0 +1,26 @@
+The implementation for **Phase 6: Logout — full session revocation** has been reviewed against the specification and implementation plan.
+
+### Summary of Assessment
+
+1. **Spec & Plan Alignment**:
+   - `backend/src/app/api/v2/users/logout/route.ts` resolves the authenticated user via `authenticateRequest(request)` and calls `deleteUserTokens(authResult.user.id)`, executing a full, all-device revocation as required by Spec Desired State #3 and Plan Phase 6.
+   - The auth-failure contract is preserved: missing, invalid, or expired tokens return a `401` status without attempting token deletion.
+
+2. **Code Quality & Error Handling**:
+   - The implementation is concise, clear, and cleanly delegates token deletion and error response generation to existing library functions.
+   - Unhandled exceptions during logout are caught and returned as a standard `500` error response.
+
+3. **Test Coverage**:
+   - `backend/tests/logout-route.test.ts` covers all key paths:
+     - Valid access token triggers full token cleanup (`deleteUserTokens(userId)`) and returns `200`.
+     - Missing auth header returns `401` and does not call `deleteUserTokens`.
+     - Invalid/unverifiable token returns `401` and does not call `deleteUserTokens`.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 6 correctly implements full session revocation on logout while maintaining the 401 auth-failure contract and test coverage.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Logout implementation is correct, but the required end-to-end revocation behavior is not tested.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `backend/tests/logout-route.test.ts:10-20` mocks both authentication and `deleteUserTokens`, so it proves only that the route calls a mock. It does not verify the Phase 6 acceptance criterion that logout actually invalidates the user’s stored access and refresh tokens.
+- Add the planned integration test using real token storage/authentication: issue or insert an access/refresh pair, call logout, then confirm refresh is rejected and an authenticated endpoint rejects the old access token. Ideally also verify another user’s tokens remain valid.

@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest, createErrorResponse } from './middleware';
-import { config } from '../config';
 import type { User } from '../../db/schema';
 
 /**
- * Check if an email is in the admin whitelist.
- * Comparison is case-insensitive per RFC 5321.
- */
-export function isAdmin(email: string): boolean {
-  return config.admin.emails.includes(email.toLowerCase());
-}
-
-/**
  * Authenticate a request and verify the user is an admin.
+ *
+ * Admin authorization is gated on the durable `users.is_admin` DB flag (spec 4),
+ * NOT on the account's email being in an allowlist. The email allowlist
+ * (`ADMIN_EMAILS`) is used only to RESERVE those addresses at registration and to
+ * assert at startup that the admin accounts exist — it never grants access on its
+ * own, so registering an allowlisted address cannot yield admin.
+ *
  * Returns { user } if valid admin, or { error: NextResponse } with 401/403.
  */
 export async function requireAdmin(
@@ -21,7 +19,7 @@ export async function requireAdmin(
   const authResult = await authenticateRequest(request);
   if ('error' in authResult) return authResult;
 
-  if (!isAdmin(authResult.user.email)) {
+  if (!authResult.user.isAdmin) {
     return {
       error: createErrorResponse('Admin access required', 403),
     };

@@ -1,0 +1,54 @@
+I'll start by getting oriented — reading the diff file and the spec/plan/review documents in parallel.Spec is thorough. Now let me read the review doc and the core implementation files directly from disk.Now the critical auth paths — rotation, logout, middleware, and JWT.Core auth logic looks sound. Let me verify the migration, config, and remaining routes.Let me run the test suite while reading the remaining implementation files.Tests passed (exit 0). Let me check the results and scan for leftover debug code.Tests confirm 569 passed / 3 skipped as claimed. Let me verify the remaining pieces and branch freshness.Line 47 of the chat completions route looks malformed (`/` instead of `//`). Let me verify — this would be a syntax error.Good — that was a grep rendering artifact; the file is correct and typecheck passes clean. Now let me assess the 11-commit divergence from `develop`.Only `docs/self-hosting.md` overlaps directly, but develop landed **working lint + CI hardening + Node 22**. Let me check whether this PR's new files would pass the new CI.I have enough to render a verdict. Let me do one final confirmation on the config-bypass guard.## Review: PR #15 — Auth Hardening (Spec 4)
+
+I read the spec, plan, review doc, and all core implementation files from disk, and independently ran the test suite and typecheck.
+
+### What I verified myself
+
+- **Tests: 569 passed / 3 skipped, exit 0** — matches the claim exactly. `npm run typecheck` clean.
+- **Config bypass genuinely closed** — `grep` for `process.env.JWT_SECRET|DATABASE_URL|*_TOKEN_EXPIRY` across `lib/` and `src/` returns nothing. All routed through validated `config`.
+- **Commit hygiene** — all 18 `[Spec 4]` commits properly formatted with `[Phase: x]` tags. Review doc present and unusually thorough.
+- **No debug code introduced** — the `console.log` hits are pre-existing (e2e specs, newsletter, mcp-complete) or intentional operator output in `grant-admin.ts`. No TODO/FIXME/`REVIEW:` left behind.
+- One apparent syntax error I flagged (`/` vs `//` at `chat/completions/route.ts:47`) was a grep rendering artifact — the file is correct.
+
+### On the security design
+
+I traced the concurrency claims rather than trusting the review doc, and **the race analysis holds up**. The key invariant is that *every* `session_version` bump site (reset, logout, `grant-admin` promotion) also deletes tokens **in the same transaction**. So refresh's in-transaction recheck either sees `(version=N, tokens present)` or `(version=N+1, tokens gone)` — never a torn state. Tokens minted by a refresh that interleaves with a revocation embed the pre-bump version and fail the version check. That's a correct backstop, and using one uniform primitive for reset/logout/promotion is a genuinely good design choice.
+
+The anti-oracle work is also right: the reserved-address check sits *before* the strength check in `register`, so a reserved address can't be distinguished by status code. That placement detail is easy to get wrong.
+
+### Blocking issue
+
+**The branch is 11 commits behind `origin/develop`, and the gap is not cosmetic.** Develop landed "Open-source readiness" (#6), which added:
+
+- `backend/eslint.config.mjs` + changed `lint` from `next lint` → `eslint .`
+- a CI workflow that **gates on `npm run lint`**, `npm run test:coverage`, and `npm run build`
+- Node 22 pin (`.nvmrc`), a dependency sweep, and `tsconfig.json` changes
+
+This PR adds ~20 new source files and 14 new test files that **have never been linted by that config** — it doesn't exist on this branch. `test:coverage` doesn't exist here either. Additionally, `docs/self-hosting.md` was edited on *both* sides (11 insertions on develop, 9 here) — a merge conflict is near-certain.
+
+My local verification also ran on Node v26.3.1, not the CI-pinned Node 22.
+
+**Fix:** merge `origin/develop`, resolve the `self-hosting.md` conflict, then run `npm run lint && npm run typecheck && npm run test:coverage && npm run build` on Node 22.
+
+### Non-blocking observations
+
+1. **Migration lock** — `CREATE UNIQUE INDEX idx_users_system_key` is non-concurrent, so it blocks writes to `users` for the index build. Negligible at current scale, but since this is a human-applied migration, a one-line note in the runbook (or `CONCURRENTLY`, which must run outside a transaction) would be cheap insurance.
+
+2. **Password policy is weaker than it reads** — `score >= 3` still accepts `aaaaaaaaaaaa`, because length is scored twice (`>=8` and `>=12`) plus lowercase. It satisfies the spec's literal `score >= 3`, so this isn't a deviation — just worth knowing the fix is narrower than "weak passwords rejected."
+
+3. **Logout 401 regression deserves a client check** — an expired access token now yields 401 from logout, leaving the 90-day refresh token alive. It's honestly disclosed in both the PR body and review, but confirm mobile/web clients still clear local tokens on a 401 logout; otherwise a user who "logged out" retains a live refresh token. This is the one change with real end-user impact.
+
+Credit where due: the review document's "Avoidable Iterations" and honest disclosure of the force-advanced Phase 4 and the logout tail are exactly what makes this reviewable. The engineering is solid — my only real objection is process, and it's mechanical to fix.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Security design and test coverage are genuinely strong and independently verified, but the branch is 11 commits behind develop and its ~34 new files have never run against develop's newly-added ESLint/CI gate, with a near-certain doc merge conflict.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- **Blocking:** Branch is 11 commits behind `origin/develop`, which added `eslint.config.mjs`, changed `lint` to `eslint .`, added `test:coverage`, and a CI job gating on lint/coverage/build. None of this PR's ~34 new files have ever been linted. Merge develop and re-run the full gate on Node 22.
+- **Blocking:** `docs/self-hosting.md` modified on both sides (11 insertions on develop vs 9 here) — merge conflict must be resolved.
+- Minor: non-concurrent `CREATE UNIQUE INDEX` in migration 0003 briefly blocks writes to `users`; worth a runbook note.
+- Minor: `score >= 3` still admits repeated-character passwords (`aaaaaaaaaaaa`) since length is scored twice — matches spec, but narrower than it appears.
+- Minor: logout-with-expired-token now 401s, leaving the refresh token alive; confirm clients clear local tokens on that path.

@@ -1,0 +1,44 @@
+I'll review Phase 6 (logout full session revocation) by reading the actual implementation files.## Review — Phase 6: Logout, full session revocation
+
+I read the route, both test files, the middleware contract, `deleteUserTokens`, the phase commits (`a2f29ee`, `b6076e9`), and the iteration-1 review artifacts + rebuttal. I ran the affected suites: **14/14 green**.
+
+### Implementation — correct and plan-conformant
+
+`backend/src/app/api/v2/users/logout/route.ts:5-23`
+
+- Resolves the user via `authenticateRequest(request)` and calls `deleteUserTokens(authResult.user.id)` — full, all-device revocation, exactly as pinned in spec Desired State #3 and plan Phase 6.
+- **401 contract preserved by delegation, not re-implementation.** `middleware.ts:22-29` (missing token), `:33-40` (unverifiable), `:43-50` (wrong type), `:54-61` (absent/expired in DB) all return 401 before any deletion. The plan required no-token → 401 and invalid → 401; this covers strictly more, and never silently succeeds.
+- Error path unchanged: 500 `Logout failed`, detail logged server-side, no user content.
+
+### Iteration-1 gap is closed
+
+Codex (REQUEST_CHANGES) and I (COMMENT) both flagged that `logout-route.test.ts` mocks `@/lib/db/users`, proving only that the route *calls* `deleteUserTokens` — and that `deleteUserTokens` had zero DB-level coverage anywhere. Verified fixed in `b6076e9`:
+
+- `tests/token-grace.test.ts:169-203` (real pglite harness) now asserts both the access **and** refresh token stop resolving via `findToken` after `deleteUserTokens(USER_ID)`, plus user-scoping (another user's refresh token survives). That closes the spec criterion "after logout, the user's refresh token is rejected (test)" end to end — route→`deleteUserTokens` proven by the mocked route test, `deleteUserTokens`→`findToken` miss proven at the DB level.
+- The obsolete `deleteToken('at')` logout assertion was removed from `refresh-token-route.test.ts` (plan deliverable), while its `deleteToken` mock is retained — still load-bearing for the issue-#34 "rotates instead of hard-deletes" assertion at `:87`.
+- Stale comments at `refresh-token-route.test.ts:4-6` and `token-grace.test.ts:127` were reworded as promised.
+
+### Residuals (plan-conformant, document — do not "fix")
+
+The builder already recorded these in `codev/state/spir-4_thread.md:262`; make sure they reach the PR body:
+
+1. An unrecognized bearer now returns 401 (previously 200) — the tightening the plan asked for, but client-visible.
+2. An **expired** access token yields 401, so its 90-day refresh token can't be revoked at logout. Plan explicitly pinned "only a valid access token proceeds"; a future `POST /logout {refresh_token}` variant would close that tail.
+3. Logout is no longer idempotent (second call → 401).
+4. `deleteToken` is now production-dead (removal candidate at PR cleanup; Phase 7 doesn't need it).
+
+### Minor, non-blocking
+
+- `deleteUserTokens(userId)` with no type filter also deletes outstanding **`reset`** tokens (`lib/db/users.ts:255-264`). So logging out invalidates a pending password-reset link the user just requested. Defensible (arguably desirable), but it's an undocumented side effect of "logout" — worth one clause in the route comment.
+- All-device semantics are documented in the route comment and the PR-body residuals; there's no user-facing logout doc in `docs/`, so that's the right home. No action needed.
+
+---
+VERDICT: APPROVE
+SUMMARY: Logout correctly performs full all-device revocation with the pinned 401 contract, and the iteration-1 test gap is genuinely closed by DB-level coverage in token-grace.test.ts.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- Document the four residuals (401 for unrecognized bearer, expired-access-token can't revoke refresh, non-idempotent logout, dead `deleteToken`) in the PR body as planned.
+- Nit: full logout also clears pending `reset` tokens — worth noting in the route comment.

@@ -59,10 +59,13 @@ export function checkPasswordStrength(password: string): {
     suggestions.push('Avoid common patterns');
   }
 
-  // Score ranges: 0-2 = weak, 3-4 = medium, 5+ = strong
-  // We require at least score 2 (matching Ansari's zxcvbn score < 2 check)
+  // Score ranges: 0-2 = weak, 3-4 = medium, 5+ = strong.
+  // Require at least score 3 (spec 4): score 2 accepted trivial passwords like
+  // "aaaaaaaa" (length>=8 + lowercase). A length cap (.max(128)) is enforced at the
+  // Zod-schema layer — note bcrypt still truncates at 72 bytes, so the cap bounds
+  // work but does not eliminate multibyte truncation (documented, not fixed here).
   return {
-    valid: score >= 2,
+    valid: score >= 3,
     score,
     suggestions,
   };

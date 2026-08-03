@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyToken } from '@/lib/auth/jwt';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { findToken, updateUser, deleteUserTokens } from '@/lib/db/users';
+import { findToken, updateUser, deleteUserTokens, bumpSessionVersion, deleteToken } from '@/lib/db/users';
+import { db } from '@/lib/db/index';
 import { createErrorResponse } from '@/lib/auth/middleware';
+import { config } from '@/lib/config';
 
 const resetSchema = z.object({
   reset_token: z.string().min(1, 'reset_token is required'),
-  new_password: z.string().min(1, 'new_password is required'),
+  new_password: z
+    .string()
+    .min(1, 'new_password is required')
+    .max(128, 'new_password must be at most 128 characters'),
 });
 
 export async function POST(request: NextRequest) {
@@ -29,7 +34,7 @@ export async function POST(request: NextRequest) {
     const { reset_token, new_password } = parseResult.data;
 
     // Verify JWT signature and expiry
-    const jwtSecret = process.env.JWT_SECRET!;
+    const jwtSecret = config.auth.jwtSecret;
     const payload = verifyToken(reset_token, jwtSecret);
     if (!payload || payload.type !== 'reset') {
       return createErrorResponse('Invalid or expired reset token', 400);
@@ -50,12 +55,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hash new password and update user
+    // Apply the reset ATOMICALLY (spec 4), all in one transaction:
+    //  1. CONSUME the one-time reset token via a conditional delete. Only one of
+    //     two concurrent requests wins this delete (the row lock serializes them),
+    //     so the same reset token can never drive two password changes.
+    //  2. Set the new password.
+    //  3. Bump session_version — invalidates every previously-issued token via the
+    //     version check, so a refresh racing this reset cannot leave a valid session.
+    //  4. Delete all remaining tokens (revoke current sessions).
     const passwordHash = await hashPassword(new_password);
-    await updateUser(tokenResult.user.id, { passwordHash });
+    const applied = await db.transaction(async (tx) => {
+      const consumed = await deleteToken(reset_token, tx);
+      if (!consumed) return false; // already used by a concurrent request
+      await updateUser(tokenResult.user.id, { passwordHash }, tx);
+      await bumpSessionVersion(tokenResult.user.id, tx);
+      await deleteUserTokens(tokenResult.user.id, undefined, tx);
+      return true;
+    });
 
-    // Invalidate ALL tokens for this user (access + refresh + reset)
-    await deleteUserTokens(tokenResult.user.id);
+    if (!applied) {
+      return createErrorResponse('Invalid or expired reset token', 400);
+    }
 
     return NextResponse.json({ status: 'success' });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateToken } from '@/lib/auth/jwt';
-import { storeToken, markTokenRotated } from '@/lib/db/users';
+import { issueTokenPair, markTokenRotated, lookupRefreshToken, maybeSweepExpiredTokens } from '@/lib/db/users';
+import { db } from '@/lib/db/index';
 import { validateRefreshToken, createErrorResponse } from '@/lib/auth/middleware';
 
 const refreshSchema = z.object({
@@ -20,45 +20,49 @@ export async function POST(request: NextRequest) {
 
     const { refresh_token } = parseResult.data;
 
-    // Validate the refresh token
+    // Validate the refresh token. The returned user carries the session_version
+    // captured NOW; it is embedded in the new tokens below so a password reset
+    // racing this refresh invalidates whatever we mint.
     const result = await validateRefreshToken(refresh_token);
+    if ('reuse' in result) {
+      // A spent (rotated-past-grace) refresh token was replayed. Reject with a
+      // generic message and log the event with the user's id (a UUID is an
+      // internal identifier, not user content) so ops can spot token theft per
+      // account. No raw/unhashed token is logged.
+      console.warn('Refresh token reuse detected for user', result.userId);
+      return createErrorResponse('Invalid or expired refresh token', 401);
+    }
     if ('error' in result) {
       return createErrorResponse(result.error, 401);
     }
 
-    const { user } = result;
-
-    // Rotate the old refresh token: keep it valid for a short grace window so
-    // concurrent refreshes with the same token still succeed (issue #34).
-    await markTokenRotated(refresh_token);
-
-    // Generate new tokens
-    const jwtSecret = process.env.JWT_SECRET!;
-    const accessExpiryHours = parseInt(process.env.ACCESS_TOKEN_EXPIRY_HOURS || '2');
-    const refreshExpiryHours = parseInt(process.env.REFRESH_TOKEN_EXPIRY_HOURS || '2160');
-
-    const newAccessToken = generateToken(user.id, 'access', accessExpiryHours, jwtSecret);
-    const newRefreshToken = generateToken(user.id, 'refresh', refreshExpiryHours, jwtSecret);
-
-    // Store new tokens
-    await storeToken({
-      userId: user.id,
-      token: newAccessToken,
-      tokenType: 'access',
-      expiresAt: new Date(Date.now() + accessExpiryHours * 60 * 60 * 1000),
+    // Re-confirm, rotate, and issue the new pair ATOMICALLY (spec 4). The lookup
+    // is repeated INSIDE the transaction so it is serialized against a concurrent
+    // logout/reset that may have revoked the token after the initial validation:
+    //  - if the token was revoked in the meantime, the recheck is `not_found` /
+    //    `reuse` and we DON'T issue;
+    //  - an in-grace rotated token still reads `valid`, so concurrent refreshes
+    //    with the same token both succeed (issue #34);
+    //  - issuance embeds the version read inside the transaction, which the version
+    //    bump on reset/logout still invalidates under any remaining interleaving.
+    const pair = await db.transaction(async (tx) => {
+      const recheck = await lookupRefreshToken(refresh_token, tx);
+      if (recheck.status !== 'valid') return null;
+      await markTokenRotated(refresh_token, tx);
+      return issueTokenPair(recheck.user.id, recheck.user.sessionVersion, tx);
     });
 
-    await storeToken({
-      userId: user.id,
-      token: newRefreshToken,
-      tokenType: 'refresh',
-      expiresAt: new Date(Date.now() + refreshExpiryHours * 60 * 60 * 1000),
-    });
+    if (!pair) {
+      return createErrorResponse('Invalid or expired refresh token', 401);
+    }
+
+    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
+    maybeSweepExpiredTokens();
 
     // Return new tokens in Ansari's format
     return NextResponse.json({
-      access_token: newAccessToken,
-      refresh_token: newRefreshToken,
+      access_token: pair.accessToken,
+      refresh_token: pair.refreshToken,
       token_type: 'bearer',
     });
   } catch (error) {

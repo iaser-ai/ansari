@@ -1,0 +1,46 @@
+I'll review Phase 7 by reading the actual implementation files.I've read the Phase 7 implementation, the surrounding auth surface, the tests, and the prior-iteration rebuttals. Verification results:
+
+**Gates (verified by running them):**
+- `npm run typecheck` — clean
+- `npm test` — 58 files, **558 passed / 3 skipped**, exit 0
+
+## Phase 7 deliverables — verified against the plan
+
+| Plan deliverable | Status | Evidence |
+|---|---|---|
+| Executor threading through rotation/reset helpers | ✅ | `lib/db/users.ts`: `exec` on `updateUser:128`, `bumpSessionVersion:148`, `storeToken:169`, `issueTokenPair:192`, `markTokenRotated:256`, `lookupRefreshToken:282`, `deleteToken:305`, `deleteUserTokens:314` |
+| Atomic rotation in a real transaction | ✅ | `refresh_token/route.ts:46-51` — recheck→rotate→issue all on `tx`; proven by a **real pglite rollback test** (`session-version-reuse.test.ts:193-215`) that would fail if any helper wrote through the global `db` |
+| Session version embedded + checked on **both** paths | ✅ | `jwt.ts:27,32`; `middleware.ts:66` (access) and `middleware.ts:105` (refresh); test at `session-version-reuse.test.ts:286-294` rejects *both* members of a stale pair |
+| Missing claim = version 0 | ✅ | `?? 0` in both checks; legacy-token test `session-version-reuse.test.ts:298-311` |
+| Reset = transactional kill (password + bump + revoke) | ✅ | `reset_password/route.ts:64-71`; real-DB test at `:218-240` |
+| Reuse detection (in-grace accept / post-grace reject+log / unknown) | ✅ | `lookupRefreshToken:282-303` state machine; `warn` log with no user content or raw token (`refresh_token/route.ts:30`); 5 state tests at `:103-130` |
+| Both interleavings tested | ✅ | forward (`:150-165`), reverse (`:243-256`), logout-vs-refresh (`:258-268`) |
+| Issue #34 preserved | ✅ | in-grace rotated reads `valid`; `markTokenRotated` still pinned to first rotation; concurrent-200s route test |
+| Reject+log only, no version bump on reuse | ✅ | matches the plan's closed decision |
+
+**Bonus beyond the plan (correctly accepted from iter-2):** the reset token is now consumed atomically via `DELETE … RETURNING` inside the transaction (`reset_password/route.ts:65`), closing a genuine TOCTOU that allowed one reset token to drive two password changes.
+
+## Observations (non-blocking)
+
+1. **The security argument rests on an undocumented invariant.** The plan pinned "capture the version at auth time, don't re-read inside the tx"; the implementation re-reads inside the tx (`refresh_token/route.ts:50`). I traced this and it is **sound** — under READ COMMITTED the recheck's join is snapshot-consistent, so a refresh can only observe the *new* version if the revoking transaction already committed, in which case the refresh row is gone and `recheck.status !== 'valid'`. But that holds **only because every `bumpSessionVersion` caller revokes tokens in the same transaction** (reset `:64-71`, logout `:19-22`, `grant-admin.ts:59-70`). A future caller that bumps the version *without* revoking in the same tx silently reopens the race. Worth one comment line at `refresh_token/route.ts:44` or on `bumpSessionVersion` stating that invariant.
+
+2. **`findToken` has no `exec`** — the plan listed it. Deliberate and fine (it's never called inside a transaction; the transactional path uses `lookupRefreshToken`). Already accepted by prior reviewers.
+
+3. **`deleteExpiredTokens` (`users.ts:324-339`) still deletes rotated-past-grace rows**, contradicting the retention rule reuse detection depends on. Correctly deferred — Phase 9 owns the flip plus the `token-grace.test.ts:151` rewrite, and the sweep has **no production caller today** (grep confirms: definition + one test). Nothing regresses now; must not be lost.
+
+4. **Reuse warning carries no identifier** (`refresh_token/route.ts:30`), so an operator seeing it can't correlate. A hashed user id would stay within the no-user-content rule. Optional.
+
+5. **Commit hygiene:** Phase 7's code landed across three `chore(porch): … build-complete / re-iter` commits (`d124945`, `a34aeb2`, `ca9e918`) rather than a `[Spec 4][Phase: …] feat:` commit like Phases 5 and 6 got. Worth a proper phase commit before the PR to match the plan's "one atomic commit per phase."
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 7 is complete and correct — real-transaction rotation, session-version enforcement on both token paths, transactional reset kill with atomic one-time-token consumption, and retained-row reuse detection, all proven against pglite with typecheck and 558 tests green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Comment) The in-transaction session-version read is safe only because every `bumpSessionVersion` caller revokes tokens in the same transaction — document this invariant at `refresh_token/route.ts:44` / on `bumpSessionVersion` so a future caller can't silently reopen the reset-vs-refresh race.
+- (Carry-forward) `deleteExpiredTokens` still sweeps rotated-past-grace rows; Phase 9 must flip it to natural-`expires_at` only, plus rewrite `token-grace.test.ts:151`. Harmless today (no production caller).
+- (Minor) Reuse `warn` log has no correlating identifier; a hashed user id would keep it actionable without violating the no-user-content rule.
+- (Process) Consider a single `[Spec 4][Phase: session-version-rotation] feat:` commit for this phase's work, which currently sits in three porch chore commits.

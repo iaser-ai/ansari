@@ -1,0 +1,13 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The spec is well-grounded and comprehensive, but unresolved security semantics make several acceptance criteria contradictory or untestable.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Refresh-token requirements conflict: concurrent uses of the same token must both succeed, while replay of a rotated token must be rejected. Without a discriminator such as idempotency/session-family semantics, a concurrent retry and replay during the 60-second grace window are indistinguishable. Define precisely when reuse is accepted, detected, and rejected.
+- Session-version validation remains an open question despite being essential to the reset guarantee. Because a racing refresh can create both access and refresh tokens after token deletion, the embedded version must be checked during authentication of both token types; refresh-only checking would leave the new access token usable.
+- “System marker” is insufficiently defined for two distinct system identities. A boolean or shared `source='system'` marker cannot uniquely resolve AI-skill versus leaderboard accounts. Require a unique, immutable server-controlled identity key, including behavior for missing or duplicate rows and concurrent provisioning.
+- Logout semantics do not match the current API contract: logout receives only the bearer access token, so there is no “submitted refresh token” or access/refresh pairing. Explicitly require global `deleteUserTokens(user.id)`, or define the required request/session-pairing contract and whether logout is per-device or global.
+- To close the feedback existence oracle testably, specify that nonexistent, foreign-thread, and mismatched-message targets return the same status and response shape.
+- The Problem Statement says users can change their own email, but direct inspection shows `updateUser` supports email internally while its only current caller updates `passwordHash`; no public email-update route exists. Correct this claim while retaining the valid pre-registration attack.
+- The pinned 128-character password cap bounds work but does not prevent bcrypt’s 72-byte truncation behavior, especially for multibyte input. The spec should not claim truncation surprises are eliminated; document the residual risk without overriding the baked limit.

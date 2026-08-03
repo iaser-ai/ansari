@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 9 is functionally complete, but registration failure logging can expose user data.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `backend/src/app/api/v2/users/register/route.ts:102` logs the entire database error object. PostgreSQL/Drizzle errors may contain the submitted email, query parameters, or password hash, violating `backend/CLAUDE.md`’s “No user content in logs” rule. Log only sanitized metadata such as error type/code, and add a test ensuring raw error details are neither returned nor logged.
