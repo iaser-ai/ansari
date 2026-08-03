@@ -20,3 +20,10 @@
   2 of 3 tests fail (rollback + retry). Restored. The coverage genuinely guards the wrapper.
 - Full suite green: 60 files, 588 passed / 3 skipped. Typecheck clean. Lint: 0 errors,
   only pre-existing warnings, none in touched files.
+
+## PR
+
+- Porch implement checks green (build + tests under .env.ci); advanced to pr phase.
+- Opened PR #24 (base develop) with the review embedded in the body per AIR.
+- Porch pr checks green (pr_exists, e2e_tests). At **pr gate** — architect notified via
+  afx send; waiting for human approval (`porch approve 18 pr`).
