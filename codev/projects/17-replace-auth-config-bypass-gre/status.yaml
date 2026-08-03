@@ -1,0 +1,14 @@
+id: '17'
+title: replace-auth-config-bypass-gre
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-03T00:10:46.993Z'
+updated_at: '2026-08-03T00:10:46.996Z'
