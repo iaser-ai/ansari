@@ -1,0 +1,15 @@
+# gitleaks fingerprint allowlist (commit:file:rule:line). Each entry pins a single
+# adjudicated finding — narrower than a .gitleaks.toml regex, and it does not widen
+# the ruleset. Justification per group below.
+#
+# Spec 4 (auth hardening), tests/session-version-reuse.test.ts: a DUMMY JWT signing
+# key used only to sign/verify test tokens against pglite — never a real credential.
+# The literal is visible in the test beside its use. These fingerprints cover two
+# historic commits that introduced/renamed the fixture before it was given a
+# gitleaks-clean value at the branch tip; the current value trips no rule. History
+# is intentionally NOT rewritten (architect decision), so the historic diffs are
+# pinned here instead.
+d124945f53dcf27cb68de896c25b4f006d9bba4c:backend/tests/session-version-reuse.test.ts:generic-api-key:8
+d124945f53dcf27cb68de896c25b4f006d9bba4c:backend/tests/session-version-reuse.test.ts:generic-api-key:20
+48699228c99715e2116072e3c53fd2a0be4a0a0d:backend/tests/session-version-reuse.test.ts:generic-api-key:8
+48699228c99715e2116072e3c53fd2a0be4a0a0d:backend/tests/session-version-reuse.test.ts:generic-api-key:20

@@ -1,0 +1,19 @@
+Phase 9 implementation review complete.
+
+### Assessment Summary
+
+The implementation of **Phase 9: Smaller Hardening** was reviewed against the plan and specification (`codev/plans/4-auth-hardening-admin-roles-in-.md` and `codev/specs/4-auth-hardening-admin-roles-in-.md`).
+
+1. **Timing-safe compare**: `v1/chat/completions/route.ts` implements `timingSafeEqualStr` using `crypto.timingSafeEqual`, correctly executing a buffer length check beforehand to prevent exceptions on unequal-length inputs.
+2. **Password policy**: `checkPasswordStrength` in `lib/auth/password.ts` now enforces `valid: score >= 3` with documented comments regarding bcrypt's 72-byte truncation boundary. The registration schema in `v2/users/register/route.ts` and reset schema in `v2/reset_password/route.ts` enforce `.max(128)`.
+3. **Generic registration error**: `v2/users/register/route.ts` catches exceptions, logs sanitized error metadata (`safeErrorMeta`) without exposing user inputs or raw driver details, and returns a generic `Registration failed` message with HTTP status 500.
+4. **Opportunistic token sweep & retention**: `deleteExpiredTokens` in `lib/db/users.ts` purges only rows past their natural `expires_at`, retaining post-grace unexpired rotated rows for reuse detection. `maybeSweepExpiredTokens` provides a non-blocking opportunistic sweep hook on token-issuing endpoints.
+5. **Test coverage & assertion updates**: `tests/token-grace.test.ts` was updated to assert the retention contract for rotated unexpired rows, and unit tests in `tests/auth.test.ts` cover the updated password policy (`score >= 3` rejecting `aaaaaaaa`).
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 9 deliverables (timing-safe comparison, password policy, generic error handling, and token retention sweep) are complete, adhere to the spec/plan, and pass test criteria.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

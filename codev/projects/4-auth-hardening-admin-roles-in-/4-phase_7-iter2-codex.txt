@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Session-version enforcement is sound, but validation remains outside both transactions, leaving rotation non-atomic and reset tokens concurrently reusable.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `backend/src/app/api/v2/users/refresh_token/route.ts:26-48` validates before opening the transaction. The transaction therefore covers only mark-and-issue, not the required validate → mark → issue sequence. It also ignores a `false` result from `markTokenRotated`, permitting issuance after the validated row was concurrently revoked. Perform the refresh lookup/version check inside the transaction using the transaction executor and suitable row locking while preserving in-grace concurrent refreshes.
+- `backend/src/app/api/v2/reset_password/route.ts:40-64` similarly validates the reset token outside the transaction, while `findToken` still closes over global `db` (`backend/lib/db/users.ts:224-242`). Two concurrent requests can both validate the same one-time reset token; after one deletes it, the other can still commit and overwrite the password. Revalidate/consume the reset token transactionally with row locking or an equivalent conditional operation.
+- Tests prove rollback of mark-and-issue but not atomic validation. Add coverage for revocation between refresh lookup and issuance, concurrent reuse of one reset token, and rejection of both members of a stale issued pair—not only its access token.

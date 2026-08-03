@@ -1,0 +1,41 @@
+I'll review the phase_4 implementation. Let me start by reading the key files.I read every phase_4 file from disk, ran `tsc --noEmit` (clean), the full Vitest suite (**517 passed / 3 skipped, 54 files**), and empirically exercised the bootstrap CLI. Here's my assessment.
+
+## Spec & Plan Adherence — all Phase 4 deliverables present
+
+| Plan deliverable | Status |
+|---|---|
+| `requireAdmin` gates on `users.is_admin`, `isAdmin(email)` removed | ✅ `lib/auth/admin.ts:22`. Verified no remaining importer of the old `isAdmin(email)` anywhere in the repo (incl. `lib/auth/index.ts`, which never re-exported it) |
+| `tests/admin-auth.test.ts` rewritten | ✅ Includes the load-bearing case "allowlisted email + `is_admin=false` → 403" (`admin-auth.test.ts:69`) |
+| Shared `isReservedAddress` helper | ✅ `lib/auth/reserved.ts`, admin-only for now (Phase 5 extends) |
+| Anti-oracle placement | ✅ `register/route.ts:38-41` folds reserved into the *same branch* as the existing-account conflict, before the strength check (`:44`). Regression-tested by `register-newsletter.test.ts:400` ("reserved + weak password → 409, not 400") |
+| Production startup assertion, triple-gated | ✅ `startup-checks.ts:64-70` (`NODE_ENV=production` ∧ `NEXT_RUNTIME=nodejs` ∧ `NEXT_PHASE≠phase-production-build`), wired at `instrumentation.ts:14` behind a dynamic import |
+| `scripts/grant-admin.ts` bootstrap | ✅ Password via env/prompt (never argv), real bcrypt hash, idempotent create-or-promote, resets password AND revokes tokens on promote |
+| Tests (a)–(e) | ✅ 39 tests across the five phase-4 files, all green |
+
+**Iteration-3 verification of the two prior blockers:** the pre-registrant promotion attack is genuinely closed — `grant-admin.ts:54-62` sets `isAdmin` + a fresh bcrypt hash **and** calls `deleteUserTokens`, proven by `grant-admin.test.ts:109` (seeds a live 90-day refresh row, asserts count 0 after). The email-in-logs leak is closed — errors identify entries positionally (`startup-checks.ts:29`), asserted by the `not.stringContaining` test at `startup-checks.test.ts:58`.
+
+**Empirical checks I ran that tests don't cover:** the CLI itself works — `npx tsx scripts/grant-admin.ts` resolves the `@/*` tsconfig path aliases correctly (tsx 4.21 is in devDependencies), the no-args path prints usage, and the `process.argv[1].endsWith(...)` direct-execution guard behaves (tests import `grantAdmin` without triggering `main()`).
+
+## Non-blocking observations
+
+1. **`grant-admin` promote path is non-transactional** (`grant-admin.ts:54-62`): the `UPDATE` commits before `deleteUserTokens`. If the delete fails (DB blip), you're left with `is_admin=true` and the pre-registrant's tokens still live, and the operator only sees an error. Suggest wrapping both in `db.transaction()`. Related follow-up: once Phase 7 lands `session_version`, this script should also bump it — that's the primitive that closes the narrow rotate-during-the-window race that token deletion alone can't.
+
+2. **Docs omit that the script doesn't load `.env`** (`docs/self-hosting.md:91`). I confirmed: running it from `backend/` with a `.env` present fails with `Environment validation failed` (it needs `DATABASE_URL`, `JWT_SECRET`, `KALEMAT_API_KEY`, `USUL_API_TOKEN`… since `config.database.url` parses the whole schema). The failure is loud and self-describing, so it's a papercut, not a hazard — but a one-line `env $(grep -v '^#' .env | xargs) …` or `railway run …` hint in step 2 would save an operator a confusing minute at the exact moment they're mid-deploy.
+
+3. **`isReservedAddress` requires pre-normalized input** — a footgun with one caller today, and the builder already logged the plan to fold normalization into the helper in Phase 5 when the second call site arrives. Reasonable; just don't let it slip.
+
+4. **Coverage shape**: both `admin-auth.test.ts` and `admin-stats-endpoint.test.ts` mock their boundary (`authenticateRequest` / `requireAdmin` respectively), so no single test proves a real token → real `is_admin=false` row → 403 end-to-end. The seam is thin and type-checked, so this is a note rather than a gap worth blocking on.
+
+None of these are in-scope defects for phase_4, and none reopen the vulnerability the phase closes.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 is complete and correct — admin gates on the durable `is_admin` flag, the anti-oracle 409 placement is right and regression-tested, the startup assertion is properly triple-gated, and the iter-2 bootstrap blockers (password reset + token revocation, no email in logs) are genuinely fixed; only doc/robustness nits remain.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Nit) `grantAdmin` promote path isn't transactional — `UPDATE` then `deleteUserTokens`; wrap in `db.transaction()`, and bump `session_version` here once Phase 7 lands it.
+- (Nit) `docs/self-hosting.md:91` should note the script doesn't auto-load `.env` — env vars must be exported (verified empirically).
+- (Nit) `isReservedAddress` demands pre-lowercased input; fold normalization in during Phase 5 as already planned.

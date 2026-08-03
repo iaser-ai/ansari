@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Durable authorization and reservation are correct, but the bootstrap can promote an attacker-controlled pre-existing account.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `backend/scripts/grant-admin.ts:39-47` blindly sets `is_admin=true` on any existing account while preserving its password. Since pre-registration of an allowlisted address is the vulnerability being fixed, this can permanently grant admin to the attacker who registered it. It can also “succeed” for an unusable `nologin`/invalid hash, violating the login-capable bootstrap requirement. Require an operator-controlled password reset when promoting an existing non-admin account, or fail fast and require explicit remediation. Update `backend/tests/grant-admin.test.ts:70-82` to verify actual password authentication for this path rather than intentionally preserving an arbitrary hash.
