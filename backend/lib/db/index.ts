@@ -1,16 +1,16 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '@/db/schema';
+import { config } from '@/lib/config';
 
 // Create a singleton pool
 let pool: Pool | null = null;
 
 function getPool(): Pool {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL environment variable is not set');
-    }
+    // Sourced through validated config (not raw process.env) so the schema's
+    // DATABASE_URL validation always runs before a connection is attempted.
+    const connectionString = config.database.url;
     pool = new Pool({
       connectionString,
       max: 10,

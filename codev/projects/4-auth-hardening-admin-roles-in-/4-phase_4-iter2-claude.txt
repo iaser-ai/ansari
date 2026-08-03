@@ -1,0 +1,53 @@
+I'll review phase_4 of this implementation. Let me start by reading the key files.## Phase 4 Review — Durable admin authz + reserved-address reservation + startup assertion + bootstrap
+
+I read the phase-4 files from disk, ran the phase-4 test files (36 passed) and `npm run typecheck` (clean), and read the iteration-1 rebuttal before forming an opinion.
+
+### What's correct
+
+- **Durable admin gate** (`lib/auth/admin.ts:22`): `requireAdmin` consults only `authResult.user.isAdmin`; the email-based `isAdmin()` is gone (grep across `lib/`, `src/`, `scripts/` confirms no remaining callers). `authenticateRequest` returns the joined `users` row via `findToken`, so `isAdmin` is genuinely a DB fact on the hot path. `admin/stats/route.ts:14` is unchanged structurally, as planned.
+- **Anti-oracle placement is right and regression-tested** (`register/route.ts:38-41`): the reserved check is folded into the *same branch* as the existing-conflict check and sits **before** the strength check, reusing the exact `createErrorResponse('An account with this email already exists', 409)`. `tests/api/register-newsletter.test.ts:400` (reserved + forced-weak password → still 409) is precisely the placement guard the plan demanded, and `:386` covers case normalization.
+- **Startup assertion** (`lib/auth/startup-checks.ts`): the assertion is separated from its gate, making it trivially testable; the gate requires `NODE_ENV==='production' && NEXT_RUNTIME==='nodejs' && NEXT_PHASE!=='phase-production-build'` — all three plan-mandated conditions, all four negative cases tested. `instrumentation.ts:11` uses a dynamic import so db/config aren't pulled into non-node runtimes. Good.
+- **`admin-auth.test.ts` rewrite** is done and includes the load-bearing case (`:69` allowlisted email + `is_admin=false` → 403).
+- **`grant-admin.ts`** creates with a real bcrypt hash (login-capable, per the admin UI's email+password flow) and is idempotent on email; the iter-1 codex fix (always set the password, never preserve an attacker hash) is properly implemented and tested with real `verifyPassword` assertions on both directions.
+
+### Blocking issue
+
+**`grantAdmin` promote path resets the password but does not revoke the promoted account's existing tokens** (`scripts/grant-admin.ts:51-59`).
+
+The iter-1 rebuttal claims resetting the password "locks the attacker out." It does not, on its own. Concretely:
+
+1. Attacker pre-registers `admin@ansari.chat` today (the live vector this spec closes) and logs in → holds an access token (≤2h) and a **refresh token valid 90 days**, rows in `tokens`.
+2. Operator applies the migration and runs `grant-admin.ts admin@ansari.chat` → row is promoted to `is_admin=true`, password overwritten.
+3. The attacker's tokens are untouched. `findToken` still resolves them, `authenticateRequest` returns the now-`isAdmin=true` user, and `requireAdmin` grants → the attacker reads `/api/v2/admin/stats` (all users' message previews) and can mint fresh access tokens for 90 days.
+
+The bootstrap is the *one* privileged provisioning path in this phase, and this is exactly the pre-registration scenario it exists to defuse. The fix is one line on the promote branch, and it matches the codebase's own convention — `src/app/api/v2/reset_password/route.ts:59` already calls `deleteUserTokens(user.id)` on a password change:
+
+```ts
+if (existing) {
+  await db.update(users)
+    .set({ isAdmin: true, passwordHash, updatedAt: new Date() })
+    .where(eq(users.id, existing.id));
+  await deleteUserTokens(existing.id); // revoke any pre-existing sessions (pre-registrant lockout)
+  return { created: false };
+}
+```
+
+Note this won't be fixed incidentally by Phase 7 — `session_version` lands there, but nothing in Phase 7 touches `grant-admin.ts`. Please add a test asserting a seeded token row for the promoted user is gone after promotion.
+
+### Non-blocking comments
+
+1. **`docs/self-hosting.md:66` is now misleading and operationally hazardous.** It still reads *"`ADMIN_EMAILS` | empty | Comma-separated allowlist for the admin dashboard."* After this phase, setting `ADMIN_EMAILS` **grants nothing** and **hard-fails production boot** until `grant-admin.ts` has run. An operator following current docs will ship a crash-looping deploy. The plan tracks this under "Documentation Updates Required" (plan-level, pre-PR), so I'm not blocking on it — but it's cheapest to write while the semantics are fresh: allowlist = *reserve + assert*, DB flag = *authorize*, and the runbook ordering migration → bootstrap → deploy.
+2. **DB-unreachable at boot is indistinguishable from missing-admin.** `assertConfiguredAdminsExist` lets a connection error propagate raw, so a transient DB outage surfaces as an opaque boot crash rather than the clear "run grant-admin" message. The spec's Notes asked the plan to "note graceful behavior if the DB is transiently unreachable at boot." Wrapping the `findUserByEmail` call and rethrowing with "admin bootstrap check could not reach the database" would make on-call triage much faster. Railway's restart loop means it self-heals; this is purely diagnostic.
+3. **Minor:** `grant-admin.ts` reads the password via `readline` with echo on — visible on screen (though not in shell history). Acceptable for an operator-run bootstrap; worth a one-line comment noting the tradeoff if you don't want to add a silent-input path.
+4. **Minor:** `isReservedAddress` requires callers to pre-normalize, and `reserved.test.ts:28` codifies that contract. Fine for one caller, but Phase 5 adds a second call site — consider normalizing inside the helper then so the contract can't be missed.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Durable `is_admin` gate, anti-oracle 409 placement, and the production-gated startup assertion are all correct and well tested; the bootstrap script's promote path leaves a pre-registrant's existing tokens valid, handing them admin.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `scripts/grant-admin.ts:51-59` promotes an existing account and resets its password but never calls `deleteUserTokens(existing.id)` — a pre-registrant's live access/refresh tokens (up to 90 days) survive and now resolve to an `is_admin=true` user, granting them `/api/v2/admin/stats`. Contradicts the iter-1 "locks the attacker out" claim; `reset_password/route.ts:59` sets the precedent. Needs the revocation plus a test.
+- (Non-blocking) `docs/self-hosting.md:66` still describes `ADMIN_EMAILS` as an admin allowlist; it now reserves the address and hard-fails production boot without a bootstrapped account — following current docs yields a crash-looping deploy.
+- (Non-blocking) `assertConfiguredAdminsExist` lets a DB connection error propagate raw, so an unreachable DB at boot is indistinguishable from a missing admin row; the spec asked for graceful/clear behavior here.

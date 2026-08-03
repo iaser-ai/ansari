@@ -1,0 +1,41 @@
+I'll verify the plan against the actual codebase before assessing it.I read the plan, the spec, and the actual backend source in the `spir-4` worktree. The plan is unusually well-grounded — phase ordering, spec coverage, and the anti-oracle/runbook pins are all sound. But verification against the code surfaced several concrete defects that would bite a builder mid-phase.
+
+## Verified as accurate
+Every file/line claim in the plan checks out: `register/route.ts:36` is the 409 conflict; `admin.ts:10-11` is the email match; `logout/route.ts:16` deletes only the access token; `middleware.ts:8-14` has the direct `process.env.JWT_SECRET` read; `feedback/route.ts:41` calls `findMessageById(message_id, thread_id)` with no owner scope; `config.ts:9-10` lacks positive bounds; `users.ts:146-161` has `deleteExpiredTokens` unreferenced outside tests. Spec-to-phase coverage is complete — all 13 spec success criteria map to a phase.
+
+## Issues that need fixing
+
+**1. Phase 3 is not "schema-only, safe to land."** The plan asserts "No application code reads the new columns in this phase — it is schema-only." That's wrong for this repo's test harness. `tests/token-grace.test.ts:36-56` and `tests/attribution-schema.test.ts:33-45` hand-write `CREATE TABLE users` DDL against pglite, and drizzle's `select()` enumerates schema columns — so the moment `is_admin`/`system_key`/`session_version` land in `db/schema/users.ts`, `findToken`'s `innerJoin(users)` will fail with `column users.is_admin does not exist`. Phase 3's deliverables must include updating both DDL blocks plus `tests/schema.test.ts:5-15`. Separately, Phase 3's "apply migration on pglite" test is a *new* harness — the repo has never run `drizzle/*.sql` through a migrator. Either commit to building it or drop it in favor of the existing hand-DDL pattern.
+
+**2. Transactional rotation is unimplementable as specified.** `db.transaction()` is inert unless inner queries use the tx handle, and every helper (`storeToken`, `markTokenRotated`, `findToken`, `deleteUserTokens`, `updateUser`) closes over the module-level `db` from `lib/db/index.ts`. Phase 2 defines `issueTokenPair(userId)` with no executor parameter, then Phase 7 asks to "wrap validate → mark-rotated → issue-pair in a DB transaction." As written, Phase 7 produces a transaction that silently commits nothing atomically. Phase 2 should define `issueTokenPair(userId, tx?)` (or an executor arg) up front, and Phase 7 must list tx-parameter additions to the reset-path helpers as explicit deliverables.
+
+**3. The admin bootstrap circularity isn't actually broken.** Phase 4 says grant-admin.ts does "create-or-flag — set `is_admin=true` on the existing user, **or** document the register-then-flag ordering." Register-then-flag is impossible for an allowlisted address — Phase 4 itself blocks that registration. And `src/app/admin/analytics/page.tsx:84` logs in with email+password before hitting stats, so the bootstrapped admin needs a real bcrypt hash. "Create the account with a password" must be a required deliverable, not an alternative.
+
+**4. The startup assertion will likely fire during `next build`.** Both gates the plan proposes (`NODE_ENV==='production'`, `NEXT_RUNTIME==='nodejs'`) are true during a production build, and Next 15 can execute `instrumentation.ts` in build workers. CI runs `npm run build` with `.env.ci`, whose `DATABASE_URL` points at a nonexistent local Postgres — a DB query there fails the build. Add a `NEXT_PHASE !== 'phase-production-build'` guard (or explicit opt-in env) and verify with a real production build before calling Phase 4 done.
+
+**5. `getOrCreateSystemUser` conflict handling is wrong for the case that matters.** The plan says "on insert conflict, re-read by `system_key`." But in the hijacked-row scenario the constraint that fires is the unique on `email` (`users.ts:5`), not `system_key` — re-reading by `system_key` returns nothing, so the endpoint fails repeatedly. Specify the email value the lazily-created row uses and an explicit fail-fast with an operator-actionable log.
+
+**6. Anti-oracle depends on check *placement*, not just the response string.** Register's existing-account 409 sits at line 34-37, *before* the password-strength check at line 40-46. If the reserved-address check is placed after strength validation, reserved+weak-password returns 400 while taken+weak returns 409 — the oracle reopens. Pin the placement, not just the `createErrorResponse` call.
+
+**7. Phase 9 inverts an existing green assertion.** `tests/token-grace.test.ts:147` — "deleteExpiredTokens sweeps spent rotated tokens but keeps fresh ones" — asserts exactly the behavior Phase 9 must reverse. List the rewrite as a deliverable so a builder doesn't "fix" the code back.
+
+## Smaller notes
+- **Logout no-token path**: the plan's mitigation says "return the existing success/no-op shape" — but `logout/route.ts:12` currently returns 401. Keep the 401; don't change it.
+- **pglite can't test real races.** It's a single in-process connection; existing "concurrent refresh" coverage (`refresh-token-route.test.ts:67`) is fully mocked. Phase 7 should state that races are tested as deterministic interleavings, and flag that `db.transaction()` may serialize or deadlock the existing pglite patterns.
+- **Fixture churn**: `tests/admin-auth.test.ts` and `refresh-token-route.test.ts:37-46` build `User` literals that will fail typecheck once `isAdmin`/`sessionVersion` are non-optional.
+- **Resolve the sweep mechanism now.** `railway.toml` has no cron; adding one is infra work outside this PR's shape. Recommend defaulting to a low-probability, non-blocking opportunistic sweep rather than leaving it open into implementation.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Well-grounded, complete spec coverage and sound phase ordering, but four defects — Phase 3 breaking existing pglite tests, a missing tx-executor interface that makes Phase 7's atomicity unimplementable, an unresolved admin-bootstrap circularity, and a build-time startup-assertion hazard — need addressing before builders start.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Phase 3's "schema-only, safe to land" claim is false: adding columns breaks `tests/token-grace.test.ts` and `tests/attribution-schema.test.ts` (hand-written pglite DDL vs. drizzle column enumeration); DDL/fixture updates must be Phase 3 deliverables.
+- Phase 2's `issueTokenPair(userId)` has no tx/executor parameter, so Phase 7's "wrap rotation in a DB transaction" yields a non-atomic no-op — helpers close over the module-level `db`.
+- Phase 4's bootstrap allows "register-then-flag," which Phase 4 itself blocks; the script must create the admin account with a bcrypt password hash (the admin page logs in with email+password).
+- Startup assertion gated only on `NODE_ENV==='production'` + `NEXT_RUNTIME==='nodejs'` can execute during `next build`, failing CI/deploy builds against `.env.ci`'s unreachable DB; add a build-phase guard.
+- `getOrCreateSystemUser`'s "re-read by system_key on conflict" is wrong for the hijacked-row case, where the unique violation is on `email`; specify the email used and fail-fast behavior.
+- Anti-oracle guarantee requires the reserved-address check be placed before the password-strength check (adjacent to `register/route.ts:36`), not merely reuse the same error string.
+- Phase 9 must explicitly rewrite `tests/token-grace.test.ts:147`, which asserts the sweep behavior the retention rule reverses.

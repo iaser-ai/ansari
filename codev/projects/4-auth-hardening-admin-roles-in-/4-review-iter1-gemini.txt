@@ -1,0 +1,39 @@
+An assessment of Pull Request #15 (**Auth hardening: admin roles in DB, system-account reservation, logout/rotation fixes, feedback IDOR, config-validation bypass**) was performed against the specification (`codev/specs/4-auth-hardening-admin-roles-in-.md`), implementation plan (`codev/plans/4-auth-hardening-admin-roles-in-.md`), review summary (`codev/reviews/4-auth-hardening-admin-roles-in-.md`), and the diff payload (`pr-15.diff`).
+
+### Assessment Overview
+
+1. **Completeness & Spec Compliance**: All 10 Acceptance Criteria defined across the 9 implementation phases have been fully addressed:
+   - Admin authorization is backed by `users.is_admin`, with registration reserved addresses returning anti-oracle uniform 409 responses.
+   - Startup assertions fail fast in production if required admin accounts are missing.
+   - System accounts resolve via unique `system_key` (`ai-skill`, `leaderboard`) rather than mutable emails, with a conditional backfill strategy.
+   - Session revocation on logout and password reset is enforced across all devices via `deleteUserTokens` and atomic `session_version` increments.
+   - Rotated token reuse after grace is detected and logged while preserving natural-expiry retention.
+   - Feedback IDOR vulnerabilities are closed with single owner-scoped queries and uniform 404 responses.
+   - All JWT/Config paths route strictly through validated `lib/config.ts`.
+2. **Test Coverage & Quality**: 569 tests pass with 3 pre-existing skips. High-quality DB-backed pglite integration tests cover real transactional concurrency, token reuse, anti-oracle placement, and session version invalidations.
+3. **Documentation & Deliverables**: Review document (`codev/reviews/4-auth-hardening-admin-roles-in-.md`) is comprehensive. Required DB migration (`drizzle/0003_lying_dracula.sql`) and administrative bootstrap tool (`scripts/grant-admin.ts`) are included with explicit human-applied deploy runbooks.
+4. **Code Cleanliness & Security**: No debug remnants or unresolved `TODO`/`REVIEW` comments found in changed code. Error logging in registration is properly sanitized via `safeErrorMeta`.
+
+---
+VERDICT: APPROVE
+SUMMARY: Comprehensive, well-tested auth hardening PR addressing 7 security vulnerabilities across 9 phases with robust integration test coverage and clear deployment runbooks.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  This PR hardens the authentication and authorization model of Ansari by transitioning trust boundaries to durable, server-controlled database state and validated configuration. It fixes seven distinct authn/authz vulnerabilities identified during multi-model security reviews, including admin privilege escalation vectors, system-account pre-registration hijack risks, session-revocation flaws, and feedback IDORs.
+
+  ## Key Changes
+  - **Durable Admin & System Roles**: Added `users.is_admin` and `users.system_key` columns with system domain reservation, production startup assertions, and `scripts/grant-admin.ts` bootstrap tool.
+  - **Session Revocation & Anti-Race**: Integrated per-user `session_version` checks into access and refresh token validations, ensuring password resets and logouts immediately revoke active sessions across all devices.
+  - **Feedback IDOR & Oracle Fixes**: Scoped feedback queries strictly through user-owned threads with uniform error responses to eliminate thread/message existence oracles.
+  - **Centralized Config & Token Helper**: Unified token pair generation through `issueTokenPair` and routed all auth secrets/expiries strictly through validated `config.ts`.
+  - **Hardening & Hygiene**: Implemented constant-time comparison for leaderboard keys, updated password policies (`score >= 3`, max 128 chars), sanitized error logging, and opportunistic natural-expiry token sweeps.
+
+  ## Test Plan
+  - `npm run typecheck && npm test && npm run build` inside `backend/`.
+  - Verify 569 unit/integration tests pass (including pglite tests for `session_version` invalidation, token reuse detection, and uniform anti-oracle responses).
+  - Test deployment runbook order locally: apply `0003_lying_dracula.sql` migration → run `scripts/grant-admin.ts` → start backend.

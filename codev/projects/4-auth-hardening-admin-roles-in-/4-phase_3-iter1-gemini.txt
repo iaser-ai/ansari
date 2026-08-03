@@ -1,0 +1,21 @@
+I have reviewed the implementation of **Phase 3** (`Schema migration: is_admin, system_key, session_version + conditional backfill`) against the specification and plan.
+
+### Review Summary
+
+1. **Spec & Plan Adherence**
+   - **Schema Modifications** (`backend/db/schema/users.ts`): Added `isAdmin` (boolean, default false, notNull), `systemKey` (text, nullable, unique index `idx_users_system_key`), and `sessionVersion` (integer, default 0, notNull).
+   - **Migration SQL** (`backend/drizzle/0003_lying_dracula.sql`): Additive column statements and unique index creation generated cleanly via Drizzle. Includes the exact conditional backfill statements for existing legitimate system accounts (`password_hash = 'nologin'` and matching `source`).
+   - **Test Suite DDL Synchronization**: Hand-written pglite `CREATE TABLE` DDL in `tests/token-grace.test.ts` and `tests/attribution-schema.test.ts` updated with the new columns, preventing runtime column selection errors on joins. `tests/schema.test.ts` extended with column assertions.
+   - **Backfill Safety Tests** (`backend/tests/system-key-backfill.test.ts`): Tests verify that legitimate system rows are backfilled while pre-registered/hijacked rows with real password hashes are skipped, and that multiple `NULL` `system_key` entries coexist under the unique index.
+
+2. **Code Quality & Scope**
+   - The changes strictly adhere to Phase 3 scope without pulling in functionality assigned to later phases.
+   - Migration DDL is safe, additive, and reviewed.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 schema migration, conditional backfill, and test DDL updates strictly fulfill all plan requirements.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

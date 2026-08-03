@@ -1,0 +1,43 @@
+I'll review Phase 9 by reading the actual implementation files.I've verified the implementation by reading the files and running the toolchain. Here's my review of **phase_9** only.
+
+## Verification performed
+- `npm run typecheck` → clean
+- `npm test` → **59 files, 569 passed / 3 skipped**
+- `npm run build` with `.env.ci` loaded (the documented CI env: `.github/workflows/ci.yml:31`) → **exit 0**. (My first bare `npm run build` failed only because my shell lacked env vars — not an implementation defect.)
+
+## Deliverable-by-deliverable
+
+**1. Constant-time leaderboard-key compare** — ✅ `v1/chat/completions/route.ts:125-130`. Length check precedes `timingSafeEqual` (correctly avoiding the throw on unequal-length buffers); the 503 unconfigured path is untouched (`:96-104`). Tests cover no-key/401, wrong-key/401, **same-length wrong key**/401 (`openai-compat.test.ts:134-147` — this is the one that actually exercises the content compare rather than the length short-circuit), and 503.
+
+**2. Password policy** — ✅ `password.ts:68` is now `score >= 3` with an accurate comment about the residual bcrypt 72-byte truncation (no over-claiming, as the spec required). `.max(128)` is on both `register/route.ts:12-15` and `reset_password/route.ts:12-16`. Tests: `auth.test.ts:66-72` (`aaaaaaaa` rejected, score < 3) and `register-newsletter.test.ts` 129-char → 422.
+
+**3. Generic registration error** — ✅ `register/route.ts:99-104` logs the detail and returns `'Registration failed'`. The test asserts the body is exactly the generic string *and* that `constraint` text doesn't leak.
+
+**4. Sweep + retention reconciliation** — ✅ `deleteExpiredTokens` (`users.ts:324-330`) now deletes **only** `expires_at < now()`; the `isNotNull(rotatedAt) AND rotatedAt < graceCutoff` clause is gone, so post-grace-but-unexpired rotated rows survive for Phase 7's reuse detection. `maybeSweepExpiredTokens` (`users.ts:344-350`) is fire-and-forget, probability-gated, error-swallowing, and wired into register/login/refresh. **The explicitly-flagged deliverable — rewriting the inverted green assertion at `token-grace.test.ts:151` — was done properly**: it now asserts `deleteExpiredTokens()` returns 1 (only the expired row) and queries the raw table to prove `spent-retained` still exists. That's the right assertion shape, since `findToken` deliberately won't return it.
+
+**Anti-oracle regression check**: the new `.max(128)` sits at the Zod layer *before* the reserved-address 409, but it's address-independent (reserved + 129-char and taken + 129-char both return 422), so no oracle is reopened.
+
+## Non-blocking observations
+
+1. **`deleteExpiredTokens` uses `.returning()` for a row count only.** `users.ts:329` materializes every deleted row (all columns, including `token_hash`) just to read `result.length`. This was harmless while the function was dead code; Phase 9 makes it live against a table that has grown unbounded since inception, so the *first* production sweeps could pull a very large row set into app memory. `.returning({ id: tokens.id })` is a one-line mitigation.
+
+2. **No index on `tokens.expires_at`.** `db/schema/tokens.ts:14-17` indexes only `token_hash` and `(user_id, token_type)`, so each sweep is a seq scan. The plan's own risk mitigation says "low probability + **indexed** delete" — the indexed half isn't there. Migration `0003` hasn't been applied to prod yet, so adding the index is still cheap if you want it; otherwise it's an accepted cost given the 2% gate and fire-and-forget execution.
+
+3. **The sweep wiring itself is untested.** All three route tests stub `maybeSweepExpiredTokens: () => undefined`, so the probability gate and the `.catch()` error-swallow (which is what keeps a sweep failure from becoming an unhandled rejection) have zero coverage. A ~5-line unit test mocking `Math.random` would lock both in.
+
+4. `reset_password`'s `.max(128)` has no direct test (register's does). Minor symmetry gap.
+
+None of these block the phase: the acceptance criteria ("leaderboard compare is constant-time; password policy is `score>=3` + `.max(128)`; register error is generic with detail logged; `deleteExpiredTokens` runs and honors retention") are all met, with the required test rewrite done and no scope creep into the deferred list.
+
+---
+VERDICT: APPROVE
+SUMMARY: All four Phase 9 hardening items are correctly implemented with the required token-grace retention test rewrite; typecheck, 569 tests, and build (with .env.ci) are green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Minor) `deleteExpiredTokens` uses `.returning()` for a count only — now live in production, the first sweep could materialize a large row set; `.returning({ id: tokens.id })` is a cheap fix.
+- (Minor) No index on `tokens.expires_at`, so each sweep is a seq scan — the plan's mitigation assumed an indexed delete.
+- (Minor) `maybeSweepExpiredTokens` itself is untested (all route tests stub it out); the probability gate and error-swallow have no coverage.
+- (Minor) `reset_password`'s `.max(128)` cap lacks a direct test, unlike register's.

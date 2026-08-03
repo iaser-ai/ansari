@@ -3,16 +3,19 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Regression tests for issue #34 at the HTTP route layer: the refresh endpoint
 // must rotate (not hard-delete) the old token, so concurrent refreshes with the
-// same token all succeed; logout must still invalidate immediately.
+// same token all succeed.
 
-const mockStoreToken = vi.fn();
+const mockIssueTokenPair = vi.fn();
 const mockMarkTokenRotated = vi.fn();
 const mockDeleteToken = vi.fn();
+const mockLookupRefreshToken = vi.fn();
 
 vi.mock('@/lib/db/users', () => ({
-  storeToken: (...args: unknown[]) => mockStoreToken(...args),
+  issueTokenPair: (...args: unknown[]) => mockIssueTokenPair(...args),
   markTokenRotated: (...args: unknown[]) => mockMarkTokenRotated(...args),
   deleteToken: (...args: unknown[]) => mockDeleteToken(...args),
+  lookupRefreshToken: (...args: unknown[]) => mockLookupRefreshToken(...args),
+  maybeSweepExpiredTokens: () => undefined,
 }));
 
 const mockGenerateToken = vi.fn();
@@ -31,8 +34,13 @@ vi.mock('@/lib/auth/middleware', () => ({
     NextResponse.json({ detail }, { status }),
 }));
 
+// The route rotates + issues atomically via db.transaction. Run the callback
+// with a dummy tx (the inner helpers are mocked, so they ignore it).
+vi.mock('@/lib/db/index', () => ({
+  db: { transaction: async (cb: (tx: unknown) => unknown) => cb({}) },
+}));
+
 import { POST as refresh } from '../src/app/api/v2/users/refresh_token/route';
-import { POST as logout } from '../src/app/api/v2/users/logout/route';
 
 const testUser = {
   id: 'user-123',
@@ -41,6 +49,10 @@ const testUser = {
   firstName: 'Test',
   lastName: 'User',
   source: 'web',
+  registeredVia: null,
+  isAdmin: false,
+  systemKey: null,
+  sessionVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -55,10 +67,12 @@ function makeRefreshRequest(refreshToken: string): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   mockValidateRefreshToken.mockResolvedValue({ user: testUser });
-  mockGenerateToken.mockReturnValue('new-token');
-  mockStoreToken.mockResolvedValue({ id: 'token-1' });
+  mockLookupRefreshToken.mockResolvedValue({ status: 'valid', user: testUser });
+  mockIssueTokenPair.mockResolvedValue({
+    accessToken: 'new-access-token',
+    refreshToken: 'new-refresh-token',
+  });
   mockMarkTokenRotated.mockResolvedValue(true);
   mockDeleteToken.mockResolvedValue(true);
 });
@@ -83,20 +97,23 @@ describe('POST /api/v2/users/refresh_token (issue #34)', () => {
 
   it('rotates the old refresh token instead of hard-deleting it', async () => {
     await refresh(makeRefreshRequest('rt'));
-    expect(mockMarkTokenRotated).toHaveBeenCalledWith('rt');
+    expect(mockMarkTokenRotated).toHaveBeenCalledWith('rt', expect.anything());
     expect(mockDeleteToken).not.toHaveBeenCalled();
   });
-});
 
-describe('POST /api/v2/users/logout (issue #34)', () => {
-  it('still invalidates the token immediately', async () => {
-    const req = new NextRequest('http://localhost/api/v2/users/logout', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer at' },
-    });
+  it('rejects a detected refresh-token reuse with a generic 401', async () => {
+    mockValidateRefreshToken.mockResolvedValueOnce({ reuse: true });
+    const res = await refresh(makeRefreshRequest('spent-rt'));
+    expect(res.status).toBe(401);
+    expect(mockIssueTokenPair).not.toHaveBeenCalled();
+  });
 
-    const res = await logout(req);
-    expect(res.status).toBe(200);
-    expect(mockDeleteToken).toHaveBeenCalledWith('at');
+  it('does NOT issue when the token was revoked between validation and the transaction', async () => {
+    // Initial validation passed, but the in-transaction recheck finds it gone
+    // (a concurrent logout/reset deleted it).
+    mockLookupRefreshToken.mockResolvedValueOnce({ status: 'not_found' });
+    const res = await refresh(makeRefreshRequest('rt'));
+    expect(res.status).toBe(401);
+    expect(mockIssueTokenPair).not.toHaveBeenCalled();
   });
 });

@@ -62,6 +62,13 @@ describe('Password utilities', () => {
       const result = checkPasswordStrength('password123');
       expect(result.valid).toBe(false);
     });
+
+    it('rejects a trivial length-only password like "aaaaaaaa" (score < 3, spec 4)', () => {
+      // Under the old score>=2 threshold this passed (length>=8 + lowercase).
+      const result = checkPasswordStrength('aaaaaaaa');
+      expect(result.valid).toBe(false);
+      expect(result.score).toBeLessThan(3);
+    });
   });
 });
 
@@ -70,7 +77,7 @@ describe('JWT utilities', () => {
 
   describe('generateToken', () => {
     it('generates a valid JWT', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       expect(token).toBeDefined();
       expect(token.split('.')).toHaveLength(3);
     });
@@ -78,7 +85,7 @@ describe('JWT utilities', () => {
 
   describe('verifyToken', () => {
     it('verifies a valid token', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       const payload = verifyToken(token, testSecret);
       expect(payload).toBeDefined();
       expect(payload?.user_id).toBe('user-123');
@@ -91,7 +98,7 @@ describe('JWT utilities', () => {
     });
 
     it('returns null for wrong secret', () => {
-      const token = generateToken('user-123', 'access', 2, testSecret);
+      const token = generateToken('user-123', 'access', 2, testSecret, 0);
       const payload = verifyToken(token, 'wrong-secret-key-32-characters-long');
       expect(payload).toBeNull();
     });

@@ -1,0 +1,53 @@
+I'll start by reading the changed implementation files.I read all the changed backend files, the plan's Phase 1 section, and verified behavior by running the toolchain.
+
+## What I verified
+
+**Ran from `backend/`:** `npm run typecheck` clean; `env $(grep -v '^#' .env.ci | xargs) npm test` → **480 passed, 3 skipped, 46 files**; `npm run build` green with `.env.ci`. So the phase's own gate is met.
+
+**Deliverable-by-deliverable (plan Phase 1):**
+
+| Deliverable | Status |
+|---|---|
+| Expiry vars `int().positive()`, defaults 2/2160 preserved | ✅ `lib/config.ts:9-18` |
+| `config.auth` exposes secret + both expiries; `config.database.url` exists | ✅ `lib/config.ts:104-117` |
+| Test-only `resetEnvCache()` | ✅ `lib/config.ts:99-101`, documented |
+| `lib/db/index.ts` via `config.database.url` | ✅ `lib/db/index.ts:13` |
+| `lib/auth/middleware.ts` — `getJwtSecret()` removed, uses `config.auth.jwtSecret` | ✅ both call sites (`:32`, `:74`) |
+| `request_password_reset` / `reset_password` via `config.auth.jwtSecret` | ✅ `:34` / `:33` |
+| Config-validation tests (short/empty secret, zero/negative/non-int expiry, cache reset) | ✅ `tests/config.test.ts` (9 tests) |
+| **"middleware verifies using the config secret" test** | ❌ **missing** |
+
+I grepped: `process.env.JWT_SECRET|DATABASE_URL|*_EXPIRY_HOURS` remains only in `drizzle.config.ts` (documented build-time exception), in `login`/`register`/`refresh_token` (explicitly Phase 2), and in test setup. Phase 1's acceptance criterion holds.
+
+## The one blocker
+
+`authenticateRequest` / `validateRefreshToken` have **zero direct test coverage** — every suite that touches them (`sse-heartbeat`, `admin-auth`, `admin-stats-endpoint`, `feedback`, `threads-client`, …) mocks `@/lib/auth/middleware` wholesale, and `tests/auth.test.ts` only covers `lib/auth/password` and `lib/auth/jwt`. The plan lists "middleware verifies using the config secret" as both a Deliverable and a Test Plan item, and it's the specific regression guard for the swap this phase makes: nothing currently fails if a future edit reverts middleware to `process.env.JWT_SECRET`. It's ~20 lines — mock `@/lib/db/users`'s `findToken` and `@/lib/config` (same pattern as the new `password-reset.test.ts` mock), sign a token with the config secret, assert `authenticateRequest` returns the user and rejects a token signed with a different secret.
+
+## Non-blocking observations
+
+1. **Import-time env surface widened.** `lib/db/index.ts` calls `getPool()` at module eval, which now triggers the *whole* Zod schema. Verified empirically:
+   ```
+   env -u KALEMAT_API_KEY -u USUL_API_TOKEN … npx tsx -e "import('./lib/db/index.ts')"
+   → IMPORT FAILED: Environment validation failed:
+   ```
+   Previously only `DATABASE_URL` was required at that point. Prod/CI have all vars (build is green with `.env.ci`), so this isn't a live break — but if the Railway *build* environment is a narrower var set than runtime, this is where it would surface. Worth a line in the PR description. The failure message also degrades from `DATABASE_URL environment variable is not set` to a generic validation dump.
+
+2. **`.int()` is stricter than the spec's "positive bounds."** It matches the plan text verbatim, but it now rejects fractional hours (`ACCESS_TOKEN_EXPIRY_HOURS=0.5`), which would fail boot rather than fall back. Fine if no deploy sets one — worth a glance at the Railway vars.
+
+3. **Commit hygiene.** The phase work is entirely **uncommitted** (`git status` shows 6 modified files) and `backend/tests/config.test.ts` is **untracked**. The plan requires one atomic commit per phase before Phase 2 begins — stage explicitly (per project rule, no `git add -A`) and don't miss the new untracked test file.
+
+4. `password-reset.test.ts` mocking `@/lib/config` is the right call (matches `admin-auth.test.ts`), and dropping the stale `process.env.JWT_SECRET` line is correct.
+
+Overall this is careful, minimal, well-scoped work — no scope creep into Phases 2-9, and the thread log (`codev/state/spir-4_thread.md:104-119`) accurately reflects what's on disk, including the test fallout it caused and fixed.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 1 config centralization is correct and green (typecheck/480 tests/build), but the explicitly-listed middleware-uses-config-secret test is missing and `authenticateRequest` has no direct coverage at all.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Missing Phase 1 deliverable: no test asserts `authenticateRequest`/`validateRefreshToken` verify with `config.auth.jwtSecret`; all suites mock `@/lib/auth/middleware`, so the swap has no regression guard (~20-line unit test with `findToken` + `@/lib/config` mocked).
+- Non-blocking: `lib/db/index.ts` module-eval now requires the *entire* env schema (verified: import fails without `KALEMAT_API_KEY`/`USUL_API_TOKEN`), where before only `DATABASE_URL` was needed — confirm the Railway build env carries all required vars, and note it in the PR.
+- Non-blocking: `.int()` on expiry vars rejects fractional-hour values that previously coerced fine — confirm no deploy sets one.
+- Process: the phase is uncommitted and `backend/tests/config.test.ts` is untracked; stage explicitly (no `git add -A`) and commit atomically before starting Phase 2.
