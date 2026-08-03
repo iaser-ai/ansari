@@ -1,5 +1,5 @@
 import { eq, and, desc } from 'drizzle-orm';
-import { db } from './index';
+import { db, type Executor } from './index';
 import {
   threads,
   messages,
@@ -9,32 +9,43 @@ import {
   type NewMessage,
 } from '@/db/schema';
 
+// Every helper takes a trailing `exec` (issue #20) so callers can compose
+// multi-step writes — including reads that must see uncommitted writes — into
+// one `db.transaction`. Default is the module-level `db` (standalone behavior).
+
 // Thread operations
 
-export async function findThreadsByUser(userId: string): Promise<Thread[]> {
-  return db
+export async function findThreadsByUser(userId: string, exec: Executor = db): Promise<Thread[]> {
+  return exec
     .select()
     .from(threads)
     .where(eq(threads.userId, userId))
     .orderBy(desc(threads.updatedAt));
 }
 
-export async function findThreadById(id: string, userId?: string): Promise<Thread | undefined> {
+export async function findThreadById(
+  id: string,
+  userId?: string,
+  exec: Executor = db
+): Promise<Thread | undefined> {
   const conditions = userId
     ? and(eq(threads.id, id), eq(threads.userId, userId))
     : eq(threads.id, id);
 
-  const result = await db.select().from(threads).where(conditions).limit(1);
+  const result = await exec.select().from(threads).where(conditions).limit(1);
   return result[0];
 }
 
-export async function createThread(data: {
-  userId: string;
-  name?: string;
-  source?: string;
-  client?: string | null;
-}): Promise<Thread> {
-  const result = await db
+export async function createThread(
+  data: {
+    userId: string;
+    name?: string;
+    source?: string;
+    client?: string | null;
+  },
+  exec: Executor = db
+): Promise<Thread> {
+  const result = await exec
     .insert(threads)
     .values({
       userId: data.userId,
@@ -51,9 +62,10 @@ export async function createThread(data: {
 export async function updateThread(
   id: string,
   userId: string,
-  data: { name?: string }
+  data: { name?: string },
+  exec: Executor = db
 ): Promise<Thread | undefined> {
-  const result = await db
+  const result = await exec
     .update(threads)
     .set({
       ...data,
@@ -64,8 +76,8 @@ export async function updateThread(
   return result[0];
 }
 
-export async function deleteThread(id: string, userId: string): Promise<boolean> {
-  const result = await db
+export async function deleteThread(id: string, userId: string, exec: Executor = db): Promise<boolean> {
+  const result = await exec
     .delete(threads)
     .where(and(eq(threads.id, id), eq(threads.userId, userId)))
     .returning();
@@ -74,34 +86,35 @@ export async function deleteThread(id: string, userId: string): Promise<boolean>
 
 // Message operations
 
-export async function findMessagesByThread(threadId: string): Promise<Message[]> {
-  return db
+export async function findMessagesByThread(threadId: string, exec: Executor = db): Promise<Message[]> {
+  return exec
     .select()
     .from(messages)
     .where(eq(messages.threadId, threadId))
     .orderBy(messages.createdAt);
 }
 
-export async function createMessage(data: NewMessage): Promise<Message> {
+export async function createMessage(data: NewMessage, exec: Executor = db): Promise<Message> {
   // Also update the thread's updatedAt
-  await db
+  await exec
     .update(threads)
     .set({ updatedAt: new Date() })
     .where(eq(threads.id, data.threadId));
 
-  const result = await db.insert(messages).values(data).returning();
+  const result = await exec.insert(messages).values(data).returning();
   return result[0];
 }
 
 export async function findMessageById(
   id: string,
-  threadId?: string
+  threadId?: string,
+  exec: Executor = db
 ): Promise<Message | undefined> {
   const conditions = threadId
     ? and(eq(messages.id, id), eq(messages.threadId, threadId))
     : eq(messages.id, id);
 
-  const result = await db.select().from(messages).where(conditions).limit(1);
+  const result = await exec.select().from(messages).where(conditions).limit(1);
   return result[0];
 }
 
@@ -116,9 +129,10 @@ export async function findMessageById(
 export async function findMessageInOwnedThread(
   messageId: string,
   threadId: string,
-  userId: string
+  userId: string,
+  exec: Executor = db
 ): Promise<Message | undefined> {
-  const result = await db
+  const result = await exec
     .select({ message: messages })
     .from(messages)
     .innerJoin(threads, eq(messages.threadId, threads.id))
@@ -136,11 +150,12 @@ export async function findMessageInOwnedThread(
 // Get thread with all messages
 export async function getThreadWithMessages(
   threadId: string,
-  userId: string
+  userId: string,
+  exec: Executor = db
 ): Promise<{ thread: Thread; messages: Message[] } | undefined> {
-  const thread = await findThreadById(threadId, userId);
+  const thread = await findThreadById(threadId, userId, exec);
   if (!thread) return undefined;
 
-  const threadMessages = await findMessagesByThread(threadId);
+  const threadMessages = await findMessagesByThread(threadId, exec);
   return { thread, messages: threadMessages };
 }

@@ -1,5 +1,5 @@
 import { eq, and, lt, gt, or, isNull, sql } from 'drizzle-orm';
-import { db } from './index';
+import { db, type Executor } from './index';
 import { users, tokens, type User, type NewUser, type Token, type NewToken } from '@/db/schema';
 import { hashToken, generateToken } from '@/lib/auth/jwt';
 import { config } from '@/lib/config';
@@ -9,13 +9,6 @@ import { SYSTEM_ACCOUNTS, type SystemKey } from '@/lib/auth/system-accounts';
 // concurrent refreshes a SPA fires on access-token expiry all succeed instead
 // of racing to delete the token and logging the user out (issue #34).
 export const REFRESH_TOKEN_GRACE_MS = 60 * 1000;
-
-// A database executor: either the module-level `db` or a transaction handle
-// passed to `db.transaction(async (tx) => ...)`. Token helpers accept this so a
-// caller (e.g. atomic refresh rotation) can run them inside one transaction.
-// Defined here in Phase 2 (config/token consolidation); Phase 7 threads a `tx`
-// through the rotation/reset path. Until then every caller passes the default `db`.
-type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // User operations
 
