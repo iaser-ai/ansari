@@ -1,7 +1,7 @@
 id: '18'
 title: logout-transaction-real-pglite
 protocol: air
-phase: implement
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-03T00:10:49.811Z'
-updated_at: '2026-08-03T00:10:49.812Z'
+updated_at: '2026-08-03T00:15:12.177Z'
