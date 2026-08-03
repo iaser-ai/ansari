@@ -10,6 +10,9 @@ describe('Database Schema', () => {
     expect(users.lastName).toBeDefined();
     expect(users.source).toBeDefined();
     expect(users.registeredVia).toBeDefined();
+    expect(users.isAdmin).toBeDefined();
+    expect(users.systemKey).toBeDefined();
+    expect(users.sessionVersion).toBeDefined();
     expect(users.createdAt).toBeDefined();
     expect(users.updatedAt).toBeDefined();
   });

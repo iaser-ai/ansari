@@ -6,4 +6,18 @@ comment once the file has real content. -->
 
 This document evolves as the project grows. Update it during the review phase of any work that introduces or changes architectural patterns.
 
-_No architecture documented yet._
+## Authentication & Authorization
+
+JWT auth over Postgres (Drizzle), in `backend/lib/auth/` and `backend/lib/db/users.ts`. Established by spec 4 (auth hardening).
+
+**Tokens.** HS256 JWTs carrying `{ user_id, type, session_version }`. Three types: `access` (~2h), `refresh` (~90d), `reset` (~1h). Stored SHA-256-hashed in the `tokens` table. Secret + expiries come only from validated `config.auth` (Zod-checked, `min(32)` secret, positive-int expiries) — never `process.env` directly. `issueTokenPair(userId, sessionVersion, exec)` is the single generate-and-store site (login/register/refresh).
+
+**Session version (uniform revocation).** `users.session_version` is embedded in every issued token and compared on validation (`authenticateRequest`, `validateRefreshToken`); a mismatch → 401. Password reset and logout each `bumpSessionVersion` (sql `+1`) inside their transaction, so all previously-issued tokens become stale at once. Callers capture the version at authorization time and pass it into issuance — issuance never re-reads it — so a reset racing a refresh cannot mint a currently-valid pair.
+
+**Rotation & reuse.** Refresh rotation is transactional: re-confirm the token (`lookupRefreshToken`, inside the tx), `markTokenRotated`, then `issueTokenPair` — all on the tx `exec`. A rotated token stays valid for a 60s grace window (issue #34: concurrent refreshes both succeed); replayed after grace but before natural expiry it is detected as `reuse` (reject + log). `deleteExpiredTokens` deletes only past-natural-expiry rows (retains rotated-but-unexpired rows so reuse stays detectable); wired as a low-probability opportunistic sweep on token issuance (no cron).
+
+**Admin & system identity.** Admin = the durable `users.is_admin` flag (`requireAdmin`), never an email match. `ADMIN_EMAILS` reserves those addresses at registration and asserts (production boot, build-phase-guarded) that each already exists as an admin. System endpoints (`v2/mcp-complete`, `v1/chat/completions`) resolve their identity via `users.system_key` (`getOrCreateSystemUser`), never email; the `@system.ansari.chat` domain is reserved at registration. Reserved-address registration returns the **same** 409 as an existing-account conflict, placed before the strength check (anti-oracle).
+
+**Feedback IDOR.** `findMessageInOwnedThread(messageId, threadId, userId)` scopes through `messages ⋈ threads WHERE threads.user_id = caller`; nonexistent / foreign-owned / mismatched targets all return an identical 404.
+
+**Deploy runbook (order matters).** `drizzle-kit generate` → review SQL (never `db:push`) → apply migration → run `scripts/grant-admin.ts <email>` for each configured admin (creates-or-promotes with a bcrypt password, revokes prior tokens) → deploy (prod boot asserts admin existence and fails fast otherwise). Inspect for a pre-registered reserved address before applying the conditional system-row backfill.

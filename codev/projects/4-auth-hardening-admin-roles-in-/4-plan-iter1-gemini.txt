@@ -1,0 +1,39 @@
+An evaluation of **Plan 4: Auth Hardening — Durable Admin Roles, System-Account Reservation, Session-Revocation & Config-Validation Fixes** (`plan-2026-08-02-auth-hardening`) against **Specification 4** (`spec-2026-08-01-auth-hardening`):
+
+---
+
+### Key Evaluation Criteria
+
+1. **Spec Coverage**
+   - **Complete & Accurate**: All 7 core defect areas and spec requirements are systematically mapped across the 9 phases:
+     - Phase 1 & 2: Config centralization, bounds validation (`min(32)` secret, positive expiry), `resetEnvCache` export for test safety, and consolidated `issueTokenPair`.
+     - Phase 3: Single DDL migration (`0003_*`) adding `is_admin`, `system_key` (unique index), and `session_version`, accompanied by the legitimacy-checked conditional backfill (`password_hash = 'nologin'`).
+     - Phase 4: Durable `is_admin` authz, reserved admin address registration guard with anti-oracle 409 response, production startup assertion in `instrumentation.ts`, and `scripts/grant-admin.ts` bootstrap tool.
+     - Phase 5: Decoupled system account resolution via `system_key` (`'ai-skill'`, `'leaderboard'`), lazy `getOrCreateSystemUser` helper, and system domain registration guard.
+     - Phase 6: Full session revocation (`deleteUserTokens(user.id)`) on logout.
+     - Phase 7: DB-transactional rotation, `session_version` enforcement across access/refresh token validation paths, version bump on reset, and post-grace rotated token retention for reuse detection.
+     - Phase 8: Single owner-scoped query for feedback write-IDOR fix with uniform error response (oracle elimination).
+     - Phase 9: Constant-time string comparison (`crypto.timingSafeEqual`), password policy tightening (`score >= 3`, `.max(128)`), generic registration error handling, and natural-expiry aligned token sweep.
+
+2. **Phase Breakdown & Sequencing**
+   - **Foundation-First Structure**: The choice to place shared plumbing refactors (Config & Token issuance) and schema migration in Phases 1–3 before feature hardening (Phases 4–9) is well-justified and ensures downstream feature phases build upon solid primitives.
+   - **Independence & Strategy**: Each phase is designed as an independently testable, single atomic commit destined for a unified single-PR delivery strategy.
+
+3. **Technical Approach & Integrity**
+   - **Anti-Oracle Compliance**: Rigorous emphasis on byte-identical 409 responses for both admin and system reserved address registration attempts.
+   - **Race & Concurrency Protection**: Transactional rotation preserves issue #34 concurrent-refresh semantics while closing reset races via `session_version`. Token sweep logic is correctly aligned to natural `expires_at` so rotated tokens remain detectable.
+   - **Operational Integrity**: Includes deploy runbook ordering (migration → bootstrap → deploy) and an inspect-before-apply step to prevent promoting hijacked accounts.
+
+4. **Testability & Risk Assessment**
+   - Clear test plans per phase covering unit, integration (pglite), edge cases (memoization reset, timing-safe length mismatches), and regression scenarios. Risk mitigations across all technical items are realistic and well-mitigated.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: The plan comprehensively addresses all specification requirements with logical foundation-first phase breakdown, precise technical controls, anti-oracle assertions, and solid test coverage.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

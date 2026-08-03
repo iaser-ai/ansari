@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// Mock the DB users module
+// Mock the DB users module. The register route issues tokens via the
+// consolidated issueTokenPair helper (Phase 2: token consolidation).
 vi.mock('../../lib/db/users', () => ({
   findUserByEmail: vi.fn().mockResolvedValue(null),
   createUser: vi.fn().mockResolvedValue({ id: 'new-user-uuid' }),
-  storeToken: vi.fn().mockResolvedValue(undefined),
+  issueTokenPair: vi.fn().mockResolvedValue({
+    accessToken: 'mock-access-token',
+    refreshToken: 'mock-refresh-token',
+  }),
+  maybeSweepExpiredTokens: () => undefined,
 }));
 
 // Mock password utilities
 vi.mock('../../lib/auth/password', () => ({
   hashPassword: vi.fn().mockResolvedValue('hashed-password'),
   checkPasswordStrength: vi.fn().mockReturnValue({ valid: true, suggestions: [] }),
-}));
-
-// Mock JWT
-vi.mock('../../lib/auth/jwt', () => ({
-  generateToken: vi.fn().mockReturnValue('mock-token'),
 }));
 
 // Mock the newsletter module — we spy on the actual function
@@ -29,6 +29,13 @@ vi.mock('../../lib/newsletter', () => ({
 vi.mock('@sentry/nextjs', () => ({
   setTag: vi.fn(),
   captureMessage: vi.fn(),
+}));
+
+// Mock the reserved-address helper (spec 4) so tests control which addresses are
+// reserved without loading real config. `h.reserved` is set per-test.
+const h = vi.hoisted(() => ({ reserved: new Set<string>() }));
+vi.mock('../../lib/auth/reserved', () => ({
+  isReservedAddress: (email: string) => h.reserved.has(email),
 }));
 
 function makeRequest(body: Record<string, unknown>, clientId?: string): NextRequest {
@@ -46,6 +53,7 @@ describe('Registration newsletter integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    h.reserved.clear();
     originalEnv = { ...process.env };
     process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
     process.env.ACCESS_TOKEN_EXPIRY_HOURS = '2';
@@ -186,6 +194,7 @@ describe('Registration newsletter opt-in gating (issue #46)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    h.reserved.clear();
     originalEnv = { ...process.env };
     process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
     process.env.ACCESS_TOKEN_EXPIRY_HOURS = '2';
@@ -339,5 +348,148 @@ describe('Registration client attribution (registered_via, spec 56)', () => {
     expect(createUser).toHaveBeenCalledWith(
       expect.objectContaining({ registeredVia: 'invalid' })
     );
+  });
+});
+
+describe('Reserved-address registration (spec 4 anti-oracle)', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.reserved.clear();
+    originalEnv = { ...process.env };
+    process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
+    process.env.ACCESS_TOKEN_EXPIRY_HOURS = '2';
+    process.env.REFRESH_TOKEN_EXPIRY_HOURS = '2160';
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('refuses a reserved address with the SAME 409 as an existing-account conflict', async () => {
+    h.reserved.add('admin@ansari.chat');
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+    const { issueTokenPair } = await import('../../lib/db/users');
+
+    const response = await POST(makeRequest({
+      email: 'admin@ansari.chat',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.detail).toBe('An account with this email already exists');
+    // No account is created for a reserved address.
+    expect(issueTokenPair).not.toHaveBeenCalled();
+  });
+
+  it('refuses a system-domain address with the same 409 (spec 4 Phase 5)', async () => {
+    h.reserved.add('ai-skill@system.ansari.chat');
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    const response = await POST(makeRequest({
+      email: 'ai-skill@system.ansari.chat',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.detail).toBe('An account with this email already exists');
+  });
+
+  it('matches reserved addresses case-insensitively (normalized before the check)', async () => {
+    h.reserved.add('admin@ansari.chat');
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    const response = await POST(makeRequest({
+      email: 'Admin@Ansari.Chat',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.detail).toBe('An account with this email already exists');
+  });
+
+  it('returns 409 (not 400) for a reserved address paired with a WEAK password (placement guard)', async () => {
+    h.reserved.add('admin@ansari.chat');
+    const { checkPasswordStrength } = await import('../../lib/auth/password');
+    // Force the strength check to fail: if the reserved check were placed AFTER it,
+    // this would return 400 and leak that the address is NOT reserved-vs-taken.
+    (checkPasswordStrength as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      valid: false,
+      score: 0,
+      suggestions: ['too weak'],
+    });
+
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    // 8+ chars so the Zod min(8) schema passes and control reaches the strength
+    // check — which we've forced to fail. A correctly-placed reserved check still
+    // returns 409 before that.
+    const response = await POST(makeRequest({
+      email: 'admin@ansari.chat',
+      password: 'weakbutlongenough',
+    }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.detail).toBe('An account with this email already exists');
+  });
+});
+
+describe('Registration hardening (spec 4 Phase 9)', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.reserved.clear();
+    originalEnv = { ...process.env };
+    process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
+    process.env.ACCESS_TOKEN_EXPIRY_HOURS = '2';
+    process.env.REFRESH_TOKEN_EXPIRY_HOURS = '2160';
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('rejects an over-long password (>128 chars) with 422', async () => {
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+    const response = await POST(makeRequest({
+      email: 'longpw@example.com',
+      password: 'a'.repeat(129),
+    }));
+    expect(response.status).toBe(422);
+  });
+
+  it('returns a GENERIC error (no raw detail) when creation throws', async () => {
+    const { checkPasswordStrength } = await import('../../lib/auth/password');
+    // mockReset clears any dangling mockReturnValueOnce queued by an earlier test
+    // whose strength check never ran (e.g. the reserved-address 409 short-circuit).
+    (checkPasswordStrength as ReturnType<typeof vi.fn>).mockReset();
+    (checkPasswordStrength as ReturnType<typeof vi.fn>).mockReturnValue({ valid: true, score: 4, suggestions: [] });
+    const { createUser } = await import('../../lib/db/users');
+    (createUser as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('duplicate key value violates unique constraint "users_email_key"')
+    );
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { POST } = await import('../../src/app/api/v2/users/register/route');
+
+    const response = await POST(makeRequest({
+      email: 'boom@example.com',
+      password: 'StrongPass123!',
+    }));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.detail).toBe('Registration failed');
+    // The raw DB/driver text must NOT leak to the client...
+    expect(body.detail).not.toContain('constraint');
+    // ...NOR into the logs (no user content: no email, params, or hash).
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('constraint');
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('boom@example.com');
+    consoleSpy.mockRestore();
   });
 });

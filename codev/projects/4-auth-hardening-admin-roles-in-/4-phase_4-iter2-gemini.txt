@@ -1,0 +1,36 @@
+# Phase 4 Implementation Review: Durable Admin Authorization, System/Admin Reservation, Startup Assertion & Bootstrap
+
+## Overview
+Phase 4 of the Auth Hardening plan ("Durable admin authorization + reserved-address reservation + startup assertion + bootstrap") has been reviewed against the spec and plan specifications.
+
+---
+
+## Detailed Evaluation
+
+### 1. Spec & Plan Adherence
+- **Durable Admin Authorization**: `backend/lib/auth/admin.ts` gates admin access (`requireAdmin`) strictly on the database flag (`authResult.user.isAdmin`). Email allowlist comparisons have been removed from the authorization hot path.
+- **Reserved Address Check (Anti-Oracle)**: `backend/lib/auth/reserved.ts` provides `isReservedAddress(normalizedEmail)`. In `backend/src/app/api/v2/users/register/route.ts`, registration checks both existing user accounts and `isReservedAddress(email.toLowerCase())` prior to password strength checking, returning the exact same `409 Conflict` response (`An account with this email already exists`).
+- **Production Startup Assertion**: `backend/lib/auth/startup-checks.ts` implements `assertConfiguredAdminsExist()` and `shouldRunAdminStartupCheck()`. It asserts that all allowlisted admin accounts exist and have `isAdmin = true`. It is properly gated (`NODE_ENV === 'production'`, `NEXT_RUNTIME === 'nodejs'`, and `NEXT_PHASE !== 'phase-production-build'`) in `backend/src/instrumentation.ts` so it will not throw during build, test, or dev phases.
+- **Admin Bootstrap Script**: `backend/scripts/grant-admin.ts` provides an out-of-band CLI tool (`grantAdmin`) that creates or promotes admin accounts, setting a secure bcrypt password (min 12 chars) interactively or via `GRANT_ADMIN_PASSWORD` (preventing shell-history leaks).
+
+### 2. Code Quality & Security
+- Placement of the reservation check in `register/route.ts` before `checkPasswordStrength()` prevents registration timing and validation oracles.
+- Standardized normalization (lowercasing emails) across authorization, reservation, and bootstrapping prevents casing mismatch bypasses.
+- Dynamic import of startup assertions in Next.js `instrumentation.ts` keeps server-only modules isolated.
+
+### 3. Test Coverage
+- `backend/tests/admin-auth.test.ts`: Verifies `requireAdmin` gating exclusively on `isAdmin` boolean flag.
+- `backend/tests/reserved.test.ts`: Verifies normalized email comparisons against `config.admin.emails`.
+- `backend/tests/startup-checks.test.ts`: Verifies startup checks pass/fail and gating conditions across build/test/prod environments.
+- `backend/tests/grant-admin.test.ts`: Tests idempotent admin creation and promotion with bcrypt password hashing against pglite.
+- `backend/tests/api/register-newsletter.test.ts`: Tests identical 409 responses and placement guards for reserved addresses during registration.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 implementation fully satisfies all spec and plan requirements for durable admin authorization, address reservation, production startup assertion, and admin bootstrapping.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

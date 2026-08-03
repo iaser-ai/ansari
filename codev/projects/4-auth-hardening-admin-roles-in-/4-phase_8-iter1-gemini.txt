@@ -1,0 +1,29 @@
+# Phase 8 Review: Feedback IDOR Fix & Oracle Uniformity
+
+I have reviewed the Phase 8 implementation (`Feedback IDOR fix + oracle uniformity`) against the specification (`codev/specs/4-auth-hardening-admin-roles-in-.md`) and implementation plan (`codev/plans/4-auth-hardening-admin-roles-in-.md`).
+
+---
+
+### 1. Spec & Plan Adherence
+- **Owner-Scoped Scoping**: The feedback endpoint (`POST /api/v2/feedback`) calls `findMessageInOwnedThread(message_id, thread_id, user.id)`, which performs a single `innerJoin` query between `messages` and `threads` checking `messages.id = messageId`, `messages.threadId = threadId`, and `threads.userId = userId`.
+- **Anti-Oracle Uniformity**: For nonexistent messages, foreign-owned threads, or mismatched message-thread pairs, `findMessageInOwnedThread` returns `undefined` and the route returns a uniform 404 error response (`createErrorResponse('Message not found', 404)`).
+- **Feedback Creation**: Feedback is attached only after passing ownership validation, resolving the IDOR vulnerability.
+
+### 2. Code Quality & Security
+- [`backend/lib/db/threads.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/db/threads.ts#L116-L134): `findMessageInOwnedThread` is cleanly implemented with type safety and standard Drizzle ORM constructs.
+- [`backend/src/app/api/v2/feedback/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/feedback/route.ts#L43-L46): The route handler properly handles authentication, payload validation via Zod (including legacy normalization for `thumbsup`/`thumbsdown`), ownership verification, and feedback creation.
+
+### 3. Test Coverage
+- **Integration Test ([`backend/tests/feedback-idor.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/feedback-idor.test.ts))**: Uses PGlite to verify that `findMessageInOwnedThread` correctly executes the database join to enforce thread ownership, preventing cross-user access.
+- **Route Unit Test ([`backend/tests/api/feedback.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/api/feedback.test.ts))**: Validates normalized schema mapping, owner-scoping calls, 404 rejection on cross-user threads, and verifies that nonexistent, foreign-owned, and mismatched targets yield byte-identical 404 status codes and error response bodies.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 8 implementation successfully eliminates the feedback IDOR and existence oracle using an owner-scoped database join and uniform 404 responses, supported by comprehensive unit and PGlite tests.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

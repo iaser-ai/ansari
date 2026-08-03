@@ -1,0 +1,23 @@
+An assessment of the implementation for **Phase 5: System-account reservation via `system_key`** against the specification and implementation plan:
+
+### Evaluation Summary
+
+1. **Spec & Plan Adherence**:
+   - **System User Lookup**: `findSystemUser` and `getOrCreateSystemUser` in [`backend/lib/db/users.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/db/users.ts#L32-L96) resolve internal system accounts using the durable, unregisterable `users.system_key` column (`'ai-skill'`, `'leaderboard'`). Pre-registered look-alike accounts without a `system_key` are never resolved as system users.
+   - **Hijacked Account Guard**: In [`backend/lib/db/users.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/db/users.ts#L83-L94), if lazy creation fails on a unique constraint, a secondary lookup re-checks for a concurrent provisioning race. If missing, it fails fast with an operator-actionable error rather than misrouting data or looping.
+   - **System Domain Reservation**: [`backend/lib/auth/reserved.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/auth/reserved.ts#L15-L20) and [`backend/lib/auth/system-accounts.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/lib/auth/system-accounts.ts#L30-L32) reserve the `@system.ansari.chat` domain.
+   - **Anti-Oracle Registration Guard**: In [`backend/src/app/api/v2/users/register/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/users/register/route.ts#L38-L41), reserved system addresses trigger the byte-identical 409 conflict error (`An account with this email already exists`) placed before password-strength checking to eliminate registration existence oracles.
+   - **Endpoint Updates**: [`backend/src/app/api/v1/chat/completions/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v1/chat/completions/route.ts#L126) and [`backend/src/app/api/v2/mcp-complete/route.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/src/app/api/v2/mcp-complete/route.ts#L25) now resolve system users via `getOrCreateSystemUser('leaderboard')` and `getOrCreateSystemUser('ai-skill')` respectively.
+
+2. **Test Coverage**:
+   - [`backend/tests/system-user.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/system-user.test.ts) tests lazy creation, idempotency, distinct key resolution, rejection of pre-registered look-alikes, unique-violation error handling, and `isUniqueViolation` logic.
+   - [`backend/tests/reserved.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/reserved.test.ts) tests reservation of configured admin addresses and `@system.ansari.chat` domain emails, verifying case/space normalization.
+   - [`backend/tests/mcp-complete.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/mcp-complete.test.ts#L129-L135) and [`backend/tests/openai-compat.test.ts`](file:///Users/mwk/Development/iaser/ansari/.builders/spir-4/backend/tests/openai-compat.test.ts#L180-L181) verify identity resolution via system keys.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 deliverables for system-account reservation via `system_key` are completely and correctly implemented with comprehensive unit and integration tests.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

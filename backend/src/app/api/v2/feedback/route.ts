@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
 import { createFeedback } from '@/lib/db/feedback';
-import { findMessageById } from '@/lib/db/threads';
+import { findMessageInOwnedThread } from '@/lib/db/threads';
 
 const feedbackSchema = z.object({
   thread_id: z.string().uuid('Invalid thread ID'),
@@ -37,8 +37,10 @@ export async function POST(request: NextRequest) {
 
     const { thread_id, message_id, feedback_class, comment } = parseResult.data;
 
-    // Verify message exists
-    const message = await findMessageById(message_id, thread_id);
+    // Verify the message exists AND its thread belongs to the caller (spec 4).
+    // A nonexistent, foreign-owned, or mismatched target all return this same
+    // 404 — so feedback is neither a cross-user write nor an existence oracle.
+    const message = await findMessageInOwnedThread(message_id, thread_id, user.id);
     if (!message) {
       return createErrorResponse('Message not found', 404);
     }

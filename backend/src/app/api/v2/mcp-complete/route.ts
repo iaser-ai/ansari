@@ -3,12 +3,10 @@ import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
 import type { ContentBlock } from '@/db/schema/messages';
-import { findUserByEmail, createUser } from '@/lib/db/users';
+import { getOrCreateSystemUser } from '@/lib/db/users';
 import { createThread, createMessage } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
-
-const SYSTEM_USER_EMAIL = 'ai-skill@system.ansari.chat';
 
 const CONCISE_INSTRUCTION =
   'Please provide a concise and brief answer. References are not required unless specifically asked for. Focus on delivering key information clearly and succinctly.';
@@ -22,16 +20,9 @@ let cachedSystemUserId: string | null = null;
 async function getSystemUserId(): Promise<string> {
   if (cachedSystemUserId) return cachedSystemUserId;
 
-  let user = await findUserByEmail(SYSTEM_USER_EMAIL);
-  if (!user) {
-    user = await createUser({
-      email: SYSTEM_USER_EMAIL,
-      passwordHash: 'nologin',
-      firstName: 'AI Skill',
-      lastName: 'System User',
-      source: 'ai-skill',
-    });
-  }
+  // Resolve by durable system_key, never by email (spec 4): a pre-registered
+  // look-alike (system_key NULL) can never receive this endpoint's data.
+  const user = await getOrCreateSystemUser('ai-skill');
   cachedSystemUserId = user.id;
   return cachedSystemUserId;
 }

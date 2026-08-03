@@ -1,0 +1,40 @@
+### Implementation Review: Phase 9 — Smaller Hardening
+
+I have reviewed the code and test changes for **Phase 9** ("Smaller hardening: timing-safe compare, password policy, generic error, token sweep").
+
+---
+
+### Verification Against Plan & Spec
+
+1. **Constant-time Leaderboard API Key Comparison**:
+   - `v1/chat/completions/route.ts`: Implemented `timingSafeEqualStr` using `crypto.timingSafeEqual`. It includes an explicit length check prior to buffer comparison to avoid `timingSafeEqual` buffer length mismatch exceptions.
+   - `tests/openai-compat.test.ts`: Verified test coverage (`rejects a wrong key of the SAME length`).
+
+2. **Password Policy Hardening**:
+   - `lib/auth/password.ts`: `checkPasswordStrength` now requires `score >= 3` for validity (`score 2` like `'aaaaaaaa'` is rejected).
+   - `v2/users/register/route.ts`: Enforces a maximum length cap of 128 characters on the password field via `.max(128)`. Comments accurately acknowledge residual bcrypt 72-byte truncation boundaries.
+
+3. **Generic Error Response on Registration Failure**:
+   - `v2/users/register/route.ts`: The catch block logs full error details server-side (`console.error('Registration error:', error)`) while returning a generic client error (`Registration failed`, 500) to prevent raw database driver error leaks.
+
+4. **Opportunistic Expired Token Sweep & Retention Alignment**:
+   - `lib/db/users.ts`: `deleteExpiredTokens()` targets only tokens where `lt(tokens.expiresAt, now)`. Unexpired rotated tokens are retained to preserve reuse detection (`lookupRefreshToken`).
+   - `maybeSweepExpiredTokens()` performs a low-probability, non-blocking opportunistic sweep on registration/token ops.
+   - `tests/token-grace.test.ts`: Updated existing tests to assert that `deleteExpiredTokens()` sweeps past-expiry tokens while retaining rotated unexpired rows.
+
+---
+
+### Code Quality & Test Coverage
+- **Type Safety & Linting**: Clean implementation, properly typed with TypeScript.
+- **Error Handling**: Graceful, non-blocking handling for background sweeps and generic messaging for security.
+- **Tests**: Direct regression unit/integration tests cover timing-safe equality, password strength boundaries, registration error sanitization, and token sweep behavior.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 9 deliverables (timing-safe compare, password strength, generic registration error, token sweep retention) are complete and fully tested.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
