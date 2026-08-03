@@ -1,7 +1,7 @@
 id: '22'
 title: codify-release-md-develop-main
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,5 +13,5 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-03T00:11:03.788Z'
-updated_at: '2026-08-03T18:06:41.614Z'
+updated_at: '2026-08-03T18:06:46.694Z'
 pr_ready_for_human: false
