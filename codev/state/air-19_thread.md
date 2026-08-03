@@ -41,3 +41,17 @@
   route leak test upgraded to the wrapped shape. 596 passed / 3 skipped.
 - Non-blocking review items intentionally NOT picked up (architect filing
   follow-up issues; no scope expansion).
+
+## Merged
+
+- Human approved the PR gate; `porch next` reported project 19 complete
+  (phase `verified`, air protocol done).
+- First merge attempt was rejected by base-branch policy: a fresh CI run had
+  started on the PR and the required `backend (lint, typecheck, test, build)`
+  check was still in progress (`mergeStateStatus: BLOCKED`, `mergeable:
+  MERGEABLE`). Not a branch problem — waited it out rather than reaching for
+  `--admin`/`--auto`.
+- Both checks went green (backend 1m49s, gitleaks 6s), then merged via the
+  codev `pr-merge.sh` script: merge commit `a150f77`, two parents
+  (`2112db7` + `58df349`), so development history is preserved (no squash).
+- Architect notified; worktree ready for cleanup at the architect's discretion.
