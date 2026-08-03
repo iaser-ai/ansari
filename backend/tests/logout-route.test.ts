@@ -22,6 +22,8 @@ vi.mock('@/lib/db/users', () => ({
 }));
 
 // Logout runs its revocation in a db.transaction; run the callback with a dummy tx.
+// This fake CANNOT roll back — real transaction/rollback coverage for this route
+// lives in logout-route-pglite.test.ts (issue #18).
 vi.mock('@/lib/db/index', () => ({
   db: { transaction: async (cb: (tx: unknown) => unknown) => cb({}) },
 }));
