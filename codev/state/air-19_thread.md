@@ -21,3 +21,9 @@
   and that the SQLSTATE code does).
 - Verified: typecheck clean, full suite 595 passed / 3 pre-existing skips,
   `next build` green with the CI dummy env (`.env.ci`).
+
+## PR
+
+- Opened PR #29 against `develop` with the AIR review embedded in the body
+  (summary, key decisions, test plan). Porch checks (pr_exists, e2e_tests)
+  passed; PR gate requested. Waiting for human approval.
