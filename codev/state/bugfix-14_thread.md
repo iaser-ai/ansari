@@ -76,3 +76,26 @@ is not propagated for same-name parallel calls (pre-existing; possible
 follow-up issue).
 
 `pr` gate requested via porch; waiting for human approval.
+
+## 2026-08-03 — Integration + merge
+
+Architect asked for a develop-tip integration before the gate: merged
+`origin/develop` into `builder/bugfix-14` (clean, no conflicts), reran
+post-merge — typecheck clean, full suite **589 passed / 3 skipped** across 60
+files (now includes PR #15's auth suites; was 489 pre-merge). Pushed.
+
+`pr` gate approved by the human in porch state (`gates.pr.status: approved`,
+2026-08-03T18:05:45Z) — verified in status.yaml before merging, per the
+protocol's "merge is gated by porch state, never by typed prose" rule.
+
+**PR #27 merged to develop** at 18:10:37Z (merge commit 38ffdec). CI was green
+(backend lint/typecheck/test/build + gitleaks), mergeStateStatus CLEAN.
+Issue #14 auto-closed by `Fixes #14`. Branch NOT deleted (worktree is checked
+out on it) — awaiting architect-driven `afx cleanup`.
+
+**Post-merge watch item:** the root cause was established by code reading +
+prod-log correlation, not a live Vertex repro. Confirm the 400 signature
+("number of function response parts is equal to...") and its Inkling-rescue
+breadcrumbs stop appearing in prod after deploy. Possible follow-up (non-
+blocking, pre-existing): `functionResponse.id` is not propagated, so same-name
+parallel calls are matched positionally.
