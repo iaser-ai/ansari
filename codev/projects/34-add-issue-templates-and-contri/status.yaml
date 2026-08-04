@@ -1,0 +1,14 @@
+id: '34'
+title: add-issue-templates-and-contri
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-04T22:38:13.537Z'
+updated_at: '2026-08-04T22:38:13.538Z'
