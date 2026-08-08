@@ -5,32 +5,40 @@ bug reports, fixes, tests, documentation, and translations.
 
 ## Development setup
 
-All development happens inside `backend/` for now (`frontend/` is being migrated).
+This is a **pnpm workspace** (`backend/` + `frontend/`): install once at the
+repo root, then run scripts inside the package you're working on.
 
 ```bash
+corepack enable         # provides pnpm (version pinned in package.json)
+pnpm install            # at the repo root
+
+# Backend
 cd backend
-npm ci
 cp .env.example .env    # see docs/self-hosting.md for the full env contract
-npm run db:migrate      # needs a local Postgres and DATABASE_URL
-npm run dev
+pnpm db:migrate         # needs a local Postgres and DATABASE_URL
+pnpm dev
+
+# Frontend
+cd frontend
+pnpm start              # Expo dev server; `pnpm web` for the web target
 ```
 
-**Run all npm commands from inside `backend/`, not the repo root.**
-`backend/package-lock.json` is the single authoritative lockfile — there is
-deliberately no root `package.json` or root lockfile (workspaces tooling arrives
-when `frontend/` lands). Running `npm install` at the repo root would create a
-stray root lockfile; don't.
+**Use pnpm, not npm or yarn.** The single authoritative lockfile is the root
+`pnpm-lock.yaml`; there are deliberately no per-package lockfiles. Shared
+toolchain versions (e.g. TypeScript) live in the `catalog:` section of
+`pnpm-workspace.yaml`.
 
 ## Checks
 
-Before opening a PR, make sure all four pass (CI runs these — it runs the test
-step with coverage — using the dummy env in `backend/.env.ci`, no secrets needed):
+Before opening a PR, make sure these pass (CI runs them — the backend test step
+with coverage — using the dummy env in `backend/.env.ci`, no secrets needed):
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
+# inside backend/
+pnpm lint && pnpm typecheck && pnpm test && pnpm build
+
+# inside frontend/
+pnpm lint && pnpm typecheck
 ```
 
 ## Pull requests

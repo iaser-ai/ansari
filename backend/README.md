@@ -41,8 +41,8 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 ## Getting Started
 
 ```bash
-# Install (Node >= 22, see .nvmrc)
-npm ci
+# Install at the REPO ROOT (pnpm workspace; Node >= 22, pnpm via corepack)
+cd .. && pnpm install && cd backend
 
 # Configure — see .env.example for the full contract
 cp .env.example .env
@@ -51,13 +51,13 @@ cp .env.example .env
 # NOTE: Kalemat and Usul keys are not self-serve — request them from the providers.
 
 # Database
-npm run db:migrate
+pnpm db:migrate
 
 # Run
-npm run dev
+pnpm dev
 ```
 
-Verify: `npm run typecheck && npm test && npm run build`.
+Verify: `pnpm typecheck && pnpm test && pnpm build`.
 
 ## Project Layout
 
@@ -74,7 +74,7 @@ emails/         react-email templates
 
 ## Deployment
 
-Deployed on Railway (`railway.toml`: nixpacks, healthcheck `/api/health`), but any host that runs a Next.js server works. See the self-hosting guide in the monorepo `docs/` for the full environment contract.
+Deployed on Railway (`railway.toml`: dockerfile builder using `backend/Dockerfile`, built from the repo root, healthcheck `/api/health`), but any host that runs a Next.js server works. See the self-hosting guide in the monorepo `docs/` for the full environment contract.
 
 ## License
 

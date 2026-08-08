@@ -64,7 +64,7 @@ exercises the real model and tools, not mocks).
 1. **Build:**
 
    ```bash
-   npm ci && npm run build
+   (cd .. && pnpm install) && pnpm build
    ```
 
 2. **Migrate a fresh database.** Start a disposable Postgres 16 and apply the
@@ -75,14 +75,14 @@ exercises the real model and tools, not mocks).
    ```bash
    docker run --rm -d --name ansari-smoke -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16
    export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/postgres
-   npm run db:migrate
+   pnpm db:migrate
    ```
 
 3. **Boot the production build** against that database (same shell, so the
    `DATABASE_URL` override wins over `.env`):
 
    ```bash
-   npm run start
+   pnpm start
    ```
 
 4. **Health:**
@@ -124,10 +124,10 @@ exercises the real model and tools, not mocks).
 Use this variant whenever the release includes a schema change (a new file in
 `backend/drizzle/`).
 
-> **NEVER run `npm run db:push` (drizzle-kit push) against production.** It
+> **NEVER run `pnpm db:push` (drizzle-kit push) against production.** It
 > diffs the live schema and can drop or recreate tables — and data. The rule
-> for schema changes is: `npm run db:generate` → review the generated SQL →
-> apply that SQL explicitly at release time (below). `npm run db:migrate` is
+> for schema changes is: `pnpm db:generate` → review the generated SQL →
+> apply that SQL explicitly at release time (below). `pnpm db:migrate` is
 > for local/fresh databases (as in the smoke test above); production gets the
 > reviewed SQL via `psql`.
 

@@ -5,7 +5,9 @@ the complete environment-variable contract, and deployment notes.
 
 ## Prerequisites
 
-- **Node.js ≥ 22** (`backend/.nvmrc` pins the version)
+- **Node.js ≥ 22** (the root `.nvmrc` pins the version)
+- **pnpm ≥ 10** — `corepack enable` provides the exact pinned version (the
+  `packageManager` field in the root `package.json`); the repo is a pnpm workspace
 - **PostgreSQL** (any recent version; the schema is managed by Drizzle migrations)
 - A **Gemini** credential — either a [Google AI Studio API key](https://aistudio.google.com/)
   or a Google Cloud project with Vertex AI enabled
@@ -87,29 +89,30 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 
 Admin access is gated on the durable `users.is_admin` DB flag, not on `ADMIN_EMAILS`. Because public registration of an `ADMIN_EMAILS` address is refused and a production server asserts at boot that every configured admin account exists, the **only** way to create an admin is the bootstrap script. Deploy in this order:
 
-1. **Apply the migration** (`npm run db:migrate`, or your managed-DB apply step). Before applying, inspect for any pre-existing account holding a reserved admin/system address and remediate it.
-2. **Bootstrap each admin**: `npx tsx scripts/grant-admin.ts <email>` (from `backend/`). You are securely prompted for the password (input is hidden). This creates the account with that password (or promotes and password-resets an existing one, revoking its old sessions).
+1. **Apply the migration** (`pnpm db:migrate` from `backend/`, or your managed-DB apply step). Before applying, inspect for any pre-existing account holding a reserved admin/system address and remediate it.
+2. **Bootstrap each admin**: `pnpm exec tsx scripts/grant-admin.ts <email>` (from `backend/`). You are securely prompted for the password (input is hidden). This creates the account with that password (or promotes and password-resets an existing one, revoking its old sessions).
 3. **Deploy.** Production boot then asserts the configured admins exist; if the bootstrap step was skipped it fails fast (identifying the missing entry by its position in `ADMIN_EMAILS`, not by address). The same check also fails when the database is unreachable at boot — see [Troubleshooting: crash loop at boot](#troubleshooting-crash-loop-at-boot-admin-bootstrap-check) before assuming a provisioning error.
 
 ## Running it
 
 ```bash
+corepack enable             # provides pnpm
+pnpm install                # at the REPO ROOT (single workspace lockfile)
+
 cd backend
-npm ci
-
 cp .env.example .env        # fill in per the tables above
-npm run db:migrate          # applies drizzle/ migrations to DATABASE_URL
+pnpm db:migrate             # applies drizzle/ migrations to DATABASE_URL
 
-npm run dev                 # dev server on :3000
+pnpm dev                    # dev server on :3000
 ```
 
-Verify your setup:
+Verify your setup (from `backend/`):
 
 ```bash
-npm run lint
-npm run typecheck
-npm test                    # full Vitest suite; no external services needed
-npm run build
+pnpm lint
+pnpm typecheck
+pnpm test                   # full Vitest suite; no external services needed
+pnpm build
 # The healthcheck now verifies the database: 200 only if a live DATABASE_URL
 # answers SELECT 1, otherwise 503. With a running DB and DATABASE_URL set:
 curl localhost:3000/api/health   # {"status":"ok",...,"service":"ansari-backend"}
@@ -120,20 +123,26 @@ env in `backend/.env.ci` — proof that none of them require real secrets.
 
 ## Deployment
 
-Any host that runs a Next.js server works (`npm run build` && `npm run start`).
+Any host that runs a Next.js server works (`pnpm build` && `pnpm start` from
+`backend/`), as does any Docker host via `backend/Dockerfile` (build from the
+repo root: `docker build -f backend/Dockerfile .` — the image builds with the
+committed dummy `backend/.env.ci`; real environment variables are injected at
+runtime).
 
 The production instance runs on **Railway** with the repository's
-`backend/railway.toml` (nixpacks builder, healthcheck on `/api/health`, restart on
-failure). For a Railway deploy from this monorepo, set the service's root directory
-to `backend/` so the lockfile and `railway.toml` are picked up.
+`backend/railway.toml` (dockerfile builder pointing at `backend/Dockerfile`,
+healthcheck on `/api/health`, restart on failure). For a Railway deploy from
+this monorepo, set the service's **root directory to the repo root** (the
+Docker build context needs the root `pnpm-lock.yaml`) and its config-as-code
+path to `backend/railway.toml`.
 
 Because `/api/health` now returns 503 when the database is unreachable, it is a real
 deploy gate: a deploy with a broken or unset `DATABASE_URL` will fail its healthcheck
 and be rolled back rather than going live in a broken state. Make sure `DATABASE_URL`
 is set and reachable before deploying.
 
-Database migrations are applied with `npm run db:migrate` against the production
-`DATABASE_URL` (never `db:push`).
+Database migrations are applied with `pnpm db:migrate` (from `backend/`) against
+the production `DATABASE_URL` (never `db:push`).
 
 ### Troubleshooting: crash loop at boot (admin bootstrap check)
 
