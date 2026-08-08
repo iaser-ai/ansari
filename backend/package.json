@@ -60,6 +60,7 @@
     "drizzle-kit": "^0.31.8",
     "eslint": "^9.39.2",
     "eslint-config-next": "^15.5.22",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
