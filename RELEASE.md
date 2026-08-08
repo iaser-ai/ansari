@@ -8,11 +8,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 
 - **`develop`** is the integration branch. It is protected: PRs only, with the
   required CI checks from `.github/workflows/ci.yml` —
-  `backend (lint, typecheck, test, build)` and `gitleaks (secret scan)`.
+  `backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
+  `gitleaks (secret scan)`.
 - **`main`** is the production branch. The Railway service `backend`
-  auto-deploys every push to `main` (service root directory `backend/`, config
-  in `backend/railway.toml`: nixpacks builder, healthcheck on `/api/health`
-  with a 300s timeout, restart `ON_FAILURE` up to 3 times).
+  auto-deploys every push to `main` (service root directory = repo root, config
+  in `backend/railway.toml`: dockerfile builder using `backend/Dockerfile`,
+  healthcheck on `/api/health` with a 300s timeout, restart `ON_FAILURE` up to
+  3 times).
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.
