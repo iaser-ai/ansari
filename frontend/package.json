@@ -11,7 +11,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "gen:types": "uniwind generate-artifacts --css ./src/global.css --dts ./uniwind-types.d.ts",
+    "typecheck": "pnpm run gen:types && tsc --noEmit"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.2",
