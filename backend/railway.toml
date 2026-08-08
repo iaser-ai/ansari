@@ -1,5 +1,16 @@
+# Railway config for the backend service. The service's root directory
+# must be the repo root (pnpm workspace); point the service's "config
+# file path" at backend/railway.toml.
+
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
+watchPatterns = [
+  "backend/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
 
 [deploy]
 healthcheckPath = "/api/health"
