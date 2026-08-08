@@ -19,12 +19,21 @@ describe('RELEASE.md consistency', () => {
     expect(existsSync(releasePath)).toBe(true);
   });
 
-  it('only references npm scripts that exist in backend/package.json', () => {
-    const scripts = [...doc.matchAll(/npm run ([a-z0-9:-]+)/g)].map((m) => m[1]);
+  it('only references package scripts that exist in backend/package.json', () => {
+    // Matches both `pnpm <script>` and `pnpm run <script>`; the alternation
+    // excludes pnpm's own subcommands (install/exec/etc.) and the workspace
+    // convenience scripts (`pnpm build:web` lives in the frontend, matched out
+    // by requiring the script to exist here only for backend-context refs).
+    const scripts = [...doc.matchAll(/pnpm (?:run )?((?:db:)?(?:generate|migrate|push|build|start|dev|test|lint|typecheck)(?::[a-z-]+)?)\b/g)].map(
+      (m) => m[1],
+    );
     expect(scripts.length).toBeGreaterThan(0);
     for (const script of scripts) {
-      expect(pkg.scripts, `npm run ${script} referenced but not defined`).toHaveProperty(script);
+      expect(pkg.scripts, `pnpm ${script} referenced but not defined`).toHaveProperty(script);
     }
+    // The npm era is over: any npm invocation in the runbook is drift.
+    // (lookbehind so `pnpm install` doesn't match its own `npm install` tail)
+    expect(doc).not.toMatch(/(?<!p)npm (run|ci|install|test)\b/);
   });
 
   it('mentions db:push only to prohibit it', () => {

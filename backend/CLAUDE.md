@@ -11,20 +11,27 @@ Islamic search tools (`lib/tools/`: Quran, Hadith, Mawsuah, Tafsir) and citing
 results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), JWT auth
 (`lib/auth/`), SSE streaming responses.
 
-## Commands (run inside `backend/`)
+## Commands
+
+This repo is a **pnpm workspace**: install once at the repo root, then run
+package scripts from inside `backend/` (or from the root with
+`pnpm --filter ansari-backend <script>`).
 
 ```bash
-npm ci                # install (Node >= 22)
-npm run typecheck     # tsc --noEmit
-npm test              # vitest — the full suite runs without external services
-npm run build         # next build
-npm run dev           # dev server
-npm run db:generate   # drizzle-kit generate (after editing db/schema/)
-npm run db:migrate    # apply migrations
+pnpm install          # at the REPO ROOT (Node >= 22; pnpm via corepack)
+
+# inside backend/
+pnpm typecheck        # tsc --noEmit
+pnpm test             # vitest — the full suite runs without external services
+pnpm build            # next build
+pnpm dev              # dev server
+pnpm db:generate      # drizzle-kit generate (after editing db/schema/)
+pnpm db:migrate       # apply migrations
 ```
 
-Do not run npm at the repo root — `backend/package-lock.json` is the single
-lockfile. Never use `db:push` against a real database; generate + migrate.
+Never use npm or yarn here — the single lockfile is the root `pnpm-lock.yaml`
+(there are no per-package lockfiles). Never use `db:push` against a real
+database; generate + migrate.
 
 ## Layout
 

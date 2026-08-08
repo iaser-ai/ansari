@@ -1,0 +1,15 @@
+# Keep Docker build contexts small: both service Dockerfiles use the repo
+# root as context (the pnpm workspace needs the root lockfile), so anything
+# not excluded here uploads on every build.
+.git
+**/node_modules
+**/.next
+**/dist
+**/.expo
+**/coverage
+.builders
+**/.DS_Store
+**/.env
+**/.env.local
+**/.env.*.local
+frontend/google-service-account

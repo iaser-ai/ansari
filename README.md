@@ -14,17 +14,27 @@ Alliance for Safe, Ethical, and Responsible AI).
 | Directory | Contents |
 |-----------|----------|
 | [`backend/`](backend/) | The production backend: Next.js API, Gemini-powered facilitator, Islamic search tools |
-| `frontend/` | Reserved for the Ansari frontend (migration in progress — see [`frontend/README.md`](frontend/README.md)) |
+| [`frontend/`](frontend/) | The Ask Ansari app: Expo / React Native (iOS, Android, and web via react-native-web) |
 | [`docs/`](docs/) | Documentation, including the [self-hosting guide](docs/self-hosting.md) |
+
+This is a [pnpm workspace](https://pnpm.io/workspaces): one `pnpm install` at the
+repo root installs every package against the single root `pnpm-lock.yaml`.
 
 ## Quickstart
 
 ```bash
+corepack enable        # provides pnpm (version pinned in package.json)
+pnpm install           # once, at the repo root
+
+# Backend
 cd backend
-npm ci
 cp .env.example .env   # fill in — see docs/self-hosting.md for the full contract
-npm run db:migrate
-npm run dev
+pnpm db:migrate
+pnpm dev
+
+# Frontend (from frontend/)
+pnpm start             # Expo dev server (iOS / Android)
+pnpm web               # web dev server
 ```
 
 See [`docs/self-hosting.md`](docs/self-hosting.md) for prerequisites, the complete
