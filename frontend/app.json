@@ -8,6 +8,11 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
     "ios": {
       "bundleIdentifier": "chat.ansari.app",
       "supportsTablet": false,
