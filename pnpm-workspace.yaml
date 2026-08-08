@@ -1,0 +1,21 @@
+packages:
+  - backend
+  - frontend
+
+# Single source of truth for toolchain versions shared across packages.
+# Packages reference these as "catalog:" so versions cannot drift.
+catalog:
+  typescript: ~6.0.3
+
+# pnpm 10 blocks dependency postinstall scripts unless allowlisted here.
+# These all ran their scripts under npm and need them: native addons
+# (bcrypt), platform binaries (sharp, esbuild, @sentry/cli, unrs-resolver),
+# and codegen (protobufjs, @google/genai).
+onlyBuiltDependencies:
+  - "@google/genai"
+  - "@sentry/cli"
+  - bcrypt
+  - esbuild
+  - protobufjs
+  - sharp
+  - unrs-resolver

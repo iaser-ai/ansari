@@ -17,40 +17,67 @@ jobs:
     name: backend (lint, typecheck, test, build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # No version input: pnpm/action-setup reads the exact version from the
+      # root package.json "packageManager" field.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: backend/.nvmrc
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: pnpm --filter ansari-backend lint
 
       # The committed dummy env (backend/.env.ci) is the single no-secrets env
       # source — every value is deliberately fake. No repository secrets are
       # used anywhere in this workflow.
       - name: Load CI dummy env
-        run: grep -v '^#' .env.ci >> "$GITHUB_ENV"
+        run: grep -v '^#' backend/.env.ci >> "$GITHUB_ENV"
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm --filter ansari-backend typecheck
 
       # Runs the full suite AND emits a coverage summary. Report-only — there is
       # deliberately no coverage threshold gate yet.
       - name: Test (with coverage)
-        run: npm run test:coverage
+        run: pnpm --filter ansari-backend test:coverage
 
       - name: Build
-        run: npm run build
+        run: pnpm --filter ansari-backend build
+
+  frontend:
+    name: frontend (lint, typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter ansari-frontend lint
+
+      # typecheck first regenerates uniwind-types.d.ts (gitignored, needed by
+      # tsc) via the package's gen:types script.
+      - name: Typecheck
+        run: pnpm --filter ansari-frontend typecheck
 
   gitleaks:
     name: gitleaks (secret scan)

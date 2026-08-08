@@ -1,0 +1,19 @@
+# Railway config for the frontend WEB service (static SPA via Caddy).
+# The service's root directory must be the repo root (pnpm workspace);
+# point the service's "config file path" at frontend/railway.toml.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "frontend/Dockerfile.web"
+watchPatterns = [
+  "frontend/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
