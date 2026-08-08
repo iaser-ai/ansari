@@ -29,7 +29,7 @@
   "author": "IASER",
   "license": "MIT",
   "dependencies": {
-    "@google/genai": "^1.50.1",
+    "@google/genai": "^2.15.0",
     "@react-email/components": "^1.0.8",
     "@react-email/render": "^2.0.4",
     "@sentry/nextjs": "^10.39.0",
