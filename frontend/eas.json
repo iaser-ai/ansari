@@ -1,0 +1,40 @@
+{
+  "cli": {
+    "version": ">= 21.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "environment": "development",
+      "channel": "development",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "environment": "preview",
+      "channel": "preview",
+      "distribution": "internal"
+    },
+    "production-internal": {
+      "environment": "production",
+      "channel": "production",
+      "distribution": "internal"
+    },
+    "production": {
+      "environment": "production",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": {
+        "credentialsSource": "remote"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account/service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}

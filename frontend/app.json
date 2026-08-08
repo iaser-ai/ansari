@@ -1,16 +1,22 @@
 {
   "expo": {
-    "name": "ansari",
-    "slug": "ansari",
-    "version": "1.0.0",
+    "name": "Ask Ansari",
+    "owner": "ansari-project",
+    "slug": "ansari-chat",
+    "version": "4.0.0",
+    "scheme": "askansari",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "heroui-native-app",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "chat.ansari.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "chat.ansari.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -32,6 +38,20 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e2f465a7-8007-4e83-91ba-4a9df4c5209a"
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "e2f465a7-8007-4e83-91ba-4a9df4c5209a"
+      }
     }
   }
 }
