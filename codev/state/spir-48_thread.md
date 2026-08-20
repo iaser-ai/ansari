@@ -988,3 +988,44 @@ claude's phase-2 review wedged at 31:49, relaunched, wedged again at 23:43 (heal
 ~5 min, zero bytes both times). gemini's phase-2 lane also timed out and needed a relaunch.
 Third attempt running. If it wedges again the honest move is to record the lane as
 unavailable and escalate — not to keep spending hours, and certainly not to invent a verdict.
+
+## 2026-08-20 — Phase 2 iter 2: a FOURTH env-derivation method
+
+gemini APPROVE. **codex REQUEST_CHANGES — `SENTRY_AUTH_TOKEN` missing from `globalEnv`.**
+
+Third env var missed across two rounds, and each miss has exposed a *different* blind spot
+in my derivation. This one is the most interesting:
+
+`SENTRY_AUTH_TOKEN` appears **nowhere in our source**. Grep confirms it: zero hits across
+`apps/**`. It is consumed internally by `withSentryConfig` at build time for source-map
+uploads, and documented in `docs/self-hosting.md:86` as "build-time only".
+
+So **all three** of my derivation methods were blind to it by construction:
+1. Zod schema — it is not in the schema.
+2. Static `process.env.X` grep — it is not in our code.
+3. Dynamic `process.env[` grep — it is not in our code.
+
+The missing category: **env consumed by DEPENDENCIES**. For that class, documentation is the
+only authority, because our source never names the variable at all.
+
+**Fixed as a class, not an instance.** Wrote a cross-check comparing the documented env
+surface (`docs/self-hosting.md` table + `apps/api/.env.example` keys, names only) against
+`globalEnv`: 28 documented + 29 example keys vs 34 declared + wildcard. Result before:
+exactly one gap (`SENTRY_AUTH_TOKEN`). After: **NONE**. So the set is known complete rather
+than hoped complete — and I can re-run that check any time.
+
+turbo.json now documents **four** required derivation steps, each annotated with the real
+variable that was lost by skipping it. Step 3 lost the facilitator budget vars; step 4 lost
+SENTRY_AUTH_TOKEN. A future reader gets the failure history, not just the procedure.
+
+Verified: `SENTRY_AUTH_TOKEN` appears in turbo's `configured` list and moves the build hash
+(`96403d2b` → `f7b032dd`). Suite 66 files / 623 passed / 3 skipped; `pnpm build` twice →
+FULL TURBO.
+
+### Pattern worth naming
+
+Three env misses, three different mechanisms — dynamic index, dependency-consumed,
+and (in phase 2's original bug) a task I forgot to annotate. Each time I fixed the instance
+AND the method, and each time a *new* category appeared. That is a good argument for the
+architect's phase-6 compensating control: `turbo.json` has now been wrong three times, and
+it is the file where being wrong is invisible.

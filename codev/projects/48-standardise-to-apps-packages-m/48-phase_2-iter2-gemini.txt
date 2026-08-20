@@ -1,0 +1,36 @@
+# Implementation Review: Phase 2 (Turborepo Task Graph and Root Scripts)
+
+## Assessment Overview
+
+Phase 2 introduces Turborepo 2.x as the workspace task runner over the relocated monorepo layout. All deliverables and acceptance criteria specified in the plan for `phase_2` have been thoroughly implemented and verified:
+
+1. **Turborepo Task Graph (`turbo.json`)**:
+   - Defines `"tasks"` for Turborepo 2.x compatibility.
+   - Models the `gen:types` codegen task with declared `outputs: ["uniwind-types.d.ts"]`, preventing cache invalidation / missing artifact issues on warm caches.
+   - Graph ordering edges: `typecheck` and `build` properly declare `dependsOn: ["gen:types"]` (and `^build` for `build`).
+   - Declares `test:coverage` as a first-class task with `outputs: ["coverage/**"]`, enabling CI to run full coverage runs through the task graph.
+   - Models `dev` with `cache: false`, `persistent: true`, and `interactive: true`.
+   - Exhaustive `globalEnv` covering Zod schema requirements, static `process.env.X` lookups, dynamic `process.env[...]` lookups (including `FACILITATOR_REQUEST_BUDGET_MS` and `FACILITATOR_SYNTHESIS_RESERVE_MS`), and frontend `EXPO_PUBLIC_*` wildcards to ensure cache correctness under strict env mode.
+
+2. **Root & Package Manifests (`package.json`, `apps/frontend/package.json`, `apps/api/package.json`)**:
+   - Root `package.json` adds `turbo` to `devDependencies` and rewires `dev`, `lint`, `typecheck`, `test`, `test:coverage`, and `build` to `turbo run <task>`.
+   - `dev` passes `--ui=tui` at the root script while keeping `"ui": "stream"` default in `turbo.json`, maintaining readable, linear CI logs while enabling the required TUI for interactive stdin.
+   - `apps/frontend/package.json` adds `dev` and `build` scripts, de-chains `typecheck` (`tsc --noEmit`), and deliberately preserves `build:web`'s `pnpm run gen:types &&` chain for `--filter`-scoped container builds without Turbo.
+   - `api` and `frontend` convenience aliases are preserved for non-modeled tasks.
+
+3. **CI & Tooling Configuration (`.github/workflows/ci.yml`, `.gitignore`, `.dockerignore`)**:
+   - Both `api` and `frontend` jobs execute tasks via `turbo run <tasks> --filter <app>...` (trailing dots covering workspace dependencies).
+   - Preserves emitted check names (`backend (lint, typecheck, test, build)` and `frontend (lint, typecheck)`) to prevent breaking GitHub branch protection rules.
+   - Adds frontend `build` step to CI.
+   - Correctly adds `.turbo` to `.gitignore` and `**/.turbo` to `.dockerignore`.
+
+4. **Documentation**:
+   - `CONTRIBUTING.md`, `README.md`, `docs/self-hosting.md`, `RELEASE.md`, and per-app documentation are kept consistent with the new root commands.
+
+---
+VERDICT: APPROVE
+SUMMARY: Turborepo 2.x task graph, complete globalEnv caching, root script rewires, and CI integrations are cleanly implemented and fully aligned with the plan.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
