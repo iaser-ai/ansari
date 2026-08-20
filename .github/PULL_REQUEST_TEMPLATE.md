@@ -15,10 +15,10 @@ See CONTRIBUTING.md for the full guidelines.
 
 All four must pass locally (run from `apps/api/`, with the dummy env in `apps/api/.env.ci`):
 
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm test`
-- [ ] `npm run build`
+- [ ] `pnpm lint`
+- [ ] `pnpm typecheck`
+- [ ] `pnpm test`
+- [ ] `pnpm run build`
 
 ## Contributor checklist
 

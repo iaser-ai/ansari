@@ -8,8 +8,17 @@ migration runbook were both proven in real releases on 2026-08-02.
 
 - **`develop`** is the integration branch. It is protected: PRs only, with the
   required CI checks from `.github/workflows/ci.yml` —
-  `backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
+  `api (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
   `gitleaks (secret scan)`.
+
+  > **Operator action, one time (spec 48).** The first of those checks was named
+  > `backend (lint, typecheck, test, build)` until the `backend/` → `apps/api/`
+  > move renamed the CI job to `api`. **Required status checks are matched by
+  > NAME**: if branch protection still requires the old `backend (...)` name, that
+  > check can never report again and PRs will sit unmergeable waiting on it.
+  > Whoever holds admin on this repo must update the required-check name in
+  > `develop`'s protection rule (and `main`'s, if set) to `api (...)`. This is
+  > out-of-repo configuration — no PR can fix it.
 - **`main`** is the production branch. The Railway service `backend`
   auto-deploys every push to `main` (service root directory = repo root, config
   in `apps/api/railway.toml`: dockerfile builder using `apps/api/Dockerfile`,

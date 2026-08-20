@@ -165,7 +165,7 @@ tests — so this only ever appears in production.
 | Boot error contains | Meaning | What to do |
 |---|---|---|
 | `Admin bootstrap check could not reach the database` | The database was unreachable when boot ran. This is an **outage, not a provisioning error** — do not re-run the bootstrap script. | Restore database reachability (`DATABASE_URL` correct, network path open, database up). The next restart succeeds once the database answers; on restart-on-crash platforms recovery is automatic. |
-| `has no account` or `exists but is not flagged is_admin` | A real provisioning gap: the configured admin was never bootstrapped, or was deleted/demoted since. Restarting will not fix it. | Run `npx tsx scripts/grant-admin.ts <email>` for the identified entry (see [Provisioning admins](#provisioning-admins)), then restart. |
+| `has no account` or `exists but is not flagged is_admin` | A real provisioning gap: the configured admin was never bootstrapped, or was deleted/demoted since. Restarting will not fix it. | Run `pnpm exec tsx scripts/grant-admin.ts <email>` for the identified entry (see [Provisioning admins](#provisioning-admins)), then restart. |
 
 The error identifies the failing entry by its **position** in `ADMIN_EMAILS`
 (e.g. `configured admin #2 of 3`), never by the address itself — boot logs carry

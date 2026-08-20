@@ -548,3 +548,68 @@ remembering for Phase 3, which touches both Dockerfiles again.
 
 Next: Phase 2 — Turborepo task graph and root scripts, incl. the `env` declarations that
 would otherwise have broken CI, and the hard `pnpm dev` / Expo TUI verification.
+
+## 2026-08-20 — Phase 1 review: a merge-blocking operator action nobody had flagged
+
+gemini APPROVE (2 minor) | codex REQUEST_CHANGES (2) | claude REQUEST_CHANGES (1 blocking
++ 2 minor). All accepted, one deliberately deferred with reasons.
+
+### The blocking find — and it could have bitten this very PR
+
+Renaming the CI job `backend:` → `api:` means the emitted check is now
+`api (lint, typecheck, test, build)`. **Required status checks are matched by NAME.** If
+`develop`'s branch protection still requires the old `backend (...)` name, that check can
+never report again and **PRs sit unmergeable waiting on a job that no longer exists** —
+this PR potentially being the first victim of its own change.
+
+codex found the stale RELEASE.md string; claude found *why it matters*. I had updated the
+CI job name without once thinking about branch protection consuming that name externally.
+
+Tried to confirm enforcement: `branches/develop/protection` → 404, `rulesets` → `[]`.
+The empty-but-readable rulesets suggests no protection is enforced, but a 404 is also what
+insufficient token scope returns, so it is genuinely undetermined from here. Cost asymmetry
+decides it — documenting is free, discovering at merge time is not.
+
+Recorded as a **one-time operator action** in RELEASE.md itself (not just a review file),
+sitting directly under the check list, stating that checks match by name and only repo
+admin can fix it.
+
+**Claude's structural point is the one to remember:** the stale-path grep *cannot* catch
+this, because the scan pattern requires a trailing `/` and this is a check NAME, not a path.
+My sweep was always going to report clean here. Same shape as everything else in this
+project.
+
+### My own verification was broken, and gemini caught the consequence
+
+The architect had me fix `grant-admin.ts:9`'s header comment. gemini found line **118** —
+the runtime `console.error` an operator actually sees — still printed
+`Usage: npx tsx ...`. The comment is documentation; that line is output. Better catch.
+
+Worse: **my own scan had reported "NONE — clean" on that exact file.** Reproduced it —
+`grep -rnE '(^|[^p])\bnpm (run|ci|install|test)\b|\bnpx '` returns rc=1 on grant-admin.ts
+while plain `grep -n 'npx'` matches line 118. The compound alternation silently failed.
+
+So the check looked like it passed and was not checking. That is precisely the failure
+mode I have been writing acceptance criteria against all project, arriving in my own
+tooling. **Rule adopted: prefer several simple greps I have validated individually over one
+clever compound regex.** A verification pattern is itself code and deserves a negative test
+— I should confirm a scan catches a known-bad line before trusting it to report clean.
+
+### Also fixed
+- PR template's four `npm run *` lines → pnpm (two lines from edits this phase made).
+- `docs/self-hosting.md:168` `npx` → `pnpm exec` (line 93 of the same doc already said
+  `pnpm exec` — internal inconsistency).
+- `next.config.ts:5` comment `npm run lint` → `pnpm lint`.
+
+### Deferred deliberately
+`eslint-env-guard.test.ts:55`'s test TITLE contains `npm run lint`. Not fixed: renaming it
+perturbs the test-name baseline that Phase 1's central verification depends on, for
+cosmetic gain. Pre-existing, not path-related, not operator-facing. Recorded, not skipped.
+
+### Confirmed correct non-change
+`/api/health`'s `service: 'ansari-backend'` stays — public contract pinned by spec 3.
+Claude rightly notes the phase criterion is worded absolutely, so the carve-out goes in the
+PR description or Phase 6's sweep will re-litigate it.
+
+Suite after all fixes: 623 passed / 3 pending / 0 failed; name-set diff still exactly the
+one intentional rename.

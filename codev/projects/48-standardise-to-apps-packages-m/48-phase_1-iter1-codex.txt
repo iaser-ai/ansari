@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The move is sound, but Phase 1 leaves operational documentation inconsistent.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `RELEASE.md:11` names the obsolete `backend` CI check, while `.github/workflows/ci.yml:17` now names it `api`.
+- `.github/PULL_REQUEST_TEMPLATE.md:18-21` still instructs npm, and `docs/self-hosting.md:168` still uses `npx`; both violate the pnpm-only workflow.

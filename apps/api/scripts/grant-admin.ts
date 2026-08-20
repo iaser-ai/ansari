@@ -115,7 +115,7 @@ function promptHidden(question: string): Promise<string> {
 async function main(): Promise<void> {
   const email = process.argv[2];
   if (!email) {
-    console.error('Usage: npx tsx scripts/grant-admin.ts <email>');
+    console.error('Usage: pnpm exec tsx scripts/grant-admin.ts <email>');
     console.error('You will be securely prompted for the password.');
     process.exit(1);
   }
