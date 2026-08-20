@@ -808,3 +808,73 @@ rather than chained `cd`s, so it is unambiguous and correct as written.
 
 Suite unchanged: 623 passed / 3 pending / 0 failed; name-set diff still the one intentional
 rename. Claude iter-3 still running.
+
+## 2026-08-20 — PHASE 2 COMPLETE (commit b330a9b)
+
+Turborepo task graph in. `pnpm dev` starts **both** apps — the headline defect from the
+issue ("`pnpm dev` is `--filter ansari-backend dev`, it starts the backend only") is fixed.
+
+### The hard requirement earned its keep twice
+
+The architect made `pnpm dev` a *run-it-for-real* criterion rather than an inferred one.
+Running it found **two bugs that reading could not have**:
+
+1. **`interactive: true` is REJECTED under `"ui": "stream"`.** `pnpm dev` failed outright —
+   not degraded, dead. Turbo demands its Terminal UI for interactive tasks. Fixed by
+   keeping `stream` as the default (CI logs stay linear and greppable) and passing
+   `--ui=tui` only on the root `dev` script. Making TUI global would degrade every CI log
+   for one task's benefit.
+2. **The `dev` task had no `env`.** Strict mode starved it and the api died with
+   "Environment validation failed". I had declared env on build/test/typecheck and simply
+   forgotten `dev`.
+
+That second one was my **second omission of the same kind**, so I fixed the *structure*,
+not the instance: env is now `globalEnv`, declared once. Per-task lists are repetition,
+and repetition is where omissions hide. Cost of declaring globally = slightly colder cache.
+Cost of omitting one = a crash, or a cache key that ignores a value baked into the artifact.
+
+### Evidence, not assertions
+
+- Stripping `env` from `build` → the exact predicted `Environment validation failed`.
+  That is what proves strict mode is real AND that my declarations are what prevent it.
+  Without this negative test, "the build passes" would not distinguish the two.
+- `SENTRY_DSN` change → build hash `cf5b5497` → `2cee03f4`. **SENTRY_DSN is one of the 7
+  vars found OUTSIDE the Zod schema** — schema-only parsing would have left it undeclared.
+- `EXPO_PUBLIC_API_V2_URL` prod vs staging → different frontend hashes. Closes the worst
+  case in the spec: a bundle baked with the wrong API URL cannot be restored as a cache hit.
+- `pnpm build` twice → **FULL TURBO**, 3 tasks, 10ms.
+- Deleted `uniwind-types.d.ts` → regenerated via the graph edge. Deleted it again with the
+  cache warm → restored from declared outputs. Green-cold/broken-warm closed.
+- All 7 CI commands run locally; frontend `typecheck`/`build` show **2 tasks**, proving the
+  `gen:types` edge fires.
+- Emitted CI names verified against `develop`'s required list programmatically.
+
+### pnpm dev verified end-to-end (human + me)
+
+Human ran it after `cp .env.ci .env`: **both apps up, Expo keypresses (i/a/w/r) working.**
+I then confirmed serving: `/` → 200, `/api/health` → 200, Expo `:8081` → 200, api process
+rooted in `.builders/spir-48/apps/api/`.
+
+So `interactive: true` genuinely preserves the TUI — CONTRIBUTING's claim is TRUE and needs
+no caveat. Had it failed, that sentence would have been folklore.
+
+**Bonus live confirmation:** the health response is
+`{"status":"ok","service":"ansari-backend",...}` — the carve-out I deliberately did NOT
+rename, working exactly as spec 3 pins it.
+
+### A support question worth recording
+
+Human hit `Environment validation failed` on first `pnpm dev`. I verified rather than
+assumed: there is no `apps/api/.env` in a fresh worktree (gitignored), and I proved it was
+not a turbo regression by running the OLD path (`pnpm --filter ansari-api dev`, what root
+`pnpm dev` was before this spec, no turbo involved) — identical failure.
+
+Same error *message* as the bug I fixed hours earlier, completely different cause: that one
+was strict mode filtering vars that WERE present; this one is no env existing at all.
+Identical symptoms, different mechanism — worth being slow about.
+
+### Known cosmetic
+
+Frontend CI job now runs `build` but its emitted name still reads `(lint, typecheck)`.
+Name deliberately frozen per the human decision; lag documented in ci.yml rather than
+silently renamed.
