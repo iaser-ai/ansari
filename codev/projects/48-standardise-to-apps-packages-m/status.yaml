@@ -1,9 +1,27 @@
 id: '48'
 title: standardise-to-apps-packages-m
 protocol: spir
-phase: plan
-plan_phases: []
-current_plan_phase: null
+phase: implement
+plan_phases:
+  - id: phase_1
+    title: Directory move to apps/api + apps/frontend and path-consumer rewrite
+    status: in_progress
+  - id: phase_2
+    title: Turborepo task graph and root scripts
+    status: pending
+  - id: phase_3
+    title: Shared TypeScript config package
+    status: pending
+  - id: phase_4
+    title: Shared ESLint config package
+    status: pending
+  - id: phase_5
+    title: Shared types package and packages README
+    status: pending
+  - id: phase_6
+    title: Repo-wide acceptance verification and fresh-clone doc walkthrough
+    status: pending
+current_plan_phase: phase_1
 gates:
   spec-approval:
     status: approved
@@ -18,7 +36,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-20T03:34:38.142Z'
-updated_at: '2026-08-20T04:31:15.846Z'
+updated_at: '2026-08-20T04:33:39.871Z'
