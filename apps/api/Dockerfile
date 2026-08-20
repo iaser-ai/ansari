@@ -1,6 +1,6 @@
 # Backend (Next.js API) image. Build context is the REPO ROOT (pnpm
 # workspace needs the root lockfile):
-#   docker build -f backend/Dockerfile .
+#   docker build -f apps/api/Dockerfile .
 #
 # Deliberately single-stage and un-clever: it mirrors exactly what CI
 # verifies (root pnpm install, build with the committed dummy .env.ci,
@@ -20,18 +20,18 @@ WORKDIR /repo
 # Workspace manifests first so the dependency layer caches independently
 # of source changes.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY backend/package.json backend/
-RUN pnpm install --frozen-lockfile --filter ansari-backend
+COPY apps/api/package.json apps/api/
+RUN pnpm install --frozen-lockfile --filter ansari-api
 
-COPY backend backend
+COPY apps/api apps/api
 
-# next build requires a validly-shaped env (lib/config.ts Zod-validates at
-# import). The committed .env.ci provides deliberately fake values — the
+# next build requires a validly-shaped env (lib/config.ts Zod-validates on
+# first config access). The committed .env.ci provides deliberately fake values — the
 # same contract CI builds with. Nothing here reaches the runtime env.
-RUN set -a && . ./backend/.env.ci && set +a && pnpm --filter ansari-backend build
+RUN set -a && . ./apps/api/.env.ci && set +a && pnpm --filter ansari-api build
 
 ENV NODE_ENV=production
-WORKDIR /repo/backend
+WORKDIR /repo/apps/api
 
 # next start honours Railway's PORT env var (default 3000 locally).
 EXPOSE 3000

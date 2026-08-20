@@ -42,7 +42,7 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 
 ```bash
 # Install at the REPO ROOT (pnpm workspace; Node >= 22, pnpm via corepack)
-cd .. && pnpm install && cd backend
+cd ../.. && pnpm install && cd apps/api
 
 # Configure — see .env.example for the full contract
 cp .env.example .env
@@ -74,7 +74,7 @@ emails/         react-email templates
 
 ## Deployment
 
-Deployed on Railway (`railway.toml`: dockerfile builder using `backend/Dockerfile`, built from the repo root, healthcheck `/api/health`), but any host that runs a Next.js server works. See the self-hosting guide in the monorepo `docs/` for the full environment contract.
+Deployed on Railway (`railway.toml`: dockerfile builder using `apps/api/Dockerfile`, built from the repo root, healthcheck `/api/health`), but any host that runs a Next.js server works. See the self-hosting guide in the monorepo `docs/` for the full environment contract.
 
 ## License
 

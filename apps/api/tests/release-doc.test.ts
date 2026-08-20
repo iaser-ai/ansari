@@ -7,23 +7,31 @@ import { fileURLToPath } from 'node:url';
 // names must exist in this repo, or an operator following it mid-release gets
 // stranded. These tests pin the doc to reality so drift fails CI.
 
-const backendDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = resolve(backendDir, '..');
+const apiDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// apps/api/tests -> apps/api -> apps -> <repo root>. Three levels: this file
+// lives two below the app root, and the app now sits under apps/.
+const repoRoot = resolve(apiDir, '../..');
 const releasePath = resolve(repoRoot, 'RELEASE.md');
 
 const doc = readFileSync(releasePath, 'utf8');
-const pkg = JSON.parse(readFileSync(resolve(backendDir, 'package.json'), 'utf8'));
+const pkg = JSON.parse(readFileSync(resolve(apiDir, 'package.json'), 'utf8'));
 
 describe('RELEASE.md consistency', () => {
   it('exists at the repo root', () => {
     expect(existsSync(releasePath)).toBe(true);
   });
 
-  it('only references package scripts that exist in backend/package.json', () => {
+  it('only references package scripts that exist in apps/api/package.json', () => {
     // Matches both `pnpm <script>` and `pnpm run <script>`; the alternation
     // excludes pnpm's own subcommands (install/exec/etc.) and the workspace
     // convenience scripts (`pnpm build:web` lives in the frontend, matched out
-    // by requiring the script to exist here only for backend-context refs).
+    // by requiring the script to exist here only for api-context refs).
+    //
+    // ASSUMPTION (explicit, not incidental): RELEASE.md is an operational
+    // runbook executed FROM apps/api, so every `pnpm <script>` it names is
+    // resolved against apps/api/package.json. If the runbook is ever rewritten
+    // to quote root-level (turbo) scripts, this assertion becomes wrong even
+    // where it still passes by coincidence of overlapping script names.
     const scripts = [...doc.matchAll(/pnpm (?:run )?((?:db:)?(?:generate|migrate|push|build|start|dev|test|lint|typecheck)(?::[a-z-]+)?)\b/g)].map(
       (m) => m[1],
     );
@@ -47,11 +55,21 @@ describe('RELEASE.md consistency', () => {
   it('only references API endpoints that exist as route files', () => {
     // '.' is deliberately absent from the class so domain names in URLs
     // (https://api.askansari.ai/...) never match as endpoint paths.
-    const paths = [...new Set([...doc.matchAll(/\/api\/[A-Za-z0-9_$/[\]-]+/g)].map((m) => m[0]))];
+    //
+    // The `(?<!apps)` lookbehind excludes REPO PATHS from endpoint extraction.
+    // Since the backend app lives at `apps/api/`, any doc reference to a file
+    // inside it (e.g. `apps/api/railway.toml`) contains the substring `/api/`
+    // and would otherwise be extracted as an endpoint named `/api/railway` —
+    // then fail because no such route file exists. Endpoints in this doc are
+    // always root-relative or on a host (`localhost:3000/api/...`), never
+    // preceded by `apps`, so the lookbehind separates the two cleanly.
+    const paths = [
+      ...new Set([...doc.matchAll(/(?<!apps)\/api\/[A-Za-z0-9_$/[\]-]+/g)].map((m) => m[0])),
+    ];
     expect(paths.length).toBeGreaterThan(3);
     for (const apiPath of paths) {
       const routePath = apiPath.replace('$THREAD', '[id]');
-      const routeFile = resolve(backendDir, 'src/app', `.${routePath}`, 'route.ts');
+      const routeFile = resolve(apiDir, 'src/app', `.${routePath}`, 'route.ts');
       expect(existsSync(routeFile), `${apiPath} has no route at ${routeFile}`).toBe(true);
     }
   });
@@ -59,18 +77,18 @@ describe('RELEASE.md consistency', () => {
   it('only references repo files that exist', () => {
     const referenced = [
       '.github/workflows/ci.yml',
-      'backend/railway.toml',
-      'backend/drizzle/0000_baseline.sql',
-      'backend/sentry.server.config.ts',
+      'apps/api/railway.toml',
+      'apps/api/drizzle/0000_baseline.sql',
+      'apps/api/sentry.server.config.ts',
       'docs/self-hosting.md',
     ];
     for (const rel of referenced) {
       expect(doc, `expected RELEASE.md to reference ${rel}`).toContain(rel);
       expect(existsSync(resolve(repoRoot, rel)), `${rel} referenced but missing`).toBe(true);
     }
-    // Referenced relative to backend/ in the doc:
+    // Referenced relative to apps/api/ in the doc:
     expect(doc).toContain('scripts/grant-admin.ts');
-    expect(existsSync(resolve(backendDir, 'scripts/grant-admin.ts'))).toBe(true);
+    expect(existsSync(resolve(apiDir, 'scripts/grant-admin.ts'))).toBe(true);
   });
 
   it('pins exactly the two production health-check domains', () => {

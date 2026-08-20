@@ -1,12 +1,12 @@
 # Railway config for the frontend WEB service (static SPA via Caddy).
 # The service's root directory must be the repo root (pnpm workspace);
-# point the service's "config file path" at frontend/railway.toml.
+# point the service's "config file path" at apps/frontend/railway.toml.
 
 [build]
 builder = "dockerfile"
-dockerfilePath = "frontend/Dockerfile.web"
+dockerfilePath = "apps/frontend/Dockerfile.web"
 watchPatterns = [
-  "frontend/**",
+  "apps/frontend/**",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",

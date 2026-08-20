@@ -2,8 +2,8 @@
 
 The Ask Ansari app ([askansari.ai](https://askansari.ai)): an Expo / React
 Native client for iOS, Android, and web (via react-native-web). It talks to the
-backend in [`../backend/`](../backend/); the API surface is summarized in the
-[backend README](../backend/README.md).
+backend in [`../api/`](../api/); the API surface is summarized in the
+[api README](../api/README.md).
 
 **Stack**: Expo SDK 57 (Expo Router, file-based routing under `src/app/`),
 [HeroUI Native](https://heroui.com/docs/native) components,

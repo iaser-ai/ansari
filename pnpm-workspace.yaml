@@ -1,6 +1,6 @@
 packages:
-  - backend
-  - frontend
+  - apps/*
+  - packages/*
 
 # Single source of truth for toolchain versions shared across packages.
 # Packages reference these as "catalog:" so versions cannot drift.

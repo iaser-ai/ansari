@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
  * This test fails on either side of that drift.
  */
 
-const doc = readFileSync(resolve(__dirname, '../../docs/self-hosting.md'), 'utf8');
+const doc = readFileSync(resolve(__dirname, '../../../docs/self-hosting.md'), 'utf8');
 const source = readFileSync(resolve(__dirname, '../lib/auth/startup-checks.ts'), 'utf8');
 
 // The phrases the docs' triage table keys on, one per failure mode:

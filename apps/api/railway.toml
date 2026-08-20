@@ -1,12 +1,12 @@
 # Railway config for the backend service. The service's root directory
 # must be the repo root (pnpm workspace); point the service's "config
-# file path" at backend/railway.toml.
+# file path" at apps/api/railway.toml.
 
 [build]
 builder = "dockerfile"
-dockerfilePath = "backend/Dockerfile"
+dockerfilePath = "apps/api/Dockerfile"
 watchPatterns = [
-  "backend/**",
+  "apps/api/**",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",

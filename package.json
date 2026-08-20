@@ -7,12 +7,12 @@
     "pnpm": ">=10"
   },
   "scripts": {
-    "backend": "pnpm --filter ansari-backend",
+    "api": "pnpm --filter ansari-api",
     "frontend": "pnpm --filter ansari-frontend",
-    "dev": "pnpm --filter ansari-backend dev",
+    "dev": "pnpm --filter ansari-api dev",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter ansari-backend test",
-    "build": "pnpm --filter ansari-backend build"
+    "test": "pnpm --filter ansari-api test",
+    "build": "pnpm --filter ansari-api build"
   }
 }

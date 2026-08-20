@@ -12,4 +12,4 @@
 **/.env
 **/.env.local
 **/.env.*.local
-frontend/google-service-account
+apps/frontend/google-service-account

@@ -1,4 +1,4 @@
-# ansari-backend — AI Agent Instructions
+# ansari-api — AI Agent Instructions
 
 > This file follows the [AGENTS.md standard](https://agents.md/). A Claude
 > Code-specific version is in `CLAUDE.md` (same content).
@@ -14,13 +14,13 @@ results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), JWT auth
 ## Commands
 
 This repo is a **pnpm workspace**: install once at the repo root, then run
-package scripts from inside `backend/` (or from the root with
-`pnpm --filter ansari-backend <script>`).
+package scripts from inside `apps/api/` (or from the root with
+`pnpm --filter ansari-api <script>`).
 
 ```bash
 pnpm install          # at the REPO ROOT (Node >= 22; pnpm via corepack)
 
-# inside backend/
+# inside apps/api/
 pnpm typecheck        # tsc --noEmit
 pnpm test             # vitest — the full suite runs without external services
 pnpm build            # next build

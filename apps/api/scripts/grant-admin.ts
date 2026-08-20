@@ -5,8 +5,8 @@
  *
  *   Deploy runbook ordering: apply migration → run THIS script → deploy.
  *
- * Usage (from backend/):
- *   npx tsx scripts/grant-admin.ts <email>
+ * Usage (from apps/api/):
+ *   pnpm exec tsx scripts/grant-admin.ts <email>
  *   # You'll be securely prompted for the password (input is hidden, not echoed).
  *
  * The password is read from a hidden interactive prompt — NEVER a positional CLI

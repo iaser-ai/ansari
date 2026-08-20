@@ -12,7 +12,7 @@ migration runbook were both proven in real releases on 2026-08-02.
   `gitleaks (secret scan)`.
 - **`main`** is the production branch. The Railway service `backend`
   auto-deploys every push to `main` (service root directory = repo root, config
-  in `backend/railway.toml`: dockerfile builder using `backend/Dockerfile`,
+  in `apps/api/railway.toml`: dockerfile builder using `apps/api/Dockerfile`,
   healthcheck on `/api/health` with a 300s timeout, restart `ON_FAILURE` up to
   3 times).
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
@@ -52,13 +52,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 
    Both must return 200 with `{"status":"ok","service":"ansari-backend",...}`.
 7. **Sentry watch, 15 minutes.** Watch the backend Sentry project for new or
-   spiking issues (wired via `backend/sentry.server.config.ts`). Only after a
+   spiking issues (wired via `apps/api/sentry.server.config.ts`). Only after a
    quiet 15 minutes is the release considered done.
 8. Anything wrong → **Rollback** (last section).
 
 ## Pre-promotion local smoke test
 
-Proven 2026-08-02. Run from `backend/` on the exact `develop` tip you are
+Proven 2026-08-02. Run from `apps/api/` on the exact `develop` tip you are
 about to promote, with a real `.env` (see the env tables in
 `docs/self-hosting.md` — the chat step needs real AI/search keys, because it
 exercises the real model and tools, not mocks).
@@ -66,11 +66,11 @@ exercises the real model and tools, not mocks).
 1. **Build:**
 
    ```bash
-   (cd .. && pnpm install) && pnpm build
+   (cd ../.. && pnpm install) && pnpm build
    ```
 
 2. **Migrate a fresh database.** Start a disposable Postgres 16 and apply the
-   full migration chain (`backend/drizzle/0000_baseline.sql` → latest) to an empty
+   full migration chain (`apps/api/drizzle/0000_baseline.sql` → latest) to an empty
    database — this proves a from-scratch install works, not just the
    incremental step:
 
@@ -124,7 +124,7 @@ exercises the real model and tools, not mocks).
 ## Migration release (variant)
 
 Use this variant whenever the release includes a schema change (a new file in
-`backend/drizzle/`).
+`apps/api/drizzle/`).
 
 > **NEVER run `pnpm db:push` (drizzle-kit push) against production.** It
 > diffs the live schema and can drop or recreate tables — and data. The rule
@@ -143,11 +143,11 @@ Order proven for migration `0003` on 2026-08-02:
 2. **Apply the reviewed SQL explicitly:**
 
    ```bash
-   psql "$DATABASE_URL" -f backend/drizzle/000N_<name>.sql
+   psql "$DATABASE_URL" -f apps/api/drizzle/000N_<name>.sql
    ```
 
 3. **Run bootstrap scripts** (after the migration, before the deploy):
-   - **Admins:** from `backend/`, `npx tsx scripts/grant-admin.ts <email>`
+   - **Admins:** from `apps/api/`, `pnpm exec tsx scripts/grant-admin.ts <email>`
      (securely prompts for a password; creates a login-capable admin, or
      promotes an existing account while resetting its password and revoking
      its sessions).

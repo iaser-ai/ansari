@@ -1,5 +1,5 @@
 {
-  "name": "ansari-backend",
+  "name": "ansari-api",
   "version": "1.0.0",
   "description": "Ansari: the most accurate, most helpful, free, open-source Islamic question-answering application — backend engine.",
   "engines": {

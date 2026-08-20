@@ -13,7 +13,7 @@ See CONTRIBUTING.md for the full guidelines.
 
 ## Checks
 
-All four must pass locally (run from `backend/`, with the dummy env in `backend/.env.ci`):
+All four must pass locally (run from `apps/api/`, with the dummy env in `apps/api/.env.ci`):
 
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
@@ -23,6 +23,6 @@ All four must pass locally (run from `backend/`, with the dummy env in `backend/
 ## Contributor checklist
 
 - [ ] Added or updated tests for any behavior change (Vitest is the regression net).
-- [ ] No secrets or real `.env` files committed (`backend/.env.ci` holds fake placeholders only).
+- [ ] No secrets or real `.env` files committed (`apps/api/.env.ci` holds fake placeholders only).
 - [ ] Islamic-content changes (prompts, citations, source handling) cite the basis for the change
       — accuracy and proper sourcing are the core of this project.
