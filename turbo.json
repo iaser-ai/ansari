@@ -129,6 +129,10 @@
       "outputs": []
     },
 
+    // `.env.ci` is listed explicitly for documentation value only: it is
+    // git-tracked, so `$TURBO_DEFAULT$` already covers it. Naming it makes the
+    // dependency obvious to a reader — but it is NOT an extra safety net, and it
+    // would not help if the file were ever gitignored.
     "test": {
       "inputs": ["$TURBO_DEFAULT$", ".env.ci"],
       "outputs": []
@@ -147,10 +151,18 @@
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
 
-    // NOTE: apps/frontend/package.json keeps `pnpm run gen:types &&` inside
-    // build:web on purpose. Dockerfile.web installs with --filter (no root
-    // devDependencies, so no turbo in that image) and calls build:web directly.
-    // The edge below covers graph-driven runs; the chain covers the container.
+    // REACHABILITY NOTE: this task is effectively unreachable through the graph.
+    // The frontend's `build` script shells straight to `pnpm run build:web`, which
+    // bypasses Turbo — so ordering for graph runs comes from `build`'s own
+    // dependsOn above, not from here. The config below applies only to a DIRECT
+    // `turbo run build:web`. It is kept for that case and for discoverability;
+    // do not rely on it to order anything during `turbo run build`.
+    //
+    // apps/frontend/package.json keeps `pnpm run gen:types &&` inside build:web on
+    // purpose: Dockerfile.web installs with --filter (no root devDependencies, so
+    // no turbo in that image) and calls build:web directly. Under the graph that
+    // chain is a duplicate uniwind run — idempotent and sub-second, not a cache
+    // hit — and it is what keeps the container path working.
     "build:web": {
       "dependsOn": ["gen:types"],
       "outputs": ["dist/**"]

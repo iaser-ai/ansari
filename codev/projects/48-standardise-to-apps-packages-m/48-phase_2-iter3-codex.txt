@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Task graph is sound, but the frontend README documents a broken direct typecheck workflow.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `apps/frontend/README.md` says app-local `pnpm typecheck` regenerates Uniwind types, but that script is now only `tsc --noEmit`; codegen occurs only through Turbo. Document the correct root/Turbo command so clean-checkout instructions are accurate.

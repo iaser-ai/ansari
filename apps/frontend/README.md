@@ -19,8 +19,22 @@ directory:
 pnpm start       # Expo dev server — press i / a for iOS / Android simulator
 pnpm web         # web dev server
 pnpm lint        # eslint
-pnpm typecheck   # regenerates uniwind types, then tsc --noEmit
+pnpm gen:types   # uniwind codegen -> uniwind-types.d.ts
+pnpm typecheck   # tsc --noEmit — needs gen:types to have run
 ```
+
+**`pnpm typecheck` here does not run codegen.** It used to chain
+`pnpm run gen:types &&`; that ordering is now a Turborepo `dependsOn` edge, so it
+only applies when the task runs through the graph.
+
+- From the **repo root**, `pnpm typecheck` is self-sufficient — Turbo runs
+  `gen:types` first, and on a warm cache restores `uniwind-types.d.ts` rather than
+  regenerating it.
+- From **this directory**, run `pnpm gen:types` first. Skipping it does **not**
+  error — the committed `types.d.ts` keeps `tsc` exiting 0 — but you then typecheck
+  *without* uniwind's `UniwindConfig` theme augmentation, so theme-name mistakes go
+  uncaught. A weaker check that still reports success, which is worse than a loud
+  failure. Verified: `tsc --noEmit` with the file absent exits 0.
 
 `expo-env.d.ts`, `uniwind-types.d.ts`, and `.expo/` are generated (gitignored);
 `types.d.ts` is committed so typechecking works on fresh checkouts.

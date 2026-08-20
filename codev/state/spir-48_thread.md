@@ -1079,3 +1079,50 @@ access, since it is not protection-required. Left frozen per the architect's dec
 
 Re-verified with typecheck and build run SEPARATELY (per the new rule): 3 tasks each,
 66 files / 623 passed.
+
+## 2026-08-20 — Phase 2 iter 3: four wrong CLAIMS of mine, caught by review
+
+gemini APPROVE | codex REQUEST_CHANGES (1) | claude APPROVE (3 minor).
+
+Every finding this round was a **claim I wrote that was false** — not missing code. That is
+a distinct and more dangerous failure class than the env omissions: a wrong comment actively
+misleads the next reader, and nothing tests a comment.
+
+**codex — `apps/frontend/README.md` documented a workflow I broke.** It said app-local
+`pnpm typecheck` "regenerates uniwind types, then tsc --noEmit". True until I de-chained
+`typecheck` in this very phase; the ordering is now a Turbo `dependsOn` edge that only
+applies through the graph. Drift I introduced and did not notice.
+
+**And then I nearly shipped a false fix for it.** I wrote that skipping `gen:types` makes
+`tsc` "fail on the missing uniwind-types.d.ts" — then verified and got **EXIT=0**. The
+committed `types.d.ts` supplies Expo ambient types, so tsc passes regardless. The generated
+file only adds uniwind's `UniwindConfig` theme tuple.
+
+So the real consequence is **a silently weaker typecheck**, not a failure: theme-name
+mistakes go uncaught while the command still reports success. That is worse than what I
+guessed, and it is this project's signature shape yet again. Corrected to the verified
+behaviour, with the EXIT=0 evidence stated in the doc.
+
+**claude — three more of my comments were wrong:**
+1. The frontend `"//"` claimed the in-script `gen:types` "becomes a Turbo cache hit". It does
+   not — `pnpm run` bypasses Turbo entirely and re-runs uniwind. **Verified empirically:
+   one forced build prints "Artifacts generated" TWICE.** Reworded to "duplicate, idempotent,
+   sub-second — and required for the Docker path".
+2. The `build:web` turbo task is effectively **unreachable via the graph**: frontend `build`
+   shells straight to `pnpm run build:web`, so ordering comes from `build`'s own dependsOn,
+   not from `build:web`'s config. Its `dependsOn`/`outputs` apply only to a direct
+   `turbo run build:web`. Documented as a reachability note so nobody relies on it to order
+   anything.
+3. `.env.ci` in `inputs` is redundant — the file is git-tracked, so `$TURBO_DEFAULT$` already
+   covers it. Harmless, but I had implied it was a safety net. Now labelled documentation-only,
+   with the caveat that it would not help if the file were ever gitignored.
+
+### Lesson
+
+I have been rigorous about proving *behaviour* and careless about proving *claims*. Four
+comments in this phase asserted mechanisms I never tested — cache-hit behaviour, failure
+modes, reachability. Each was plausible and each was wrong. Comments deserve the same
+"negative test it before believing it" discipline as scans: if a comment states a mechanism,
+run the thing and read the output before writing the sentence.
+
+Suite still 66 files / 623 passed; `pnpm build` twice → FULL TURBO.

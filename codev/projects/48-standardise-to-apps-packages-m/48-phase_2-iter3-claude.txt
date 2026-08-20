@@ -1,0 +1,38 @@
+I'll start by reading the key files for phase_2.I read the phase-2 files from disk and independently re-ran the load-bearing checks rather than trusting the thread's claims.
+
+## Independent verification
+
+| Check | Result |
+|---|---|
+| `globalEnv` completeness — re-derived from scratch (Zod schema in `lib/config.ts`, static `process.env.X` grep, dynamic `process.env[` grep followed to call sites, plus dependency-consumed vars) | **No gaps.** All 23 schema keys present; the 8 out-of-schema static reads (`NEXT_RUNTIME`, `SENTRY_DSN`, `NODE_ENV`, `VITEST`, `RAILWAY_ENVIRONMENT`, `RESEND_API_KEY`, `FRONTEND_URL`, `MARKETMAKER_URL`) present; `process.env[` has exactly two read sites (`envBudgetMs`) → both `FACILITATOR_*` present; `SENTRY_AUTH_TOKEN` present |
+| Env is really in the cache key | `EXPO_PUBLIC_API_V2_URL` a→b changes the frontend build hash (`081ba07c…` → `b107d26f…`). The spec's worst case (stale bundle restored under a different API URL, reported as a hit) is closed |
+| `envMode` | `strict` confirmed in `--dry=json`; all declared vars land in `Global Env Vars` |
+| `typecheck` codegen edge | Graph shows `ansari-frontend#gen:types` → `ansari-frontend#typecheck`; the `&&` is gone from the script |
+| Warm-cache restore of the **gitignored** `uniwind-types.d.ts` | Deleted it with cache warm → `FULL TURBO`, 2/2 cached, **file restored**. This is the green-cold/broken-warm trap and it holds |
+| `--filter ansari-api...` closure | Resolves `['@ansari/tsconfig', 'ansari-api']` — shared packages are covered, not skipped |
+| `$TURBO_DEFAULT$` honoured under explicit `inputs` | api `test:coverage` considers 163 input files (not just `.env.ci`) |
+| CI-shaped api build (`set -a && . apps/api/.env.ci`, then `turbo run build --filter ansari-api`) | Succeeds |
+| Root `pnpm typecheck` | 3 tasks, green |
+| `pnpm dev` TTY caveat | `--ui=tui` on the root script only (CI logs stay `stream`), and `CONTRIBUTING.md:26-29` documents the real-terminal requirement plus `pnpm api dev` / `pnpm frontend start` fallbacks |
+
+Plan items are all present: `turbo.json` task graph (incl. `test:coverage` with `coverage/**`, `dev` persistent/uncached/interactive), root scripts on `turbo run`, frontend `dev`/`build` added, `build:web` chain deliberately kept with its rationale, CI two-job split with frozen emitted names and a new frontend `build` step, updated `&&`-reliance comment, `.turbo` in `.gitignore` and `**/.turbo` in `.dockerignore`, `RELEASE.md`/`docs/self-hosting.md` deliberately app-scoped with the assumption now written **into** `release-doc.test.ts` rather than left implicit.
+
+## Minor notes (non-blocking)
+
+1. **`apps/frontend/package.json` `"//"` overstates one mechanism.** It says the `dependsOn` edge makes the in-script `pnpm run gen:types` "a cache hit rather than duplicate work." It isn't — the inline chain shells out via pnpm and bypasses Turbo entirely, so uniwind genuinely runs twice on a graph-driven build (idempotent and fast, so the *decision* is right). `turbo.json`'s own note at `build:web` is accurate ("the edge covers graph-driven runs; the chain covers the container"); the package.json wording is the one to soften. Worth fixing because everything else in this diff is scrupulous about not asserting mechanisms it hasn't proven.
+2. **`build:web` as a turbo task is currently unreachable through the graph** — frontend `build` calls `pnpm run build:web` directly, so its `dependsOn`/`outputs` only fire on an explicit `turbo run build:web`. Harmless (and `dist/**` is already in `build.outputs`), just not the safety net it reads as.
+3. **`.env.ci` in `inputs` is redundant today** — it's git-tracked, so `$TURBO_DEFAULT$` already covers it (163 vs. 1 inputs above). Fine to keep as intent documentation; it would only become load-bearing if the file were ever gitignored.
+
+None of these affect correctness of the task graph, the cache key, or CI.
+
+---
+VERDICT: APPROVE
+SUMMARY: Turborepo task graph, root scripts, env declarations, and CI rewiring are complete and hold up under independent re-verification — env completeness, cache-key sensitivity, and the warm-cache restore of the gitignored codegen output all confirmed by execution.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- (Minor) `apps/frontend/package.json` `"//"` claims the in-script `pnpm run gen:types` becomes a Turbo cache hit; it bypasses Turbo and re-runs uniwind — reword to "duplicate but idempotent and cheap".
+- (Minor) `build:web` turbo task is unreachable via the graph since frontend `build` shells to it directly; its `dependsOn`/`outputs` only apply to a direct `turbo run build:web`.
+- (Minor) `.env.ci` in `inputs` is already covered by `$TURBO_DEFAULT$` (file is git-tracked) — harmless, but not the safety net it appears to be.
