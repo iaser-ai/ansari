@@ -46,8 +46,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # `--filter ansari-api...` (trailing dots) selects the app AND its workspace
-      # dependencies, so shared packages under packages/ are covered rather than
-      # silently skipped. A bare `--filter ansari-api` would leave them unlinted.
+      # dependencies. @ansari/eslint-config and @ansari/tsconfig appear in scope but
+      # define no lint/typecheck scripts, so turbo runs nothing FOR them — expect
+      # "3 packages in scope, 1 task".
+      #
+      # Their correctness is still enforced, indirectly and sufficiently: the app
+      # consumes both, so a broken base.js or base.json fails THIS step. They are also
+      # in turbo.json globalDependencies, so editing either busts the app's cache
+      # rather than replaying a stale pass. The dependency-closure filter is what makes
+      # that work — a bare `--filter ansari-api` would not pick up the change.
       - name: Lint
         run: pnpm exec turbo run lint --filter ansari-api...
 
@@ -102,12 +109,15 @@ jobs:
       - name: Typecheck
         run: pnpm exec turbo run typecheck --filter ansari-frontend...
 
-      # Shared packages under packages/ are covered by the app jobs' dependency
-      # closure filters (`--filter <app>...`) — EXCEPT @ansari/types, which has no
-      # consumer by design and therefore sits outside every closure. Without this
-      # step it would never be linted or typechecked in CI, and the spec's "lint
-      # and typecheck for every package under packages/" criterion would be
-      # nominally claimed rather than satisfied.
+      # This step exists for @ansari/types specifically. It is the only package under
+      # packages/ that defines lint/typecheck scripts, so despite the `./packages/*`
+      # filter putting all three in scope, the tasks that RUN are its two — expect
+      # "3 packages in scope, 2 tasks".
+      #
+      # It needs its own step because it has no consumer by design, so it sits outside
+      # every app's dependency closure and no `--filter <app>...` can reach it. The
+      # other two config packages need no step: they define no tasks, and the apps that
+      # consume them fail if they break.
       #
       # Placed BEFORE the frontend build deliberately: steps are sequential and
       # fail-fast, so running it after `build` would mean a build failure silently
