@@ -49,3 +49,53 @@ mention. Full inventory now lives in the spec; the ones that matter most:
   the config-bypass guard. Useful — called out in Test Scenarios.
 
 Next: write spec, signal SPEC_DRAFTED, let porch run the 3-way consultation.
+
+## 2026-08-20 — Architect scope decision + spec review iteration 1
+
+**Architect decision received:** land as ONE PR — directory move + Turborepo together,
+not staged across two PRs. Rationale: a staged split would leave `turbo.json` briefly
+encoding a layout that is about to change.
+
+My Approach 2 was already commits-within-one-PR, so no change of direction — but the
+spec did not say so unambiguously, and one of my listed approaches (defer Turbo to a
+follow-up) was exactly the two-PR staging now excluded. Recorded the decision verbatim
+in Constraints, reframed the whole Solution Approaches axis as *commit granularity
+inside one PR*, and marked two orderings explicitly RULED OUT (turbo-first, and
+defer-turbo-to-a-follow-up) so planning cannot re-propose them. Noted that
+move-then-turbo already satisfies the architect's rationale directly: `turbo.json`
+does not exist until the tree is already in its final layout.
+
+### Consultation results (iteration 1)
+
+- **gemini: APPROVE** (HIGH confidence), no key issues.
+- **codex: REQUEST_CHANGES** (HIGH confidence), 5 issues — all legitimate, all fixed.
+- **claude: still running** at time of writing.
+
+Codex's catches worth recording:
+
+1. **Factual error, mine.** I wrote "61 test files"; the real number is 66. My
+   `ls backend/tests/*.test.ts` glob silently missed the `api/`, `lib/`, and
+   `migration/` subdirectories. Fixed — and rewritten to be *baseline-relative*
+   (compare test-name sets against `develop`, not counts), since a raw count cannot
+   distinguish a renamed test from one that stopped being collected. Good reminder that
+   a non-recursive glob is a silent undercount.
+2. **Real internal contradiction.** Approach 2 promised green-at-every-commit while the
+   risk table advised moving and editing in separate commits — a move-only commit
+   cannot be green, since every path consumer breaks. Resolved in favour of
+   move+path-fix as one indivisible commit, and corrected the underlying premise: git
+   records no rename, it *infers* one at diff time from content similarity, so
+   move+edit in one commit preserves blame fine for edits this small. The old
+   mitigation was cargo-culted.
+3. **Vague criteria made testable.** "Whatever the apps genuinely share" was not a
+   testable bar for config extraction. Now: eslint violation-sets identical before/after
+   (machine-readable formatter, diffed), and `tsc --showConfig` fully-resolved options
+   unchanged or every diff individually justified.
+4. **CI task matrix pinned explicitly** rather than "exercises both apps". Note this
+   surfaced that **frontend `build` in CI is a genuinely new check** — it does not run
+   today — which is required if `pnpm build` is to actually mean "both apps".
+5. **Critical open questions promoted to decided defaults** so planning is not blocked,
+   each with reasoning plus an explicit "if overridden, here's what changes" note. They
+   stay visible as builder calls the architect can cheaply override at spec-approval,
+   rather than being silently absorbed into Constraints.
+
+Next: fold in claude's review when it lands, then commit and reach spec-approval gate.

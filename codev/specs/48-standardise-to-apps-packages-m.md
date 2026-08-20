@@ -126,8 +126,12 @@ built, tested, containerised, and deployed by following the documentation verbat
 - [ ] `turbo run typecheck --filter ansari-frontend` succeeds from a clean tree in
       which `uniwind-types.d.ts` does not exist, proving the codegen edge is a real
       graph dependency and not an accident of a previously generated file.
-- [ ] The full backend Vitest suite passes (61 test files), with **no reduction in the
-      set of passing tests** relative to `develop`.
+- [ ] The full backend Vitest suite passes with **no reduction in the set of passing
+      tests relative to the `develop` baseline**. The baseline is captured by running the
+      suite on `develop` before the move and comparing test-name sets, not counts — a
+      count alone cannot distinguish "a test was renamed" from "a test stopped being
+      collected". (For orientation: `develop` currently has 66 test files under
+      `backend/tests`, including the `api/`, `lib/`, and `migration/` subdirectories.)
 - [ ] `backend/tests/release-doc.test.ts` and `backend/tests/self-hosting-docs.test.ts`
       are **verified to still assert against the real repo root** — demonstrated by a
       deliberate negative check (temporarily breaking a referenced path makes the test
@@ -141,7 +145,24 @@ built, tested, containerised, and deployed by following the documentation verbat
       not be rewritten).
 - [ ] `git log --follow` on a representative moved file (e.g. the backend Dockerfile)
       still shows its pre-move history.
-- [ ] CI is green on the PR, and CI exercises both apps through Turborepo.
+- [ ] CI is green on the PR and runs the following explicit task matrix through
+      Turborepo, with no task silently dropped relative to today:
+      - backend: `lint`, `typecheck`, `test:coverage`, `build`
+      - frontend: `lint`, `typecheck` (which must pull `gen:types` in via the graph),
+        and `build`
+      - shared packages: `lint` and `typecheck` for every package under `packages/`
+        that defines them
+      - gitleaks continues to run over full history, unchanged
+      Frontend `build` running in CI is a **new** check that does not exist today; it is
+      required so that `pnpm build` meaning "both apps" is actually enforced rather than
+      merely claimed.
+- [ ] **Shared-config extraction is behaviour-preserving, demonstrated not asserted.**
+      For ESLint: for each app, the set of rule violations reported over its real source
+      tree is identical before and after extraction (captured by running eslint with a
+      machine-readable formatter on `develop` and on the branch, and diffing). For
+      TypeScript: for each app, the fully-resolved compiler options
+      (`tsc --showConfig`) are unchanged before and after extraction, or every
+      difference is individually enumerated and justified in the PR description.
 - [ ] Docs (`README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `docs/self-hosting.md`,
       `SECURITY.md`, and the per-app READMEs / AGENTS.md / CLAUDE.md) describe the new
       layout and the new root scripts accurately enough that a fresh clone can be set
@@ -160,6 +181,13 @@ Copied verbatim from issue #48 and treated as fixed architectural decisions:
 > - Use `git mv` for the moves so blame/history survives.
 > - Frontend `typecheck` depends on `gen:types` (uniwind codegen) running first —
 >   model that as a real Turborepo dependency, not a shell `&&`.
+
+**Single-PR delivery (architect decision, 2026-08-20).** The directory move and the
+Turborepo introduction land together in **one PR**. The work must not be staged across
+two PRs, because a staged split would leave `turbo.json` briefly encoding a layout that
+is about to change. Internal commit granularity within that single PR is unconstrained
+by this decision — but any ordering chosen must never author `turbo.json` against the
+pre-move layout.
 
 Also fixed by the issue: the target layout is `apps/backend`, `apps/frontend`,
 `packages/eslint-config`, `packages/tsconfig`, `packages/types`, and `turbo.json` —
@@ -215,138 +243,163 @@ Further constraints imposed by the existing system:
 
 ## Solution Approaches
 
-The target layout and the choice of Turborepo are fixed by the issue. What remains open
-is **how the change is sequenced and verified**, and **how much the shared packages
-actually absorb**. Those are the axes explored here.
+The target layout, the choice of Turborepo, and single-PR delivery are all fixed (see
+Constraints). What remains open is **the commit granularity inside that one PR** — which
+determines how verifiable the change is for a reviewer — and **how much the shared
+packages actually absorb**. Those are the axes explored here. All approaches below ship
+as exactly one PR; they differ only in how that PR's history is organised.
 
-### Approach 1: Single atomic change — move, adopt Turbo, extract packages, fix all consumers together
+### Approach 1: One atomic commit — move, adopt Turbo, extract packages, fix all consumers together
 
-One coherent change set: `git mv` both apps, add `turbo.json` and the root Turbo
-scripts, create all three shared packages and rewire the apps onto them, and update
-every path consumer — all landing together.
+The entire change as a single commit: `git mv` both apps, add `turbo.json` and the root
+Turbo scripts, create all three shared packages and rewire the apps onto them, and update
+every path consumer.
 
-**Pros.** The repo is never in an inconsistent state on any commit. There is exactly one
-"everything moved" moment for reviewers and for downstream branches to rebase past. No
-transitional shims to write and later delete.
+**Pros.** The tree is never in an intermediate state on any commit. Nothing transitional
+is written and later deleted.
 
-**Cons.** The diff is enormous and mixes a mechanical rename with genuine design work
+**Cons.** The diff is enormous and fuses a mechanical rename with genuine design work
 (what belongs in the shared eslint config?). A reviewer cannot separate "this is just a
-move" from "this changed behaviour", which is exactly where a silent breakage hides —
-and the two doc-consistency tests are precisely the kind of thing that can be made to
-pass wrongly during a large mechanical sweep. Bisecting a later regression lands on one
-giant commit.
+move" from "this changed behaviour" — and that is precisely where a silent breakage
+hides, because the two doc-consistency tests can be made to pass wrongly during a large
+mechanical sweep. A later bisect lands on one giant commit and tells you nothing.
 
 **Risk/complexity.** High risk, moderate complexity. The risk is not that it fails
 loudly; it is that something passes for the wrong reason.
 
-### Approach 2: Sequenced phases within one PR — move first, then Turbo, then shared packages
+### Approach 2: Ordered commits within the one PR — move first, then Turbo, then shared packages
 
-The same end state, reached as ordered commits on one branch: (1) the directory move
-plus every path-consumer fix, with the existing `pnpm --filter` scripts untouched and
-the full suite green; (2) Turborepo adoption — `turbo.json`, root scripts rewired, CI
-moved onto `turbo run`, `dev` covering both apps; (3) shared-package extraction, one
-package at a time, each with the apps rewired onto it.
+The same PR, organised as ordered commits: (1) the directory move **together with** every
+path-consumer fix in the same commit — the move and the path fixes are one indivisible
+unit, because a move-only commit would leave the tree broken — with the existing
+`pnpm --filter` scripts untouched and the full suite green; (2) Turborepo adoption — `turbo.json`, root scripts rewired, CI moved onto
+`turbo run`, `dev` covering both apps; (3) shared-package extraction, one package at a
+time, each with the apps rewired onto it.
+
+Note that this ordering **satisfies the architect's rationale for single-PR delivery
+directly**: `turbo.json` does not exist until commit 2, by which point the tree is
+already in its final layout. At no point is `turbo.json` authored against the pre-move
+layout.
 
 **Pros.** Commit 1 is verifiable in isolation: if the suite is green and the two
 doc-consistency tests still assert against the real repo root, the move is correct
 independent of anything Turbo does. Each subsequent commit changes exactly one thing, so
-a reviewer reads a rename as a rename and a design decision as a design decision.
-Bisect works. If shared-package extraction turns out thinner than hoped (see Open
-Questions), phases 1–2 still stand on their own.
+a reviewer reads a rename as a rename and a design decision as a design decision. Bisect
+works.
 
 **Cons.** More discipline required; the branch must stay green at each commit, which
-means the doc updates have to be split to match (docs describing per-app scripts in
-commit 1, docs describing root turbo scripts in commit 2). Slightly more total work.
+means doc updates split to match (docs describing per-app scripts in commit 1, docs
+describing root turbo scripts in commit 2). Slightly more total work.
 
 **Risk/complexity.** Moderate complexity, low risk.
 
-### Approach 3: Move only, defer Turborepo and shared packages
+### Approach 3: Turbo first, then move — RULED OUT
 
-Ship `apps/backend` + `apps/frontend` and the path fixes; leave the root scripts as
-`--filter` aliases and open follow-ups for Turborepo and the shared packages.
+Adopt Turborepo against the current flat layout, then move the directories and rewrite
+`turbo.json` and every path.
 
-**Pros.** Smallest, safest, fastest change. Delivers the layout convention immediately.
+**Ruled out** by the architect's single-PR rationale: it is the ordering that leaves
+`turbo.json` encoding a layout that is about to change. Recorded here only so the
+rejected ordering is explicit and not re-proposed during planning.
 
-**Cons.** Leaves the actual complaint unaddressed — the misleading root scripts, the
-absent task graph, and the cold runs are the reason the issue exists. It also guarantees
-a second repo-wide churn later. The issue's acceptance criteria explicitly require
-Turborepo and the shared packages, so this does not satisfy the spec.
+### Also ruled out: deferring Turborepo to a follow-up PR
 
-**Risk/complexity.** Low risk, low complexity, but it is not the requested change. Listed
-because it is the natural fallback if Turborepo adoption hits an unforeseen blocker with
-Expo/Metro — in that case, shipping the move and escalating the blocker beats stalling.
+Shipping the move alone and opening a follow-up for Turborepo and the shared packages
+would be smaller and safer, but it is a two-PR staging of exactly the kind the architect's
+decision excludes, and it leaves the issue's actual complaint — misleading root scripts,
+no task graph, cold runs — unaddressed. It is **not** an available option.
+
+If Turborepo adoption hits a genuine hard blocker (e.g. an irreconcilable Expo/Metro
+interaction), the correct response is to **escalate to the architect**, not to
+unilaterally fall back to a move-only PR.
 
 ### Recommendation
 
 **Approach 2.** The dominant risk in this change is a silent wrong-path failure, not a
 loud one — and the single most valuable mitigation is being able to verify the move on
 its own, before Turbo and the shared packages change what "green" even means. Approach 2
-buys exactly that for the cost of ordering discipline. It ships as one PR (per the
-project's PR strategy: plan phases are commits, not PRs), so it costs reviewers nothing
-extra relative to Approach 1 while giving them a readable commit-by-commit narrative.
+buys exactly that for the cost of ordering discipline, ships as the one PR the architect
+directed, and never writes `turbo.json` against a stale layout.
 
 ## Open Questions
 
-**Critical (blocks progress)**
+The three questions that would otherwise block planning are **resolved below as decided
+defaults**, so the plan can proceed without waiting. Each records the decision, the
+reasoning, and what would change if the architect overrides it at the `spec-approval`
+gate. They are called out here rather than buried in Constraints precisely because they
+are the builder's calls, not the architect's — an override is cheap now and expensive
+later.
 
-1. **Do the shared packages carry real content, or are they scaffolds?** The two apps'
-   eslint configs share essentially nothing: Next+FlatCompat+bespoke env guard versus a
-   five-line Expo spread. The tsconfigs share `strict: true` and little else, and the
-   frontend's already extends `expo/tsconfig.base`. An honest extraction yields a very
-   thin `packages/eslint-config` (shared ignore globs, perhaps a shared rule floor) and
-   a thin `packages/tsconfig` (`strict`, `skipLibCheck`, `esModuleInterop`,
-   `isolatedModules`, `resolveJsonModule`). **Question for the architect:** is a
-   deliberately thin shared base — created now so future shared rules have a home —
-   the intent, or should the extraction be pushed further (e.g. moving the backend's
-   `no-restricted-properties` guard into the shared package)? Recommendation: keep it
-   thin and honest, and leave the env guard in the backend where its allowlist paths
-   are meaningful. This shapes what "done" means for scope item 3.
-2. **Does `packages/types` get a consumer, or does it ship unimported?** The issue says
-   scaffold it and do not invent contracts, which implies nothing imports it initially.
-   An unimported package still costs install, lint, typecheck, and build surface.
-   **Question:** ship it truly empty (a placeholder export), or seed it with the one
-   contract that already exists implicitly — the shape the Expo app receives from the
-   backend's API — by extracting rather than inventing? Recommendation: ship it with a
-   placeholder export plus the task scripts wired, so the graph is exercised; extract
-   real contracts in a follow-up when a consumer exists.
-3. **What does `turbo run build` mean for the frontend?** The frontend has no `build`,
-   only `build:web` (a full `expo export`, which is slow and needs the uniwind codegen).
-   Options: (a) leave the frontend out of `build` and treat `build` as backend-only but
-   *documented* as such; (b) alias frontend `build` → `build:web`, making `pnpm build`
-   genuinely repo-wide but noticeably slower; (c) define a lighter frontend `build`.
-   The acceptance criterion hedges with "where applicable". **Recommendation: (b)** —
-   the whole point of the issue is that root scripts should not silently mean
-   "backend only", and Turbo's cache makes the repeat cost near zero.
+**Resolved (decided default; architect may override at spec-approval)**
 
-**Important (shapes design)**
+1. **The shared config packages are deliberately thin, and the env guard stays in the
+   backend.** The two apps' eslint configs share essentially nothing: Next + FlatCompat +
+   the bespoke env guard versus a five-line Expo spread. The tsconfigs share `strict` and
+   little else, and the frontend's already extends `expo/tsconfig.base`.
+   **Decision:** `packages/eslint-config` carries only what is genuinely common (shared
+   build-output ignore globs and any rule both apps already agree on);
+   `packages/tsconfig` carries a base of `strict`, `skipLibCheck`, `esModuleInterop`,
+   `isolatedModules`, and `resolveJsonModule`. The backend's `no-restricted-properties`
+   env guard **stays in the backend**, because its allowlist (`lib/config.ts`,
+   `drizzle.config.ts`) is expressed in backend-relative paths and is meaningless in a
+   package shared with an Expo app.
+   **Reasoning:** a thin base that gives future shared rules a home beats a contrived one
+   that forces unrelated config together. The extraction is a refactor, so it is bounded
+   by the behaviour-preservation criterion in Success Criteria.
+   *If overridden* (push the extraction further, e.g. moving the env guard): the
+   allowlist must become path-portable, and `eslint-env-guard.test.ts` needs rework —
+   materially more work, and it weakens a load-bearing security guard's locality.
 
-4. **How is CI restructured?** Today there are two parallel jobs (backend, frontend)
-   plus gitleaks. Turborepo invites a single job running `turbo run lint typecheck test
-   build`, which is simpler and gets cross-app caching, but loses the parallel wall-clock
-   and the clear per-app job names in the PR checks UI. Recommendation: keep the two-job
-   split, with each job running `turbo run <tasks> --filter <app>`, so PR check names
-   stay stable and the change to CI stays legible.
-5. **Should `.turbo` be cached in CI?** Not required by any acceptance criterion, and it
-   adds a cache-key correctness surface. Recommendation: no, in this PR; revisit once
-   the layout is stable.
-6. **Should Dependabot gain `apps/frontend` and `packages/*` coverage?** Today it only
-   watches `/backend` — the frontend has never been covered. Correcting `/backend` →
-   `/apps/backend` is squarely in scope; *adding* coverage is a policy expansion.
-   Recommendation: fix the path in scope, propose the expansion separately.
+2. **`packages/types` ships as a real package with a placeholder export and no
+   consumer.** The issue is explicit: scaffold it, do not invent contracts.
+   **Decision:** it gets a `package.json`, a tsconfig extending the shared base, working
+   `lint`/`typecheck` scripts, and a single placeholder export. Nothing imports it yet.
+   **Reasoning:** wiring the task scripts means the package is exercised by the task
+   graph from day one, so the first real contract lands in a package already proven to
+   build — rather than discovering the scaffold was wrong at the moment someone needs it.
+   *If overridden* (seed it with the real backend↔frontend API contract): that is
+   extraction, not invention, but it is a materially larger change touching both apps'
+   source, and it would breach this spec's no-behaviour-change constraint.
+
+3. **Frontend `build` aliases `build:web`, so `pnpm build` genuinely covers both apps.**
+   **Decision:** add a `build` script to the frontend delegating to `build:web`
+   (`expo export --platform web`), with `gen:types` as a graph dependency rather than a
+   shell `&&`.
+   **Reasoning:** the entire point of the issue is that root scripts must stop silently
+   meaning "backend only". Option (a) — leaving `build` backend-only but documenting it —
+   reproduces the exact defect being fixed. `expo export` is slow, but Turbo's cache
+   makes the repeat cost near zero, and CI already pays this cost nowhere else.
+   *If overridden* (keep `build` backend-only): the "covers both apps" success criterion
+   and the frontend-build CI check must both be struck, and the docs must state the
+   asymmetry loudly.
+
+**Important (shapes design, does not block)**
+
+4. **How is CI restructured?** Recommendation: keep the existing two-job split, each job
+   running `turbo run <tasks> --filter <app>`, so PR check names stay stable and the CI
+   diff stays legible. A single-job `turbo run` across everything would be simpler and
+   get cross-app caching, but loses parallel wall-clock and per-app check names. The
+   required task matrix either way is pinned in Success Criteria.
+5. **Should `.turbo` be cached in CI?** Recommendation: no, not in this PR — it adds a
+   cache-key correctness surface for no acceptance-criterion benefit. Revisit once the
+   layout is stable.
+6. **Should Dependabot gain `apps/frontend` and `packages/*` coverage?** Today it watches
+   only `/backend`; the frontend has never been covered. Correcting `/backend` →
+   `/apps/backend` is in scope; *adding* coverage is a policy expansion.
+   Recommendation: fix the path here, propose the expansion separately.
 7. **Does `pnpm dev` running Expo under Turbo remain usable?** `expo start` is an
-   interactive TUI (keypress commands for iOS/Android/reload). Multiplexed under
-   `turbo run dev` alongside `next dev`, that interactivity may degrade. If it does,
-   the fallback is that `pnpm dev` starts both while the per-app scripts remain the
-   documented path for interactive Expo work.
+   interactive TUI (keypress commands for iOS/Android/reload); multiplexed under
+   `turbo run dev` alongside `next dev`, that interactivity may degrade. This is a
+   verify-in-practice item. If it degrades, `pnpm dev` still satisfies the both-apps
+   criterion while the per-app scripts remain the documented path for interactive Expo
+   work — and that caveat must then be written into the docs, not left as folklore.
 
 **Nice-to-know**
 
 8. Should the root `package.json` keep the `backend` / `frontend` convenience aliases
-   (`pnpm backend <script>`), now pointing at the same filters? They are cheap and
-   still useful for per-app scripts Turbo does not model (`db:migrate`, `ios`, `web`).
-   Recommendation: keep them.
-9. Is there appetite to also move `docs/` under a package, or add a `packages/` README
-   explaining the convention? Neither is required.
+   (`pnpm backend <script>`)? They remain useful for per-app scripts Turbo does not model
+   (`db:migrate`, `ios`, `web`). Recommendation: keep them.
+9. Should `packages/` get a README explaining the convention? Cheap, not required.
 
 ## Test Scenarios
 
@@ -411,7 +464,7 @@ extra relative to Approach 1 while giving them a readable commit-by-commit narra
 | The shared eslint/tsconfig packages turn out near-empty, adding indirection for no benefit | Medium | Low | Resolve Open Question 1 with the architect before building them; prefer a thin, honest base over a contrived one |
 | `expo start` becomes unusable multiplexed under `turbo run dev` | Medium | Low | Verify interactively; if degraded, document per-app scripts as the path for interactive Expo work while `pnpm dev` still satisfies the both-apps criterion |
 | 9 open Dependabot PRs against `/backend` all conflict | High | Low | Update `.github/dependabot.yml` to `/apps/backend`; close the stale PRs and let Dependabot recreate them |
-| `git mv` fails to preserve blame because a file is also edited in the same commit | Low | Medium | Move and edit in separate commits (Approach 2 does this naturally); verify with `git log --follow` |
+| Rename detection fails, losing blame/history on a moved file | Low | Medium | Git records no rename — it infers one at diff time from content similarity, so moving and path-fixing a file in the *same* commit is safe as long as similarity stays above threshold, which it does for edits this small. Do **not** split move from path-fix into separate commits: a move-only commit would leave path consumers broken and unbuildable. Verify with `git log --follow` and `git show -M --stat` on the moved files instead |
 | Lockfile churn from adding Turborepo and three new workspace packages masks an unintended dependency change | Low | Medium | Review the `pnpm-lock.yaml` diff for entries unrelated to turbo and the new packages |
 | Build/cache artifacts (`.turbo/`) get committed | Low | Low | Add `.turbo` to `.gitignore` and `.dockerignore` alongside the existing `.next` / `dist` entries |
 
