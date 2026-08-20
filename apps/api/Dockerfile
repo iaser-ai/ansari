@@ -21,6 +21,13 @@ WORKDIR /repo
 # of source changes.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/
+# Shared workspace packages must be present BEFORE install: apps/api devDepends
+# on @ansari/tsconfig via `workspace:*`, so a frozen-lockfile install cannot
+# resolve the link without them. Copying only packages/*/package.json would be
+# necessary but NOT sufficient — apps/api/tsconfig.json `extends` the shared
+# base, so `next build` needs the package CONTENTS too. Half-fixing this yields
+# an install that succeeds and a build that fails later.
+COPY packages packages
 RUN pnpm install --frozen-lockfile --filter ansari-api
 
 COPY apps/api apps/api

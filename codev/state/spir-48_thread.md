@@ -918,3 +918,73 @@ next person to re-derive this list would otherwise repeat my exact mistake.
 
 Re-verified after the change: 66 files / 623 passed / 3 skipped; `pnpm build` twice →
 FULL TURBO (11ms).
+
+## 2026-08-20 — Phase 3: shared tsconfig, behaviour provably unchanged
+
+`@ansari/tsconfig` created; both apps extend it. Docker fix for `workspace:*` links
+included (this is the first phase to introduce one).
+
+### I corrected the plan's own design
+
+The plan specified a base of strict / skipLibCheck / esModuleInterop / **isolatedModules** /
+resolveJsonModule. Checking the resolved configs first showed that would have been wrong:
+`apps/frontend` does **not** have `isolatedModules` (expo/tsconfig.base leaves it unset)
+while `apps/api` sets it. Putting it in the shared base would have silently switched it on
+for the frontend — a real behaviour change wearing a refactor's clothing, i.e. precisely
+what this phase's criterion exists to catch.
+
+Base is therefore the FOUR options both apps already had. `isolatedModules` stays in
+`apps/api/tsconfig.json`. The reasoning is written into `packages/tsconfig/README.md` so
+the base does not quietly accumulate one-app settings later: *this base holds settings the
+apps genuinely agree on; anything one app needs and the other does not belongs in that app.*
+
+### Verification took two passes, and the first would have misled
+
+A plain textual diff of `tsc --showConfig` before/after showed differences on the api. Both
+were artefacts, not changes:
+1. **Key reordering** — options now arrive merged from the extended base.
+2. **Stale `.next/types/*` entries** — the baseline was captured before builds I ran later.
+
+So I re-captured the baseline under identical build state (restore original tsconfig from
+git → showConfig → restore mine → showConfig) and compared `compilerOptions` as a SET:
+
+```
+before: 17 options | after: 17 options
+only before: none | only after: none | changed: none
+files / include / exclude: identical
+```
+
+Frontend was byte-identical on the first pass.
+
+Worth noting: the naive diff *looked like* a behaviour change and would have sent review
+down a dead end. The inverse of this project's usual failure — here the check cried wolf
+rather than staying silent — but the remedy is the same: understand what the check actually
+measures before believing its verdict.
+
+### Docker fix verified through the whole chain
+
+`COPY packages packages` added to BOTH Dockerfiles, before install, with a comment
+explaining why `COPY packages/*/package.json` would be necessary but NOT sufficient (the
+tsconfig `extends` needs contents, so the half-fix installs fine and fails at build).
+
+api image: EXIT=0, and I confirmed it exercised the real path rather than trivially
+succeeding — `COPY packages packages` → `pnpm install --frozen-lockfile --filter ansari-api`
+(which can only succeed if the workspace link resolved) → `✓ Compiled successfully`.
+
+### Lockfile purity (the Phase 1 trap, checked deliberately this time)
+
+8 insertions, all of them the two `workspace:*` link entries plus `packages/tsconfig: {}`.
+No unrelated dependency drift.
+
+### turbo
+
+3 packages discovered. `packages/tsconfig` contributes **no tasks** — it ships only JSON and
+deliberately has no scripts; lint/typecheck counts are unchanged from Phase 2, which is the
+evidence it is correctly skipped rather than silently failing.
+
+### Consultation tooling is flaky, twice now
+
+claude's phase-2 review wedged at 31:49, relaunched, wedged again at 23:43 (healthy baseline
+~5 min, zero bytes both times). gemini's phase-2 lane also timed out and needed a relaunch.
+Third attempt running. If it wedges again the honest move is to record the lane as
+unavailable and escalate — not to keep spending hours, and certainly not to invent a verdict.
