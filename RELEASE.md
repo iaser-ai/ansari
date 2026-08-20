@@ -27,7 +27,8 @@ migration runbook were both proven in real releases on 2026-08-02.
   > `develop`'s required-check name **and** the `name:` line in
   > `.github/workflows/ci.yml` together. It needs repo-admin access. Do not change
   > either half on its own.
-- **`main`** is the production branch. The Railway service `backend`
+- **`main`** is the production branch. The Railway service `backend` (a name in the
+  Railway dashboard — unrelated to the `apps/api/` directory, and not stale)
   auto-deploys every push to `main` (service root directory = repo root, config
   in `apps/api/railway.toml`: dockerfile builder using `apps/api/Dockerfile`,
   healthcheck on `/api/health` with a 300s timeout, restart `ON_FAILURE` up to
