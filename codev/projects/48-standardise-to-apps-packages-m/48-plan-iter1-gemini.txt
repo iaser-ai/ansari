@@ -1,0 +1,64 @@
+# Implementation Plan Review: `48-standardise-to-apps-packages-m`
+
+## 1. Alignment with Specification Requirements
+
+The implementation plan is thoroughly aligned with the approved specification ([`codev/specs/48-standardise-to-apps-packages-m.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/specs/48-standardise-to-apps-packages-m.md)) and honors all stated constraints and baked decisions:
+- **Approach 2 (Ordered Commits in a Single PR)** is faithfully adopted. The directory move and path rewrite land in Phase 1 before Turborepo is introduced in Phase 2, ensuring `turbo.json` is only ever authored against the final repository layout.
+- **Naming Conventions**: Backend is renamed to `apps/api` (`ansari-api`), frontend to `apps/frontend` (`ansari-frontend`), and shared packages use the scoped `@ansari/*` namespace.
+- **Task Graph & Codegen Ordering**: `uniwind-types.d.ts` is explicitly modeled in `turbo.json` with declared `outputs` and `dependsOn: ["gen:types"]` on `typecheck` and `build`.
+- **Constraint Resolution on `build:web`**: Retains the `pnpm run gen:types &&` shell chain in `apps/frontend/package.json` to prevent breaking `apps/frontend/Dockerfile.web` (where Turbo is not installed in the container image), while `typecheck` drops the shell chain in favor of the Turbo task graph.
+- **Preservation of Invariants**: `catalog:` and `onlyBuiltDependencies` in `pnpm-workspace.yaml` are preserved verbatim, and the backend ESLint `no-restricted-properties` environment guard remains localized to `apps/api`.
+
+---
+
+## 2. Implementation Approach and Architecture
+
+The technical approach is well-designed and addresses subtleties that could easily be missed:
+- **Atomic Relocation (Phase 1)**: Relocating both apps and immediately repairing all path consumers (Dockerfiles, Railway manifests, CI workflows, Dependabot configuration, PR templates, and upward-resolving tests) ensures the repository remains fully green on existing `pnpm --filter` tooling before task runner abstractions are layered on top.
+- **Docker Workspace Support (Phase 3)**: Recognizes that copying only package manifests during multi-stage Docker builds is insufficient when `tsconfig.json` extends `@ansari/tsconfig`, explicitly requiring `COPY packages packages` before build steps.
+- **ESLint Flat Config ESM Compatibility (Phase 4)**: Correctly identifies that `apps/frontend/eslint.config.js` must be renamed to `eslint.config.mjs` to import ESM exports from `@ansari/eslint-config`.
+
+---
+
+## 3. Task Breakdown and Ordering
+
+The six-phase decomposition is logically ordered and cleanly decoupled:
+1. **Phase 1**: Pure directory move and path-consumer rewrite (verifiable via existing test suite and `pnpm --filter`).
+2. **Phase 2**: Turborepo task graph, root scripts, and CI modernization.
+3. **Phase 3**: Shared TypeScript configuration package (`@ansari/tsconfig`).
+4. **Phase 4**: Shared ESLint configuration package (`@ansari/eslint-config`).
+5. **Phase 5**: Shared types package scaffolding (`@ansari/types`) and `packages/README.md`.
+6. **Phase 6**: Cross-cutting acceptance verification, stale path audits, and fresh-clone walkthrough.
+
+Each phase has isolated deliverables and can be validated and committed independently.
+
+---
+
+## 4. Risk Identification and Mitigation
+
+All major operational and structural risks are identified with actionable mitigations:
+- **Railway Out-of-Repo Configuration**: Documented in `RELEASE.md` and the PR template as an explicit operator action to update Railway service config paths.
+- **Silent Upward-Resolving Test Passes**: Mitigated by mandatory negative checks on both `release-doc.test.ts` and `self-hosting-docs.test.ts`.
+- **Warm-Cache Codegen Restoration**: Guarded by warm-cache output deletion tests.
+- **Expo TUI Multiplexing**: Verified through explicit manual testing of TUI interactivity under `turbo run dev`, with mandatory fallback documentation in `CONTRIBUTING.md` if keypress handling is degraded.
+
+---
+
+## 5. Testing Strategy
+
+The test plan goes beyond simple "suite passes" assertions by establishing robust validation techniques:
+- **Test-Set Equality**: Baseline captured on `develop` before moves and compared by test-name set rather than test count.
+- **Negative Checks**: Deliberately breaking target paths/strings to ensure tests assert against the true repository root.
+- **Configuration Parity Verification**: Using `tsc --showConfig` byte diffs and `eslint -f json` violation diffs to guarantee zero unintended rule or compiler drift.
+- **Execution of Real Artifacts**: Validating Docker builds locally and executing clean-clone onboarding steps verbatim.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: The implementation plan is comprehensive, rigorously sequenced, and perfectly aligned with all specification requirements and architectural constraints.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

@@ -71,8 +71,14 @@ packages: it is a pure relocation, verifiable entirely on its own.
   `packages/*` glob matches nothing yet; that is valid and intentional (Phase 3 fills it).
   **Preserve the `catalog:` and `onlyBuiltDependencies` blocks byte-for-byte.**
 - `apps/api/package.json` — `"name": "ansari-backend"` → `"ansari-api"`.
-- `package.json` (root) — rename the `backend` convenience alias to `api`; repoint all five
-  scripts at `--filter ansari-api`. Still `pnpm --filter` here; Phase 2 converts to Turbo.
+- `package.json` (root) — rename the `backend` convenience alias to `api`. **Preserve each
+  script's existing scope exactly**; this phase changes paths, never semantics:
+  - `dev`, `test`, `build` → `--filter ansari-api` (they are backend-only **today** and stay
+    that way until Phase 2 fixes that deliberately)
+  - `lint`, `typecheck` → **stay `pnpm -r`** (repo-wide today). Repointing these at
+    `--filter ansari-api` would silently narrow repo-wide checks to one app — a real
+    regression, and exactly the class of change this phase must not make.
+  Still `pnpm --filter` / `pnpm -r` throughout; Phase 2 converts to Turbo.
 
 **Container / deploy:**
 - `apps/api/Dockerfile` — `COPY apps/api/package.json apps/api/`, `COPY apps/api apps/api`,
@@ -89,12 +95,23 @@ packages: it is a pure relocation, verifiable entirely on its own.
 
 **CI / GitHub:**
 - `.github/workflows/ci.yml` — `apps/api/.env.ci`; `--filter ansari-api`.
-- `.github/dependabot.yml` — **rewritten, not repointed.** Cover `apps/*` and `packages/*`;
-  **delete** the false comment claiming `backend/package-lock.json` is the single lockfile
-  and that there is no root `package.json`. Keep `package-ecosystem: "npm"` — Dependabot
-  has **no `pnpm` value**; pnpm is handled *by* the `npm` ecosystem. Settle
-  per-package `directory:` entries vs a glob `directories:` list by checking current
-  Dependabot behaviour for pnpm workspaces, and record which was chosen and why.
+- `.github/dependabot.yml` — **rewritten, not repointed.** Decided here rather than deferred:
+  - `package-ecosystem: "npm"` **stays**. Dependabot has **no `pnpm` value** — pnpm is
+    handled *by* the `npm` ecosystem. The fix is in directories, comment, and coverage.
+  - **Use a single `directory: "/"` entry**, not per-app entries. This matches the actual
+    shape of the repo: there is exactly **one** lockfile (root `pnpm-lock.yaml`), and the
+    npm ecosystem resolves a pnpm workspace from it, covering every workspace package.
+    It also covers the **root `package.json` itself**, which is where `turbo` lives — a
+    per-app-only config would leave Turborepo unwatched.
+  - **Delete** the false comment claiming `backend/package-lock.json` is the single lockfile
+    and that there is no root `package.json`. Both have been untrue since the pnpm migration.
+  - Keep the `github-actions` entry at `/` unchanged.
+  - **Verify, do not assume:** after the change, confirm Dependabot's config is accepted and
+    that its coverage reaches workspace packages (repo Insights → Dependency graph →
+    Dependabot shows the parsed config and last-run status). If a single root entry proves
+    not to reach workspace packages, fall back to explicit per-directory entries covering
+    `/`, `/apps/api`, `/apps/frontend`, and each `packages/*` — and record which was used
+    and why in the PR description.
 - `.github/PULL_REQUEST_TEMPLATE.md` — lines ~16 and ~26: "run from `backend/`" and
   "`backend/.env.ci`" → `apps/api`.
 
@@ -197,14 +214,29 @@ including `pnpm dev` bringing up **both** apps.
   - **add `build`** aliasing `build:web` — so `pnpm build` genuinely covers both apps.
   - `typecheck` — **drop the `&& ` chain**; the `gen:types` edge now provides ordering.
   - `build:web` — **KEEP its `pnpm run gen:types && ` chain.** See the constraint note below.
-- `.github/workflows/ci.yml` — both jobs move to `turbo run <tasks> --filter <app>`, keeping
-  the **two-job split** (architect decision: stable check names, legible diff). The frontend
-  job gains a **`build`** step. Update the existing comment that explicitly says the
-  typecheck step relies on the `&&` — it must not be silently invalidated.
+- `.github/workflows/ci.yml` — both jobs move to `turbo run <tasks> --filter <app>...`,
+  keeping the **two-job split** (architect decision: stable check names, legible diff).
+  Note the **trailing `...`**: `--filter ansari-api...` selects the app *and its workspace
+  dependencies*, so the shared packages introduced in Phases 3–4 are linted and typechecked
+  by CI rather than silently skipped. A bare `--filter ansari-api` would leave
+  `packages/*` uncovered, contradicting the spec's required CI matrix.
+  `@ansari/types` has **no consumer by design**, so a dependency-closure filter will never
+  reach it — Phase 5 adds its explicit coverage. The frontend job gains a **`build`** step.
+  Update the existing comment that explicitly says the typecheck step relies on the `&&` —
+  it must not be silently invalidated.
 - `.gitignore` and `.dockerignore` — add `.turbo`.
 - `CONTRIBUTING.md`, `README.md`, `docs/self-hosting.md`, `apps/api/README.md`,
   `apps/api/AGENTS.md`, `apps/api/CLAUDE.md`, `apps/frontend/README.md` — command blocks
   rewritten for the root `turbo` scripts.
+- **`RELEASE.md` stays app-scoped — decided, not incidental.** It is an operational runbook
+  executed *from the api app* (`pnpm db:migrate`, `pnpm exec tsx scripts/grant-admin.ts`,
+  `pnpm start`), and `apps/api/tests/release-doc.test.ts` asserts that **every `pnpm <script>`
+  the doc names exists in `apps/api/package.json`**. Rewriting the runbook to root `turbo`
+  commands would make that assertion semantically wrong even where it still passes by
+  coincidence of overlapping script names. So: leave RELEASE.md's commands app-scoped, and
+  add a comment in `release-doc.test.ts` stating that assumption **explicitly** rather than
+  leaving it implicit for the next person to trip over. Only genuinely root-level lines
+  (the `cd ../..` install) reference the root.
 
 > **Constraint resolution — do not "simplify" this.** The spec's baked constraint says model
 > `gen:types` as a Turbo dependency "not a shell `&&`". It names **`typecheck`**, not
@@ -271,6 +303,9 @@ Create `@ansari/tsconfig` as the shared TypeScript base and rewire both apps ont
 #### Files to Create / Modify
 
 - `packages/tsconfig/package.json` (**new**) — `"name": "@ansari/tsconfig"`, private.
+  It ships **only JSON** and deliberately has **no `lint` / `typecheck` scripts** — there is
+  nothing to compile or lint. Turbo simply skips packages that do not define a task, so this
+  is correct rather than a gap; do not add empty scripts to make it "appear" in task output.
 - `packages/tsconfig/base.json` (**new**) — only what the apps genuinely share:
   `strict`, `skipLibCheck`, `esModuleInterop`, `isolatedModules`, `resolveJsonModule`.
   Deliberately thin (spec decision, confirmed at the gate).
@@ -325,7 +360,12 @@ onto it **without changing a single reported lint violation**. The api app's
 
 #### Files to Create / Modify
 
-- `packages/eslint-config/package.json` (**new**) — `"name": "@ansari/eslint-config"`, private.
+- `packages/eslint-config/package.json` (**new**) — `"name": "@ansari/eslint-config"`,
+  private, **`"type": "module"`** (or `.mjs` files), with an explicit `exports` map defining
+  the subpath the apps import (e.g. `"./base"`). Under pnpm's strict layout an undeclared
+  subpath fails to resolve, and ESLint's failure mode for an unresolved config is to report
+  **nothing** — indistinguishable from passing. It also needs `eslint` in its own
+  `devDependencies` (and `peerDependencies`), because pnpm will not hoist the apps' copies.
 - `packages/eslint-config/base.js` (**new**) — the shared floor: common ignore globs
   (build output, `node_modules`, coverage) and any rule both apps already agree on.
   Deliberately thin — the two configs share almost nothing, and a contrived shared config
@@ -389,10 +429,21 @@ convention.
 
 #### Files to Create / Modify
 
-- `packages/types/package.json` (**new**) — `"name": "@ansari/types"`, private, with `lint`
-  and `typecheck` scripts so the task graph exercises it from day one.
+- `packages/types/package.json` (**new**) — `"name": "@ansari/types"`, private, `"type":
+  "module"`, with `lint` and `typecheck` scripts. **Naming the scripts is not enough**:
+  under pnpm's strict dependency model nothing is hoisted, so the package needs its own
+  `devDependencies` — `typescript` (via `catalog:`, so it cannot drift from the pinned
+  `~6.0.3`), `eslint`, and `"@ansari/eslint-config": "workspace:*"` — or both scripts fail
+  with "command not found" the first time CI runs them.
+- `packages/types/eslint.config.mjs` (**new**) — consumes `@ansari/eslint-config`. Without
+  its own config, `eslint .` in this package either errors or lints nothing.
 - `packages/types/tsconfig.json` (**new**) — extends `@ansari/tsconfig/base.json`.
 - `packages/types/src/index.ts` (**new**) — a single placeholder export.
+- `.github/workflows/ci.yml` — **add explicit `@ansari/types` coverage.** The app jobs use
+  dependency-closure filters (`--filter <app>...`), which by construction never reach a
+  package with no consumer. Cover it explicitly (e.g. a `--filter './packages/*'` step on
+  one job) so the spec's "lint and typecheck for every package under `packages/`" criterion
+  is actually satisfied rather than nominally claimed.
 - `packages/README.md` (**new**) — one short paragraph on the convention (architect decision).
 - `pnpm-lock.yaml` — regenerated.
 
@@ -412,7 +463,8 @@ convention.
 #### Acceptance Criteria
 
 - [ ] `turbo run lint typecheck` includes `@ansari/types` in its task list (verified in the
-      output, not assumed from config).
+      output, not assumed from config), **and CI runs those tasks too** — confirmed by
+      reading the CI job log, not by reading the workflow file.
 - [ ] `pnpm install --frozen-lockfile` succeeds.
 - [ ] `packages/README.md` exists and explains the convention.
 
@@ -459,7 +511,13 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
       matches at least one real path — **asserted against the tree, not read**.
 - [ ] `.github/dependabot.yml` accounts for every workspace package directory
       (config-vs-tree comparison), with no false lockfile comment.
-- [ ] Full api suite green vs. the Phase 1 baseline **by test-name set**.
+- [ ] Full api suite green vs. the Phase 1 `develop` baseline **by test-name set**.
+- [ ] **End-to-end behaviour preservation vs. `develop`, not merely phase-to-phase.**
+      Re-run the ESLint violation-set diff and the `tsc --showConfig` diff for both apps
+      against **`develop`**, comparing the assembled branch tip. Adjacent-phase diffs can
+      each be clean while drift accumulates across Phases 3–5; only the end-to-end
+      comparison satisfies the spec's criterion. Any delta must be enumerated and justified
+      in the PR description.
 - [ ] `turbo run build` twice → FULL TURBO.
 - [ ] gitleaks green over full history; `.gitleaksignore` untouched.
 - [ ] **Fresh-clone walkthrough:** in a clean clone, follow `CONTRIBUTING.md` and
@@ -491,5 +549,8 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 | `pnpm dev` starts both apps but the Expo TUI silently loses keypress handling | Medium | Medium | Hard, manual, architect-mandated verification in Phase 2; degraded interactivity is acceptable **only** if documented in `CONTRIBUTING.md` |
 | Dependabot pnpm-workspace directory semantics differ from expectation | Medium | Low | Phase 1 settles it by checking current behaviour and records the choice and rationale rather than guessing |
 | Widened Dependabot coverage opens a burst of PRs for newly watched packages | Medium | Low | Expected, not misconfiguration; `open-pull-requests-limit` bounds it |
+| Root `lint` / `typecheck` silently narrowed from repo-wide (`pnpm -r`) to one app during the Phase 1 rewrite | Medium | High | Phase 1 explicitly preserves each script's existing scope; the change is paths only. Verify by running root `lint` and `typecheck` and confirming both apps appear in the output |
+| Shared packages never get linted or typechecked in CI, so a broken shared config ships green | Medium | Medium | App jobs use dependency-closure filters (`--filter <app>...`); `@ansari/types` has no consumer so Phase 5 adds explicit coverage, verified from the CI job log rather than the workflow file |
+| A shared package's scripts are declared but its own deps are not, so they fail on first CI run under pnpm's strict layout | Medium | Medium | Phases 4–5 declare `typescript` (via `catalog:`), `eslint`, and the workspace config dep in each package that has scripts; `packages/tsconfig` deliberately has none |
 | Lockfile churn across Phases 3–5 masks an unintended dependency change | Low | Medium | Review each `pnpm-lock.yaml` diff for entries unrelated to turbo and the new workspace packages |
 | Rename detection fails on a moved file, losing blame | Low | Medium | Git infers renames at diff time from content similarity; the path edits are small relative to file size. Verified with `git log --follow` and `git show -M --stat` in Phases 1 and 6 |

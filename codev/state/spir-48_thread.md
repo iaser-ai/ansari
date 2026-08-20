@@ -342,3 +342,51 @@ this" note plus a `package.json` comment, because the failure mode is a future r
 "finishing" the constraint and silently breaking the frontend image.
 
 Next: `porch done`, which triggers the 3-way plan consultation.
+
+## 2026-08-20 — Plan review iteration 1: gemini APPROVE, codex REQUEST_CHANGES
+
+Codex returned 7 issues, all legitimate, all fixed. Gemini APPROVE, no issues. Claude
+still running.
+
+**The one that mattered: I introduced a regression in my own Phase 1.** I wrote "repoint
+all five scripts at `--filter ansari-api`". Verified against the tree: root `lint` and
+`typecheck` are `pnpm -r` **today** — repo-wide. Repointing them at a single filter would
+have silently narrowed repo-wide checks to one app, in the very phase whose entire purpose
+is to change paths and nothing else. Phase 1 now spells out per-script scope preservation
+and says why, and there is a risk row plus a verification step for it.
+
+Sharp irony worth recording: the spec's opening complaint is that root scripts lie about
+their scope. My plan would have made one lie harder.
+
+Other six:
+
+2. **CI would never have linted the shared packages.** Two-job split filtered by app
+   excludes `packages/*`. Fixed with dependency-closure filters (`--filter <app>...`,
+   note the trailing dots) so Phases 3–4 packages are covered. But `@ansari/types` has
+   **no consumer by design**, so a closure filter can never reach it — Phase 5 now adds
+   explicit coverage, verified from the CI job log rather than the workflow file.
+3. **`@ansari/types` was underspecified.** Naming `lint`/`typecheck` scripts does not make
+   them run: under pnpm's strict layout nothing is hoisted, so the package needs its own
+   `typescript` (via `catalog:` so it cannot drift from the pinned ~6.0.3), `eslint`, and
+   an eslint config file. Otherwise both scripts fail "command not found" on first CI run.
+   Also noted the inverse for `packages/tsconfig`: it ships only JSON and deliberately has
+   **no** scripts — so nobody adds empty ones to make it "appear" in task output.
+4. **`@ansari/eslint-config` needs `"type": "module"` and an explicit `exports` map.**
+   Under pnpm an undeclared subpath fails to resolve, and ESLint's failure mode for an
+   unresolved config is to report **nothing** — indistinguishable from passing. Same
+   silent-green shape as the other traps in this project.
+5. **Settled the dependabot mechanism instead of deferring it.** Decided: a single
+   `directory: "/"` entry, because there is exactly one lockfile and the npm ecosystem
+   resolves the pnpm workspace from it — and critically it also covers the **root
+   package.json, which is where turbo lives**. Per-app-only entries would leave Turborepo
+   unwatched. Kept a documented fallback to explicit per-directory entries with a
+   verification step, since I could not confirm the workspace-resolution behaviour offline.
+6. **RELEASE.md scoping decided rather than left implicit.** `release-doc.test.ts` asserts
+   every `pnpm <script>` in the doc exists in `apps/api/package.json`. Phase 2 rewrites
+   docs to root turbo scripts — but RELEASE.md is a runbook executed *from the api app*,
+   so converting it would make the assertion semantically wrong even where it still passes
+   by coincidence of overlapping script names. Decision: RELEASE.md stays app-scoped, and
+   the test gains a comment stating that assumption explicitly.
+7. **Phase 6 now compares against `develop`, not just adjacent phases.** Adjacent-phase
+   diffs can each be clean while drift accumulates across Phases 3–5. Only the end-to-end
+   comparison satisfies the spec's behaviour-preservation criterion.
