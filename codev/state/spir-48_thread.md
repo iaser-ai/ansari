@@ -297,3 +297,48 @@ the disposition survives a context refresh: **raising contradictions is wanted, 
 tolerated.**
 
 Next: plan phase.
+
+## 2026-08-20 — Plan drafted (6 phases)
+
+Wrote `codev/plans/48-standardise-to-apps-packages-m.md`. Structure follows the approved
+Approach 2 — ordered commits in ONE PR.
+
+Phases: (1) move + full path-consumer rewrite, (2) Turborepo task graph + root scripts,
+(3) shared tsconfig, (4) shared eslint-config, (5) types package + packages README,
+(6) repo-wide acceptance sweep + fresh-clone walkthrough.
+
+Decisions worth recording:
+
+- **Phase 1 is deliberately large and indivisible.** A move-only commit cannot be green,
+  and `release-doc.test.ts` asserts on RELEASE.md's *contents*, so the doc must move with
+  the code. I state that explicitly in the plan so a reviewer does not read the size as
+  sloppiness and try to split it.
+- **Docs are touched twice on purpose** — Phase 1 for paths (while per-app `--filter`
+  scripts still exist), Phase 2 for the root turbo scripts. Doing it once would leave one
+  commit describing a repo that does not exist.
+- **Split the shared packages one-per-phase** (3/4/5) rather than one lumped phase. They
+  are the only phases containing design judgement rather than mechanical rewriting, so
+  isolating them lets a reviewer see them as such. Each has a behaviour-preservation test
+  rather than a "looks fine" check.
+- **Phase 3 carries the Docker `COPY packages packages` fix**, because it is the first
+  phase to introduce a `workspace:` dep. Ordering matters here — putting it later would
+  leave Phase 3's own Docker acceptance failing.
+- **Phase 6 exists** because the highest-value criteria (no stale path, both images, both
+  railway globs, fresh-clone walkthrough) are inherently cross-cutting and cannot be
+  evaluated before everything lands.
+
+Two implementation details I surfaced while planning that were not in the spec:
+
+1. **`apps/frontend/eslint.config.js` must become `.mjs`.** The frontend package has no
+   `"type": "module"`, so the current CJS file cannot `require()` an ESM shared config.
+   Added the rename to Phase 4 plus a check that ESLint still resolves it — a silently
+   unresolved config reports zero violations, which looks exactly like passing.
+2. **`apps/frontend/tsconfig.json` needs an `extends` ARRAY** (`["expo/tsconfig.base",
+   "@ansari/tsconfig/base.json"]`) since it already extends the Expo base. Order matters;
+   the plan says verify the resolved output rather than assume it.
+
+Also carried the `build:web` `&&` resolution into the plan as an explicit "do not simplify
+this" note plus a `package.json` comment, because the failure mode is a future reader
+"finishing" the constraint and silently breaking the frontend image.
+
+Next: `porch done`, which triggers the 3-way plan consultation.
