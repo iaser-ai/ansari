@@ -129,12 +129,24 @@ repo root: `docker build -f apps/api/Dockerfile .` — the image builds with the
 committed dummy `apps/api/.env.ci`; real environment variables are injected at
 runtime).
 
-The production instance runs on **Railway** with the repository's
-`apps/api/railway.toml` (dockerfile builder pointing at `apps/api/Dockerfile`,
-healthcheck on `/api/health`, restart on failure). For a Railway deploy from
-this monorepo, set the service's **root directory to the repo root** (the
-Docker build context needs the root `pnpm-lock.yaml`) and its config-as-code
-path to `apps/api/railway.toml`.
+The production instance runs on **Railway**: a dockerfile build from
+`apps/api/Dockerfile`, healthcheck on `/api/health`, restart on failure.
+
+For a Railway deploy from this monorepo, configure the service in the dashboard:
+
+- **Root directory: the repo root** — not `apps/api`. The Docker build context
+  needs the root `pnpm-lock.yaml`, and the image also copies `packages/`.
+- **Dockerfile path:** `apps/api/Dockerfile`
+- **Watch paths:** `apps/api/**`, `packages/**`, `package.json`, `pnpm-lock.yaml`,
+  `pnpm-workspace.yaml`. `packages/**` is required — the shared config packages are
+  copied into the image, so omitting it means a packages-only change ships nothing:
+  no rebuild, no deploy, and no error.
+
+`apps/api/railway.toml` records these same values in version control, but Railway
+resolves a config file relative to the service root directory — the repo root here —
+so a file one level down is not picked up automatically. Treat the dashboard as
+authoritative and the toml as the reviewable record. RELEASE.md carries the full
+per-service table.
 
 Because `/api/health` now returns 503 when the database is unreachable, it is a real
 deploy gate: a deploy with a broken or unset `DATABASE_URL` will fail its healthcheck

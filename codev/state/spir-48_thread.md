@@ -1309,3 +1309,38 @@ Human has since configured Railway, so the largest post-merge risk is closed ahe
 
 Suite after all edits: 66 files / 623 passed / 3 skipped; release-doc test 6/6 green after
 the RELEASE.md rewrite.
+
+## 2026-08-21 — Phase 6 iter 2: I fixed two of four places and called it done
+
+gemini APPROVE | codex REQUEST_CHANGES | claude REQUEST_CHANGES — and both dissenters found
+**the same thing**, independently.
+
+When I corrected the Railway guidance in iteration 1, I updated `RELEASE.md` and both
+`railway.toml` headers — and left the old, wrong instruction standing in
+`docs/self-hosting.md` ("set its config-as-code path to `apps/api/railway.toml`") and in my
+own **review document** ("update the config file path"), the latter telling an operator to
+change a setting that does not exist.
+
+So I turned one wrong document into **four documents disagreeing with each other**. That is
+strictly worse than the original error: a single wrong instruction gets followed and fails;
+four contradictory ones get argued about. And it is the same drift class this entire PR was
+written to eliminate — committed inside the deliverable that documents the elimination.
+
+Root cause is simple and worth naming: I fixed the places I happened to be editing rather
+than searching for every instance. The fix for a *documentation* claim has the same
+requirement as the fix for a code defect — find all the sites, not the ones in front of you.
+
+Fixed all four, then **verified consistency by search rather than by memory**: no live doc
+still instructs setting a config-file path (the only hit is the review doc explicitly saying
+no such setting exists); all five files name the dashboard as authoritative; both
+operator-facing docs list `packages/**`.
+
+Also refreshed the review header stats, which claude noticed had gone stale after iteration 1
+(273 files/+7039/−161 → 280/+7492/−193, 79 commits, 17 review rounds).
+
+`self-hosting-docs.test.ts` + `release-doc.test.ts` 14/14 green after the rewrite — the drift
+guards still hold against the edited docs. Suite 66 files / 623 passed / 3 skipped.
+
+Remaining acceptance item is PR-time only: confirming from a real CI log that gitleaks ran and
+that `@ansari/types` was linted and typechecked. Reading a workflow file is not evidence a
+step executed.

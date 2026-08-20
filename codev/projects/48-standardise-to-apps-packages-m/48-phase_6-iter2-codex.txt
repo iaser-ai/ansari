@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 6 still lacks required CI evidence and contains contradictory Railway deployment guidance.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Actual CI confirmation remains pending, including gitleaks and explicit `@ansari/types` lint/typecheck execution.
+- Railway guidance conflicts: `docs/self-hosting.md` directs configuring `apps/api/railway.toml`, while `RELEASE.md` calls these files reference-only and the review still instructs updating their config paths. Reconcile this into one accurate operator action before proceeding.

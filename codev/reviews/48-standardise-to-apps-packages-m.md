@@ -3,7 +3,7 @@
 **Spec**: [`codev/specs/48-standardise-to-apps-packages-m.md`](../specs/48-standardise-to-apps-packages-m.md)
 **Plan**: [`codev/plans/48-standardise-to-apps-packages-m.md`](../plans/48-standardise-to-apps-packages-m.md)
 
-73 commits · 273 files changed (+7039 / −161) · six phases · 15 review rounds.
+79 commits · 280 files changed (+7492 / −193) · six phases · 17 review rounds.
 
 ## What shipped
 
@@ -122,9 +122,13 @@ in phase 6 against all four derivation methods.
 
 ## Out-of-repo actions required after merge
 
-1. **Railway** — each service's *config file path* is a dashboard setting still pointing at
-   the old locations. Update to `apps/api/railway.toml` and `apps/frontend/railway.toml`, and
-   verify both services deploy. No PR can fix this.
+1. **Railway** — both services need their **dashboard** settings updated: Dockerfile path to
+   `apps/api/Dockerfile` / `apps/frontend/Dockerfile.web`, root directory left at the repo
+   root, and watch paths including **`packages/**`**. See the "Railway service configuration"
+   block in `RELEASE.md` for the full per-service table. There is no "config file path"
+   setting to change — Railway resolves a config file relative to the service root directory,
+   so `apps/*/railway.toml` is never picked up; those files are the reviewable record, not the
+   live configuration. No PR can fix this. *(Completed by the human before merge.)*
 2. **Dependabot coverage** — `directory: "/"` covering every workspace package is only
    confirmable from GitHub's Dependency graph after merge. A config that resolves nothing
    produces no error, just silence. Fallback (per-directory entries) is specified in the plan.
