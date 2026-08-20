@@ -135,6 +135,65 @@ same lane completed later on the same phase. Phase 2 therefore shipped with one 
 reviewer than any other, and carries a compensating control: its `turbo.json` was re-reviewed
 in phase 6 against all four derivation methods.
 
+## Architecture Updates
+
+Proposed for `codev/resources/arch.md` (and its hot-tier companion where the cap allows).
+These are system-shape facts a contributor must know before deciding, not a changelog of
+this PR.
+
+- **Layout is `apps/*` + `packages/*`, driven by Turborepo.** Root tasks fan out through one
+  cached task graph; `pnpm dev` starts both apps. Target one package with `pnpm api <script>`
+  / `pnpm frontend <script>`, or from inside the app directory.
+- **Both Docker images build from the REPO ROOT**, never from the app directory — the pnpm
+  workspace needs the root lockfile, and both images `COPY packages packages`. A Dockerfile
+  path is always `-f apps/<app>/Dockerfile…` with `.` as context.
+- **Turborepo runs in strict env mode: a variable not declared in `turbo.json` is invisible
+  to tasks and absent from the cache key.** Adding an env var means adding it to `globalEnv`,
+  derived by four methods — the Zod schema in `apps/api/lib/config.ts`, a static
+  `process.env.X` grep, a dynamic `process.env[` grep followed to its call-site literals, and
+  the documented surface (`docs/self-hosting.md`, `.env.example`) for variables consumed by
+  dependencies. Each method exists because skipping it lost a real variable.
+- **A `workspace:*` dependency does not put a package's contents in a consumer's cache hash.**
+  Shared packages must also appear in `globalDependencies`, or a warm cache replays stale
+  results against changed shared config.
+- **Railway deployment is configured in the dashboard, not from `railway.toml`.** The tomls
+  are the reviewable git record. Watch paths must include `packages/**`, since both images
+  copy it.
+- **`/api/health` returns `service: 'ansari-backend'`** — a pinned public contract (spec 3),
+  unrelated to the `apps/api` directory name. It performs a live DB ping with a 2s cap, so a
+  cold process can legitimately 503 on its first request.
+
+## Lessons Learned Updates
+
+Proposed for `codev/resources/lessons-learned.md`. The first is the one worth promoting to the
+hot tier if there is room, because it generalises past this project.
+
+- **Prefer failures that are loud over checks that are quiet.** Every serious defect here
+  reported success while doing nothing: an unresolvable ESLint config reports *zero
+  violations*; a warm cache skips codegen; undeclared env is excluded from the cache hash; a
+  lint task discovers no files; a `watchPatterns` glob matching nothing does not error. When a
+  check can pass by not running, prove it fails when it should — a deliberate violation, a
+  removed declaration, a deleted output.
+- **Verify in both directions.** Proving a change moves a cache hash is half the evidence;
+  you must also prove that removing the declaration makes it stop moving. One direction cannot
+  distinguish working from broken.
+- **A verification pattern is code, and untested code is not evidence.** Three scans on this
+  project returned wrong answers — a compound regex that silently matched nothing, a
+  too-loose pattern, an exclusion filter that never fired. Negative-test every scan against a
+  known-bad line *and* a known-good near-miss, then report hit counts rather than a verdict.
+- **Comments and docs deserve the same proof as behaviour.** Four comments written here
+  asserted untested mechanisms (cache-hit behaviour, failure modes, reachability) and each was
+  wrong. Run the thing and read the output before writing the sentence.
+- **Fix a documentation defect everywhere, not where you happen to be editing.** Correcting
+  guidance in two of four places turned one wrong document into four that disagreed — worse
+  than the original error, because contradictions get argued about rather than followed and
+  failed.
+- **Liveness means progress, not existence.** A live PID proved nothing: one consultation sat
+  2h39m writing zero bytes against a ~5min baseline. Compare bytes-written and elapsed time
+  against a known-good baseline from the same batch.
+- **In a relocation, `pnpm install` is not neutral.** A non-frozen install silently bumped a
+  transitive dependency inside a "pure move" commit. Diff the lockfile before committing.
+
 ## Out-of-repo actions required after merge
 
 1. **Railway** — both services need their **dashboard** settings updated: Dockerfile path to
