@@ -9,10 +9,14 @@
   "scripts": {
     "api": "pnpm --filter ansari-api",
     "frontend": "pnpm --filter ansari-frontend",
-    "dev": "pnpm --filter ansari-api dev",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter ansari-api test",
-    "build": "pnpm --filter ansari-api build"
+    "dev": "turbo run dev --ui=tui",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "turbo": "2.10.11"
   }
 }

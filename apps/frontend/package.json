@@ -5,16 +5,19 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "dev": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "_comment_build:web": "The `pnpm run gen:types &&` chain here is DELIBERATE and must stay. apps/frontend/Dockerfile.web installs with --filter ansari-frontend (which does not install root devDependencies, so turbo is absent from that image) and invokes build:web DIRECTLY. Without this chain, expo export runs with no uniwind-types.d.ts and the image build breaks. turbo.json also declares gen:types as a dependsOn edge for build/build:web, so graph-driven runs make this a cache hit rather than duplicate work.",
+    "build": "pnpm run build:web",
     "build:web": "pnpm run gen:types && expo export --platform web",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "gen:types": "uniwind generate-artifacts --css ./src/global.css --dts ./uniwind-types.d.ts",
-    "typecheck": "pnpm run gen:types && tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.8",

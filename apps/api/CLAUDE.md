@@ -13,9 +13,15 @@ results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), JWT auth
 
 ## Commands
 
-This repo is a **pnpm workspace**: install once at the repo root, then run
-package scripts from inside `apps/api/` (or from the root with
-`pnpm --filter ansari-api <script>`).
+This repo is a **pnpm workspace** driven by **Turborepo**: install once at the
+repo root. Root tasks (`pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
+`pnpm dev`) run through the task graph and cover every package that defines them.
+To target this app specifically, use `pnpm api <script>` from the root, or run
+the script from inside `apps/api/`.
+
+`pnpm build`/`pnpm test` for this app need the env loaded the way CI loads it —
+`set -a && . ./apps/api/.env.ci && set +a` — because Turborepo's strict env mode
+only forwards variables declared in the root `turbo.json`.
 
 ```bash
 pnpm install          # at the REPO ROOT (Node >= 22; pnpm via corepack)

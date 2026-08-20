@@ -11,7 +11,9 @@ backend in [`../api/`](../api/); the API surface is summarized in the
 
 ## Development
 
-Install once at the repo root (pnpm workspace), then from this directory:
+Install once at the repo root (pnpm workspace + Turborepo). `pnpm dev` from the
+repo root starts this app alongside the API. To work on it alone, from this
+directory:
 
 ```bash
 pnpm start       # Expo dev server — press i / a for iOS / Android simulator

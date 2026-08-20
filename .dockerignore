@@ -4,6 +4,7 @@
 .git
 **/node_modules
 **/.next
+**/.turbo
 **/dist
 **/.expo
 **/coverage
