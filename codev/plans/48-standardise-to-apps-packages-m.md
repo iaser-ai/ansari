@@ -600,6 +600,23 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 - [ ] Both Docker builds succeed from the repo root.
 - [ ] Both `railway.toml` name a `dockerfilePath` that exists, and every `watchPatterns` glob
       matches at least one real path — **asserted against the tree, not read**.
+- [ ] **MANDATORY: re-review `turbo.json` — phase_2's compensating control** (architect
+      decision, 2026-08-20). Phase 2 shipped with **two reviewers, not three**: the claude
+      lane wedged 3× on a never-terminating `turbo run dev` and produced no review (see
+      `48-phase_2-iter1-claude.txt`). Phase 2 is the highest-consequence phase in this plan —
+      a wrong cache key ships wrong baked `EXPO_PUBLIC_*` to production **while reporting a
+      cache hit**: green build, no signal — and it has had the least review. So re-review it
+      here, explicitly:
+      1. **`globalEnv` completeness against ALL THREE derivation methods** — the Zod schema
+         in `apps/api/lib/config.ts`, the static `grep process\.env\.[A-Z]`, and the
+         dynamic `grep process\.env\[` **followed to its call-site string literals**. The
+         third is not optional: skipping it is exactly how
+         `FACILITATOR_REQUEST_BUDGET_MS` / `FACILITATOR_SYNTHESIS_RESERVE_MS` were missed,
+         and a static pattern cannot see `process.env[name]` by construction.
+      2. **The cache-key assertion proven in BOTH directions** — changing a declared variable
+         changes the task hash, AND removing it from `globalEnv` makes the override silently
+         invisible (`configured` shows NONE). One direction alone does not distinguish
+         working from broken.
 - [ ] **The open Dependabot PRs are NOT a defect and must NOT be closed** (human decision,
       2026-08-20). Ten are open, all emitting the `backend (...)` check. Repointing
       `dependabot.yml` obsoletes them and Dependabot re-opens against the new path on its

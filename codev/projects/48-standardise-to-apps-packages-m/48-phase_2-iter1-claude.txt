@@ -1,0 +1,79 @@
+---
+VERDICT: COMMENT
+SUMMARY: claude lane UNAVAILABLE for phase_2 — no review was produced. Not a verdict.
+CONFIDENCE: LOW
+---
+
+## This is a record of a missing review, not a review.
+
+No claude review of phase_2 exists. Nothing below should be counted as approval,
+and this file must not be read as a third verdict. Phase_2 shipped with **two**
+reviewers, one fewer than every other phase in this plan.
+
+## What happened
+
+Three sequential attempts, each killed after producing **zero bytes**:
+
+| attempt | elapsed | output |
+|---|---|---|
+| 1 | 31:49 | 0 bytes |
+| 2 | 23:43 | 0 bytes |
+| 3 | 59:17 | 0 bytes |
+
+Healthy baseline for this lane on this project: **~5 minutes** (the phase_1
+iteration-2 relaunch completed in 5). SIGTERM was ignored in every case; SIGKILL
+was required.
+
+## Why — and this is NOT "the lane is flaky"
+
+The architect tested the claude lane independently from the architect side during
+the outage: a trivial prompt completed in **3.9s**, against lane-wide stats of 86%
+success / 151s average. The CLI and the model are both healthy. Calling this
+"flaky" would be false, and worse, it would stop anyone from investigating.
+
+**Hypothesis (architect's, and it fits every data point): phase_2 is the phase
+that introduced a persistent, never-terminating task.** `turbo run dev` does not
+exit — by design. An agentic reviewer with shell access that decides to *exercise*
+the dev task hangs forever.
+
+The evidence matches precisely:
+
+- **Zero bytes written**, not partial output — consistent with a held pipe, not a
+  model thinking slowly.
+- **SIGTERM ignored, SIGKILL required** — the signature of a child process group
+  holding the pipe open.
+- **Lane-by-lane pattern**: claude (Agent SDK, tool use) wedged 3×; gemini
+  (agentic, `--sandbox`) timed out once and needed a relaunch; codex completed
+  normally. **The two file-agentic lanes are exactly the two that hung** — on
+  precisely the phase that added a task which never returns.
+
+Alternatives ruled out by the architect: `.turbo` directories are trivial (124K
+max) and gitignored; the phase_2 diff is small (211 insertions across 5 files);
+and while the branch total is 232 files, phase_1 reviewed cleanly three times
+against that same large diff.
+
+## Compensating control (mandatory, not optional)
+
+Phase_2 is the **highest-consequence phase in this plan**: a wrong cache key ships
+wrong baked `EXPO_PUBLIC_*` values to production *while reporting a cache hit* —
+green build, no signal. It has now had the least review.
+
+**Phase 6 must explicitly re-review `turbo.json`**, specifically:
+
+1. `globalEnv` completeness against **all three** derivation methods — the Zod
+   schema, the static `process.env.X` grep, and the dynamic `process.env[` grep
+   followed to its call-site string literals. (The third method is what codex's
+   finding proved was missing; skipping it is how the two facilitator budget vars
+   were lost on the first pass.)
+2. The cache-key assertion proven **in both directions** — changing a declared
+   variable changes the task hash, AND removing it from `globalEnv` makes the
+   override silently invisible.
+
+This is recorded in the phase 6 acceptance criteria, not left to memory.
+
+## What phase_2 was actually reviewed on
+
+- **gemini: APPROVE** — no issues.
+- **codex: REQUEST_CHANGES** — one real find (`FACILITATOR_REQUEST_BUDGET_MS` and
+  `FACILITATOR_SYNTHESIS_RESERVE_MS` read via dynamic `process.env[name]`, absent
+  from `globalEnv`). Fixed, and proven in both directions.
