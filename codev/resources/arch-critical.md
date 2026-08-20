@@ -13,6 +13,10 @@ STARTER: replace the examples below with YOUR project's facts and arch.md sectio
 - Every token embeds a `session_version`; auth checks it against the user row. Any revocation (password reset, logout) bumps it — this is the uniform "kill all sessions" primitive.
 - Token rotation, password reset, logout, and admin-bump run inside a `db.transaction`; DB helpers take an `exec` param so inner writes use the tx (they otherwise close over the global `db`).
 - DB schema changes: `drizzle-kit generate` → review SQL → human-applied at deploy. NEVER `db:push`. Deploy order: migration → admin bootstrap (`scripts/grant-admin.ts`) → deploy.
+- Turborepo runs STRICT env mode: a var missing from `turbo.json` `globalEnv` is invisible to tasks AND absent from the cache key — a cached artifact can ship wrong values while reporting a hit. Derive additions four ways (Zod schema, static `process.env.X`, dynamic `process.env[`, documented env surface).
+- A `workspace:*` dependency does NOT put a package's contents in a consumer's cache hash; shared packages must ALSO be listed in `globalDependencies`, or a warm cache replays stale results against changed shared config.
+- Railway deploy config is the DASHBOARD, not `apps/*/railway.toml` — the tomls are the reviewable git record only. Watch paths must include `packages/**`, since both images copy it.
 
 ## Map of arch.md (consult when…)
 - Authentication & Authorization — consult when touching login/register/refresh/logout/reset, tokens, admin/system access, or the JWT config.
+- Monorepo layout, build & deploy — consult when changing the workspace layout, `turbo.json`, env vars, Docker builds, CI task wiring, or Railway deploy config.

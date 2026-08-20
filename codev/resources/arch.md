@@ -21,3 +21,19 @@ JWT auth over Postgres (Drizzle), in `apps/api/lib/auth/` and `apps/api/lib/db/u
 **Feedback IDOR.** `findMessageInOwnedThread(messageId, threadId, userId)` scopes through `messages ⋈ threads WHERE threads.user_id = caller`; nonexistent / foreign-owned / mismatched targets all return an identical 404.
 
 **Deploy runbook (order matters).** `drizzle-kit generate` → review SQL (never `db:push`) → apply migration → run `scripts/grant-admin.ts <email>` for each configured admin (creates-or-promotes with a bcrypt password, revokes prior tokens) → deploy (prod boot asserts admin existence and fails fast otherwise). Inspect for a pre-registered reserved address before applying the conditional system-row backfill.
+
+## Monorepo layout, build & deploy
+
+The repo is a pnpm workspace of `apps/*` + `packages/*`, driven by Turborepo.
+
+**Layout & task running.** Root tasks fan out through one cached Turborepo task graph; `pnpm dev` starts both apps. Target a single package with `pnpm api <script>` / `pnpm frontend <script>`, or by running from inside the app directory.
+
+**Docker build context.** Both images build from the repo root, never from the app directory — the pnpm workspace needs the root lockfile and both images `COPY packages packages`. The Dockerfile invocation is always `-f apps/<app>/Dockerfile …` with `.` as the build context.
+
+**Strict env mode.** Turborepo runs in strict env mode: a variable not declared in `turbo.json` is invisible to tasks and absent from the cache key. Adding an env var means adding it to `globalEnv`, derived by four methods — the Zod schema in `apps/api/lib/config.ts`, a static `process.env.X` grep, a dynamic `process.env[` grep followed to its call-site literals, and the documented surface (`docs/self-hosting.md`, `.env.example`) for variables consumed by dependencies. Each method catches variables the others miss.
+
+**Shared packages in the cache hash.** A `workspace:*` dependency does not put a package's contents into a consumer's cache hash. Shared packages must also be listed in `globalDependencies`, or a warm cache replays stale results against changed shared config.
+
+**Railway deployment.** Deploy configuration lives in the Railway dashboard, not in `apps/*/railway.toml` — the tomls are the reviewable git record only. Watch paths must include `packages/**`, since both images copy it.
+
+**Health endpoint.** `/api/health` returns `service: 'ansari-backend'` — a pinned public contract (spec 3), unrelated to the `apps/api` directory name. It performs a live DB ping with a 2s cap, so a cold process can legitimately 503 on its first request.
