@@ -194,3 +194,69 @@ Added a risk row for the expected burst of Dependabot PRs against newly-watched
 
 Claude consultation still has not landed (gemini APPROVE, codex REQUEST_CHANGES folded
 in). Proceeding to the spec gate as directed rather than holding for it.
+
+## 2026-08-20 — Claude consultation (iteration 1): REQUEST_CHANGES, all folded in
+
+Landed after ~20 min. Verdict REQUEST_CHANGES, HIGH confidence — and it earned it. It
+verified claims against the actual repo rather than reading the spec on its own terms,
+which is why it found something both gemini (APPROVE) and codex missed.
+
+**The real catch: an internal contradiction between a baked constraint and an acceptance
+criterion.** The constraint says model `gen:types` as a Turbo dependency "not a shell
+`&&`". But `apps/frontend/Dockerfile.web` invokes `build:web` *directly* after
+`pnpm install --frozen-lockfile --filter ansari-frontend`. I verified the consequence:
+the root `package.json` has **no** dependencies or devDependencies today, so once `turbo`
+is added there, a `--filter`-scoped install will not have it — nothing in that image can
+traverse the task graph. Delete the `&&` and `expo export` runs with no
+`uniwind-types.d.ts`, breaking the `docker build -f apps/frontend/Dockerfile.web .`
+criterion.
+
+Resolution written into Constraints, and it turns on reading the constraint's *letter*:
+it names **`typecheck`**, not `build:web`. So `typecheck` drops its `&&` and gains a real
+`dependsOn` edge (constraint satisfied), `build` gains the edge too, and **`build:web`
+keeps its internal chain** so the container path still works without Turbo. The
+redundancy is deliberate and documented as such — `gen:types` is idempotent and the Turbo
+path makes the second call a cache hit — so a later reader does not "clean it up" and
+silently re-break the image. Also flagged that CI's frontend typecheck step carries a
+comment explicitly relying on the `&&`, which must be updated rather than invalidated.
+
+**Second catch worth recording: `test:coverage` was unmodelled.** CI runs
+`test:coverage`, not `test`. I had listed it in the CI matrix but never modelled it as a
+Turbo task — so "CI runs through Turborepo" was unsatisfiable as written. Now requires a
+`test:coverage` task with `outputs: ["coverage/**"]`.
+
+**Third: `gen:types` must declare `uniwind-types.d.ts` as an output.** Subtle and it
+interacts with the FULL TURBO criterion — the file is gitignored, so on a warm cache
+Turbo skips `gen:types`, and if it is not a declared output there is nothing to restore.
+Green cold, broken warm. Added a criterion to verify by deleting it with the cache warm.
+
+**Fourth: my Docker mitigation was half a fix.** I had said copy `packages/*/package.json`.
+Necessary, not sufficient — if an app's tsconfig extends a shared base, `next build` needs
+the package *contents*, so `COPY packages packages` too. The half-fix yields an install
+that succeeds and a build that fails later, which is the worst shape.
+
+**Fifth: `.github/PULL_REQUEST_TEMPLATE.md` is an unenumerated path consumer** (lines 16
+and 26: run checks "from `backend/`", "`backend/.env.ci`"). Verified and added. That is
+now the *second* consumer my own inventory missed after the frontend trio — the
+"no stale path survives" scan is doing real work as a backstop.
+
+**A correction to my own reasoning, which I took rather than defended.** I had framed the
+two doc-consistency tests as at risk of *silently passing while asserting nothing*. Claude
+pointed out that both `readFileSync` their target at module load, so a stale `'..'`
+throws ENOENT and takes the suite down **loudly**. I checked: correct. The realistic risk
+is a builder seeing the loud failure and patching the path just far enough to go green
+without confirming it points at the true repo root. Rewrote the Test Scenarios
+calibration to say exactly that, and kept the negative check as belt-and-braces rather
+than as the sole net. Over-claiming a risk misdirects review attention as surely as
+under-claiming it.
+
+Two items claude raised were **already fixed** before its review landed: the 61-vs-66
+test count (codex caught it too; now baseline-relative against `develop`) and the stale
+dependabot comment (architect scope addition). It reviewed a snapshot from before those
+commits.
+
+Structure: claude independently confirmed the spec matches the *delivered* SPIR template
+from `@cluesmith/codev` v3.3.1, and that the longer 21-heading shape in
+`codev/specs/4-*.md` is a superseded template, not a miss.
+
+Next: commit, then `porch next` — expecting the spec-approval gate.

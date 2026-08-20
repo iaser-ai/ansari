@@ -73,8 +73,9 @@ anywhere.
 root as context and hardcode app-relative COPY paths; both `railway.toml` files name
 their Dockerfile by path and scope `watchPatterns` to `backend/**` / `frontend/**`; CI
 sources `backend/.env.ci`; `.dockerignore` and `.github/dependabot.yml` name `backend`
-and `frontend` directly; and two backend tests resolve upward out of the backend
-directory to assert against repo-root documentation.
+and `frontend` directly; `.github/PULL_REQUEST_TEMPLATE.md` instructs contributors to run
+checks "from `backend/`" with "`backend/.env.ci`"; and two backend tests resolve upward
+out of the backend directory to assert against repo-root documentation.
 
 `.github/dependabot.yml` is a special case: it is **already wrong today**, before this
 change touches anything. It watches `directory: "/backend"` under a comment claiming
@@ -143,6 +144,11 @@ apps/
 - [ ] `turbo run typecheck --filter ansari-frontend` succeeds from a clean tree in
       which `uniwind-types.d.ts` does not exist, proving the codegen edge is a real
       graph dependency and not an accident of a previously generated file.
+- [ ] `gen:types` declares `uniwind-types.d.ts` in its `outputs`. This is load-bearing and
+      interacts with the FULL TURBO criterion: the file is **gitignored**, so on a warm
+      cache Turbo skips re-running `gen:types` — and if the file is not a declared output
+      there is nothing to restore, leaving it absent and the dependent task broken. Verify
+      by deleting the file with the cache warm and confirming Turbo restores it.
 - [ ] The full backend Vitest suite passes with **no reduction in the set of passing
       tests relative to the `develop` baseline**. The baseline is captured by running the
       suite on `develop` before the move and comparing test-name sets, not counts — a
@@ -180,7 +186,10 @@ apps/
       check matters more than it would for a plain move.
 - [ ] CI is green on the PR and runs the following explicit task matrix through
       Turborepo, with no task silently dropped relative to today:
-      - api (was backend): `lint`, `typecheck`, `test:coverage`, `build`
+      - api (was backend): `lint`, `typecheck`, `test:coverage`, `build` — note CI runs
+        **`test:coverage`, not `test`**, so `turbo.json` must model `test:coverage` as a
+        real task with `outputs: ["coverage/**"]`. Without it, CI has to bypass Turbo with
+        a direct `--filter` call, which contradicts running CI through the task graph.
       - frontend: `lint`, `typecheck` (which must pull `gen:types` in via the graph),
         and `build`
       - shared packages: `lint` and `typecheck` for every package under `packages/`
@@ -197,7 +206,8 @@ apps/
       (`tsc --showConfig`) are unchanged before and after extraction, or every
       difference is individually enumerated and justified in the PR description.
 - [ ] Docs (`README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `docs/self-hosting.md`,
-      `SECURITY.md`, and the per-app READMEs / AGENTS.md / CLAUDE.md) describe the new
+      `SECURITY.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and the per-app READMEs /
+      AGENTS.md / CLAUDE.md) describe the new
       layout and the new root scripts accurately enough that a fresh clone can be set
       up by following them verbatim.
 - [ ] The out-of-repo Railway change required by this move (see Risks) is documented in
@@ -234,6 +244,31 @@ minimally: **do not invent contracts.** The one deviation is the backend app's n
 whereas the scope on the shared packages signals "internal, workspace-only" at every
 import site and cannot collide with a public npm name. Decided default; cheap for the
 architect to override at `spec-approval` in favour of flat `ansari-*` names.
+
+**Resolution of the `&&` constraint against the frontend Docker build.** The baked
+constraint above and the `docker build -f apps/frontend/Dockerfile.web .` success
+criterion collide, and the spec must say how that is settled rather than leaving it to be
+discovered mid-implementation:
+
+- `apps/frontend/Dockerfile.web` runs `pnpm install --frozen-lockfile --filter
+  ansari-frontend` and then invokes `build:web` **directly**. A `--filter`-scoped install
+  does not install the workspace root's devDependencies — and the root has *none* today,
+  so `turbo` will be absent from that image the moment it is added there. Nothing in that
+  container can traverse the Turbo task graph.
+- Therefore: **the `&&` chain inside `build:web` stays.** Deleting it would leave
+  `expo export` running with no `uniwind-types.d.ts` inside the image, breaking an
+  explicit acceptance criterion.
+- The baked constraint is satisfied as written, because it names **`typecheck`**, not
+  `build:web`: `typecheck` drops its `&&` and gains a real `dependsOn: ["gen:types"]`
+  edge. The `build` task *also* gains that edge, so graph-driven runs are correct.
+- The redundancy (a Turbo edge plus a surviving in-script chain on `build:web`) is
+  **deliberate and belt-and-braces**, not an oversight: `gen:types` is idempotent
+  codegen, the Turbo path makes the second invocation a cache hit, and the container path
+  keeps working without Turbo. If a later change makes the frontend image install root
+  devDependencies and invoke `turbo` directly, the chain can be removed then.
+- The same coupling exists, more mildly, in CI's frontend typecheck step, which today
+  carries an explicit comment saying it relies on the `&&`. That comment must be updated
+  rather than silently invalidated.
 
 Further constraints imposed by the existing system:
 
@@ -474,10 +509,19 @@ later.
 
 - *The two doc-consistency tests still point at the real repo root.* Positive check:
   both suites pass. **Negative check (required):** temporarily rename a file that
-  `release-doc.test.ts` asserts exists (e.g. `apps/api/railway.toml`) and confirm
-  the test **fails**; likewise remove a distinguishing error phrase from
-  `startup-checks.ts` and confirm `self-hosting-docs.test.ts` fails. A test that passes
-  because it is looking at nothing is the specific failure mode this change invites.
+  `release-doc.test.ts` asserts exists (e.g. `apps/api/railway.toml`) and confirm the test
+  **fails**; likewise remove a distinguishing error phrase from `startup-checks.ts` and
+  confirm `self-hosting-docs.test.ts` fails.
+
+  *Calibration — these two specifically fail loudly, not silently.* Both `readFileSync`
+  their target doc at module load, so a stale `'..'` resolves to `apps/RELEASE.md` /
+  `apps/docs/self-hosting.md`, throws `ENOENT`, and takes the suite down. The realistic
+  failure mode is therefore **not** "passes while asserting nothing" — it is a builder
+  seeing the loud failure and patching the path just far enough to go green without
+  confirming it now points at the true repo root. The negative check is belt-and-braces
+  against that, and against the same class of upward-resolving assertion elsewhere; it is
+  not the sole net here. This framing is corrected deliberately — over-claiming the risk
+  would misdirect review attention.
 - *No stale path survives.* A repo-wide search for top-level `backend/` and `frontend/`
   path references returns only the deliberately historical records enumerated in
   Success Criteria.
@@ -526,7 +570,7 @@ later.
 | A repo-root-relative test silently asserts against `apps/` instead of the repo root — passing while checking nothing | High | High | Explicit negative checks on both doc-consistency tests (see Test Scenarios); never accept "it's green" as evidence for these two |
 | Railway deploys break: each service's *config file path* is a dashboard setting pointing at `backend/railway.toml` — outside the repo, unfixable by this PR | High | High | Call it out in the PR description and `RELEASE.md` as a required operator action, and coordinate merge timing with someone who has Railway access; verify both services after merge |
 | `frontend/Dockerfile.web`, `frontend/railway.toml`, and `frontend/Caddyfile` are **not listed** in the issue's path-consumer inventory and get missed, silently breaking the frontend web deploy | Medium | High | Treat the issue's list as incomplete; the spec's inventory is the checklist, and the "no stale path survives" scan is the backstop |
-| Docker build breaks once apps devDepend on `packages/*` via `workspace:` — the Dockerfile copies only root manifests plus the app's `package.json`, so `--frozen-lockfile` cannot resolve the workspace links | Medium | High | Both Docker builds are acceptance criteria and must be run locally, not assumed; the fix is copying `packages/*/package.json` into the manifest layer |
+| Docker build breaks once apps devDepend on `packages/*` via `workspace:` — the Dockerfile copies only root manifests plus the app's `package.json`, so `--frozen-lockfile` cannot resolve the workspace links | Medium | High | Both Docker builds are acceptance criteria and must be run locally, not assumed. Copying `packages/*/package.json` into the manifest layer is **necessary but not sufficient**: if an app's `tsconfig.json` extends a shared base, `next build` needs the package *contents*, so `COPY packages packages` is also required. Half-fixing this yields an install that succeeds and a build that fails later |
 | `release-doc.test.ts` asserts RELEASE.md *contains* literal `backend/...` strings **and** that every `pnpm <script>` it names exists in the backend's `package.json` — doc and test are coupled in both directions, and root-level turbo scripts break the second assertion | Medium | Medium | Update doc and test as one unit; decide deliberately whether RELEASE.md quotes app-scoped or root scripts, and make the test's assumption explicit rather than incidental |
 | The shared eslint/tsconfig packages turn out near-empty, adding indirection for no benefit | Medium | Low | Resolve Open Question 1 with the architect before building them; prefer a thin, honest base over a contrived one |
 | `expo start` becomes unusable multiplexed under `turbo run dev` | Medium | Low | Verify interactively; if degraded, document per-app scripts as the path for interactive Expo work while `pnpm dev` still satisfies the both-apps criterion |
