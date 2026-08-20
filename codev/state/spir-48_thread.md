@@ -445,3 +445,53 @@ cache skips codegen with nothing to restore. Cached build ships wrong baked env.
 matches no package. watchPatterns glob that matches nothing. Undercounted test glob. That is
 the failure mode this codebase's tooling produces, and it is why so many acceptance criteria
 here are phrased as "assert against the tree" rather than "confirm it passes".
+
+## 2026-08-20 — PLAN APPROVED; corrections applied; starting Phase 1
+
+Human approved. Ran `porch approve 48 plan-approval --a-human-explicitly-approved-this`.
+
+**A correction I got wrong and the architect caught.** I wrote that `lib/config.ts`
+Zod-parses `process.env` **at import**. It does not. `config` is a **getter object**
+(`config.ts:~104`) whose accessors call a memoized `getEnv()` (`config.ts:~77`). Verified.
+The turbo `env` fix is unchanged, but the lazy shape makes the failure **more** insidious,
+not less: it surfaces only on code paths that actually touch `config`, so one task can pass
+while a later one fails on the same missing var. Plan's mechanism sentence rewritten so the
+next reader does not hunt for an import-time parse that isn't there.
+
+**Architect promoted the cache-hash half to headline**, and sharpened it in a way I had
+missed: my criterion said "change a value → task re-runs". That is **not sufficient** — a
+criterion asserting only that a cache hit occurs would *pass on the broken behaviour*,
+because the broken build hits cache too. Now: record the task hash (`--dry=json`), change a
+declared value, and assert the **hash itself differs**. That is the only check that
+separates working from broken here.
+
+Also: `grant-admin.ts:9` still says `npx tsx` — npm-era wording the pnpm migration missed
+(self-hosting.md already uses `pnpm exec tsx`). Added, plus a note that
+`release-doc.test.ts`'s npm-drift regex matches `npm run|ci|install|test` and therefore does
+**not** catch `npx`, so this class of drift is unguarded.
+
+### A near-miss in my own process, worth recording
+
+While applying these edits I discovered that an **earlier python block had silently failed**
+— it died on a shell quoting error (`unmatched "`), so the env acceptance criteria and risk
+rows I believed I had committed were never in the file. I only caught it because a later
+`grep` for my own text returned nothing.
+
+What made it dangerous: right after that failure I ran a validation that printed
+plausible-looking counts for *other* strings, and I read that as confirmation. It was
+confirmation of the edits that had landed, not the ones that hadn't.
+
+This is the **exact pattern this project keeps producing** — it looked like passing. I have
+been writing acceptance criteria against that failure mode all week and then walked into it
+myself. Practical rule for the implement phase: after every batch edit, grep for the text I
+believe I just wrote, and never treat an adjacent green signal as evidence for a different
+change.
+
+### Standing instruction from the architect for implement
+
+Confirmed my read: nearly every serious defect here has the shape **it looks like passing**.
+Where a criterion can be satisfied by something that merely reports success, rewrite it to
+assert against the tree. Do not report a phase complete on a green run I have not confirmed
+was actually exercising the thing.
+
+Report at dev-approval, or sooner if something needs a human call.

@@ -135,8 +135,14 @@ packages: it is a pure relocation, verifiable entirely on its own.
 
 **Path consumers that are easy to miss — explicitly in scope:**
 - `apps/api/scripts/grant-admin.ts` line ~8 — the header comment reads
-  `Usage (from backend/):`. It is the instruction an operator follows during the admin
-  bootstrap step of a release, so a stale path here misdirects a live production runbook.
+  `Usage (from backend/):` and line ~9 reads `npx tsx scripts/grant-admin.ts <email>`.
+  **Both are wrong**: the path is stale, and `npx tsx` is npm-era wording the pnpm migration
+  missed — `docs/self-hosting.md` already uses `pnpm exec tsx`. This is the instruction an
+  operator follows during the admin-bootstrap step of a release, so stale wording here
+  misdirects a **live production runbook**. Check `RELEASE.md`'s grant-admin line for the
+  same `npx` drift. Note that `release-doc.test.ts`'s npm-drift regex matches
+  `npm run|ci|install|test` and therefore does **not** catch `npx` — this class of drift is
+  unguarded by the existing test.
 - `codev/resources/arch.md` line ~11 — references `backend/lib/auth/` and
   `backend/lib/db/users.ts`. **This is a living architecture document, NOT one of the
   deliberately-historical records the spec exempts** (`codev/specs`, `codev/plans`,
@@ -224,8 +230,14 @@ including `pnpm dev` bringing up **both** apps.
   - `lint` — no outputs.
   - `dev` — `cache: false`, `persistent: true`, **and `interactive: true`** (see below).
   - **`env` declarations — REQUIRED, and their absence would break CI.**
-    `apps/api/lib/config.ts` calls `envSchema.safeParse(process.env)` inside `getEnv()`,
-    and CI injects `apps/api/.env.ci` into the **process environment** via
+    `apps/api/lib/config.ts` exports `config` as a **getter object** (`config.ts:~104`)
+    whose accessors call a memoized `getEnv()` (`config.ts:~77`), which runs
+    `envSchema.safeParse(process.env)`. **The parse happens on first property ACCESS, not
+    at import** — precision matters, because the lazy shape makes the failure *more*
+    insidious, not less: it surfaces only on code paths that actually touch `config`, so one
+    task can pass while a later task fails on the same missing variable. Do not go looking
+    for an import-time parse; there isn't one.
+    CI injects `apps/api/.env.ci` into the **process environment** via
     `>> "$GITHUB_ENV"` — not as a `.env` file Next would load itself. Turborepo 2.x
     defaults to **strict env mode**: a task's child process sees only variables declared in
     `env` / `globalEnv` / `passThroughEnv` plus a small builtin allowlist. Move CI onto
@@ -303,6 +315,20 @@ including `pnpm dev` bringing up **both** apps.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` run through Turbo and cover
       every package defining the task.
 - [ ] A second identical `turbo run build` with no changes reports **FULL TURBO**.
+- [ ] **Env is in the cache hash — the headline risk of this phase, not a footnote.**
+      `Dockerfile.web` bakes `EXPO_PUBLIC_*` into the JS bundle at export time. A cache keyed
+      *without* those values can restore a bundle built with the wrong ones and **report a
+      hit**: wrong configuration shipped to production, green build, no signal anywhere.
+      Prove the **hash actually changes**, not merely that caching works:
+      1. Run `turbo run build --filter ansari-frontend` and record the task hash
+         (`--dry=json`, or the hash in the run summary).
+      2. Change one declared value (e.g. `EXPO_PUBLIC_API_V2_URL`) and re-run.
+      3. **The recorded hash must differ**, and the task must re-execute.
+      A criterion asserting only "a cache hit occurs" would **pass on the broken behaviour**
+      — the broken build hits cache too. The hash comparison is what separates them.
+- [ ] `turbo run typecheck test:coverage build --filter ansari-api...` succeeds with the
+      `.env.ci` values supplied **as process env** — exactly how CI supplies them — proving
+      the `env` declarations are complete.
 - [ ] **`pnpm dev` verified by actually running it** (spec hard requirement): both apps
       confirmed up — api serving `/api/health`, Expo dev server reachable — **and** the Expo
       TUI confirmed still responsive to `i` / `a` / `w` / `r`.
@@ -330,6 +356,10 @@ including `pnpm dev` bringing up **both** apps.
   — Turbo must restore it from cached outputs. This is the check that catches an undeclared
   `outputs` entry, which is green cold and broken warm.
 - **`dev` semantics:** `turbo run dev` does not exit and is not reported as a cache hit.
+- **Env completeness:** export the `.env.ci` values into the shell as process env, then run
+  the api tasks through Turbo. This reproduces CI's injection mechanism exactly; running them
+  via `pnpm --filter` instead would pass regardless and prove nothing.
+- **Env cache invalidation:** the record-hash / change-value / compare-hash procedure above.
 - **Manual:** the `pnpm dev` / Expo TUI verification above. Manual by necessity — no
   automated check covers TTY keypress handling.
 
@@ -600,6 +630,10 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 | `pnpm dev` starts both apps but the Expo TUI silently loses keypress handling | Medium | Medium | Hard, manual, architect-mandated verification in Phase 2; degraded interactivity is acceptable **only** if documented in `CONTRIBUTING.md` |
 | Dependabot pnpm-workspace directory semantics differ from expectation | Medium | Low | Phase 1 settles it by checking current behaviour and records the choice and rationale rather than guessing |
 | Widened Dependabot coverage opens a burst of PRs for newly watched packages | Medium | Low | Expected, not misconfiguration; `open-pull-requests-limit` bounds it |
+| `turbo.json` omits `env`, so Turbo 2.x strict env mode filters out the vars `config`'s getters Zod-parse on first access, breaking the api build under CI | High | High | Per-task `env` derived from the Zod schema (not hand-guessed), `.env.ci` in `inputs`, and an acceptance check that runs the api tasks with values supplied as **process env**, reproducing CI's injection mechanism |
+| Undeclared env is excluded from the cache hash, so a cached frontend `build` ships wrong baked `EXPO_PUBLIC_*` values **while reporting a cache hit** — wrong config in production, green build, no signal | Medium | High | Declare `env` per task, and prove the **task hash changes** when a declared value changes (record hash → change value → compare). A check asserting only that a cache hit occurs would pass on the broken behaviour |
+| Bare `.turbo` in `.dockerignore` leaves `apps/*/.turbo` in both build contexts | Medium | Low | Use `**/.turbo`, matching the file's existing `**/.next` / `**/dist` style |
+| `codev/resources/arch.md` waved through the stale-path sweep as a "codev record" when it is a living governance doc | Medium | Medium | Phase 6's exclusion list names `codev/resources/**` as explicitly NOT exempt, inline where the sweep is defined |
 | Root `lint` / `typecheck` silently narrowed from repo-wide (`pnpm -r`) to one app during the Phase 1 rewrite | Medium | High | Phase 1 explicitly preserves each script's existing scope; the change is paths only. Verify by running root `lint` and `typecheck` and confirming both apps appear in the output |
 | Shared packages never get linted or typechecked in CI, so a broken shared config ships green | Medium | Medium | App jobs use dependency-closure filters (`--filter <app>...`); `@ansari/types` has no consumer so Phase 5 adds explicit coverage, verified from the CI job log rather than the workflow file |
 | A shared package's scripts are declared but its own deps are not, so they fail on first CI run under pnpm's strict layout | Medium | Medium | Phases 4–5 declare `typescript` (via `catalog:`), `eslint`, and the workspace config dep in each package that has scripts; `packages/tsconfig` deliberately has none |
