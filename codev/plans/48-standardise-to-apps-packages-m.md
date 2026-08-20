@@ -608,6 +608,15 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
       concurrency the default. **Do not paper over a flake here as "just a flake"** — if
       typecheck fails during this sweep, check whether a build was running alongside it
       before investigating anything else.
+- [ ] **Shared-package contents must be in the cache hash — prove it in both directions.**
+      A `workspace:*` dependency puts a package in the dependency graph but does **not** put
+      its file contents in a consumer task's hash. Before the fix, editing
+      `packages/tsconfig/base.json` left `ansari-api#typecheck` at an identical hash, and
+      editing `packages/eslint-config/base.js` left `ansari-api#lint` identical — a warm
+      cache would replay stale results against a changed shared config. Green run, no
+      signal. Verify: edit each shared config, confirm the dependent task's hash **moves**;
+      then confirm removing the `globalDependencies` entry makes it stop moving. Same class
+      as the env-key problem, and it will recur for any shared package added later.
 - [ ] **MANDATORY: re-review `turbo.json` — phase_2's compensating control** (architect
       decision, 2026-08-20). Phase 2 shipped with **two reviewers, not three**: the claude
       lane wedged 3× on a never-terminating `turbo run dev` and produced no review (see

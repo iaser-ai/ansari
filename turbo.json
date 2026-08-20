@@ -7,7 +7,22 @@
   // degrade every CI log for the benefit of one task.
   "ui": "stream",
 
-  "globalDependencies": ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+  // The shared config packages MUST be here. A `workspace:*` dependency puts the
+  // package in the dependency graph, but its FILE CONTENTS are not part of a
+  // consumer task's hash — so editing packages/tsconfig/base.json or
+  // packages/eslint-config/base.js left ansari-api#typecheck and #lint at the
+  // SAME hash, and a warm cache would replay stale results against the new
+  // config. Green run, no signal, wrong answer: exactly the failure this spec
+  // exists to prevent.
+  //
+  // Verified in both directions: with these entries an edit moves the hash; with
+  // them removed it does not. Re-prove that if you touch this list.
+  "globalDependencies": [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "packages/tsconfig/*.json",
+    "packages/eslint-config/*.js"
+  ],
 
   // Declared GLOBALLY rather than per-task, deliberately.
   //

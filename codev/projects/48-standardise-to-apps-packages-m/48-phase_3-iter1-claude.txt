@@ -1,0 +1,44 @@
+I'll review phase_3 (shared TypeScript config package). Let me read the actual files.I read the actual files, then independently verified the phase's central claims by running the toolchain.
+
+## What I verified myself
+
+**Behaviour preservation — confirmed, both apps.** I reconstructed the pre-phase tsconfigs from `0e2d608^` in place and diffed `tsc --showConfig`:
+- `apps/frontend`: byte-identical output (`diff` clean).
+- `apps/api`: `compilerOptions` equal as a set (17 → 17), `include`/`exclude`/`files` identical.
+
+**The plan deviation is correct, not a shortcut.** The plan specified `isolatedModules` in the shared base; the builder omitted it because `apps/frontend` doesn't set it (`expo/tsconfig.base` leaves it unset), so promoting it would have silently switched it on — a behaviour change disguised as a refactor, which is exactly what this phase's acceptance criterion exists to prevent. Documented in the commit and `packages/tsconfig/README.md`. Good judgment; the spec's Open Question 1 wording yields to its own behaviour-preservation criterion here.
+
+**Extends resolution works without an `exports` map** — proven by the `showConfig` runs actually inheriting `strict`/`skipLibCheck` from the base. `extends` array ordering on the frontend resolves as intended.
+
+**Workspace links + lockfile**: `packages/tsconfig: {}` importer plus both `link:../../packages/tsconfig` entries; lockfile diff is 8 lines, nothing unrelated. `turbo run typecheck` green (3 tasks; `@ansari/tsconfig` in scope contributing none — correct by design). `COPY packages packages` lands before install in both Dockerfiles with an accurate comment, and `.dockerignore` doesn't exclude `packages/`.
+
+## One real defect: the shared config is invisible to the cache key
+
+This phase is the first time an app's compilation depends on a file **outside its own package**, and Turbo does not hash it. Verified empirically (`--no-daemon`, `--dry=json`):
+
+| action | `ansari-api#typecheck` hash |
+|---|---|
+| baseline | `dfd6e1c37502af0e` |
+| add `forceConsistentCasingInFileNames` to `packages/tsconfig/base.json` | `dfd6e1c37502af0e` — **unchanged** |
+| control: add a file under `apps/api/lib/` | `a1c6cf6fa99b16b3` — changed |
+
+The control proves the method. Cause: `@ansari/tsconfig` defines no tasks, so it never enters the task graph and its files never enter any task hash; `globalDependencies` covers only `pnpm-lock.yaml` / `pnpm-workspace.yaml`, and the lockfile's `link:` entry doesn't change with file contents.
+
+Consequence: edit the shared compiler options, run `pnpm typecheck` → **cache hit, green, no signal**. Same failure shape phase 2 treated as unacceptable for `env` ("a cache key that ignores a value baked into the artifact"), now for files. CI is unaffected today only because `.turbo` isn't cached there (architect decision 5) — that's an accident of configuration, not a guard.
+
+**Verified fix** (I tested it, then reverted): adding `"packages/tsconfig/base.json"` to `globalDependencies` makes the hash move (`8c439ab5f4807a74` → `266874037d3c4552`). Alternative, more precise on turbo 2.10.11: `"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/tsconfig/base.json"]` on `typecheck`/`build`. Phase 4's `@ansari/eslint-config` has the identical gap for `lint`, so a glob covering `packages/**` may be the cleaner single answer — but prove it in both directions (hash moves on edit; and confirm you didn't just make everything permanently dirty).
+
+Minor nit: `@ansari/tsconfig` is inserted after `tsx` in `apps/api/package.json` devDependencies, breaking alphabetical order (frontend is sorted correctly).
+
+Note: I could not re-verify the two Docker builds or `pnpm install --frozen-lockfile` at HEAD, because the worktree already carries uncommitted phase 4 changes (`packages/eslint-config/`, modified lockfile). The thread records both as re-run with output; I'm trusting that record rather than confirming it.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Config extraction is provably behaviour-preserving and well-documented, but the shared base is absent from every dependent task's cache key — editing it yields a false cache hit.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `packages/tsconfig/base.json` is not in any task's hash: editing it leaves `ansari-api#typecheck` at the same hash (verified with a control that does move the hash). A shared-config change can be masked by a warm cache — the "green, no signal" shape this spec exists to prevent. Fix via `globalDependencies` (verified working) or `$TURBO_ROOT$` inputs, and prove it in both directions. The same gap will apply to phase 4's eslint config.
+- Minor: `@ansari/tsconfig` breaks alphabetical ordering in `apps/api/package.json` devDependencies.
+- Not verified by me (worktree contaminated by in-flight phase 4 changes): both Docker builds and `pnpm install --frozen-lockfile` at this commit. Builder's thread records both as re-run successfully.

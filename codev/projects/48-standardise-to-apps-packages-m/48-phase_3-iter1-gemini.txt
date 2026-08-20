@@ -1,0 +1,42 @@
+## Phase 3 Implementation Review: Shared TypeScript Config Package
+
+### Scope of Review
+Review of **Phase 3** implementation:
+- Creation of `packages/tsconfig` with `base.json` and `package.json`.
+- Rewiring `apps/api/tsconfig.json` and `apps/frontend/tsconfig.json` to extend the shared base.
+- Addition of `"@ansari/tsconfig": "workspace:*"` dependency in both applications.
+- Dockerfile updates (`apps/api/Dockerfile`, `apps/frontend/Dockerfile.web`) to include `packages/` before `pnpm install`.
+- Documentation in `packages/tsconfig/README.md`.
+
+---
+
+### Detailed Findings & Verification
+
+#### 1. Spec & Plan Adherence
+- **`packages/tsconfig/package.json` & `base.json`**:
+  - `packages/tsconfig/package.json` is configured as private (`"private": true`) with `"name": "@ansari/tsconfig"` and `"files": ["base.json"]`. It deliberately omits script tasks (`lint`/`typecheck`), ensuring Turbo skips it cleanly.
+  - `packages/tsconfig/base.json` encapsulates the common compiler options shared by both applications (`strict`, `skipLibCheck`, `esModuleInterop`, `resolveJsonModule`).
+  - **Correction of Plan Design**: The builder correctly recognized that `isolatedModules` was only set in `apps/api` and omitted in `apps/frontend` (via `expo/tsconfig.base`). Keeping `isolatedModules: true` in `apps/api/tsconfig.json` rather than promoting it to `base.json` preserves exact compiler behavior without unintended option drift in the frontend.
+
+- **App Configurations**:
+  - `apps/api/tsconfig.json` extends `@ansari/tsconfig/base.json` while maintaining Next.js specific settings, paths, incremental flags, and include/exclude lists.
+  - `apps/frontend/tsconfig.json` correctly uses array extension (`["expo/tsconfig.base", "@ansari/tsconfig/base.json"]`) and retains custom path aliases.
+  - Both `apps/api/package.json` and `apps/frontend/package.json` include `"@ansari/tsconfig": "workspace:*"` in `devDependencies`.
+
+#### 2. Container & Workspace Dependency Integrity
+- Both `apps/api/Dockerfile` (line 30) and `apps/frontend/Dockerfile.web` (line 20) add `COPY packages packages` before `pnpm install --frozen-lockfile`.
+- This ensures pnpm resolves the `workspace:*` link during install and provides the necessary `base.json` contents during the subsequent build steps (`next build` / `build:web`).
+
+#### 3. Documentation
+- `packages/tsconfig/README.md` clearly explains the minimalism of the base config, usage syntax for single and array extension, and why `isolatedModules` remains in `apps/api`.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 cleanly creates @ansari/tsconfig, preserves exact compiler behavior across both apps, and correctly updates Docker build stages for workspace linking.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

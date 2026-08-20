@@ -1164,3 +1164,46 @@ Re-ran `pnpm install --frozen-lockfile` (clean, lockfile up to date) and surface
 phase-3 frontend build log lines (`COPY packages packages` → frozen install → `Exported:
 dist` → `FRONTEND_EXIT=0`). Both images are rebuilding again now against the phase-4 tree,
 which covers both phases at once.
+
+## 2026-08-21 — Phase 3 review found the shared packages were INVISIBLE to the cache
+
+gemini APPROVE | codex REQUEST_CHANGES (evidence) | **claude REQUEST_CHANGES — a real and
+serious one.**
+
+`packages/tsconfig/base.json` was **not in any task's hash**. A `workspace:*` dependency puts
+a package in the dependency *graph*, but its file *contents* are not part of a consumer
+task's hash. Verified both of the packages I had just built:
+
+```
+edit packages/tsconfig/base.json   -> ansari-api#typecheck  30aa0865 -> 30aa0865  (unchanged)
+edit packages/eslint-config/base.js -> ansari-api#lint       7f40a12e -> 7f40a12e  (unchanged)
+```
+
+So a warm cache would replay stale results against a changed shared config. **Green run, no
+signal, wrong answer** — precisely the failure mode this whole spec exists to prevent, and I
+introduced it in the two phases whose entire purpose was sharing config.
+
+Claude flagged that it would apply to phase 4's eslint package too. It did, and I confirmed
+that rather than taking it on faith.
+
+Fixed with `globalDependencies` entries for `packages/tsconfig/*.json` and
+`packages/eslint-config/*.js`. **Proven in both directions**: after the fix both hashes move
+(`dbfc7ee3 → ccbb8fd9`, `38287772 → d760c345`); the pre-fix measurement is the other
+direction. Added to phase 6 as a criterion, because it will recur for any shared package
+added later and it is invisible without an explicit check.
+
+Also fixed claude's ordering nit — both apps' `devDependencies` are now genuinely sorted
+(verified with `keys == sorted(keys)`, not by eye).
+
+### Why this one stings
+
+I spent phases 3 and 4 proving *behaviour preservation* — resolved tsconfig identical,
+eslint violation sets identical — and both proofs were correct. But I never asked whether
+the **cache** could tell the shared config had changed. The verification I did was thorough
+along one axis and absent along another, and the missing axis was the one this project keeps
+punishing.
+
+Pattern across the whole project: every serious defect has been a thing that **reports
+success while not doing its job**. Unresolved eslint config → zero violations. Warm cache
+skipping codegen. Undeclared env excluded from the hash. Now: shared config excluded from
+the hash. Four instances of one shape.
