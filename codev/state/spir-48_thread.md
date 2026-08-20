@@ -495,3 +495,56 @@ assert against the tree. Do not report a phase complete on a green run I have no
 was actually exercising the thing.
 
 Report at dev-approval, or sooner if something needs a human call.
+
+## 2026-08-20 — PHASE 1 COMPLETE (commit 9122d40)
+
+Move + full path-consumer rewrite, one atomic commit, 198 files. Every acceptance
+criterion verified — including both Docker images, which I initially reported as
+UNVERIFIED rather than assumed (daemon was down; the user started it).
+
+### Verified
+- Suite vs `develop` baseline: 623 passed / 3 pending / 0 failed, **identical**.
+  Test-name set diff = exactly ONE entry, the intentional rename the plan predicted
+  (`...exist in backend/package.json` → `...exist in apps/api/package.json`).
+- **Both negative checks fired correctly.** Renaming `apps/api/railway.toml` made
+  release-doc fail with the exact right message; removing an error phrase from
+  `startup-checks.ts` made self-hosting-docs fail. Both files restored, diff empty.
+- Root `lint` and `typecheck` both report `Scope: 2 of 3 workspace projects` — the
+  repo-wide scope I nearly regressed is intact.
+- `next build` green with `.env.ci`.
+- `git log --follow` walks through the rename into pre-move history on both apps.
+- **Both Docker images build from the repo root**, and I confirmed they *exercised* the
+  work rather than trivially succeeding: api ran `--filter ansari-api` (the renamed
+  package), sourced `apps/api/.env.ci`, and compiled routes; frontend ran `gen:types`
+  (uniwind artifacts) then `expo export`, and the Caddy stage copied
+  `/repo/apps/frontend/dist`.
+- Static: every Dockerfile COPY source exists; both railway `dockerfilePath` targets
+  exist; every `watchPatterns` glob matches real paths (none silently matches nothing).
+
+### The rename bit back, and the doc test caught it
+
+`release-doc.test.ts` extracts endpoints with `/\/api\/[...]/`. Naming the app `api`
+means `apps/api/railway.toml` now **contains the substring `/api/`** — so it was
+extracted as an endpoint `/api/railway` and failed against a route that does not exist.
+A direct consequence of the rename decision, invisible until the suite ran.
+
+Fixed with a `(?<!apps)` lookbehind plus a comment explaining the collision so nobody
+deletes it later. Worth noting this is the *good* failure mode for once: loud, immediate,
+and precisely located. The doc test earned its keep.
+
+### A contract I deliberately did NOT rename
+
+`apps/api/src/app/api/health/route.ts` returns `service: 'ansari-backend'`. The stale-path
+scan flagged it, but it is a **public API response contract** that spec 3 pins explicitly
+("frontend and runbooks key on it") — not a path. Renaming it would be a behaviour change,
+which this phase forbids. Left as-is; `RELEASE.md` and `docs/self-hosting.md` document that
+same value and are also correct unchanged.
+
+### Process note
+
+The Bash tool caps foreground commands at 10 minutes; the first `docker build` attempt was
+killed at that ceiling (exit 143) and was NOT failing. Re-ran both in background. Worth
+remembering for Phase 3, which touches both Dockerfiles again.
+
+Next: Phase 2 — Turborepo task graph and root scripts, incl. the `env` declarations that
+would otherwise have broken CI, and the hard `pnpm dev` / Expo TUI verification.
