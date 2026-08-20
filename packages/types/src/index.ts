@@ -11,6 +11,13 @@
  *
  * To add a contract: extract it from the code that already produces or consumes
  * it — the API route and the client that calls it — rather than writing it fresh.
+ *
+ * NOTE FOR THE FIRST CONSUMER: this package exports raw `.ts` (package.json
+ * `main`/`types`/`exports` all point at this file). Both apps bundle their own
+ * sources, so that works today with no build step. A consumer that does NOT
+ * transpile workspace dependencies would need a build step added here first —
+ * decide that when a real consumer exists, rather than pre-building for one that
+ * does not.
  */
 
 /** Placeholder so the package has a real export and typechecks meaningfully. */
