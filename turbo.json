@@ -27,13 +27,20 @@
   // omitting one is a crash or, worse, a cache key that ignores a value baked
   // into the artifact.
   //
-  // DERIVED, NOT GUESSED: the Zod schema in apps/api/lib/config.ts, PLUS the
-  // variables read via `process.env` outside that schema (FRONTEND_URL,
-  // MARKETMAKER_URL, NEXT_RUNTIME, RAILWAY_ENVIRONMENT, RESEND_API_KEY,
-  // SENTRY_DSN, VITEST), PLUS the frontend's EXPO_PUBLIC_* — which Dockerfile.web
-  // bakes into the JS bundle at export time, so they MUST be in the cache key or
-  // a cached build can ship the wrong API URL while reporting a cache hit.
-  // Re-derive with the schema + a `process.env.` grep; do not hand-edit.
+  // DERIVED, NOT GUESSED. To re-derive, ALL THREE of these are required —
+  // skipping the third is how FACILITATOR_REQUEST_BUDGET_MS and
+  // FACILITATOR_SYNTHESIS_RESERVE_MS were missed on the first pass:
+  //   1. The Zod schema in apps/api/lib/config.ts.
+  //   2. STATIC reads:  grep -rn "process\.env\.[A-Z]" apps
+  //      (FRONTEND_URL, MARKETMAKER_URL, NEXT_RUNTIME, RAILWAY_ENVIRONMENT,
+  //       RESEND_API_KEY, SENTRY_DSN, VITEST)
+  //   3. DYNAMIC reads: grep -rn "process\.env\[" apps  — then follow each
+  //      call site to the string literals passed in. A static `process.env.X`
+  //      pattern CANNOT see `process.env[name]`, and the failure is silent: the
+  //      override is simply ignored and the default applies.
+  // Plus the frontend's EXPO_PUBLIC_*, which Dockerfile.web bakes into the JS
+  // bundle at export time — they MUST be in the cache key or a cached build can
+  // ship the wrong API URL while reporting a cache hit.
   "globalEnv": [
     "DATABASE_URL",
     "JWT_SECRET",
@@ -65,6 +72,10 @@
     "RESEND_API_KEY",
     "SENTRY_DSN",
     "VITEST",
+    // Read dynamically via process.env[name] in lib/facilitator/agent.ts —
+    // invisible to a static process.env.X grep.
+    "FACILITATOR_REQUEST_BUDGET_MS",
+    "FACILITATOR_SYNTHESIS_RESERVE_MS",
     "EXPO_PUBLIC_*",
     "EXPO_NO_TELEMETRY",
     "PORT"

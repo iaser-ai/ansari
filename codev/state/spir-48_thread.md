@@ -878,3 +878,43 @@ Identical symptoms, different mechanism — worth being slow about.
 Frontend CI job now runs `build` but its emitted name still reads `(lint, typecheck)`.
 Name deliberately frozen per the human decision; lag documented in ci.yml rather than
 silently renamed.
+
+## 2026-08-20 — Phase 2 review: a hole in my "derived, not guessed" method
+
+gemini APPROVE (after a timeout + relaunch — its first lane was skipped, non-blocking, but
+I relaunched rather than accept a two-reviewer round). **codex REQUEST_CHANGES, one real
+find.** claude still running.
+
+**Codex found two env vars my derivation missed**: `FACILITATOR_REQUEST_BUDGET_MS` and
+`FACILITATOR_SYNTHESIS_RESERVE_MS`.
+
+Root cause is instructive. My method was "parse the Zod schema + grep `process.env.X`".
+These are read at `lib/facilitator/agent.ts:38` as **`process.env[name]`** — a *dynamic*
+index, with the names appearing only as string literals passed to `envBudgetMs(...)`. A
+static `process.env.X` pattern **cannot** see that, by construction.
+
+So I had been claiming "derived, not guessed" while using a derivation with a blind spot.
+The claim was true of the method I ran and false of the property I implied.
+
+Consequence, had it shipped: an operator setting `FACILITATOR_REQUEST_BUDGET_MS=60000`
+would have it **silently stripped** by strict mode, reverting to the 120s default, and
+excluded from the cache hash. No error. Same signature as everything else on this project.
+
+**Swept for the general case rather than fixing the two instances.** Grepped
+`process\.env\[` across apps/: exactly two sites — the test helper (which *writes* env, not
+a read) and `envBudgetMs`, whose two callers are precisely what codex named. So the missing
+set is complete at two, and I know that rather than hoping it.
+
+**Proven in both directions** (not just "added them"):
+- Declared → turbo lists both under `configured` and the build hash changes
+  (`de7e59c6` → `a7647875`).
+- Removed from globalEnv → `configured` shows **NONE**, i.e. silently dropped, exactly as
+  codex described. That control is what makes the fix evidence rather than assertion.
+
+**Fixed the instructions, not just the list.** turbo.json's re-derivation comment now
+requires THREE steps and says why the third exists: Zod schema, `process\.env\.[A-Z]`
+static grep, **and** `process\.env\[` dynamic grep followed to its call-site literals. The
+next person to re-derive this list would otherwise repeat my exact mistake.
+
+Re-verified after the change: 66 files / 623 passed / 3 skipped; `pnpm build` twice →
+FULL TURBO (11ms).

@@ -1,0 +1,49 @@
+### Implementation Review — Phase 2: Turborepo Task Graph and Root Scripts
+
+---
+VERDICT: APPROVE
+SUMMARY: Turborepo 2.x task graph, root scripts, CI workflow, and environment handling are correctly implemented and thoroughly verified against all Phase 2 acceptance criteria.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None
+
+---
+
+### Key Findings & Analysis
+
+#### 1. Spec Adherence & Plan Alignment
+- **Task Graph Configuration ([`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/turbo.json))**:
+  - Uses Turborepo 2.x `"tasks"` structure with declared `dependsOn` graph edges (`typecheck` and `build` depend on `gen:types`; `build` includes `"^build"`).
+  - Gitignored [`uniwind-types.d.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/uniwind-types.d.ts) is declared under `gen:types.outputs`, ensuring Turbo restores it on warm-cache runs.
+  - Coverage output is properly captured under `test:coverage.outputs: ["coverage/**"]`.
+  - `dev` task correctly configures `cache: false`, `persistent: true`, and `interactive: true`.
+  - Comprehensive `globalEnv` correctly declares all variables validated by the Zod schema in [`apps/api/lib/config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/lib/config.ts) and external `process.env` accessors (e.g. `SENTRY_DSN`, `RESEND_API_KEY`, `EXPO_PUBLIC_*`), preventing runtime validation crashes in Turborepo strict env mode and eliminating cache poisoning risk.
+- **Root Scripts ([`package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/package.json))**:
+  - `dev`, `lint`, `typecheck`, `test`, `test:coverage`, and `build` delegate to `turbo run`.
+  - `dev` passes `--ui=tui` so interactive Expo keypresses (`i`, `a`, `w`, `r`) function over TTY while keeping `"ui": "stream"` as the default for linear CI logs.
+  - `test` and `test:coverage` use `--` to forward CLI arguments cleanly.
+  - Convenience aliases (`api`, `frontend`) are retained for unmodeled scripts (`db:migrate`, etc.).
+- **Frontend Manifest ([`apps/frontend/package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/package.json))**:
+  - Added `dev` (`expo start`) and `build` (`pnpm run build:web`).
+  - `typecheck` dropped the inline shell `&&` chain in favor of Turbo's `dependsOn`.
+  - `build:web` retains the inline `pnpm run gen:types &&` chain with an explanatory comment to support Docker `--filter` builds where root devDependencies / Turbo are absent.
+- **CI Workflow ([`.github/workflows/ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml))**:
+  - Two-job split preserved with dependency-closure filters (`--filter <app>...`).
+  - Emitted check names (`backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`) are preserved for branch protection compatibility while job IDs use the new `api` / `frontend` names.
+  - Added frontend `build` step so that `pnpm build` covering both apps is enforced in CI.
+- **Ignore Rules ([`.gitignore`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.gitignore), [`.dockerignore`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.dockerignore))**:
+  - `.turbo/` added to `.gitignore` and `**/.turbo` added to `.dockerignore`.
+- **Documentation**:
+  - [`CONTRIBUTING.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/CONTRIBUTING.md), [`README.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/README.md), [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md), and per-app guides accurately reflect the monorepo root Turbo commands, CI dummy env loading, and interactive TUI requirements.
+
+#### 2. Verification Evidence
+- Task caching verified: second `pnpm build` reports `FULL TURBO`.
+- Warm cache output restoration for `uniwind-types.d.ts` verified.
+- Cache invalidation on environment variable changes (e.g. `SENTRY_DSN`, `EXPO_PUBLIC_API_V2_URL`) verified.
+- `pnpm dev` interactive execution verified: both API (`:3000`) and Expo (`:8081`) servers serve traffic, and Expo TUI keypress handlers remain responsive under `--ui=tui`.
+
+---
+
+The implementation satisfies all phase goals and constraints. The builder can proceed to Phase 3.
