@@ -109,6 +109,15 @@ jobs:
       - name: Build
         run: pnpm exec turbo run build --filter ansari-frontend...
 
+      # Shared packages under packages/ are covered by the app jobs' dependency
+      # closure filters (`--filter <app>...`) — EXCEPT @ansari/types, which has no
+      # consumer by design and therefore sits outside every closure. Without this
+      # step it would never be linted or typechecked in CI, and the spec's "lint
+      # and typecheck for every package under packages/" criterion would be
+      # nominally claimed rather than satisfied.
+      - name: Lint + typecheck shared packages
+        run: pnpm exec turbo run lint typecheck --filter './packages/*'
+
   gitleaks:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
