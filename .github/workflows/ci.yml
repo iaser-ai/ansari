@@ -14,7 +14,19 @@ concurrency:
 # comment) so a moved tag can't silently change what runs in CI.
 jobs:
   api:
-    name: api (lint, typecheck, test, build)
+    # The job ID is `api` (matching apps/api), but the EMITTED NAME is
+    # deliberately still `backend (...)`. Required status checks are matched by
+    # NAME, and `develop`'s branch protection requires
+    # `backend (lint, typecheck, test, build)`. Renaming what this job emits
+    # would mean that required check never reports again, leaving every PR
+    # unmergeable until a repo admin edits the protection rule — which no PR
+    # can do. A job's ID and its emitted name are independent, so the ID moves
+    # with the directory rename while the name stays put.
+    #
+    # DO NOT "fix" this to say `api`. Renaming it silently re-arms that blocker.
+    # Renaming the check is a deferred follow-up: it has to be done by a repo
+    # admin, editing the protection rule and this line together.
+    name: backend (lint, typecheck, test, build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -653,3 +653,74 @@ migration's scan.** Explaining an old path and using an old path look identical 
 Re-verified after all three: suite 623 passed / 3 pending / 0 failed; name-set diff still
 exactly the one intentional rename; stale-path scan clean across all live files (remaining
 hits are only in the exempt codev/{specs,plans,projects,state} records).
+
+## 2026-08-20 — Merge blocker resolved a better way; my inference was wrong
+
+**Architect correction, and I was wrong on the facts.** I concluded that an empty
+`rulesets` array implied no protection enforced. Wrong: **classic branch protection and
+rulesets are separate systems**, and the classic one is on. The 404 on
+`/branches/develop/protection` was an *authorization* 404, not an absence — the account is
+`admin:false` on the repo.
+
+Verified directly on an endpoint non-admins CAN read:
+
+```
+repos/iaser-ai/ansari/branches/develop
+  protected: true
+  required checks: ["backend (lint, typecheck, test, build)", "gitleaks (secret scan)"]
+```
+
+So the blocker was **real, not hypothetical** — my rename would have made a required check
+stop reporting and left this PR unmergeable. Note `frontend (lint, typecheck)` is *not*
+required, only backend + gitleaks.
+
+Lesson: "endpoint returned 404/empty" is not evidence of absence when the token may lack
+scope. Find a field the current identity can actually read before inferring anything.
+
+**My "no PR can fix this" framing was also wrong, and the human took the better option.**
+A job's **ID** and its **emitted name** are independent:
+
+```yaml
+jobs:
+  api:                                            # id renamed, internal only
+    name: backend (lint, typecheck, test, build)  # emitted name UNCHANGED
+```
+
+Zero admin coordination, no unmergeable window. Applied, with a comment above `name:`
+explaining why it is deliberately stale and warning that "fixing" it re-arms the blocker —
+otherwise Phase 6 or a future contributor silently breaks merging. Rewrote the RELEASE.md
+note from "required one-time action before merge" to "deferred follow-up", since this PR no
+longer renames the check; leaving the old instruction would have told an operator to do
+something now unnecessary and actively harmful if done alone.
+
+Context I could not see: **10 open dependabot PRs all emit the `backend (...)` check**, so
+a required-name swap had no safe ordering — it would have stranded either this PR or all
+ten. Human decision: **leave them**; repointing dependabot.yml obsoletes them and they
+re-open against the new path. Recorded in the plan as an explicit Phase 6 non-defect.
+
+### I made the same mistake twice in ten minutes
+
+Rewriting the RELEASE.md note, I again wrote a literal `backend/` ("moved `backend/` to
+`apps/api/`") — the *exact* violation I had recorded a lesson about one commit earlier.
+Fixed ("moved the backend app under `apps/api/`").
+
+Then my verification scan for it was ALSO wrong — `grep "backend/\|frontend/"` matches
+inside `apps/frontend/`, so it reported dozens of false hits and I nearly mis-read live
+files as dirty.
+
+**So: three scans on this project have now reported a wrong answer** — the compound-regex
+one that reported clean on grant-admin.ts, the too-loose one just now, and an exclusion
+filter (`^\./codev/`) that silently matched nothing because paths came back without the
+`./` prefix.
+
+Discipline adopted and written into Phase 6 as an acceptance criterion: **negative-test
+every scan before trusting it** — prove it matches a known-bad line AND does not match a
+known-good near-miss, then report hit counts (total / exempt / live) rather than asserting
+"clean". Did exactly that for the final scan: validated 4 cases (MATCH, no-match, MATCH,
+no-match), then reported 124 total hits, 124 under codev/, **0 live-file hits**.
+
+A verification pattern is code. Untested code is not evidence.
+
+Suite after all of this: 623 passed / 3 pending / 0 failed; name-set diff still exactly the
+one intentional rename. CI YAML validated: ids api/frontend/gitleaks, emitted names match
+develop's required checks exactly.

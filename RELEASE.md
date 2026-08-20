@@ -8,17 +8,25 @@ migration runbook were both proven in real releases on 2026-08-02.
 
 - **`develop`** is the integration branch. It is protected: PRs only, with the
   required CI checks from `.github/workflows/ci.yml` —
-  `api (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
-  `gitleaks (secret scan)`.
+  `backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
+  `gitleaks (secret scan)`. Of these, `develop`'s protection currently *requires*
+  `backend (lint, typecheck, test, build)` and `gitleaks (secret scan)`.
 
-  > **Operator action, one time (spec 48).** The first of those checks was named
-  > `backend (lint, typecheck, test, build)` until the monorepo restructure
-  > renamed the CI job to `api`. **Required status checks are matched by
-  > NAME**: if branch protection still requires the old `backend (...)` name, that
-  > check can never report again and PRs will sit unmergeable waiting on it.
-  > Whoever holds admin on this repo must update the required-check name in
-  > `develop`'s protection rule (and `main`'s, if set) to `api (...)`. This is
-  > out-of-repo configuration — no PR can fix it.
+  > **Naming note (spec 48) — deferred follow-up, not an action before merge.**
+  > The first check's name looks stale and is stale **on purpose**. The monorepo
+  > restructure moved the backend app under `apps/api/` and renamed that CI job's
+  > **ID** to `api`, but its **emitted name** is deliberately left as
+  > `backend (lint, typecheck, test, build)`.
+  >
+  > Required status checks are matched by **name**. Changing what the job emits
+  > would mean the required check never reports again, leaving every PR
+  > unmergeable until a repo admin edits the protection rule — and a job's ID and
+  > emitted name are independent, so keeping the name costs nothing.
+  >
+  > Renaming it is a follow-up that must be done as one coordinated change: edit
+  > `develop`'s required-check name **and** the `name:` line in
+  > `.github/workflows/ci.yml` together. It needs repo-admin access. Do not change
+  > either half on its own.
 - **`main`** is the production branch. The Railway service `backend`
   auto-deploys every push to `main` (service root directory = repo root, config
   in `apps/api/railway.toml`: dockerfile builder using `apps/api/Dockerfile`,

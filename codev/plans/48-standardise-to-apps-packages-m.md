@@ -264,6 +264,16 @@ including `pnpm dev` bringing up **both** apps.
   - **add `build`** aliasing `build:web` — so `pnpm build` genuinely covers both apps.
   - `typecheck` — **drop the `&& ` chain**; the `gen:types` edge now provides ordering.
   - `build:web` — **KEEP its `pnpm run gen:types && ` chain.** See the constraint note below.
+> **CI job NAMES are frozen — do not "fix" them** (human decision, 2026-08-20).
+> `develop`'s branch protection is confirmed on (`protected: true`) and its required
+> checks are exactly `backend (lint, typecheck, test, build)` and
+> `gitleaks (secret scan)`. Required checks are matched by **name**, so the api job's
+> **ID** is `api` while its **emitted name** stays `backend (...)`. A job's ID and its
+> emitted name are independent, so this costs nothing and avoids an unmergeable window.
+> Renaming the emitted name silently re-arms the blocker; it is a deferred follow-up that
+> a repo admin must do by editing the protection rule and the `name:` line **together**.
+> The `name:` line carries a comment saying so — keep it.
+
 - `.github/workflows/ci.yml` — both jobs move to `turbo run <tasks> --filter <app>...`,
   keeping the **two-job split** (architect decision: stable check names, legible diff).
   Note the **trailing `...`**: `--filter ansari-api...` selects the app *and its workspace
@@ -590,6 +600,16 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 - [ ] Both Docker builds succeed from the repo root.
 - [ ] Both `railway.toml` name a `dockerfilePath` that exists, and every `watchPatterns` glob
       matches at least one real path — **asserted against the tree, not read**.
+- [ ] **The open Dependabot PRs are NOT a defect and must NOT be closed** (human decision,
+      2026-08-20). Ten are open, all emitting the `backend (...)` check. Repointing
+      `dependabot.yml` obsoletes them and Dependabot re-opens against the new path on its
+      own. Do not close them, and do not report their staleness as a finding.
+- [ ] **Every scan in this phase is negative-tested before its result is trusted.** A
+      pattern must be shown to (a) match a known-bad line and (b) NOT match a known-good
+      near-miss — e.g. the stale-path scan must flag `backend/foo` and must not flag
+      `apps/frontend/foo`. Report hit counts (total vs. exempt vs. live) rather than
+      asserting "clean": three separate scans on this project reported clean while not
+      actually checking. A verification pattern is code, and untested code is not evidence.
 - [ ] `.github/dependabot.yml` accounts for every workspace package directory
       (config-vs-tree comparison), with no false lockfile comment.
 - [ ] Full api suite green vs. the Phase 1 `develop` baseline **by test-name set**.
