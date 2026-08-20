@@ -15,3 +15,15 @@ Durable engineering wisdom captured across the project's work. Update it during 
 - **Anti-oracle depends on check *placement*, not just the response string.** A reserved-address rejection must return the *same* status AND sit *before* any other validation (e.g. password strength) that could return a different code — otherwise the differing code leaks which addresses are privileged.
 - **Drizzle wraps the driver error; the SQLSTATE `code` (e.g. `23505`) is under `.cause`, not the top level.** Walk the cause chain when discriminating unique violations from outages/schema errors — and never treat *every* insert failure as the expected constraint case.
 - **Never log a raw driver/DB error object** — it can embed the submitted email, query params, or a password hash. Log sanitized metadata (`{ name, code }`) and return a generic client message.
+
+## Monorepo migration & verification discipline (spec 48)
+
+See `codev/reviews/48-standardise-to-apps-packages-m.md` for the full context.
+
+- **Prefer failures that are loud over checks that are quiet.** Many checks pass by not running: an unresolvable lint config reports zero violations, a warm cache skips codegen, undeclared env is excluded from the cache hash, a lint task discovers no files, a `watchPatterns` glob matching nothing does not error. When a check can pass by not running, prove it fails when it should — with a deliberate violation, a removed declaration, a deleted output — and stops failing when restored.
+- **Verify in both directions.** Proving a change moves a cache hash is only half the evidence; you must also prove that removing the declaration makes it stop moving. One direction alone cannot distinguish working from broken.
+- **A verification pattern is code, and untested code is not evidence.** Scans fail silently — a compound regex that matches nothing, a too-loose pattern, an exclusion filter that never fires. Negative-test every scan against a known-bad line *and* a known-good near-miss, then report hit counts rather than a verdict.
+- **Comments and docs deserve the same proof as behaviour.** Assertions about cache-hit behaviour, failure modes, or reachability are easy to write and easily wrong. Run the thing and read the output before writing the sentence.
+- **Fix a documentation defect everywhere, not just where you happen to be editing.** Correcting guidance in some places but not others turns one wrong document into several that disagree — worse than the original error, because contradictions get argued about rather than followed.
+- **Liveness means progress, not existence.** A live PID proves nothing: a process can sit for hours writing zero bytes against a multi-minute baseline. Compare bytes-written and elapsed time against a known-good baseline from the same batch.
+- **In a relocation, `pnpm install` is not neutral.** A non-frozen install can silently bump a transitive dependency inside a supposedly pure move. Diff the lockfile before committing.
