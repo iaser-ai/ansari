@@ -62,10 +62,10 @@ migration runbook were both proven in real releases on 2026-08-02.
 
 - **`main`** is the production branch. The Railway service `backend` (a name in the
   Railway dashboard — unrelated to the `apps/api/` directory, and not stale)
-  auto-deploys every push to `main` (service root directory = repo root, config
-  in `apps/api/railway.toml`: dockerfile builder using `apps/api/Dockerfile`,
-  healthcheck on `/api/health` with a 300s timeout, restart `ON_FAILURE` up to
-  3 times).
+  auto-deploys every push to `main`. Its effective settings are in the block above:
+  root directory = repo root, dockerfile build from `apps/api/Dockerfile`,
+  healthcheck `/api/health` with a 300s timeout, restart `ON_FAILURE` up to 3 times.
+  `apps/api/railway.toml` records those same values in git.
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.

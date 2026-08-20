@@ -3,7 +3,10 @@
 **Spec**: [`codev/specs/48-standardise-to-apps-packages-m.md`](../specs/48-standardise-to-apps-packages-m.md)
 **Plan**: [`codev/plans/48-standardise-to-apps-packages-m.md`](../plans/48-standardise-to-apps-packages-m.md)
 
-79 commits · 280 files changed (+7492 / −193) · six phases · 17 review rounds.
+83 commits · 284 files changed (+7713 / −197) · six phases · **14 implementation review rounds** (plus one each for specify and plan).
+
+> Counts are regenerated from `git diff --shortstat develop...HEAD` and the consultation
+> artifacts in `codev/projects/`, not typed by hand — they went stale twice when they were.
 
 ## What shipped
 
@@ -47,7 +50,7 @@ lacked a `./` prefix. **A verification pattern is code, and untested code is not
 Every scan in the final sweep was negative-tested against a known-bad line *and* a known-good
 near-miss before its result was trusted.
 
-## Verification (final sweep, all 12 criteria)
+## Verification (final sweep — 10 of 12 criteria closed locally)
 
 | Criterion | Evidence |
 |---|---|
@@ -62,7 +65,19 @@ near-miss before its result was trusted.
 | `git log --follow` | `apps/api/lib/config.ts` traces to "Initial import of the Ansari backend" |
 | Both `railway.toml` | dockerfilePaths exist; every glob matches real paths (25 / 18) |
 | Fresh-clone walkthrough | install · lint (3) · typecheck (4) · test (66 files) · build — all pass verbatim |
-| Shared packages linted + typechecked | all three in scope locally; CI-log confirmation is a PR-time check |
+| Shared packages linted + typechecked | all three in scope locally — **CI-log confirmation NOT yet obtained** |
+
+**Two criteria are deliberately UNMET until the PR's CI run**, and are not claimed as satisfied:
+
+1. **gitleaks** — not installed locally. `.gitleaks.toml` and `.gitleaksignore` are verified
+   byte-identical to `develop` and the CI job is intact with `fetch-depth: 0`, but the scan
+   itself has not been run here.
+2. **`@ansari/types` lint/typecheck in CI** — it has no consumer, so the app jobs' dependency-
+   closure filters cannot reach it and a dedicated step exists. Reading the workflow file is
+   not evidence a step executed.
+
+A third, **Dependabot `directory: "/"` workspace coverage**, is only confirmable post-merge
+from GitHub's Dependency graph.
 
 ## Decisions worth carrying forward
 
@@ -109,7 +124,7 @@ exactly the shape that gets papered over.
 
 ## What this cost, and what it caught
 
-15 review rounds across six phases. Phase 2 alone took five, and each round found a
+14 implementation review rounds across six phases. Phase 2 alone took five, and each round found a
 genuinely different class of missing environment variable — every one of which would have
 failed silently in production. The rounds were not ceremony.
 
