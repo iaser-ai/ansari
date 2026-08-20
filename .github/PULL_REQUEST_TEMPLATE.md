@@ -18,7 +18,7 @@ All four must pass locally (run from `apps/api/`, with the dummy env in `apps/ap
 - [ ] `pnpm lint`
 - [ ] `pnpm typecheck`
 - [ ] `pnpm test`
-- [ ] `pnpm run build`
+- [ ] `pnpm build`
 
 ## Contributor checklist
 

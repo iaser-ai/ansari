@@ -610,6 +610,15 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
       `apps/frontend/foo`. Report hit counts (total vs. exempt vs. live) rather than
       asserting "clean": three separate scans on this project reported clean while not
       actually checking. A verification pattern is code, and untested code is not evidence.
+- [ ] **Dependabot coverage — POST-MERGE CHECKPOINT, not a repo-verifiable criterion.**
+      `directory: "/"` for a pnpm workspace is well-founded, but whether it actually reaches
+      every workspace package can only be confirmed from GitHub's Dependency graph →
+      Dependabot view **after merge**. This is the one acceptance criterion that cannot be
+      settled from the tree. **A config that resolves nothing produces no error, just
+      silence** — the same failure shape as everything else here. Check it explicitly
+      post-merge and, if coverage is missing, apply the per-directory fallback the
+      Constraints section already specifies (`/`, `/apps/api`, `/apps/frontend`, each
+      `packages/*`).
 - [ ] `.github/dependabot.yml` accounts for every workspace package directory
       (config-vs-tree comparison), with no false lockfile comment.
 - [ ] Full api suite green vs. the Phase 1 `develop` baseline **by test-name set**.

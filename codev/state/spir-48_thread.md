@@ -724,3 +724,55 @@ A verification pattern is code. Untested code is not evidence.
 Suite after all of this: 623 passed / 3 pending / 0 failed; name-set diff still exactly the
 one intentional rename. CI YAML validated: ids api/frontend/gitleaks, emitted names match
 develop's required checks exactly.
+
+## 2026-08-20 — PHASE 1 APPROVED (iteration 2 closed)
+
+**gemini APPROVE | codex REQUEST_CHANGES (3, all fixed) | claude APPROVE.** Phase 1 done.
+
+Claude re-ran the verification itself rather than trusting the thread — suite, lint,
+typecheck, both Docker images, git history, both negative checks, stale-path scan. It
+specifically checked the four easiest misses: root-script scope not narrowed (at runtime,
+not by reading package.json), the `(?<!apps)` lookbehind, the CI name freeze consistent
+across ci.yml + RELEASE.md + plan, and the `ansari-backend` carve-out against spec 3's
+actual wording.
+
+### The wedged consultation — a process failure worth keeping
+
+The first claude iter-2 run sat **2h39m without writing a single byte**. The other two
+reviews from the same batch finished in ~4 minutes. Killed it (SIGTERM ignored — itself a
+sign it was stuck, not working; SIGKILL on both PIDs worked) and relaunched. The relaunch
+APPROVED in **5 minutes**.
+
+**My liveness check was the problem.** I kept confirming "producer ALIVE" from a live PID
+and reporting that as a satisfiable wait. A process producing nothing for 2.5 hours is a
+hung process wearing a healthy costume. I had a known-good baseline sitting right there —
+two sibling reviews that finished in 4 minutes — and never compared against it until asked.
+
+Same shape as everything else here: **the check reported alive and looked like passing,
+while not establishing the thing it existed to establish.**
+
+Rule: liveness means *progress*, not existence. Check bytes-written and elapsed-vs-baseline
+from the same batch, not just `pgrep`. A wait needs a deadline derived from evidence.
+
+### Non-blocking notes folded in
+
+1. **Dependabot coverage is the one criterion unverifiable from the repo.** Promoted to an
+   explicit Phase 6 post-merge checkpoint with the per-directory fallback ready. A config
+   that resolves nothing produces no error, just silence.
+2. **Carve-outs written down** in `48-phase_1-PR-NOTES.md` rather than left in my head:
+   the `ansari-backend` health-contract exception, the deliberately-stale CI check name,
+   the ten dependabot PRs that must not be closed, and the two post-merge operator actions.
+   Phase 6's criteria are worded absolutely, so these must be written or the sweep
+   re-litigates them.
+3. Cosmetic: PR template now consistently uses bare `pnpm <script>`.
+
+### Phase 2 prep (done while the tree stayed frozen)
+
+`turbo.json` drafted in scratchpad. The `env` list is **derived, not guessed**: 23 vars
+parsed from the Zod schema + **7 read directly outside it** (FRONTEND_URL, MARKETMAKER_URL,
+NEXT_RUNTIME, RAILWAY_ENVIRONMENT, RESEND_API_KEY, SENTRY_DSN, VITEST) + the frontend's 11
+EXPO_PUBLIC_* (wildcard). Parsing only the schema would have shipped an env list missing
+SENTRY_DSN and RESEND_API_KEY — builds succeed, and a changed DSN restores a stale cached
+bundle. Exactly the poisoning case.
+
+Turbo 2.10.11 is current: `"tasks"` (not `"pipeline"`), and `interactive: true` exists.
