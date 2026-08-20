@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The relocation is sound, but the setup documentation still contains invalid directory sequencing.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `README.md:29-37` and `CONTRIBUTING.md:15-23` enter `apps/api`, then present frontend commands without returning to the repo root. Explicitly use a separate terminal or `cd ../frontend`; Phase 1 requires internally coherent new-path documentation.

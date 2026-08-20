@@ -1,0 +1,35 @@
+I'll review phase_5 — the shared types package and packages README.I read every phase-5 file from disk and independently re-ran the verification rather than trusting the rebuttal claims.
+
+**What I verified myself:**
+
+| Check | Result |
+|---|---|
+| `turbo run lint typecheck --filter './packages/*'` | `@ansari/types` executes as a real task (2 successful) |
+| Root `pnpm lint` | 3 tasks (api, frontend, `@ansari/types`) — green |
+| Root `pnpm typecheck` | 4 tasks — green, `@ansari/types` included |
+| Lint **negative probe** (`unusedProbe` + `any` in `src/index.ts`) | `eslint .` exits 1, reports both — discovery genuinely works now |
+| Typecheck **negative probe** (`const probe: string = 42`) | `tsc --noEmit` exits 2, TS2322 |
+| `pnpm install --frozen-lockfile` | clean, 6 workspace projects, lockfile up to date |
+| eslint `catalog:` claim | all four packages use `catalog:`; resolves to **9.39.5 on both branch and `develop`** — the catalog move is behaviour-preserving, not a stealth bump |
+| Working tree after probes | restored, `git status` clean |
+
+**Plan alignment:** every phase-5 file exists and matches the plan — `packages/types/{package.json,tsconfig.json,eslint.config.mjs,src/index.ts}`, `packages/README.md`, and the explicit `--filter './packages/*'` CI step. The package declares its own `typescript`/`eslint`/`@ansari/eslint-config`/`@ansari/tsconfig` deps as the plan required for pnpm's strict layout. No contracts were invented — `src/index.ts` is a placeholder const plus its type, with a doc block telling the next person to *extract* a contract rather than write one fresh.
+
+**The iter-1 defect was real and is genuinely fixed.** The prior `eslint .` was linting only `eslint.config.mjs` (ESLint 9 flat config doesn't match `.ts` without a `files` glob, and the shared base is ignores-only). The fix adds `typescript-eslint`, an explicit `files: ['**/*.ts']` glob and parser, and — importantly — records the exact symptom in a comment. My probe confirms the fix, not just the intent.
+
+**The CI step-ordering fix is also correct**: `Lint + typecheck shared packages` now runs *before* the frontend `build`, so a build failure can't fail-fast past the only coverage `@ansari/types` receives. The rationale is in a comment so it won't get "tidied" back.
+
+**Non-blocking notes (no changes requested):**
+
+1. `typescript-eslint: "^8.67.0"` is a literal version while `eslint`/`typescript` use `catalog:` — the same shape as the drift claim-3 fixed. No app uses `typescript-eslint` today so there's nothing to drift against yet, but the moment a second package adopts it, the catalog convention documented in `CONTRIBUTING.md` applies.
+2. `main`/`types`/`exports` all point at raw `./src/index.ts`. Correct for a no-consumer scaffold, but the first consumer (Next or Metro) will need `transpilePackages` or a build step. A one-line note in the existing "To add a contract" doc block would save that discovery.
+3. Codex's "confirm from an actual CI log" point is correctly deferred — it's already a phase-6 acceptance criterion and genuinely cannot be settled pre-merge.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 is complete and independently verified — `@ansari/types` is a real graph participant whose lint and typecheck both fail on deliberate violations, CI coverage is explicit and correctly ordered, and the catalog fix is behaviour-preserving.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None (two non-blocking nits: `typescript-eslint` bypasses the `catalog:` convention; the package exports raw `.ts`, which the first consumer will need to transpile)

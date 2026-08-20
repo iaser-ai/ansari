@@ -1,0 +1,30 @@
+### Phase 6 Implementation Review: Repo-Wide Acceptance Verification & Final Sweep
+
+#### 1. Spec Adherence & Plan Alignment
+- **Cross-Cutting Acceptance Verification**: The final cross-cutting verification sweep across all 12 criteria is comprehensively documented in [`codev/reviews/48-standardise-to-apps-packages-m.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/reviews/48-standardise-to-apps-packages-m.md) and [`codev/state/spir-48_thread.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/state/spir-48_thread.md#L1259-L1311).
+- **Railway Operator Runbook in [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md#L30-L62)**: The operator action block has been added with explicit details on the Root Directory (repo root), per-service Dockerfile paths (`apps/api/Dockerfile`, `apps/frontend/Dockerfile.web`), deploy settings, and watch paths (including `packages/**`).
+- **Railway Deployment Config & Watch Patterns**: Both [`apps/api/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/railway.toml#L15-L25) and [`apps/frontend/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/railway.toml#L15-L25) define valid `dockerfilePath` settings and include `"packages/**"`, ensuring that shared package edits trigger rebuilds rather than silently drifting.
+- **Compensating Control for Phase 2 ([`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/turbo.json))**:
+  - `globalEnv` is derived and documented against all four derivation channels (Zod schema in [`apps/api/lib/config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/lib/config.ts), static `process.env.X` grep, dynamic `process.env[name]` calls for `FACILITATOR_*` budget variables, and documented build-time dependencies such as `SENTRY_AUTH_TOKEN` and `EXPO_PUBLIC_*`).
+  - `globalDependencies` declares `packages/tsconfig/*.json` and `packages/eslint-config/*.js`, ensuring workspace package changes invalidate downstream consumer tasks in both directions.
+  - `dev` task specifies `interactive: true` alongside `--ui=tui` in root [`package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/package.json#L12).
+- **Stale-Path & Living Governance Sweeps**: Stale path scans were negative-tested and confirmed clean against live codebase files; living governance documents such as [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/resources/arch.md#L11) were updated to `apps/api/`.
+- **Dependabot Configuration**: [`.github/dependabot.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/dependabot.yml) cleanly configures `directory: "/"` for the `npm` ecosystem to cover root manifests and the pnpm workspace with false comments removed.
+
+#### 2. Code Quality & Invariant Preservation
+- **End-to-End Behaviour Preservation**: Baseline comparisons against `develop` confirm zero option drift in `tsc --showConfig` for both apps, and identical ESLint rule violation sets (api: 7 violations across 77 files; frontend: 0 violations across 6 files).
+- **Load-Bearing Security & Boundary Guards**: The `no-restricted-properties` environment variable guard in [`apps/api/eslint.config.mjs`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/eslint.config.mjs) remains in the api app, verified by 9/9 passing tests in [`apps/api/tests/eslint-env-guard.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/eslint-env-guard.test.ts).
+- **Doc Consistency Tests**: Both [`apps/api/tests/release-doc.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/release-doc.test.ts) and [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/self-hosting-docs.test.ts) resolve three directory levels up to the true repository root and pass all assertions.
+
+#### 3. Test Coverage & CI Matrix
+- **CI Pipeline Configuration**: [`.github/workflows/ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml) maintains frozen emitted job names for branch protection compatibility while testing `ansari-api...`, `ansari-frontend...`, and shared packages (`--filter './packages/*'`) before the frontend build step to ensure `@ansari/types` is verified and fails fast.
+- **Docker Container Builds**: Both [`apps/api/Dockerfile`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/Dockerfile#L30) and [`apps/frontend/Dockerfile.web`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/Dockerfile.web#L20) copy `packages` ahead of the frozen install step, satisfying `workspace:*` dependencies.
+
+---
+VERDICT: APPROVE
+SUMMARY: All Phase 6 acceptance criteria, cross-cutting verifications, operator documentation, and iteration 1 feedback items have been fully and rigorously addressed.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

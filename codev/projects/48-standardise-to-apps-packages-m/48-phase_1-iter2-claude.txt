@@ -1,0 +1,48 @@
+I'll start by reading the previous iteration context, since this is iteration 2 and there may be already-disputed concerns.## Review: Phase 1 — Directory move to `apps/api` + `apps/frontend` and path-consumer rewrite
+
+I read the files from disk and re-ran the phase's acceptance criteria myself rather than trusting the recorded results. I also read `48-phase_1-iter2-context.md` first — note that **both iteration-2 reviews are stale**: gemini reviewed a snapshot where `ci.yml` emitted `api (...)` (it now correctly emits `backend (...)`), and all three codex findings are fixed on disk (commits `89bf133`, `038e1a5`).
+
+### Independent verification I ran
+
+| Criterion | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ✅ clean; `git ls-files` shows exactly one lockfile |
+| Full Vitest suite | ✅ **66 files, 623 passed, 3 skipped** — file count matches the spec's stated `develop` baseline of 66 |
+| `pnpm -r lint` | ✅ 0 errors / 7 pre-existing warnings, **both apps in scope** |
+| `pnpm -r typecheck` | ✅ both apps; frontend `gen:types` still chains correctly |
+| `docker build -f apps/api/Dockerfile .` | ✅ exit 0; image `WORKDIR=/repo/apps/api`, `.next/BUILD_ID` present |
+| `docker build -f apps/frontend/Dockerfile.web .` | ✅ exit 0; `/etc/caddy/Caddyfile` present, SPA (`index.html`, `_expo/`, `assets/`) at `/usr/share/caddy` |
+| `git log --follow apps/api/Dockerfile` | ✅ shows `f55c52a build(backend): Dockerfile deploy for Railway` |
+| Stale-path scan | ✅ zero hits — **and I negative-tested the pattern**: it flags `backend/lib/foo` and `cd frontend/`, and does *not* flag `apps/frontend/foo`, `apps/api/...`, or the prose "the backend service" |
+| `railway.toml` watchPatterns | ✅ asserted against the tree: `apps/api/**`→163 files, `apps/frontend/**`→22; control glob `backend/*`→0 |
+| `.gitleaksignore` | ✅ untouched (0 lines of diff) |
+
+**Both mandatory negative checks reproduced independently:**
+- Moved `apps/api/railway.toml` aside → `release-doc.test.ts` failed with `apps/api/railway.toml referenced but missing`. This proves `resolve(apiDir, '../..')` reaches the *true* repo root, not `apps/`.
+- Perturbed `'could not reach the database'` in `startup-checks.ts` → `self-hosting-docs.test.ts` failed. Restored; `git diff` confirms 0 lines changed.
+
+### Things I checked specifically because they're the easy misses
+
+- **Root script scope was not silently narrowed** — the plan's highest-impact Phase 1 risk. `lint`/`typecheck` remain `pnpm -r`; `dev`/`test`/`build` remain `--filter ansari-api`. Confirmed at runtime, not just by reading `package.json`.
+- **`release-doc.test.ts`'s `(?<!apps)` lookbehind** is a genuinely subtle consequence of the move (`apps/api/railway.toml` contains the substring `/api/` and would otherwise be extracted as a bogus endpoint). It's correct and it's commented.
+- **CI job name freeze** is now consistent across all three places that matter: `ci.yml` job id `api` / emitted name `backend (...)` with a do-not-fix comment, and `RELEASE.md:15–29` carrying the deferred repo-admin operator action. This matches the human decision recorded in the plan.
+- **`ansari-backend` in `/api/health`** — I verified the builder's non-change claim against `codev/specs/3-...md:144`: *"`service` must remain `'ansari-backend'` (frontend and runbooks key on it)."* Correct to leave; renaming it would be the behaviour change this phase forbids.
+- **Lockfile diff is now exactly two importer-key renames** (`backend:`→`apps/api:`, `frontend:`→`apps/frontend:`). The `@babel/traverse` drift codex flagged is gone.
+
+### Non-blocking notes to carry forward
+
+1. **Dependabot coverage is the one criterion unverifiable from the repo.** `directory: "/"` for a pnpm workspace is well-founded and the false lockfile comment is properly deleted, but "covers every workspace package" can only be confirmed from GitHub's Dependency graph after merge. The plan already specifies the per-directory fallback — make this an explicit Phase 6 checkpoint rather than an assumption, since a config that resolves nothing produces no error, just silence.
+2. **State the `ansari-backend` carve-out in the PR description**, as the iter-1 rebuttal promised. Phase 6's criterion reads absolutely ("No tracked file refers to the package name `ansari-backend`"), so without the written exception the sweep will re-litigate it.
+3. Cosmetic: `.github/PULL_REQUEST_TEMPLATE.md` mixes `pnpm run build` with bare `pnpm lint`/`typecheck`/`test`. Both work; consistency would read better.
+
+This is a careful piece of work. The verification discipline — particularly negative-testing scan patterns after the compound-regex failure — is the right response to this project's recurring "the check looked like it passed but wasn't checking" failure mode.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 move and path-consumer rewrite independently verified — suite, lint, typecheck, both Docker images, git history, negative checks, and stale-path scan all confirmed by re-running them.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None (blocking). Non-blocking: Dependabot `directory: "/"` workspace coverage is only confirmable post-merge — carry as an explicit Phase 6 checkpoint with the plan's per-directory fallback ready.
+- Non-blocking: record the `ansari-backend` health-response carve-out in the PR description so Phase 6's absolute-sounding sweep criterion doesn't re-litigate it.

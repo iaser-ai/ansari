@@ -1,0 +1,13 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong sequencing and risk coverage, but several implementation-critical details remain missing or contradictory.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Phase 2 does not preserve existing root-script semantics: `lint` and `typecheck` must remain repo-wide in Phase 1, not be repointed to `ansari-api`.
+- CI remains filtered to the two apps; no later phase adds shared-package `lint` and `typecheck`, contrary to the required CI matrix.
+- Phase 5 underspecifies `@ansari/types`: it needs TypeScript/ESLint dependencies and an ESLint config; merely naming `lint` and `typecheck` scripts will not make them work under pnpm’s strict dependency model.
+- Phase 4’s ESM design is incomplete: `@ansari/eslint-config` must declare `"type": "module"` or use `.mjs`, with a defined export/subpath.
+- Dependabot’s directory mechanism is deferred to implementation rather than settled in the plan; root `package.json` coverage for Turborepo must also be addressed.
+- Phase 2 rewrites `RELEASE.md` to root commands but does not update `release-doc.test.ts`, which still validates commands against the API package manifest.
+- The final behavior-preservation comparison should include `develop` versus the assembled branch, as required by the spec, not only adjacent phase comparisons.

@@ -9,12 +9,64 @@ migration runbook were both proven in real releases on 2026-08-02.
 - **`develop`** is the integration branch. It is protected: PRs only, with the
   required CI checks from `.github/workflows/ci.yml` —
   `backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and
-  `gitleaks (secret scan)`.
-- **`main`** is the production branch. The Railway service `backend`
-  auto-deploys every push to `main` (service root directory = repo root, config
-  in `backend/railway.toml`: dockerfile builder using `backend/Dockerfile`,
-  healthcheck on `/api/health` with a 300s timeout, restart `ON_FAILURE` up to
-  3 times).
+  `gitleaks (secret scan)`. Of these, `develop`'s protection currently *requires*
+  `backend (lint, typecheck, test, build)` and `gitleaks (secret scan)`.
+
+  > **Naming note (spec 48) — deferred follow-up, not an action before merge.**
+  > The first check's name looks stale and is stale **on purpose**. The monorepo
+  > restructure moved the backend app under `apps/api/` and renamed that CI job's
+  > **ID** to `api`, but its **emitted name** is deliberately left as
+  > `backend (lint, typecheck, test, build)`.
+  >
+  > Required status checks are matched by **name**. Changing what the job emits
+  > would mean the required check never reports again, leaving every PR
+  > unmergeable until a repo admin edits the protection rule — and a job's ID and
+  > emitted name are independent, so keeping the name costs nothing.
+  >
+  > Renaming it is a follow-up that must be done as one coordinated change: edit
+  > `develop`'s required-check name **and** the `name:` line in
+  > `.github/workflows/ci.yml` together. It needs repo-admin access. Do not change
+  > either half on its own.
+> ### Railway service configuration (spec 48 — monorepo layout)
+>
+> Both services build with the **repo root** as their Root Directory: the pnpm
+> workspace needs the root `pnpm-lock.yaml`, and both Dockerfiles now also
+> `COPY packages packages`. Do **not** set Root Directory to the app folder.
+>
+> | Service | Dockerfile path |
+> |---|---|
+> | backend | `apps/api/Dockerfile` |
+> | frontend (web) | `apps/frontend/Dockerfile.web` |
+>
+> **Watch paths** — set these per service, or Railway rebuilds *both* on every push
+> (any commit touches the root lockfile):
+>
+> ```
+> backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> ```
+>
+> `packages/**` is **not optional**. The shared config packages are copied into both
+> images, so a packages-only change alters the built artifact. Omit the pattern and
+> that change ships nothing — no rebuild, no deploy, and no error. The image simply
+> drifts from the repo.
+>
+> **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
+> healthcheck `/`; restart ON_FAILURE, max 3 retries.
+>
+> **`apps/*/railway.toml` are not read by Railway here.** This project configures
+> deployment through the dashboard with a Dockerfile path (confirmed by the operator,
+> 2026-08-21). Railway does support a config-as-code path setting; this project does
+> not use it. The tomls record the same values in git so the intended configuration
+> stays reviewable — update them in the same PR whenever you change a dashboard
+> setting, or the record drifts from reality.
+
+- **`main`** is the production branch. The Railway service `backend` (a name in the
+  Railway dashboard — unrelated to the `apps/api/` directory, and not stale)
+  auto-deploys every push to `main`. Its effective settings are in the block above:
+  root directory = repo root, dockerfile build from `apps/api/Dockerfile`,
+  healthcheck `/api/health` with a 300s timeout, restart `ON_FAILURE` up to 3 times.
+  `apps/api/railway.toml` records those same values in git.
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.
@@ -52,13 +104,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 
    Both must return 200 with `{"status":"ok","service":"ansari-backend",...}`.
 7. **Sentry watch, 15 minutes.** Watch the backend Sentry project for new or
-   spiking issues (wired via `backend/sentry.server.config.ts`). Only after a
+   spiking issues (wired via `apps/api/sentry.server.config.ts`). Only after a
    quiet 15 minutes is the release considered done.
 8. Anything wrong → **Rollback** (last section).
 
 ## Pre-promotion local smoke test
 
-Proven 2026-08-02. Run from `backend/` on the exact `develop` tip you are
+Proven 2026-08-02. Run from `apps/api/` on the exact `develop` tip you are
 about to promote, with a real `.env` (see the env tables in
 `docs/self-hosting.md` — the chat step needs real AI/search keys, because it
 exercises the real model and tools, not mocks).
@@ -66,11 +118,11 @@ exercises the real model and tools, not mocks).
 1. **Build:**
 
    ```bash
-   (cd .. && pnpm install) && pnpm build
+   (cd ../.. && pnpm install) && pnpm build
    ```
 
 2. **Migrate a fresh database.** Start a disposable Postgres 16 and apply the
-   full migration chain (`backend/drizzle/0000_baseline.sql` → latest) to an empty
+   full migration chain (`apps/api/drizzle/0000_baseline.sql` → latest) to an empty
    database — this proves a from-scratch install works, not just the
    incremental step:
 
@@ -124,7 +176,7 @@ exercises the real model and tools, not mocks).
 ## Migration release (variant)
 
 Use this variant whenever the release includes a schema change (a new file in
-`backend/drizzle/`).
+`apps/api/drizzle/`).
 
 > **NEVER run `pnpm db:push` (drizzle-kit push) against production.** It
 > diffs the live schema and can drop or recreate tables — and data. The rule
@@ -143,11 +195,11 @@ Order proven for migration `0003` on 2026-08-02:
 2. **Apply the reviewed SQL explicitly:**
 
    ```bash
-   psql "$DATABASE_URL" -f backend/drizzle/000N_<name>.sql
+   psql "$DATABASE_URL" -f apps/api/drizzle/000N_<name>.sql
    ```
 
 3. **Run bootstrap scripts** (after the migration, before the deploy):
-   - **Admins:** from `backend/`, `npx tsx scripts/grant-admin.ts <email>`
+   - **Admins:** from `apps/api/`, `pnpm exec tsx scripts/grant-admin.ts <email>`
      (securely prompts for a password; creates a login-capable admin, or
      promotes an existing account while resetting its password and revoking
      its sessions).

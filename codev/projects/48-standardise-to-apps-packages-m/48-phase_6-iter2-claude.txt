@@ -1,0 +1,44 @@
+I'll start by reading the previous iteration context and the phase 6 artifacts.Now let me read the phase 6 deliverables.Let me independently verify the key sweep claims rather than trusting the review doc.I've independently verified the phase-6 sweep rather than trusting the review document. Here's what I found.
+
+## What I verified myself (all confirmed)
+
+| Criterion | My check | Result |
+|---|---|---|
+| No stale path survives | Own regex, negative-tested (matches `backend/foo`, does **not** match `apps/frontend/foo`), historical records excluded | **0 live hits** |
+| `ansari-backend` refs | `git grep` outside `codev/` | Only `/api/health`'s `service:` string + its tests/docs — a pinned API contract per spec 3, correctly documented as deliberate |
+| `railway.toml` globs assert against tree | Counted real files per glob | `apps/api/**`→163, `apps/frontend/**`→22, `packages/**`→11, 3 root files — none match nothing |
+| `dockerfilePath` exists | stat both | Both exist |
+| `globalEnv` completeness (mandatory phase-2 re-review) | Re-derived independently: Zod schema, static `process.env.X`, dynamic `process.env[name]` **followed to call sites** (`FACILITATOR_*_MS`), plus `.env.example`+`.env.ci` cross-check (26 vars) | **Missing: NONE** |
+| `globalDependencies` | Read `turbo.json` | `packages/tsconfig/*.json` + `packages/eslint-config/*.js` present, with both-directions note |
+| FULL TURBO | Ran `turbo run build` twice | 13.6s → **11ms, 3/3 cached, FULL TURBO** |
+| Doc-consistency tests | Ran both | 14/14 pass |
+| Doc-consistency **negative check** | Renamed `apps/api/railway.toml`, re-ran, restored | Test **failed** as required; tree restored clean |
+| `@ansari/types` CI coverage | Read `ci.yml` | Explicit `--filter './packages/*'` step, placed *before* the frontend build (fail-fast reasoning documented) |
+| Dependabot | Read config | Single `/` entry, false lockfile comment deleted |
+| RELEASE.md operator action | Read | Present: Root Directory, both Dockerfile paths, per-service watch paths with `packages/**` justified, deploy settings |
+
+The iteration-1 fixes are real: the `packages/**` `watchPatterns` omission was a genuine defect and is correctly fixed in both files with reasoning. The gitleaks non-claim is honest — the builder says plainly it wasn't run locally and states only what was actually verified.
+
+## One blocker
+
+`codev/reviews/48-standardise-to-apps-packages-m.md` lines 125–127 is **stale and contradicts the correction made in this very phase**:
+
+> 1. **Railway** — each service's *config file path* is a dashboard setting still pointing at the old locations. Update to `apps/api/railway.toml` and `apps/frontend/railway.toml`, and verify both services deploy.
+
+Every other artifact says the opposite. Both `railway.toml` headers, `RELEASE.md`, the rebuttals, and the thread all record the corrected finding: Railway's UI offers **no config-file-path setting**, and a config one level below Root Directory is never picked up — so the tomls are REFERENCE ONLY and the dashboard is authoritative. The review's item 1 instructs an operator to perform an action that cannot be performed, and omits the ones that matter (Dockerfile path, watch paths including `packages/**`).
+
+This is precisely the failure shape the review document's own headline section is about — *documentation describing a setup nobody uses* — sitting in the phase-6 deliverable that exists to catch it. It's a one-paragraph fix: point item 1 at RELEASE.md's "Railway service configuration" block.
+
+**Minor (non-blocking):** the review header reads `273 files changed (+7039 / −161)`; the PR is now 280 / +7492 / −193. Written pre-iteration-1 fixes.
+
+**Not verified by me** (accepting the builder's evidence): both Docker builds, the fresh-clone walkthrough, the full 66-file suite, and the `develop` ESLint/`showConfig` end-to-end diffs. The `@ansari/types` CI-log confirmation is correctly left as a PR-time check — it genuinely cannot be settled from the tree.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Sweep is genuinely thorough and independently re-verified clean, but the review doc's Railway operator action still describes the setup the phase itself proved wrong.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `codev/reviews/48-standardise-to-apps-packages-m.md` item 1 under "Out-of-repo actions" tells the operator to update a Railway "config file path" setting that does not exist, contradicting `RELEASE.md`, both `railway.toml` headers, the rebuttals, and the thread — all of which correctly state the dashboard is authoritative and the tomls are reference-only. Replace it with a pointer to RELEASE.md's "Railway service configuration" block (Dockerfile paths + watch paths incl. `packages/**`).
+- Minor: review header file/line counts (273 / +7039 / −161) predate the iteration-1 fixes; actual is 280 / +7492 / −193.

@@ -1,0 +1,32 @@
+# Railway settings for this service, kept in version control.
+#
+# NOT READ BY RAILWAY IN THIS PROJECT (confirmed by the operator, 2026-08-21).
+# Deployment is configured in the Railway dashboard using a Dockerfile path:
+#   apps/api/Dockerfile
+# Railway does support a config-as-code path setting, so a future maintainer could
+# switch to it — this project does not. The dashboard is the live configuration;
+# this file is the reviewable record of what it should contain.
+#
+# Keep the two in sync: if you change a dashboard setting, update this file in the
+# same PR. See the "Railway service configuration" block in RELEASE.md.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/api/Dockerfile"
+watchPatterns = [
+  "apps/api/**",
+  # Shared workspace packages are COPYied into this image (see the Dockerfile),
+  # so a packages-only change alters the built artifact. Without this pattern the
+  # change ships nothing: no rebuild, no deploy, no error — the image silently
+  # drifts from the repo.
+  "packages/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

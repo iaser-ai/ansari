@@ -4,6 +4,7 @@
 .git
 **/node_modules
 **/.next
+**/.turbo
 **/dist
 **/.expo
 **/coverage
@@ -12,4 +13,4 @@
 **/.env
 **/.env.local
 **/.env.*.local
-frontend/google-service-account
+apps/frontend/google-service-account

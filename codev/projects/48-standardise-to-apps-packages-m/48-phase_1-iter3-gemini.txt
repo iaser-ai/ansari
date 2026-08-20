@@ -1,0 +1,46 @@
+### Phase 1 Implementation Review
+
+All files and deliverables for **Phase 1: Standardise to `apps/` layout and rename backend package** have been reviewed on disk against the specification and plan.
+
+---
+
+### Verification Summary
+
+1. **Directory Relocation & Package Renaming**:
+   - `backend/` has been moved to `apps/api/` and `frontend/` to `apps/frontend/`.
+   - `apps/api/package.json` reflects the new package name `"ansari-api"`.
+   - `pnpm-workspace.yaml` cleanly declares `apps/*` and `packages/*`, preserving the TypeScript catalog entry and `onlyBuiltDependencies` allowlist.
+   - Root `package.json` scripts (`api`, `frontend`, `dev`, `lint`, `typecheck`, `test`, `build`) have been updated to target `ansari-api` and `ansari-frontend` while preserving their exact pre-Turbo scope (`pnpm -r` vs single-package filtering).
+
+2. **Container Manifests & Deployment Configurations**:
+   - [`apps/api/Dockerfile`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/Dockerfile) and [`apps/frontend/Dockerfile.web`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/Dockerfile.web) use repo-root context, copy manifests to `apps/<name>/package.json`, and run `--filter`-scoped installs and builds.
+   - Both [`apps/api/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/railway.toml) and [`apps/frontend/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/railway.toml) reference valid `dockerfilePath` targets and updated `watchPatterns` (`apps/api/**`, `apps/frontend/**`). Header comments accurately instruct the Railway dashboard configuration paths.
+   - [`.dockerignore`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.dockerignore) correctly ignores `apps/frontend/google-service-account`.
+
+3. **CI & Dependabot**:
+   - [`.github/workflows/ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml) has updated job ID `api` and `--filter ansari-api` invocations. The emitted check name `backend (lint, typecheck, test, build)` is deliberately preserved to prevent breaking branch protection rules on `develop`.
+   - [`.github/dependabot.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/dependabot.yml) has been rewritten to watch `/` for the whole workspace, and the stale `backend/package-lock.json` comment has been removed.
+   - [`.github/PULL_REQUEST_TEMPLATE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/PULL_REQUEST_TEMPLATE.md) references `apps/api/` and `apps/api/.env.ci`.
+
+4. **Doc-Consistency Tests & Negative Checks**:
+   - [`apps/api/tests/release-doc.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/release-doc.test.ts) calculates `repoRoot` via `resolve(apiDir, '../..')`, uses negative lookbehind `(?<!apps)` for `/api/` endpoint extraction, and asserts `apps/api/...` paths against [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md).
+   - [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/self-hosting-docs.test.ts) correctly references `../../../docs/self-hosting.md`.
+
+5. **Living Docs & Scripts**:
+   - [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md), [`README.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/README.md), [`CONTRIBUTING.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/CONTRIBUTING.md), [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/docs/self-hosting.md), [`SECURITY.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/SECURITY.md), [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/resources/arch.md), and per-app READMEs/agent guides have all had paths and runbook commands updated.
+   - [`apps/api/scripts/grant-admin.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/scripts/grant-admin.ts) header comment and CLI error usage message both specify `pnpm exec tsx scripts/grant-admin.ts <email>` from `apps/api/`.
+
+6. **State & Notes**:
+   - PR notes in [`codev/projects/48-standardise-to-apps-packages-m/48-phase_1-PR-NOTES.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/projects/48-standardise-to-apps-packages-m/48-phase_1-PR-NOTES.md) thoroughly document the `service: 'ansari-backend'` response contract exception, the CI check name freeze, and post-merge operator actions.
+
+---
+
+```
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 directory moves, package renames, container manifests, CI workflows, and path-consumer rewrites are completely and correctly implemented with no regressions.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+```

@@ -13,7 +13,19 @@ concurrency:
 # Third-party actions are pinned to a full commit SHA (with a trailing version
 # comment) so a moved tag can't silently change what runs in CI.
 jobs:
-  backend:
+  api:
+    # The job ID is `api` (matching apps/api), but the EMITTED NAME is
+    # deliberately still `backend (...)`. Required status checks are matched by
+    # NAME, and `develop`'s branch protection requires
+    # `backend (lint, typecheck, test, build)`. Renaming what this job emits
+    # would mean that required check never reports again, leaving every PR
+    # unmergeable until a repo admin edits the protection rule — which no PR
+    # can do. A job's ID and its emitted name are independent, so the ID moves
+    # with the directory rename while the name stays put.
+    #
+    # DO NOT "fix" this to say `api`. Renaming it silently re-arms that blocker.
+    # Renaming the check is a deferred follow-up: it has to be done by a repo
+    # admin, editing the protection rule and this line together.
     name: backend (lint, typecheck, test, build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -33,27 +45,43 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # `--filter ansari-api...` (trailing dots) selects the app AND its workspace
+      # dependencies. @ansari/eslint-config and @ansari/tsconfig appear in scope but
+      # define no lint/typecheck scripts, so turbo runs nothing FOR them — expect
+      # "3 packages in scope, 1 task".
+      #
+      # Their correctness is still enforced, indirectly and sufficiently: the app
+      # consumes both, so a broken base.js or base.json fails THIS step. They are also
+      # in turbo.json globalDependencies, so editing either busts the app's cache
+      # rather than replaying a stale pass. The dependency-closure filter is what makes
+      # that work — a bare `--filter ansari-api` would not pick up the change.
       - name: Lint
-        run: pnpm --filter ansari-backend lint
+        run: pnpm exec turbo run lint --filter ansari-api...
 
-      # The committed dummy env (backend/.env.ci) is the single no-secrets env
+      # The committed dummy env (apps/api/.env.ci) is the single no-secrets env
       # source — every value is deliberately fake. No repository secrets are
       # used anywhere in this workflow.
       - name: Load CI dummy env
-        run: grep -v '^#' backend/.env.ci >> "$GITHUB_ENV"
+        run: grep -v '^#' apps/api/.env.ci >> "$GITHUB_ENV"
 
       - name: Typecheck
-        run: pnpm --filter ansari-backend typecheck
+        run: pnpm exec turbo run typecheck --filter ansari-api...
 
       # Runs the full suite AND emits a coverage summary. Report-only — there is
       # deliberately no coverage threshold gate yet.
       - name: Test (with coverage)
-        run: pnpm --filter ansari-backend test:coverage
+        run: pnpm exec turbo run test:coverage --filter ansari-api...
 
       - name: Build
-        run: pnpm --filter ansari-backend build
+        run: pnpm exec turbo run build --filter ansari-api...
 
   frontend:
+    # Emitted name deliberately unchanged (human decision, spec 48), even though
+    # this job now also runs `build`. Check names are matched by branch
+    # protection; this one is not currently required on `develop`, but it is
+    # frozen alongside the api job's so that any future rename is done as ONE
+    # coordinated admin change rather than piecemeal. The label lagging its
+    # contents is the accepted cost.
     name: frontend (lint, typecheck)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -72,12 +100,37 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm --filter ansari-frontend lint
+        run: pnpm exec turbo run lint --filter ansari-frontend...
 
-      # typecheck first regenerates uniwind-types.d.ts (gitignored, needed by
-      # tsc) via the package's gen:types script.
+      # `typecheck` no longer chains `gen:types` with `&&` — turbo.json declares
+      # `typecheck.dependsOn: ["gen:types"]`, so the graph regenerates the
+      # gitignored uniwind-types.d.ts before tsc runs. (build:web KEEPS its
+      # in-script chain: Dockerfile.web has no turbo. See turbo.json.)
       - name: Typecheck
-        run: pnpm --filter ansari-frontend typecheck
+        run: pnpm exec turbo run typecheck --filter ansari-frontend...
+
+      # This step exists for @ansari/types specifically. It is the only package under
+      # packages/ that defines lint/typecheck scripts, so despite the `./packages/*`
+      # filter putting all three in scope, the tasks that RUN are its two — expect
+      # "3 packages in scope, 2 tasks".
+      #
+      # It needs its own step because it has no consumer by design, so it sits outside
+      # every app's dependency closure and no `--filter <app>...` can reach it. The
+      # other two config packages need no step: they define no tasks, and the apps that
+      # consume them fail if they break.
+      #
+      # Placed BEFORE the frontend build deliberately: steps are sequential and
+      # fail-fast, so running it after `build` would mean a build failure silently
+      # skips the only coverage @ansari/types gets.
+      - name: Lint + typecheck shared packages
+        run: pnpm exec turbo run lint typecheck --filter './packages/*'
+
+      # NEW in spec 48: the frontend was never built in CI. `pnpm build` now
+      # means "both apps", so this enforces that rather than merely claiming it.
+      # expo export already runs in Dockerfile.web at deploy time, so this moves
+      # an existing failure mode earlier rather than inventing a new one.
+      - name: Build
+        run: pnpm exec turbo run build --filter ansari-frontend...
 
   gitleaks:
     name: gitleaks (secret scan)

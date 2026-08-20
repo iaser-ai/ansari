@@ -1,0 +1,41 @@
+I'll review the Phase 1 implementation by reading the actual files.Root scripts preserve scope correctly. Now the highest-risk files:Found a likely issue with the CI job rename. Let me verify the stale-path scan and remaining docs.The working directory shifted — let me correct and re-run.I've verified the implementation directly — including independently re-running the required negative check. Here's my assessment.
+
+## What's solid
+
+**The move itself is clean and genuinely verified.** I confirmed independently rather than taking the thread's word:
+
+- **Stale-path scan is clean.** `git grep` for top-level `backend/` / `frontend/` path refs (excluding the spec's historical exemptions) returns **zero** hits — including `codev/resources/arch.md:8`, correctly updated as a living doc rather than waved through as a "codev record."
+- **Both doc tests pass, and the negative check actually fires.** I renamed `apps/api/railway.toml` and got `AssertionError: apps/api/railway.toml referenced but missing` — then confirmed a clean restore. `repoRoot = resolve(apiDir, '../..')` and `'../../../docs/self-hosting.md'` both resolve to the true repo root.
+- **The `(?<!apps)` lookbehind is a real find, not a patch-to-green.** Naming the app `api` made `apps/api/railway.toml` contain the substring `/api/`, so it was being extracted as a phantom endpoint. The fix is correct, narrowly scoped, and carries a comment explaining the collision.
+- **Scope preservation held.** Root `lint`/`typecheck` stayed `pnpm -r`; only `dev`/`test`/`build` are `--filter ansari-api`. This was the phase's biggest silent-regression risk and it was not regressed.
+- `git log --follow apps/api/Dockerfile` walks into `f55c52a` pre-move. Lockfile importers are `apps/api` / `apps/frontend`. Both `railway.toml` files, `.dockerignore`, dependabot rewrite (false lockfile comment deleted, root `directory: "/"` with rationale), and `grant-admin.ts`'s `npx` → `pnpm exec` drift are all correct.
+
+## One blocking issue
+
+**`RELEASE.md:11` is now factually wrong.** The CI job was renamed `backend:` → `api:` (`name: api (lint, typecheck, test, build)`), but RELEASE.md still tells a release engineer the required checks are:
+
+```
+`backend (lint, typecheck, test, build)`, `frontend (lint, typecheck)`, and `gitleaks (secret scan)`
+```
+
+Two consequences. The runbook now names a check that no longer exists. And more practically: required status checks are matched **by name** — if `develop`'s protection requires `backend (...)`, that check will never report on this PR, so the PR itself may be unmergeable until someone with admin access updates the rule. I couldn't confirm the enforcement mechanism (`/branches/develop/protection` and `/rulesets` both return empty/404 for my token), but RELEASE.md itself asserts the branch is protected with those checks.
+
+This is the same class of out-of-repo operator action as the Railway config-file-path change the spec mandates documenting — and notably, the stale-path grep **cannot** see it, because the pattern requires a trailing `/` and this is a check name, not a path. Exactly the "it looks like passing" shape this project keeps producing.
+
+Fix: update the check name in RELEASE.md, and record the branch-protection rename as an operator action (the Railway note in Phase 6 is the natural home, but the fact should be captured now so it isn't lost).
+
+## Minor, non-blocking
+
+- **`.github/PULL_REQUEST_TEMPLATE.md:18-21`** still says `npm run lint` / `typecheck` / `test` / `build` — pre-existing npm-era drift, sitting two lines from edits this phase made. The plan treated the identical drift in `grant-admin.ts` as in-scope. `release-doc.test.ts`'s npm-drift regex only guards RELEASE.md, so nothing catches this.
+- **`ansari-backend` survives** in `/api/health`'s `service` field. Correctly left alone — it's a public response contract pinned by spec 3, and renaming it would be the behaviour change this phase forbids. But the phase's acceptance criterion reads literally "No tracked file refers to the package name `ansari-backend`". Worth stating the exception in the PR description so Phase 6's sweep doesn't re-litigate it.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Move and path-consumer rewrite are thorough and independently verified, but the CI job rename left RELEASE.md naming a required check that no longer exists.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `RELEASE.md:11` still lists the required check as `backend (lint, typecheck, test, build)` while `.github/workflows/ci.yml` now emits `api (...)`; stale runbook, and a branch-protection required-check rename that needs documenting as an operator action (the stale-path grep structurally cannot catch this)
+- `.github/PULL_REQUEST_TEMPLATE.md:18-21` retains `npm run *` npm-era drift in a file this phase edited; same class as the `grant-admin.ts` `npx` fix the plan scoped in (minor)
+- `ansari-backend` correctly retained in `/api/health`'s `service` field as an API contract, but the exception should be stated in the PR description since the phase criterion is worded absolutely (minor)

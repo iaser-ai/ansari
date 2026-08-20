@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Turborepo integration is solid, but strict env handling silently drops two API runtime settings.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `turbo.json` omits `FACILITATOR_REQUEST_BUDGET_MS` and `FACILITATOR_SYNTHESIS_RESERVE_MS`, dynamically read in `apps/api/lib/facilitator/agent.ts:44-46`. Turbo strict mode therefore strips these overrides from root tasks such as `pnpm dev`, silently reverting to defaults and excluding them from cache hashes. Add both to `globalEnv` and verify forwarding/hash invalidation.

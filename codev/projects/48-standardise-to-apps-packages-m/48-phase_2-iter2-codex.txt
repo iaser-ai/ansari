@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Task graph is sound, but strict environment filtering breaks documented Sentry source-map uploads.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `turbo.json` omits `SENTRY_AUTH_TOKEN`. Turbo consequently strips it from root `pnpm build`, despite `.env.example` and `docs/self-hosting.md` documenting it for Sentry source-map uploads. Add it to `globalEnv` and verify it is forwarded.

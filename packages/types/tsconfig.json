@@ -1,0 +1,10 @@
+{
+  "extends": "@ansari/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext"]
+  },
+  "include": ["src/**/*.ts"]
+}

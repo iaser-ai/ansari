@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The types package works, but packages/README.md contradicts the phase’s intentional unconsumed scaffold.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `packages/README.md` says every package is consumed by apps and exists because multiple apps need it, while `@ansari/types` deliberately has no consumer. Correct and shorten the convention text.
+- Confirm the new CI step executes `@ansari/types` lint and typecheck in an actual CI log, as required by the phase acceptance criteria.

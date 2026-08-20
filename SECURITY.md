@@ -13,7 +13,7 @@ and credit reporters who wish to be credited once a fix ships.
 
 ## Scope
 
-The production backend in `backend/` (API, authentication, data handling) and
+The production backend in `apps/api/` (API, authentication, data handling) and
 anything deployed at `api.askansari.ai` (also reachable as `api-35.ansari.chat`).
 Please practice responsible
 disclosure: no testing against production user data, no denial-of-service.

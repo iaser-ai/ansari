@@ -8,7 +8,7 @@ This document evolves as the project grows. Update it during the review phase of
 
 ## Authentication & Authorization
 
-JWT auth over Postgres (Drizzle), in `backend/lib/auth/` and `backend/lib/db/users.ts`. Established by spec 4 (auth hardening).
+JWT auth over Postgres (Drizzle), in `apps/api/lib/auth/` and `apps/api/lib/db/users.ts`. Established by spec 4 (auth hardening).
 
 **Tokens.** HS256 JWTs carrying `{ user_id, type, session_version }`. Three types: `access` (~2h), `refresh` (~90d), `reset` (~1h). Stored SHA-256-hashed in the `tokens` table. Secret + expiries come only from validated `config.auth` (Zod-checked, `min(32)` secret, positive-int expiries) — never `process.env` directly. `issueTokenPair(userId, sessionVersion, exec)` is the single generate-and-store site (login/register/refresh).
 

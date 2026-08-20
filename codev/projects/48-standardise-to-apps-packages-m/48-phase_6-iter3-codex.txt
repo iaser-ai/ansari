@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 6 contains incorrect Railway deployment guidance and still has unverified CI gates.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Railway **does support a custom config-as-code path**, and it does not follow Root Directory. Restore the required operator actions to set `/apps/api/railway.toml` and `/apps/frontend/railway.toml`. Current guidance incorrectly calls these files reference-only. See [Railway’s monorepo documentation](https://docs.railway.com/deployments/monorepo) and [custom config documentation](https://docs.railway.com/config-as-code).
+- `RELEASE.md:57-68` is internally contradictory: it calls the TOMLs reference-only, then says production uses `apps/api/railway.toml`.
+- The review claims “all 12 criteria” while actual CI confirmation for gitleaks and `@ansari/types` remains pending. Keep these as explicit unsatisfied PR gates.
+- Review statistics are stale again: it reports 280 files and +7492/−193, while the current three-dot diff is 284 files and +7713/−197.

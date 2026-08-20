@@ -1,0 +1,36 @@
+I'll start by reading the key files for phase_2.# Phase 2 Review — Turborepo task graph and root scripts
+
+I verified the implementation by **executing** the phase's acceptance checks rather than reading config, since this phase's failure modes are all silent-green ones.
+
+## What I verified independently (not taken on trust)
+
+| Check | Result |
+|---|---|
+| `globalEnv` completeness — re-derived via all three methods (Zod schema in `lib/config.ts`, `rg 'process\.env\.[A-Z]'`, `rg 'process\.env\['` → call-site literals) | **Complete.** Every static read (21 vars incl. `SENTRY_DSN`, `RESEND_API_KEY`, `VITEST`, `NEXT_RUNTIME`) and both dynamic reads (`FACILITATOR_REQUEST_BUDGET_MS`, `FACILITATOR_SYNTHESIS_RESERVE_MS` via `envBudgetMs`, agent.ts:38) are declared. Only two `process.env[...]` sites exist; the other writes env in a test helper. |
+| Cache key actually includes declared env — **both directions** | `EXPO_PUBLIC_API_V2_URL=a` → hash `2a77f030…`, `=b` → `8a190e36…`, unset → `7d9bf3ad…`; an **undeclared** `UNDECLARED_FOO=1` leaves the hash unchanged. This is the criterion that separates "caching works" from "cache silently ships the wrong baked bundle". |
+| `gen:types` edge is real, not a leftover file | Deleted `apps/frontend/uniwind-types.d.ts`, ran `turbo run typecheck --filter ansari-frontend` cold → `gen:types` executed, tsc passed. |
+| Warm-cache **output restore** (the gitignored-output trap) | Deleted the file again with cache warm → FULL TURBO, file restored **byte-identical** to the pre-delete copy. |
+| Passthrough args are hashed | `test -- -t X` / `-t Y` / bare all produce distinct hashes — so `pnpm test -- <args>` can't replay a cache entry from a different filter. |
+| Suite parity | `turbo run test --filter ansari-api --force` → **66 files / 623 passed / 3 skipped**, matching the stated `develop` baseline. |
+| CI's exact api command | `set -a && . ./apps/api/.env.ci && set +a && turbo run typecheck test:coverage build --filter 'ansari-api...'` → 3/3 successful, proving strict-env declarations are sufficient with env supplied as process env. |
+| Frontend build (new CI check) + cache | `turbo run build --filter ansari-frontend --force` exports the SPA; repeat run → **FULL TURBO**. |
+| Root scripts scope | `pnpm lint` runs both apps; dry-run graph shows all three packages in scope with correct `dependsOn`/`outputs`/`persistent`. |
+
+Deliverables are all present: `turbo.json` (2.x `tasks`, `gen:types` outputs, `test:coverage` with `coverage/**`, `dev` cache:false/persistent/interactive), root scripts on `turbo run`, frontend `dev`+`build` added and `typecheck` de-chained while `build:web` keeps its deliberate `&&`, CI on `--filter <app>...` with the frozen check name and the new frontend build step, `.turbo` in `.gitignore` and `**/.turbo` in `.dockerignore`, and CONTRIBUTING/README documenting the TTY requirement of `pnpm dev`.
+
+## Comments (none blocking)
+
+1. **`typecheck` + `build` race inside `ansari-api` when run in one turbo invocation.** My first run of the plan's own acceptance command failed after ~3s with `ansari-api#typecheck … exited (2)` and `build` at 130; the identical command passed on re-run. Cause: `apps/api/tsconfig.json:24` includes `.next/types/**/*.ts`, which a concurrent `next build` rewrites underneath `tsc`. CI is unaffected (separate sequential steps), and it's not introduced by this phase's config per se — but Phase 6 re-runs exactly this combined command, so **flag it now** rather than have a flake there get papered over or mis-diagnosed. Options: keep the acceptance command but run typecheck separately, or note the race in `turbo.json`.
+2. **`_comment_build:web` lives inside `"scripts"`** (`apps/frontend/package.json:12`). It becomes a listed, "runnable" script whose body is an English sentence. The same note already exists in `turbo.json:122-125`; a top-level `"//"` key would keep it out of the script namespace.
+3. **`gen:types` inputs are narrowed** to `["src/global.css", "package.json"]` with no `$TURBO_DEFAULT$`. Correct today (the dts derives only from the themes declaration, and `global.css`'s only `@source` points into `node_modules`, covered by the `pnpm-lock.yaml` global dependency). It becomes stale-silent the day someone adds a local `@import`/`@source` — worth a one-line caveat next to the task.
+4. **`docs/self-hosting.md` is in the plan's phase-2 file list but was not touched in this phase.** Its command blocks stayed app-scoped, which is defensible and consistent with the recorded RELEASE.md decision — but I couldn't find that rationale written down anywhere. One line in the PR notes closes the "silently skipped plan item" question.
+5. **Frontend job name `frontend (lint, typecheck)` now also builds.** The comment explains the freeze, and it's the safe default; noting only that this check isn't protection-required, so it's the one name that *could* be corrected without an admin change.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 is complete and correct — I independently re-derived globalEnv, proved the cache key in both directions, verified the gen:types edge cold and warm, and ran the suite, api CI command, and frontend build to green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Non-blocking: (1) `typecheck`+`build` race on `.next/types` when run in a single turbo invocation — observed once in two runs of the plan's own acceptance command; relevant to Phase 6's re-run. (2) `_comment_build:web` sits inside `"scripts"` rather than a top-level `"//"` key. (3) `gen:types` narrowed `inputs` will go stale-silent if `global.css` ever imports a repo-local file. (4) `docs/self-hosting.md` was listed in the phase-2 plan but left app-scoped with no recorded rationale.

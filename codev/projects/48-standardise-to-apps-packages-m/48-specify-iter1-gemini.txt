@@ -1,0 +1,34 @@
+## Specification Review: Standardise to apps/ + packages/ monorepo layout and introduce Turborepo
+
+### 1. Clarity and Completeness of Requirements
+- **Scope & Goals**: The specification establishes clear boundaries between WHAT/WHY (specification) and HOW/WHEN (plan). It directly tackles the root script inconsistencies, missing task graph, and non-standard top-level folder layout.
+- **Success Criteria**: All criteria are framed as binary, verifiable checkboxes.
+- **Baked Decisions**: Strictly respects all constraints from issue #48 (pnpm lockfile single source of truth, DB migration immutability, `git mv` history preservation, uniwind codegen dependency graph, and target layout).
+
+### 2. Technical Feasibility
+- **Turborepo + pnpm Integration**: The approach aligns cleanly with modern Turborepo and pnpm workspace semantics (discovering workspaces via `pnpm-workspace.yaml` and managing root-delegated scripts).
+- **Phasing Strategy**: Recommending Approach 2 (sequenced commits in a single PR: move & path fix $\to$ Turbo integration $\to$ shared package extraction) provides clean isolation and bisectability without PR fragmentation.
+
+### 3. Edge Cases and Error Scenarios
+- **Docker Workspace Resolution**: The spec astutely identifies that introducing `packages/*` dependencies requires adjusting the multi-stage Dockerfiles so `pnpm install --frozen-lockfile` can resolve workspace manifests during isolated image builds.
+- **External Platform Dependencies**: Explicitly identifies that Railway deployment configuration (`config file path`) lives outside the repository and requires operator coordination at merge time.
+- **Historical Immutability**: Clearly calls out that `.gitleaksignore` commit tuples and prior `codev/` artifacts must be excluded from mechanical path refactoring.
+
+### 4. Security Considerations
+- **Environment Variable Guardrails**: Properly preserves the load-bearing `no-restricted-properties` rule in ESLint (which prevents direct reads of secrets like `DATABASE_URL` and `JWT_SECRET` outside `lib/config.ts`), verified by the existing regression test suite (`eslint-env-guard.test.ts`).
+
+### 5. Testing Strategy
+- **Negative Path Testing**: Strongly emphasizes that repo-relative doc assertions (`release-doc.test.ts`, `self-hosting-docs.test.ts`) must undergo deliberate negative checks (verifying failure upon path perturbation) to prevent false-positive greens.
+- **Graph & Cache Verification**: Clear test scenarios for task dependency verification (e.g., verifying `gen:types` runs before frontend `typecheck` on a clean tree) and cache hit verification (FULL TURBO checks).
+
+### 6. Ambiguities or Missing Details
+- Open questions are well-categorized. The recommendations provided for critical items (keeping initial shared packages minimal/honest, scaffolding `packages/types` with a placeholder export, and aliasing frontend `build` to `build:web`) are sound and actionable for the planning phase.
+
+---
+VERDICT: APPROVE
+SUMMARY: Comprehensive, well-bounded specification with rigorous test scenarios, strong risk identification, and faithful adherence to architectural constraints.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

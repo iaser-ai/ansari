@@ -1,0 +1,11 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The spec is thorough and feasible, but key requirements remain undecided or conflict with the current repository.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Resolve the “Critical” open questions before planning: define the shared packages’ minimum contents, confirm `packages/types` is an unconsumed placeholder, and require frontend `build` to alias `build:web`.
+- The backend currently contains 66 Vitest test files, not 61. Correct the success criteria and test scenarios or use a baseline-relative requirement only.
+- Specify the required CI task matrix. “Exercises both apps through Turborepo” does not establish whether frontend build and code generation must run in CI.
+- Define behavior-preservation criteria for shared config extraction. “Whatever the apps genuinely share” is not testable and could inadvertently add or remove ESLint/TypeScript behavior.
+- Approach 2 says every commit remains green, while the mitigation recommends moving and editing files in separate commits; a pure move commit would break path consumers. Clarify the intended commit boundary or leave sequencing to the plan.

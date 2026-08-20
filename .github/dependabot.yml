@@ -1,9 +1,16 @@
 version: 2
 updates:
-  # Backend npm dependencies. backend/package-lock.json is the single lockfile
-  # (there is deliberately no root package.json), so the directory is /backend.
+  # JavaScript dependencies for the whole pnpm workspace.
+  #
+  # `directory: "/"` is deliberate and covers every workspace package. There is
+  # exactly ONE lockfile (the root pnpm-lock.yaml) and Dependabot's npm
+  # ecosystem resolves the pnpm workspace from it, so per-package entries are
+  # unnecessary — and a per-app-only config would leave the ROOT package.json
+  # unwatched, which is where the task runner (turbo) lives.
+  #
+  # Note: there is no "pnpm" package-ecosystem value; pnpm is handled by "npm".
   - package-ecosystem: "npm"
-    directory: "/backend"
+    directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

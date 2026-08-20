@@ -1,0 +1,24 @@
+---
+VERDICT: APPROVE
+SUMMARY: Turborepo 2.x task graph, root script delegation, CI workflow, and environment handling are fully aligned with the spec and plan.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None
+
+### Assessment Highlights
+
+1. **Spec & Plan Alignment**:
+   - `turbo.json` accurately models the task graph for Turborepo 2.x (`tasks`), declaring load-bearing outputs (`uniwind-types.d.ts` on `gen:types`, `coverage/**` on `test:coverage`, `.next/**` and `dist/**` on `build`), and explicit dependencies (`typecheck.dependsOn: ["gen:types"]`, `build.dependsOn: ["^build", "gen:types"]`).
+   - Root `package.json` delegates all standard tasks (`dev`, `lint`, `typecheck`, `test`, `test:coverage`, `build`) to `turbo run`, retaining per-app convenience aliases (`api`, `frontend`).
+   - `apps/frontend/package.json` adds `dev` and `build` aliases, removes the `&&` chain from `typecheck`, and intentionally retains the `&&` chain on `build:web` with clear documentation for the container build path.
+   - Root `pnpm dev` passes `--ui=tui` to support `dev.interactive: true` for the Expo TUI without degrading linear CI logs under `stream`.
+
+2. **Environment & Strict Mode Robustness**:
+   - `globalEnv` in `turbo.json` comprehensively covers all environment variables derived from the Zod schema (`apps/api/lib/config.ts`), static code accesses, dynamic accesses (`FACILITATOR_REQUEST_BUDGET_MS`, `FACILITATOR_SYNTHESIS_RESERVE_MS`), build-time dependency vars (`SENTRY_AUTH_TOKEN`), and frontend bundle variables (`EXPO_PUBLIC_*`).
+   - Both `.env.ci` and `package.json` / lockfiles are tracked in task / global inputs to ensure cache invalidation integrity.
+
+3. **CI & Container Configuration**:
+   - `.github/workflows/ci.yml` preserves the 2-job split, keeps branch protection check names intact (`backend (lint, typecheck, test, build)` and `frontend (lint, typecheck)`), uses dependency-closure filtering (`--filter <app>...`), and adds the frontend `build` task.
+   - `.gitignore` and `.dockerignore` properly exclude `.turbo` and `**/.turbo`.

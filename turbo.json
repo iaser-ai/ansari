@@ -1,0 +1,199 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  // Default to `stream` so CI and scripted runs emit readable, greppable,
+  // linear logs. The interactive `dev` task needs Turbo's Terminal UI instead
+  // (`interactive: true` is REJECTED outright under stream), so the root `dev`
+  // script passes `--ui=tui` rather than making TUI global — global TUI would
+  // degrade every CI log for the benefit of one task.
+  "ui": "stream",
+
+  // The shared config packages MUST be here. A `workspace:*` dependency puts the
+  // package in the dependency graph, but its FILE CONTENTS are not part of a
+  // consumer task's hash — so editing packages/tsconfig/base.json or
+  // packages/eslint-config/base.js left ansari-api#typecheck and #lint at the
+  // SAME hash, and a warm cache would replay stale results against the new
+  // config. Green run, no signal, wrong answer: exactly the failure this spec
+  // exists to prevent.
+  //
+  // Verified in both directions: with these entries an edit moves the hash; with
+  // them removed it does not. Re-prove that if you touch this list.
+  "globalDependencies": [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "packages/tsconfig/*.json",
+    "packages/eslint-config/*.js"
+  ],
+
+  // Declared GLOBALLY rather than per-task, deliberately.
+  //
+  // Turborepo 2.x defaults to STRICT env mode: a task's child process sees only
+  // the variables declared here or in its own `env`. apps/api reads these through
+  // `config`'s getters (lib/config.ts), which Zod-validate on first property
+  // ACCESS — so an undeclared variable does not fail at import, it fails later on
+  // whichever code path first touches `config`. One task can pass while another
+  // dies on the same missing var.
+  //
+  // Listing them once, globally, structurally prevents the "forgot to add env to
+  // task X" bug: during development this config shipped with `env` on build/test/
+  // typecheck but NOT on `dev`, and `pnpm dev` crashed with
+  // "Environment validation failed". Per-task lists are repetition, and repetition
+  // is where omissions hide. The cost of declaring globally is a slightly colder
+  // cache (a DATABASE_URL change also invalidates the frontend); the cost of
+  // omitting one is a crash or, worse, a cache key that ignores a value baked
+  // into the artifact.
+  //
+  // DERIVED, NOT GUESSED. To re-derive, ALL FOUR of these are required. Each was
+  // added because skipping it lost a real variable: step 3 is how
+  // FACILITATOR_REQUEST_BUDGET_MS / FACILITATOR_SYNTHESIS_RESERVE_MS were missed,
+  // and step 4 is how SENTRY_AUTH_TOKEN was missed:
+  //   1. The Zod schema in apps/api/lib/config.ts.
+  //   2. STATIC reads:  grep -rn "process\.env\.[A-Z]" apps
+  //      (FRONTEND_URL, MARKETMAKER_URL, NEXT_RUNTIME, RAILWAY_ENVIRONMENT,
+  //       RESEND_API_KEY, SENTRY_DSN, VITEST)
+  //   3. DYNAMIC reads: grep -rn "process\.env\[" apps  — then follow each
+  //      call site to the string literals passed in. A static `process.env.X`
+  //      pattern CANNOT see `process.env[name]`, and the failure is silent: the
+  //      override is simply ignored and the default applies.
+  //   4. DOCUMENTED env our source never names — cross-check the
+  //      docs/self-hosting.md env table and apps/api/.env.example against this
+  //      list. Some variables are consumed by DEPENDENCIES at build time and
+  //      appear nowhere in our code: SENTRY_AUTH_TOKEN is read by
+  //      withSentryConfig for source-map uploads during `next build`, so steps
+  //      1-3 are all blind to it by construction. Documentation is the
+  //      authority for this class.
+  // Plus the frontend's EXPO_PUBLIC_*, which Dockerfile.web bakes into the JS
+  // bundle at export time — they MUST be in the cache key or a cached build can
+  // ship the wrong API URL while reporting a cache hit.
+  "globalEnv": [
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "ACCESS_TOKEN_EXPIRY_HOURS",
+    "REFRESH_TOKEN_EXPIRY_HOURS",
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL",
+    "GEMINI_FALLBACK_MODEL",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    "TINKER_API_KEY",
+    "KALEMAT_API_KEY",
+    "USUL_API_TOKEN",
+    "USUL_BASE_URL",
+    "ADMIN_EMAILS",
+    "LEADERBOARD_API_KEY",
+    "MAINTENANCE_MODE",
+    "IOS_MINIMUM_BUILD_VERSION",
+    "IOS_LATEST_BUILD_VERSION",
+    "ANDROID_MINIMUM_BUILD_VERSION",
+    "ANDROID_LATEST_BUILD_VERSION",
+    "NODE_ENV",
+    "FRONTEND_URL",
+    "MARKETMAKER_URL",
+    "NEXT_RUNTIME",
+    "RAILWAY_ENVIRONMENT",
+    "RESEND_API_KEY",
+    "SENTRY_DSN",
+    // Build-time only, consumed by withSentryConfig (not by our source) for
+    // source-map uploads during `next build`. Documented in
+    // docs/self-hosting.md; invisible to any grep of our own code.
+    "SENTRY_AUTH_TOKEN",
+    "VITEST",
+    // Read dynamically via process.env[name] in lib/facilitator/agent.ts —
+    // invisible to a static process.env.X grep.
+    "FACILITATOR_REQUEST_BUDGET_MS",
+    "FACILITATOR_SYNTHESIS_RESERVE_MS",
+    "EXPO_PUBLIC_*",
+    "EXPO_NO_TELEMETRY",
+    "PORT"
+  ],
+
+  "tasks": {
+    // uniwind codegen. `uniwind-types.d.ts` is GITIGNORED, so it must be declared
+    // as an output: on a warm cache Turbo skips this task, and with no declared
+    // output there would be nothing to restore — green on a cold cache, broken on
+    // a warm one.
+    //
+    // CAVEAT on the narrowed `inputs`: correct only while `global.css` pulls in
+    // nothing repo-local. Its `@source` currently points into node_modules, which
+    // the pnpm-lock.yaml globalDependency already covers. The day someone adds a
+    // local `@import`/`@source`, this task goes STALE-SILENT — edits to that file
+    // will not bust the cache and the generated dts will quietly lag. If that
+    // happens, add the file here or fall back to `$TURBO_DEFAULT$`.
+    "gen:types": {
+      "inputs": ["src/global.css", "package.json"],
+      "outputs": ["uniwind-types.d.ts"]
+    },
+
+    "lint": {
+      "outputs": []
+    },
+
+    // Real graph edge, replacing the old `pnpm run gen:types && tsc` shell chain.
+    //
+    // RACE WARNING: do NOT run `typecheck` and `build` in a SINGLE turbo
+    // invocation for ansari-api. apps/api/tsconfig.json includes
+    // `.next/types/**/*.ts`, which a concurrent `next build` rewrites underneath
+    // `tsc` — an intermittent `typecheck exited (2)` that passes on re-run. CI is
+    // unaffected because it runs them as separate sequential steps; keep it that
+    // way, and run them as separate commands locally too. This predates the task
+    // graph (the same overlap existed with parallel pnpm runs) but turbo makes
+    // concurrency the default, so it surfaces more often.
+    "typecheck": {
+      "dependsOn": ["gen:types"],
+      "outputs": []
+    },
+
+    // `.env.ci` is listed explicitly for documentation value only: it is
+    // git-tracked, so `$TURBO_DEFAULT$` already covers it. Naming it makes the
+    // dependency obvious to a reader — but it is NOT an extra safety net, and it
+    // would not help if the file were ever gitignored.
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", ".env.ci"],
+      "outputs": []
+    },
+
+    // CI runs test:coverage, NOT test — it must be a real task or CI has to
+    // bypass the task graph entirely.
+    "test:coverage": {
+      "inputs": ["$TURBO_DEFAULT$", ".env.ci"],
+      "outputs": ["coverage/**"]
+    },
+
+    "build": {
+      "dependsOn": ["^build", "gen:types"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.ci"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+
+    // REACHABILITY NOTE: this task is effectively unreachable through the graph.
+    // The frontend's `build` script shells straight to `pnpm run build:web`, which
+    // bypasses Turbo — so ordering for graph runs comes from `build`'s own
+    // dependsOn above, not from here. The config below applies only to a DIRECT
+    // `turbo run build:web`. It is kept for that case and for discoverability;
+    // do not rely on it to order anything during `turbo run build`.
+    //
+    // apps/frontend/package.json keeps `pnpm run gen:types &&` inside build:web on
+    // purpose: Dockerfile.web installs with --filter (no root devDependencies, so
+    // no turbo in that image) and calls build:web directly. Under the graph that
+    // chain is a duplicate uniwind run — idempotent and sub-second, not a cache
+    // hit — and it is what keeps the container path working.
+    "build:web": {
+      "dependsOn": ["gen:types"],
+      "outputs": ["dist/**"]
+    },
+
+    // `interactive: true` keeps stdin attached so the Expo TUI still responds to
+    // its keypress commands (i / a / w / r) when multiplexed alongside next dev.
+    // It REQUIRES Turbo's Terminal UI and therefore a real TTY — the root `dev`
+    // script passes --ui=tui. Consequence: `pnpm dev` needs an actual terminal
+    // and will refuse to run headless. That is correct for an interactive dev
+    // command; scripted/headless callers should target a specific app instead,
+    // e.g. `pnpm api dev`.
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "interactive": true
+    }
+  }
+}

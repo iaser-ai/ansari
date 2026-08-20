@@ -9,6 +9,7 @@ out/
 build/
 dist/
 coverage/
+.turbo/
 
 # Env — never commit real configuration (.env.ci is the committed CI dummy set)
 .env

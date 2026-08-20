@@ -1,0 +1,40 @@
+I have completed the review of **Phase 1: Directory move to `apps/api` + `apps/frontend` and path-consumer rewrite**.
+
+### Assessment
+
+The implementation for Phase 1 is thorough, robust, and matches the specification and plan in every detail:
+
+1. **Workspace & Manifest Structure**:
+   - Both apps were moved to [`apps/api/`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api) and [`apps/frontend/`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend).
+   - Backend package was renamed from `ansari-backend` to `ansari-api` in [`apps/api/package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/package.json#L2).
+   - [`pnpm-workspace.yaml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/pnpm-workspace.yaml#L1-L22) correctly defines `apps/*` and `packages/*` while strictly preserving `catalog:` and `onlyBuiltDependencies`.
+   - Root [`package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/package.json#L9-L17) retains exact script scoping (`dev`/`test`/`build` to `--filter ansari-api` and `lint`/`typecheck` to `pnpm -r`).
+
+2. **Container & Deployment Configurations**:
+   - Both [`apps/api/Dockerfile`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/Dockerfile) and [`apps/frontend/Dockerfile.web`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/Dockerfile.web) correctly set up workspace-root contexts and install layers.
+   - Both [`apps/api/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/railway.toml) and [`apps/frontend/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/railway.toml) have updated comments, `dockerfilePath`, and valid `watchPatterns`.
+   - [`.dockerignore`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.dockerignore#L15) correctly points to `apps/frontend/google-service-account`.
+
+3. **CI & Governance Workflows**:
+   - [`.github/workflows/ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml) correctly loads `apps/api/.env.ci` and filters `ansari-api` / `ansari-frontend`.
+   - [`.github/dependabot.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/dependabot.yml#L12-L16) uses `package-ecosystem: "npm"` at `directory: "/"` with the obsolete comment deleted.
+   - [`.github/PULL_REQUEST_TEMPLATE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/PULL_REQUEST_TEMPLATE.md#L16) updated paths to `apps/api/`.
+
+4. **Doc-Consistency Tests & Path Consumers**:
+   - [`apps/api/tests/release-doc.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/release-doc.test.ts#L10-L75) properly adjusts `repoRoot`, updates the `referenced` files array, and uses a negative lookbehind `(?<!apps)` to prevent path collision with `/api/` endpoints.
+   - [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/self-hosting-docs.test.ts#L13) correctly steps up 3 directory levels to find `docs/self-hosting.md`.
+   - [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md#L69), [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/resources/arch.md#L11), [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/docs/self-hosting.md), and per-app doc files have been updated.
+
+### Minor Observations (Non-blocking)
+
+- In [`apps/api/scripts/grant-admin.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/scripts/grant-admin.ts#L118), the CLI failure message still states `Usage: npx tsx scripts/grant-admin.ts <email>` (while the header comment at line 9 was correctly updated to `pnpm exec tsx`).
+- In [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/docs/self-hosting.md#L168), line 168 under the troubleshooting table still mentions `npx tsx scripts/grant-admin.ts <email>` (whereas line 93 uses `pnpm exec tsx`).
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 directory moves, package renames, container manifests, CI workflows, and path-consumer rewrites are fully and correctly implemented without functional regressions.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

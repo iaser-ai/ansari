@@ -1,0 +1,36 @@
+### Phase 4 Review: Shared ESLint config package
+
+---
+
+#### 1. Spec & Plan Adherence
+- **`@ansari/eslint-config` Created**: `packages/eslint-config/package.json` is correctly set up as a private ESM package (`"type": "module"`), with explicit subpath exports (`"./base": "./base.js"`), and appropriate `eslint` dev and peer dependencies.
+- **Shared Base**: `packages/eslint-config/base.js` establishes a clean, minimal shared baseline containing global ignore patterns (`node_modules`, `coverage`, `.next`, `dist`, `.expo`, `.turbo`) that both apps agree on.
+- **API Config**: `apps/api/eslint.config.mjs` consumes `@ansari/eslint-config/base` while preserving the Next.js `FlatCompat` configuration, app-specific ignores, and the load-bearing 4-property `no-restricted-properties` environment guard with its exact error messages and allowlist (`lib/config.ts`, `drizzle.config.ts`).
+- **Frontend ESM Conversion**: `apps/frontend/eslint.config.js` was cleanly converted to `eslint.config.mjs` (ESM) to allow importing the ESM-only shared config, and uses explicit file path `eslint-config-expo/flat.js` to avoid directory import resolution failures under ESM.
+- **Workspace Wiring**: Both `apps/api/package.json` and `apps/frontend/package.json` specify `"@ansari/eslint-config": "workspace:*"` in `devDependencies`.
+- **Cache Invalidation**: `turbo.json` includes `packages/eslint-config/*.js` under `globalDependencies`, ensuring Turbo task cache invalidation when shared ESLint rules or ignore globs change.
+
+---
+
+#### 2. Code Quality & Invariant Verification
+- **Load-Bearing Env Guard**: `apps/api/tests/eslint-env-guard.test.ts` remains intact and passes against the composed configuration.
+- **Zero Drift**: Machine-readable lint violation counts and file counts are verified identical before and after extraction across both apps.
+- **Documentation**: `packages/eslint-config/README.md` clearly documents package usage and explains the deliberate rationale for keeping the configuration minimal and keeping backend security rules local to `apps/api`.
+
+---
+
+#### 3. Test Coverage & Verification
+- Unit test suite (`eslint-env-guard.test.ts`) verifies that `no-restricted-properties` continues to flag disallowed property access tree-wide while allowing accesses in `lib/config.ts` and `drizzle.config.ts`.
+- Behavior preservation verified with both positive and negative probes (including validating that the frontend config actively flags violations rather than silently evaluating to zero rules).
+
+---
+
+```
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 successfully extracts the shared ESLint config into @ansari/eslint-config and wires both apps with verified behavior preservation and cache invalidation.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+```
