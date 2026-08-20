@@ -26,15 +26,16 @@ repo root installs every package against the single root `pnpm-lock.yaml`.
 corepack enable        # provides pnpm (version pinned in package.json)
 pnpm install           # once, at the repo root
 
-# Backend
+# Backend — from the repo root
 cd apps/api
 cp .env.example .env   # fill in — see docs/self-hosting.md for the full contract
 pnpm db:migrate
-pnpm dev
+pnpm dev               # blocks: leave this running
 
-# Frontend (from apps/frontend/)
-pnpm start             # Expo dev server (iOS / Android)
-pnpm web               # web dev server
+# Frontend — in a SECOND terminal, from the repo root
+cd apps/frontend
+pnpm start             # Expo dev server (iOS / Android) …
+pnpm web               # … or the web dev server
 ```
 
 See [`docs/self-hosting.md`](docs/self-hosting.md) for prerequisites, the complete

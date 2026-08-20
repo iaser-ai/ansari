@@ -12,13 +12,13 @@ repo root, then run scripts inside the package you're working on.
 corepack enable         # provides pnpm (version pinned in package.json)
 pnpm install            # at the repo root
 
-# Backend
+# Backend — from the repo root
 cd apps/api
 cp .env.example .env    # see docs/self-hosting.md for the full env contract
 pnpm db:migrate         # needs a local Postgres and DATABASE_URL
-pnpm dev
+pnpm dev                # blocks: leave this running
 
-# Frontend
+# Frontend — in a SECOND terminal, from the repo root
 cd apps/frontend
 pnpm start              # Expo dev server; `pnpm web` for the web target
 ```

@@ -776,3 +776,35 @@ SENTRY_DSN and RESEND_API_KEY — builds succeed, and a changed DSN restores a s
 bundle. Exactly the poisoning case.
 
 Turbo 2.10.11 is current: `"tasks"` (not `"pipeline"`), and `interactive: true` exists.
+
+## 2026-08-20 — Phase 1 iteration 3: a doc bug that would run the WRONG APP
+
+gemini APPROVE. **codex REQUEST_CHANGES — one genuine find**, and a good one.
+
+The setup blocks in README.md and CONTRIBUTING.md `cd apps/api` and then present frontend
+commands without ever returning to the repo root:
+
+- **CONTRIBUTING.md** then said `cd apps/frontend` — from inside `apps/api` that resolves
+  to `apps/api/apps/frontend`, which does not exist. **Fails loudly.**
+- **README.md** was worse: it just said "# Frontend (from apps/frontend/)" with no `cd` at
+  all, so `pnpm start` would run **the api's** `start` script (`next start`) while the
+  reader believes they are starting Expo. **Fails silently, on the wrong app.**
+
+Both shapes predate the move (it was `cd backend` → `cd frontend` before, equally broken),
+but Phase 1 owns "docs a fresh clone can follow verbatim", so they are mine now.
+
+Fixed by making each block explicitly root-relative and flagging the blocking dev server:
+`# Backend — from the repo root` … `pnpm dev  # blocks: leave this running` …
+`# Frontend — in a SECOND terminal, from the repo root`. The second-terminal note matters
+independently: `pnpm dev` blocks, so a single-terminal reading was never runnable anyway.
+
+**Verified by execution, not by reading**: simulated the sequence from the repo root
+(`cd apps/api` OK, `cd apps/frontend` OK) and confirmed the old chained form
+(`cd apps/api && cd apps/frontend`) genuinely fails. Demonstrating the bug and the fix beats
+asserting either.
+
+Left alone: CONTRIBUTING's Checks block uses `# inside apps/api/` location *comments*
+rather than chained `cd`s, so it is unambiguous and correct as written.
+
+Suite unchanged: 623 passed / 3 pending / 0 failed; name-set diff still the one intentional
+rename. Claude iter-3 still running.
