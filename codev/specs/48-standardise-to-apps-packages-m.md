@@ -136,7 +136,17 @@ apps/
 
 - [ ] `pnpm install` is clean from the repo root, and the repo still has exactly one
       lockfile (`pnpm-lock.yaml`) with no per-package lockfiles.
-- [ ] `pnpm dev` starts **both** the backend and the frontend.
+- [ ] `pnpm dev` starts **both** the api and the frontend — **verified by running it, not
+      inferred from processes starting** (architect: hard requirement, 2026-08-20). Both
+      apps must be confirmed actually up (api serving `/api/health`, Expo dev server
+      reachable), **and** the Expo TUI must be confirmed to still respond to its keypress
+      commands (`i` / `a` / `w` / `r`) while multiplexed under `turbo run dev`.
+      This is the single item most likely to be quietly broken while every test passes:
+      `turbo` multiplexes child stdio, and an Expo TUI that has lost its keypress handling
+      still *looks* like a healthy running process.
+      **If interactivity degrades, that is not a failure of this spec** — but the caveat
+      must then land in `CONTRIBUTING.md` as explicit prose pointing at the per-app
+      scripts for interactive Expo work. Undocumented degradation is not acceptable.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` each run through
       Turborepo and each cover every workspace package that defines that task.
 - [ ] A second identical `turbo run build` with no intervening changes reports FULL
@@ -172,6 +182,7 @@ apps/
       asserting the globs against the real tree, not by reading them.
 - [ ] `apps/frontend/Caddyfile` is still found by the frontend image's serve stage, and
       the exported SPA lands where Caddy expects it.
+- [ ] `packages/README.md` exists and explains the convention in one short paragraph.
 - [ ] `.github/dependabot.yml` covers every workspace package (`apps/*` and
       `packages/*`), and contains no comment asserting a per-app lockfile or the absence
       of a root `package.json`. Verified by config-vs-tree comparison: every workspace
@@ -476,32 +487,35 @@ later.
    and the frontend-build CI check must both be struck, and the docs must state the
    asymmetry loudly.
 
-**Important (shapes design, does not block)**
+**Resolved at the `spec-approval` gate (architect decisions, 2026-08-20)**
 
-4. **How is CI restructured?** Recommendation: keep the existing two-job split, each job
-   running `turbo run <tasks> --filter <app>`, so PR check names stay stable and the CI
-   diff stays legible. A single-job `turbo run` across everything would be simpler and
-   get cross-app caching, but loses parallel wall-clock and per-app check names. The
-   required task matrix either way is pinned in Success Criteria.
-5. **Should `.turbo` be cached in CI?** Recommendation: no, not in this PR — it adds a
-   cache-key correctness surface for no acceptance-criterion benefit. Revisit once the
-   layout is stable.
-6. **Dependabot — RESOLVED, expanded in scope** (architect decision, 2026-08-20).
-   Not merely repointed. See the dedicated Constraints entry: the config is already
-   stale independent of this change, and gets fixed properly here.
-7. **Does `pnpm dev` running Expo under Turbo remain usable?** `expo start` is an
-   interactive TUI (keypress commands for iOS/Android/reload); multiplexed under
-   `turbo run dev` alongside `next dev`, that interactivity may degrade. This is a
-   verify-in-practice item. If it degrades, `pnpm dev` still satisfies the both-apps
-   criterion while the per-app scripts remain the documented path for interactive Expo
-   work — and that caveat must then be written into the docs, not left as folklore.
+4. **CI keeps the two-job split.** Each job runs `turbo run <tasks> --filter <app>`, so PR
+   check names stay stable and the CI diff stays legible. A single-job `turbo run` across
+   everything was the alternative; rejected for losing per-app check names and parallel
+   wall-clock. The required task matrix is pinned in Success Criteria either way.
+5. **`.turbo` is NOT cached in CI in this PR.** It adds a cache-key correctness surface for
+   no acceptance-criterion benefit. Revisit once the layout is stable.
+6. **Dependabot is fixed properly, not repointed** — see the dedicated Constraints entry.
+   The config is already stale independent of this change.
+7. **`pnpm dev` multiplexing Expo under Turbo is a HARD verification requirement**, not a
+   nice-to-have — promoted into Success Criteria above. It must be *run*, with both apps
+   confirmed up and the Expo TUI confirmed still responsive to `i`/`a`/`w`/`r`. Degraded
+   interactivity is an acceptable outcome; **undocumented** degraded interactivity is not
+   — it must land in `CONTRIBUTING.md` as explicit prose, not folklore.
+8. **The root `backend` / `frontend` convenience aliases stay**, with the backend one
+   renamed to `api`. They remain useful for per-app scripts Turbo does not model
+   (`db:migrate`, `ios`, `web`).
+9. **`packages/README.md` is written** — one short paragraph on the convention. Promoted
+   into Success Criteria above.
 
-**Nice-to-know**
+All three of the builder's decided defaults (thin shared config with the env guard staying
+in the api app; `packages/types` as placeholder with no consumer; frontend `build` aliasing
+`build:web`) were **confirmed without override** at the gate. On the third, the decisive
+point was that `expo export` already runs in `Dockerfile.web` at deploy time — so adding it
+to CI moves an existing failure mode earlier rather than inventing a new one.
 
-8. Should the root `package.json` keep the `backend` / `frontend` convenience aliases
-   (`pnpm backend <script>`)? They remain useful for per-app scripts Turbo does not model
-   (`db:migrate`, `ios`, `web`). Recommendation: keep them.
-9. Should `packages/` get a README explaining the convention? Cheap, not required.
+**No open questions remain.** Everything above is decided; nothing is left for the plan to
+re-litigate.
 
 ## Test Scenarios
 

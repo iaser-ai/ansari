@@ -260,3 +260,40 @@ from `@cluesmith/codev` v3.3.1, and that the longer 21-heading shape in
 `codev/specs/4-*.md` is a superseded template, not a miss.
 
 Next: commit, then `porch next` — expecting the spec-approval gate.
+
+## 2026-08-20 — SPEC APPROVED; all open questions closed
+
+Human approved at the `spec-approval` gate. Ran
+`porch approve 48 spec-approval --a-human-explicitly-approved-this`.
+
+**All three of my decided defaults confirmed without override:** thin shared config with
+the env guard staying in the api app (human agreed the guard's locality beats maximal
+sharing); `packages/types` as placeholder with no consumer; frontend `build` aliasing
+`build:web`. On the third, the architect supplied a better argument than mine: `expo
+export` **already runs in `Dockerfile.web` at deploy time**, so adding it to CI moves an
+existing failure mode earlier rather than inventing a new one. Worth remembering — I had
+framed it as "new cost, worth paying"; the truer framing is "existing cost, paid earlier".
+
+Architect calls on the non-blocking items, all folded in and marked resolved: two-job CI
+split with `turbo run --filter` (my recommendation); no `.turbo` caching in this PR; keep
+the root convenience aliases with `backend` → `api`; write `packages/README.md`.
+
+**Item 7 promoted to a HARD success criterion**, at the architect's explicit direction —
+`pnpm dev` multiplexing Expo under Turbo must be *run and verified*, not inferred from
+processes starting. Both apps confirmed up, and the Expo TUI confirmed still responsive to
+`i`/`a`/`w`/`r`. The reasoning is sound and worth internalising: turbo multiplexes child
+stdio, and an Expo TUI that has lost keypress handling **still looks like a healthy
+running process**. Degraded interactivity is an acceptable outcome; *undocumented*
+degradation is not — it must land in CONTRIBUTING.md as prose. "Folklore is not
+acceptable."
+
+Spec now has **no open questions**. Nothing is left for the plan to re-litigate.
+
+Two of my findings were confirmed as errors in the architect's own issue text: the
+`Dockerfile.web` catch was a flaw in the baked constraint they wrote, and my correction
+that the doc tests fail loudly rather than silently was right — the issue body had that
+wrong. They asked me to keep flagging contradictory baked decisions. Noting it here so
+the disposition survives a context refresh: **raising contradictions is wanted, not
+tolerated.**
+
+Next: plan phase.
