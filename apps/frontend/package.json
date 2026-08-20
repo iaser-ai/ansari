@@ -50,7 +50,7 @@
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
     "@types/react": "~19.2.15",
-    "eslint": "^9.39.4",
+    "eslint": "catalog:",
     "eslint-config-expo": "^57.0.0",
     "prettier": "^3.8.3",
     "typescript": "catalog:"

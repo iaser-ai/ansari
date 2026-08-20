@@ -6,6 +6,7 @@ packages:
 # Packages reference these as "catalog:" so versions cannot drift.
 catalog:
   typescript: ~6.0.3
+  eslint: ^9.39.5
 
 # pnpm 10 blocks dependency postinstall scripts unless allowlisted here.
 # These all ran their scripts under npm and need them: native addons

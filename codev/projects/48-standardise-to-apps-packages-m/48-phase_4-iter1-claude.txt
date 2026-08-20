@@ -1,0 +1,38 @@
+I'll review phase_4 (shared ESLint config package). Let me read the actual files.## Review — Phase 4: Shared ESLint config package
+
+I read the files from disk and independently re-ran the phase's own acceptance checks rather than trusting the commit message.
+
+### What I verified (not just read)
+
+**Behaviour preservation, api — independently reproduced.** I A/B'd the api config by stripping the `...ansari` spread and re-linting: **77 files / 7 violations both sides, violation sets byte-identical** (`diff` clean). Restored the config; tree clean. This is the criterion the phase lives or dies on, and it holds — not just per the commit message.
+
+**Behaviour preservation, frontend.** 6 files / 0 violations. An empty-to-empty diff proves nothing on its own, so I checked the two things that could hide behind it:
+- **The config actually runs**: wrote a probe `src/app/__probe.tsx` with an unused var → `@typescript-eslint/no-unused-vars` reported (i.e. the Expo layer is live, not silently unresolved). Probe deleted.
+- **The CJS→ESM conversion is equivalent**: loaded `require('eslint-config-expo/flat')` and `import('eslint-config-expo/flat.js')` side by side — **13 config entries and 95 rule keys, identical in both**. So the explicit `.js` import is not a partial resolution.
+- Ignore-set delta is strictly *broader* (`dist/*` → `**/dist/**`, plus `.turbo`), so it can only remove violations, and none were removed.
+
+**Env guard intact.** `diff` against `origin/develop:backend/eslint.config.mjs` shows exactly three added lines (import, spread, comment) — the four `no-restricted-properties` entries, their messages, and the two-file allowlist are byte-identical. `tests/eslint-env-guard.test.ts` run explicitly: **9/9 pass**.
+
+**Package wiring.** `"type": "module"`, `exports: {"./base": "./base.js"}`, `eslint` in both `peerDependencies` and `devDependencies` — matches the plan. Both apps carry `"@ansari/eslint-config": "workspace:*"`; `pnpm install --frozen-lockfile` reports "Lockfile is up to date"; lockfile diff for the phase contains only the two workspace links and the package's own eslint entry — no unrelated churn.
+
+**Cache correctness (the failure mode this project keeps hitting).** `packages/eslint-config/*.js` is in `globalDependencies`, and I proved the consequence: appending a comment to `base.js` moved `ansari-api#lint`'s hash `88799facba08d9fa → 928a2c512ff7f396`. A `workspace:*` edge alone would not have done that. `turbo run lint` runs 3 tasks (api, frontend, `@ansari/types`) — the shared config is not silently bypassed.
+
+### Minor notes (non-blocking)
+
+1. **`pnpm format:check` in the frontend now flags `eslint.config.mjs`.** `develop`'s `eslint.config.js` was prettier-clean; the new `.mjs` is not (`README.md` was already failing pre-change, so it's not a new-only failure). Prettier is in neither CI nor `turbo.json` nor CONTRIBUTING, so this is cosmetic — but `prettier --write apps/frontend/eslint.config.mjs` keeps the delta at zero for free.
+2. **Comment inaccuracy in `apps/frontend/eslint.config.mjs`.** It says `eslint-config-expo/flat` is a directory resolved via `index.js`. Both `flat.js` *and* `flat/` exist; `require` picks the file first. The real cause is that ESM bare-specifier subpaths don't do extension resolution. The fix is right, the explanation is slightly off — worth correcting since the comment exists specifically to stop someone "simplifying" it back.
+3. **`packages/eslint-config` defines no `lint`/`typecheck` script**, so `base.js` is never linted by CI. This is consistent with the plan's `packages/tsconfig` reasoning and with the spec's "every package that defines them", so it's compliant — just flagging that the shared lint config is itself the one unlinted JS file in the repo.
+
+No plan items for phase_4 were skipped. Deliverables (package created, both apps consuming it, frontend ESM conversion resolved, env guard preserved in-app, env-guard suite run explicitly) are all present and demonstrated.
+
+---
+VERDICT: APPROVE
+SUMMARY: Shared @ansari/eslint-config lands cleanly — I independently reproduced identical violation sets for both apps (77/7 api, 6/0 frontend), verified the ESM conversion resolves the same 95 rules, confirmed the env guard is byte-identical to develop with 9/9 guard tests green, and proved the shared config's contents are in the lint task hash.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- Nit: `apps/frontend/eslint.config.mjs` is not prettier-formatted (`develop`'s `.js` was); prettier is unenforced in CI/turbo/docs so cosmetic only.
+- Nit: the `eslint-config-expo/flat` "is a DIRECTORY" comment misstates the cause (both `flat.js` and `flat/` exist; ESM simply doesn't do extension resolution on bare subpaths) — worth correcting since that comment exists to prevent a future revert.
+- Note: `packages/eslint-config` defines no `lint` script, so `base.js` itself is never linted in CI — consistent with the plan, flagged for awareness.

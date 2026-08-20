@@ -1207,3 +1207,51 @@ Pattern across the whole project: every serious defect has been a thing that **r
 success while not doing its job**. Unresolved eslint config → zero violations. Warm cache
 skipping codegen. Undeclared env excluded from the hash. Now: shared config excluded from
 the hash. Four instances of one shape.
+
+## 2026-08-21 — Phase 5 review: the types package lint was checking NOTHING
+
+gemini APPROVE | codex REQUEST_CHANGES (2) | **claude REQUEST_CHANGES — a real defect.**
+
+`packages/types`' `eslint .` was linting only `eslint.config.mjs`. `src/index.ts` was
+skipped entirely: ESLint 9 flat config does not match `.ts` by default, and my shared base
+is ignores-only — no `files` glob, no TS parser. So the lint task ran, exited 0, and checked
+nothing of substance.
+
+**Verified before fixing**, exactly as claude described: with `var unused_probe = 1` appended
+to `src/index.ts`, `eslint .` exits 0; `eslint src/index.ts` (explicit path) reports the
+problem. Discovery was the gap, not the rule.
+
+Fixed by adding `typescript-eslint` to the package with an explicit `files: ['**/*.ts']` glob
+and parser, plus a comment recording the exact symptom. Re-probed: `eslint .` now **fails**
+on the deliberate violation, and passes on the clean tree.
+
+### This one is mine twice over
+
+I invented the deliberate-violation probe precisely for this failure mode, used it on the
+frontend config in phase 4 — and then **did not run it on the new package I created in phase
+5**. I proved `typecheck` worked there (injected a type error, got TS2322) and simply never
+did the same for `lint`.
+
+So the discipline existed, was proven useful, and I applied it asymmetrically. A technique
+you only remember to use sometimes is a technique you do not really have. The probe now
+belongs in the definition of "a package has a working lint task", not in my memory.
+
+**Fifth instance of the project's one shape**: unresolved eslint config → zero violations;
+warm cache skipping codegen; undeclared env excluded from the hash; shared config excluded
+from the hash; and now a lint task discovering no files. All reported success.
+
+### Other findings, all actioned
+
+- **codex**: `packages/README.md` claimed every package is consumed by the apps, which is
+  false for `@ansari/types` by design. Corrected — `types/` is now called out as the
+  deliberate exception.
+- **codex**: confirm the `@ansari/types` CI step really runs, from an actual CI log. Cannot
+  be settled before CI runs, so it is now a **phase 6 criterion** with the reasoning that
+  reading the workflow file is not evidence.
+- **claude**: the shared-packages CI step ran *after* the frontend build, so a build failure
+  would silently skip the only coverage `@ansari/types` gets. Moved before it — steps are
+  sequential and fail-fast.
+- **claude**: `eslint` was a literal version while `typescript` used `catalog:`. Three
+  different ranges had drifted across four packages (^9.39.2 / ^9.39.4 / ^9.39.5). Added
+  `eslint` to the workspace catalog and pointed all four at `catalog:`; all now resolve to
+  9.39.5. `CONTRIBUTING.md` already stated this convention — I just had not followed it.

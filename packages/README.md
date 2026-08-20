@@ -1,9 +1,11 @@
 # packages/
 
-Shared, internal workspace packages. Each is private, versioned `0.0.0`, and consumed by the
-apps through `"workspace:*"` — they are never published, and their version numbers carry no
-meaning. Apps live in [`apps/`](../apps); anything here exists because **more than one** of
-them needs it.
+Shared, internal workspace packages. Each is private and versioned `0.0.0` — they are never
+published, and their version numbers carry no meaning. Apps live in [`apps/`](../apps).
+
+Most of these exist because more than one app needs them, and the apps depend on those
+through `"workspace:*"`. `types/` is the exception: it is a **scaffold with no consumer
+yet**, deliberately.
 
 | Package | Purpose |
 |---|---|

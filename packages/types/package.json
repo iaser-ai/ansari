@@ -16,7 +16,8 @@
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
-    "eslint": "^9.39.5",
-    "typescript": "catalog:"
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.67.0"
   }
 }

@@ -102,21 +102,25 @@ jobs:
       - name: Typecheck
         run: pnpm exec turbo run typecheck --filter ansari-frontend...
 
-      # NEW in spec 48: the frontend was never built in CI. `pnpm build` now
-      # means "both apps", so this enforces that rather than merely claiming it.
-      # expo export already runs in Dockerfile.web at deploy time, so this moves
-      # an existing failure mode earlier rather than inventing a new one.
-      - name: Build
-        run: pnpm exec turbo run build --filter ansari-frontend...
-
       # Shared packages under packages/ are covered by the app jobs' dependency
       # closure filters (`--filter <app>...`) — EXCEPT @ansari/types, which has no
       # consumer by design and therefore sits outside every closure. Without this
       # step it would never be linted or typechecked in CI, and the spec's "lint
       # and typecheck for every package under packages/" criterion would be
       # nominally claimed rather than satisfied.
+      #
+      # Placed BEFORE the frontend build deliberately: steps are sequential and
+      # fail-fast, so running it after `build` would mean a build failure silently
+      # skips the only coverage @ansari/types gets.
       - name: Lint + typecheck shared packages
         run: pnpm exec turbo run lint typecheck --filter './packages/*'
+
+      # NEW in spec 48: the frontend was never built in CI. `pnpm build` now
+      # means "both apps", so this enforces that rather than merely claiming it.
+      # expo export already runs in Dockerfile.web at deploy time, so this moves
+      # an existing failure mode earlier rather than inventing a new one.
+      - name: Build
+        run: pnpm exec turbo run build --filter ansari-frontend...
 
   gitleaks:
     name: gitleaks (secret scan)

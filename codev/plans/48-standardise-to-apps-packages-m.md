@@ -608,6 +608,11 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
       concurrency the default. **Do not paper over a flake here as "just a flake"** — if
       typecheck fails during this sweep, check whether a build was running alongside it
       before investigating anything else.
+- [ ] **Confirm from the ACTUAL CI log that `@ansari/types` was linted and typechecked.**
+      It has no consumer, so the app jobs' `--filter <app>...` closures cannot reach it; a
+      dedicated step exists for it. Reading the workflow file is not sufficient evidence —
+      open the PR's CI run and confirm the step executed and named the package. This is the
+      one phase-5 acceptance item that cannot be settled before CI runs.
 - [ ] **Shared-package contents must be in the cache hash — prove it in both directions.**
       A `workspace:*` dependency puts a package in the dependency graph but does **not** put
       its file contents in a consumer task's hash. Before the fix, editing

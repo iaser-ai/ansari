@@ -1,0 +1,44 @@
+I'll review phase_3 (shared TypeScript config package) by reading the actual files.I read the phase_3 files from disk and independently re-ran the phase's own acceptance checks rather than trusting the recorded evidence.
+
+## What I verified myself
+
+**Behaviour preservation — confirmed for both apps (the phase's binding criterion).** I reconstructed the pre-phase-3 tsconfigs from `9122d40` in place and diffed `tsc --showConfig`:
+
+| App | Result |
+|---|---|
+| `apps/api` | resolved config **semantically identical** — same option set, no key added/removed, no value changed, `include`/`exclude`/`files` identical. Only key *ordering* moved (an artifact of `extends`). |
+| `apps/frontend` | `json` output **byte-identical** after normalisation. |
+
+The frontend result is not a coincidence: `expo/tsconfig.base` already sets `esModuleInterop`, `resolveJsonModule`, `skipLibCheck`, so the shared base contributes only `strict`, which the app already set locally. The `extends` array order resolves as intended.
+
+**The `isolatedModules` deviation from the plan is correct, not a shortcut.** The plan listed it in the shared base; the builder left it in `apps/api` because `expo/tsconfig.base` leaves it unset — promoting it would have silently switched it on for the frontend, i.e. a behaviour change wearing a refactor's clothing, which is precisely what this phase's acceptance criterion forbids. Documented in `packages/tsconfig/README.md`. Plan yields to spec here; good judgment.
+
+**The iter-1 cache-hash defect is genuinely fixed — I proved it in both directions myself**, since "I proved it" is not evidence:
+
+```
+with globalDependencies:    edit base.json → ansari-api#typecheck a502e6b0 → e9f45693  (MOVES)
+entry removed (control):    edit base.json → 685abf68 → 685abf68              (does NOT move)
+```
+
+**Docker (the item claude could not verify — worktree was contaminated).** I ran `docker build -f apps/api/Dockerfile .` at HEAD: **exit 0**. The log shows the real path exercised — `COPY packages packages` → `pnpm install --frozen-lockfile --filter ansari-api` → `next build` completing with the shared-base `extends` in effect. That is exactly the "install succeeds, build fails later" regression this phase risked, and it does not occur.
+
+**Also confirmed:** `pnpm install --frozen-lockfile` clean (6 projects, "Lockfile is up to date"); lockfile carries three `link:` entries and nothing unrelated; `turbo run typecheck` green, 4 tasks, FULL TURBO, with `@ansari/tsconfig` correctly absent (no scripts, nothing to run); `.dockerignore` does not exclude `packages/`; `catalog:`/`onlyBuiltDependencies` intact; both apps' `devDependencies` now genuinely sorted.
+
+## Non-blocking observations
+
+1. **`globalDependencies: ["packages/tsconfig/*.json"]` is a shallow glob.** It covers today's flat layout, but the day someone adds `packages/tsconfig/next/base.json`, that file falls out of every hash and re-opens the exact failure just closed — silently. `packages/tsconfig/**` would be resilient to the shape change rather than dependent on it. The in-file comment telling the next person to re-prove is a real mitigation, but it relies on someone reading it.
+2. **`"files": ["base.json"]`** in the package manifest is inert for a private workspace package (never packed) — harmless, just dead metadata.
+3. **Commit topology interleaves phases.** `0e2d608` (phase 3 feat) is an *ancestor* of the phase 2 fix commits, and phases 4–5 landed before `8d0ba7e` (phase 3 fix). The phase-3 content itself is cleanly isolated in two commits, but the plan's "each commit changes exactly one thing, bisect works" claim is weaker than stated. Worth a line in the PR description at phase 6 rather than a rewrite.
+
+4. **Not verified by me:** `docker build -f apps/frontend/Dockerfile.web .`. Its phase-3 surface (`COPY packages packages` + `--frozen-lockfile --filter` install) is structurally identical to the api image I did build, and the builder recorded `FRONTEND_EXIT=0` with the `Exported: dist` line. Phase 6 re-runs it regardless.
+
+---
+VERDICT: APPROVE
+SUMMARY: `@ansari/tsconfig` extraction is provably behaviour-preserving (independently re-verified for both apps), the iter-1 cache-key defect is fixed and proven in both directions, and the api Docker build passes at HEAD.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- Minor: `globalDependencies` uses a shallow `packages/tsconfig/*.json` glob; a future nested file would silently drop out of the cache key. Consider `packages/tsconfig/**`.
+- Minor: phase commits interleave in history (phase 3 feat precedes phase 2 fixes; phases 4–5 precede the phase 3 fix), weakening the plan's bisectability claim — worth noting in the PR description.

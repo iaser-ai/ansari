@@ -1,0 +1,65 @@
+I'll review phase_5 — the shared types package and packages README.## Review: phase_5 — Shared types package and packages README
+
+I read every phase-5 artifact from disk and executed the phase's own test plan rather than reading it.
+
+### What checks out
+
+**`packages/types/package.json`** — matches the plan's explicit warning that "naming the scripts is not enough": it carries its own `typescript: "catalog:"` (so it cannot drift from the pinned `~6.0.3`), `eslint`, `@ansari/eslint-config: workspace:*`, and `@ansari/tsconfig: workspace:*`. Verified in `pnpm-lock.yaml` (importer `packages/types`, all four resolved, `typescript` → `6.0.3`). `pnpm install --frozen-lockfile` is clean ("Lockfile is up to date", 6 workspace projects).
+
+**Task-graph participation** — verified from `turbo run lint typecheck --filter './packages/*' --dry=json`, not from config:
+```
+@ansari/types#lint       | cmd: eslint .
+@ansari/types#typecheck  | cmd: tsc --noEmit
+@ansari/eslint-config#*  | cmd: <NONEXISTENT>   (correct — no scripts, per plan)
+@ansari/tsconfig#*       | cmd: <NONEXISTENT>   (correct — JSON only, per plan)
+```
+
+**`typecheck` is real, negative-tested.** Appended `export const BROKEN: number = "not a number"` → `src/index.ts(21,14): error TS2322`, task exited 2. Restored; worktree clean. `tsc --showConfig` confirms `strict`/`skipLibCheck`/`esModuleInterop`/`resolveJsonModule` actually flow through `@ansari/tsconfig/base.json`.
+
+**CI coverage** — the new step in `.github/workflows/ci.yml` exists with an accurate comment explaining why closure filters (`--filter <app>...`) structurally cannot reach a consumer-less package. I confirmed the filter resolves to all three packages locally.
+
+**`packages/README.md`** — one paragraph plus a table, states the convention and the "a shared package holds what its consumers genuinely agree on" rule. Meets the criterion. **`src/index.ts`** invents no contracts and documents why.
+
+### The one defect: `@ansari/types#lint` lints zero source files and reports success
+
+`eslint .` in `packages/types` never touches `src/index.ts`. The shared base is ignores-only with no `files` entry and no TS parser, and ESLint 9 flat config's default match is `**/*.js|mjs|cjs` — so `.ts` matches nothing.
+
+```
+$ pnpm exec eslint . -f json      # files linted: 1  → eslint.config.mjs
+$ pnpm exec eslint src/index.ts
+  0:0  warning  File ignored because no matching configuration was supplied
+  exit=0
+$ pnpm exec eslint . --debug | grep Linting
+  Linting code for .../packages/types/eslint.config.mjs (pass 1)
+```
+
+Negative-tested end to end: with **both** a type error and `var unused = 1` appended to `src/index.ts`, `turbo run lint --filter '@ansari/types' --force` reported `1 successful`.
+
+This is not a nitpick against a literal reading of the acceptance criteria — it's the plan's own anticipated failure mode landing:
+
+> `packages/types/eslint.config.mjs` (**new**) — consumes `@ansari/eslint-config`. Without its own config, `eslint .` in this package either errors or **lints nothing**.
+
+and the deliverable says "`@ansari/types` scaffolded with **working** `lint` and `typecheck`". Your own thread closes with: *"every serious defect has been a thing that reports success while not doing its job. Unresolved eslint config → zero violations."* This is the fifth instance of that shape — and notably, you ran the throwaway-probe check on the frontend config in phase 4 and didn't run its equivalent here.
+
+Cheap to fix, your call on which:
+- **Make it lint TS** — add `typescript-eslint` to the package and `...tseslint.configs.recommended` (brings the parser and `files: ['**/*.ts']`) — the only option that gives real signal on the first contract that lands.
+- **Or scope it honestly** — add a `files: ['**/*.ts']` block so the file is at least parsed, and state in `eslint.config.mjs` that the ignores-only shared base means this is a parse-level smoke test. Silent zero coverage is the thing to avoid; a documented thin check is defensible.
+
+Either way, re-run the probe (deliberate violation → reported → removed), the same way you did for the frontend.
+
+### Minor, non-blocking
+
+- The "Lint + typecheck shared packages" step is the **last** step of the `frontend` job, so a frontend `build` failure means the shared packages are never checked on that run. Moving it above `Build` costs nothing.
+- `eslint: "^9.39.5"` is a literal in both `packages/types` and `packages/eslint-config` while `typescript` goes through `catalog:`. Not required by the plan; a `catalog:` entry for eslint would close the same drift hole.
+- Phase 5's criterion "CI runs those tasks too — confirmed by reading the CI job log" can only be settled post-push. Command resolution is verified locally; carry the log check forward.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Scaffold, deps, lockfile, CI wiring, README and a negative-tested typecheck are all correct, but `@ansari/types`'s lint task silently lints zero source files while reporting success.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `packages/types`: `eslint .` lints only `eslint.config.mjs`; `src/index.ts` is skipped ("File ignored because no matching configuration was supplied") because the ignores-only shared base declares no `files`/TS parser and ESLint 9 flat config doesn't match `.ts` by default. Verified with a deliberate `var unused = 1` — lint still passed. Contradicts the phase deliverable "working `lint`" and the plan's own "or lints nothing" warning. Fix, then re-run the deliberate-violation probe.
+- Minor: the shared-packages CI step runs after frontend `build`, so a build failure skips it entirely.
+- Minor: `eslint` version is a literal rather than a `catalog:` entry, unlike `typescript`.
