@@ -1,7 +1,7 @@
 id: '48'
 title: standardise-to-apps-packages-m
 protocol: spir
-phase: implement
+phase: review
 plan_phases:
   - id: phase_1
     title: Directory move to apps/api + apps/frontend and path-consumer rewrite
@@ -20,8 +20,8 @@ plan_phases:
     status: complete
   - id: phase_6
     title: Repo-wide acceptance verification and fresh-clone doc walkthrough
-    status: in_progress
-current_plan_phase: phase_6
+    status: complete
+current_plan_phase: null
 gates:
   spec-approval:
     status: approved
@@ -35,8 +35,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 3
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_1
@@ -215,7 +215,7 @@ history:
         file: >-
           /Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/projects/48-standardise-to-apps-packages-m/48-phase_6-iter3-claude.txt
 started_at: '2026-08-20T03:34:38.142Z'
-updated_at: '2026-08-20T22:48:30.237Z'
+updated_at: '2026-08-20T22:48:31.944Z'
 force_advanced:
   phase: phase_6
   iteration: 3
