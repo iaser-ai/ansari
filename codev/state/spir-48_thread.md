@@ -143,3 +143,54 @@ and unscoped. Decided default, cheap to override at the gate.
 
 Still waiting on the claude consultation (gemini APPROVE, codex REQUEST_CHANGES already
 folded in).
+
+## 2026-08-20 — Rename confirmed; two scope additions from the architect
+
+Rename **confirmed by the human**: `apps/api` / `ansari-api`, frontend unchanged. The
+architect is updating issue #48's target layout so the issue and this spec agree — so
+the deviation is now reconciled at the source, not carried as a standing exception.
+
+### Addition 1 — dependabot.yml gets fixed properly, not repointed
+
+The architect independently confirmed what I had logged: `.github/dependabot.yml` is
+**already stale before this PR touches it**. It declares `directory: "/backend"` under a
+comment asserting "`backend/package-lock.json` is the single lockfile (there is
+deliberately no root `package.json`)" — both false since the pnpm migration.
+
+Now in scope: correct directories covering `apps/*` **and** `packages/*`, and delete the
+false comment outright. Recorded it as a Current-State fact too, since "already wrong
+independent of this change" is exactly the kind of context that gets lost and then
+re-litigated during review.
+
+This resolves my Open Question 6 in the opposite direction from my recommendation — I
+had proposed fixing the path here and proposing the coverage expansion separately. The
+architect chose to expand now. Fine, and cheaper in one pass.
+
+**One correction I fed back rather than transcribing blindly:** the architect wrote
+"pnpm ecosystem". Dependabot has **no `pnpm` value** for `package-ecosystem` — pnpm is
+handled *by* the `npm` ecosystem. Writing `package-ecosystem: "pnpm"` would be an invalid
+config. Recorded in Constraints that the `npm` key stays and is correct, so the plan
+cannot mis-transcribe the instruction into a broken file. Left the per-package-directory
+vs glob-`directories:` mechanism to the plan, since that is a HOW detail that needs
+verifying against actual Dependabot behaviour for pnpm workspaces.
+
+### Addition 2 — acceptance criteria must cover BOTH Dockerfiles and BOTH railway.toml
+
+Both Dockerfiles were already covered. **Both `railway.toml` were not** — they were only
+in Test Scenarios, not Success Criteria. Promoted them, and while doing so made the
+assertion sharper than "the paths are updated":
+
+> a `watchPatterns` glob that matches nothing **fails silently** — it does not error, it
+> just stops triggering deploys.
+
+So the criterion demands asserting the globs against the real tree rather than eyeballing
+them. Same failure mode as the doc-consistency tests: the dangerous outcome here is not a
+loud break, it is a config that looks right and quietly stops working. Also added
+`apps/frontend/Caddyfile` (copied by path in the serve stage) since it travels with the
+frontend image.
+
+Added a risk row for the expected burst of Dependabot PRs against newly-watched
+`apps/frontend` and `packages/*`, so it is not mistaken for misconfiguration.
+
+Claude consultation still has not landed (gemini APPROVE, codex REQUEST_CHANGES folded
+in). Proceeding to the spec gate as directed rather than holding for it.

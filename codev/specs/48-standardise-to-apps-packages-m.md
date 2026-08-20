@@ -76,6 +76,12 @@ sources `backend/.env.ci`; `.dockerignore` and `.github/dependabot.yml` name `ba
 and `frontend` directly; and two backend tests resolve upward out of the backend
 directory to assert against repo-root documentation.
 
+`.github/dependabot.yml` is a special case: it is **already wrong today**, before this
+change touches anything. It watches `directory: "/backend"` under a comment claiming
+"`backend/package-lock.json` is the single lockfile (there is deliberately no root
+`package.json`)" — both false since the pnpm migration. It has also never watched the
+frontend at all.
+
 ## Desired State
 
 The repo uses the conventional monorepo layout, and one task runner owns the task graph.
@@ -147,8 +153,23 @@ apps/
       are **verified to still assert against the real repo root** — demonstrated by a
       deliberate negative check (temporarily breaking a referenced path makes the test
       fail), not merely by observing green.
-- [ ] `docker build -f apps/api/Dockerfile .` succeeds from the repo root.
-- [ ] `docker build -f apps/frontend/Dockerfile.web .` succeeds from the repo root.
+- [ ] **Both** Docker images build from the repo root — `docker build -f apps/api/Dockerfile .`
+      and `docker build -f apps/frontend/Dockerfile.web .` — each still using the repo
+      root as build context, and each surviving the `--frozen-lockfile --filter <app>`
+      install step after the apps gain `workspace:` deps on `packages/*`.
+- [ ] **Both** `railway.toml` files are internally consistent with the new tree:
+      `apps/api/railway.toml` and `apps/frontend/railway.toml` each name a
+      `dockerfilePath` that exists on disk, and each has `watchPatterns` that actually
+      match the moved app (`apps/api/**`, `apps/frontend/**`) rather than a path that can
+      never match again. A `watchPatterns` glob that matches nothing fails silently — it
+      does not error, it just stops triggering deploys — so this must be checked by
+      asserting the globs against the real tree, not by reading them.
+- [ ] `apps/frontend/Caddyfile` is still found by the frontend image's serve stage, and
+      the exported SPA lands where Caddy expects it.
+- [ ] `.github/dependabot.yml` covers every workspace package (`apps/*` and
+      `packages/*`), and contains no comment asserting a per-app lockfile or the absence
+      of a root `package.json`. Verified by config-vs-tree comparison: every workspace
+      package directory is accounted for.
 - [ ] No file tracked in the repo still refers to a top-level `backend/` or `frontend/`
       path, except where the reference is deliberately historical (existing
       `codev/specs`, `codev/plans`, `codev/reviews`, `codev/projects`, `codev/state`
@@ -246,6 +267,20 @@ Further constraints imposed by the existing system:
   through the real composed config and is the regression net for this.
 - **Both Docker builds use the repo root as build context** because the pnpm workspace
   needs the root lockfile. That property must be preserved.
+- **`.github/dependabot.yml` is fixed properly, not repointed** (architect decision,
+  2026-08-20 — added to scope). The file is **already stale independent of this change**:
+  it declares `directory: "/backend"` under a comment asserting that
+  "`backend/package-lock.json` is the single lockfile (there is deliberately no root
+  `package.json`)". Both claims have been false since the pnpm migration — there is a
+  root `package.json` and the single lockfile is the root `pnpm-lock.yaml`. Required
+  outcome: correct directories covering `apps/*` **and** `packages/*` (not just the
+  renamed api path), and the false comment **deleted** rather than edited around.
+  **One caveat for the plan:** Dependabot has no `pnpm` value for `package-ecosystem` —
+  pnpm is handled *by* the `npm` ecosystem, so `package-ecosystem: "npm"` stays as-is and
+  is correct. The fix is in the directories, the comment, and the coverage, not the
+  ecosystem key. The exact directory mechanism for a pnpm workspace (per-package
+  `directory` entries versus a single glob `directories:` list) is a HOW detail for the
+  plan to settle and verify, not a spec decision.
 - **Node ≥ 22, pnpm ≥ 10**, pinned via `.nvmrc` and `packageManager`.
 - **History-pinning files must not be rewritten**: `.gitleaksignore` fingerprints are
   `commit:file:rule:line` tuples referencing historic commits under `backend/`, and
@@ -416,10 +451,9 @@ later.
 5. **Should `.turbo` be cached in CI?** Recommendation: no, not in this PR — it adds a
    cache-key correctness surface for no acceptance-criterion benefit. Revisit once the
    layout is stable.
-6. **Should Dependabot gain `apps/frontend` and `packages/*` coverage?** Today it watches
-   only `/backend`; the frontend has never been covered. Correcting `/backend` →
-   `/apps/api` is in scope; *adding* coverage is a policy expansion.
-   Recommendation: fix the path here, propose the expansion separately.
+6. **Dependabot — RESOLVED, expanded in scope** (architect decision, 2026-08-20).
+   Not merely repointed. See the dedicated Constraints entry: the config is already
+   stale independent of this change, and gets fixed properly here.
 7. **Does `pnpm dev` running Expo under Turbo remain usable?** `expo start` is an
    interactive TUI (keypress commands for iOS/Android/reload); multiplexed under
    `turbo run dev` alongside `next dev`, that interactivity may degrade. This is a
@@ -496,7 +530,8 @@ later.
 | `release-doc.test.ts` asserts RELEASE.md *contains* literal `backend/...` strings **and** that every `pnpm <script>` it names exists in the backend's `package.json` — doc and test are coupled in both directions, and root-level turbo scripts break the second assertion | Medium | Medium | Update doc and test as one unit; decide deliberately whether RELEASE.md quotes app-scoped or root scripts, and make the test's assumption explicit rather than incidental |
 | The shared eslint/tsconfig packages turn out near-empty, adding indirection for no benefit | Medium | Low | Resolve Open Question 1 with the architect before building them; prefer a thin, honest base over a contrived one |
 | `expo start` becomes unusable multiplexed under `turbo run dev` | Medium | Low | Verify interactively; if degraded, document per-app scripts as the path for interactive Expo work while `pnpm dev` still satisfies the both-apps criterion |
-| 9 open Dependabot PRs against `/backend` all conflict | High | Low | Update `.github/dependabot.yml` to `/apps/api`; close the stale PRs and let Dependabot recreate them |
+| 9 open Dependabot PRs against `/backend` all conflict | High | Low | Rewrite `.github/dependabot.yml` for the new tree (see Constraints); close the stale PRs and let Dependabot recreate them against the new directories |
+| Widened Dependabot coverage opens a burst of PRs for `apps/frontend` and `packages/*`, which have never been watched before | Medium | Low | Expected and harmless, but worth anticipating so it is not mistaken for misconfiguration; `open-pull-requests-limit` already bounds it |
 | Rename detection fails, losing blame/history on a moved file | Low | Medium | Git records no rename — it infers one at diff time from content similarity, so moving and path-fixing a file in the *same* commit is safe as long as similarity stays above threshold, which it does for edits this small. Do **not** split move from path-fix into separate commits: a move-only commit would leave path consumers broken and unbuildable. Verify with `git log --follow` and `git show -M --stat` on the moved files instead |
 | The `ansari-backend` → `ansari-api` package rename is missed in one `--filter` call site, so a task silently no-ops instead of failing | Medium | High | `turbo run` errors on an unmatched `--filter`, unlike some pnpm paths; additionally grep for the old package name repo-wide as part of the "no stale path survives" scan, and confirm every CI job reports the tasks it is supposed to run rather than zero |
 | Lockfile churn from adding Turborepo and three new workspace packages masks an unintended dependency change | Low | Medium | Review the `pnpm-lock.yaml` diff for entries unrelated to turbo and the new packages |
