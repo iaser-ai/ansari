@@ -1,0 +1,40 @@
+### Implementation Review: Phase 1 — Directory move to `apps/api` + `apps/frontend` and path-consumer rewrite
+
+I have reviewed the Phase 1 implementation against the specification in [`codev/specs/48-standardise-to-apps-packages-m.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/specs/48-standardise-to-apps-packages-m.md) and the plan in [`codev/plans/48-standardise-to-apps-packages-m.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/plans/48-standardise-to-apps-packages-m.md).
+
+---
+
+### Findings & Verification Summary
+
+1. **Workspace Layout & Manifests**
+   - [`pnpm-workspace.yaml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/pnpm-workspace.yaml) accurately lists `apps/*` and `packages/*`, retaining the `catalog:` and `onlyBuiltDependencies` allowlists intact.
+   - Root [`package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/package.json) preserves the exact existing scopes (`lint` and `typecheck` remain workspace-wide `pnpm -r`, while `dev`, `test`, and `build` target `--filter ansari-api`) prior to Turborepo adoption in Phase 2.
+   - [`apps/api/package.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/package.json) cleanly updates the package name to `ansari-api`.
+
+2. **Container & Deployment Configurations**
+   - [`apps/api/Dockerfile`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/Dockerfile) and [`apps/frontend/Dockerfile.web`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/Dockerfile.web) have their `COPY`, `WORKDIR`, and `--filter` paths updated for the new structure while preserving the repo root build context.
+   - [`apps/api/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/railway.toml) and [`apps/frontend/railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/railway.toml) accurately configure `dockerfilePath` and `watchPatterns` matching the new filesystem layout.
+   - [`.dockerignore`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.dockerignore) updates the path to `apps/frontend/google-service-account`.
+
+3. **CI, Dependabot & Workflows**
+   - [`.github/workflows/ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml) updates paths to `apps/api/.env.ci` and `--filter ansari-api` and names the job `api (lint, typecheck, test, build)`.
+   - [`.github/dependabot.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/dependabot.yml) has been rewritten with a single root `directory: "/"` under `package-ecosystem: "npm"`, removing the obsolete lockfile comments.
+   - [`.github/PULL_REQUEST_TEMPLATE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/PULL_REQUEST_TEMPLATE.md) updates check paths to `apps/api/` and `pnpm`.
+
+4. **Doc-Consistency Tests & Path Consumers**
+   - [`apps/api/tests/release-doc.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/release-doc.test.ts) resolves `repoRoot` via `resolve(apiDir, '../..')` and uses a negative lookbehind (`(?<!apps)\/api\/`) to disambiguate route paths from `apps/api/` repo paths.
+   - [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/self-hosting-docs.test.ts) corrects the relative path traversal to `docs/self-hosting.md`.
+   - Living documents and scripts such as [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/resources/arch.md), [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md), [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/docs/self-hosting.md), and [`apps/api/scripts/grant-admin.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/scripts/grant-admin.ts) have been completely updated.
+
+5. **Resolution of Iteration 1 Feedback**
+   - All items from iteration 1 (including the branch protection check name in `RELEASE.md`, `PULL_REQUEST_TEMPLATE.md`, `self-hosting.md` `pnpm exec`, and `grant-admin.ts` CLI error output) have been verified on disk as resolved.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 directory move and path-consumer rewrite is complete, correct, and all acceptance criteria for this phase are satisfied.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

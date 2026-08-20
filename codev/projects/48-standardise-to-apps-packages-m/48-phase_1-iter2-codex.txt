@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 1 is largely correct, but three scoped acceptance violations remain.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `pnpm-lock.yaml` unnecessarily changes `@babel/traverse@7.27.0` from parser `7.27.0` to `7.29.8`; revert this unrelated dependency-graph change in this pure-relocation phase.
+- `apps/api/.env.ci:4` still instructs `npm test`; update it to pnpm per the pnpm-only constraint.
+- `RELEASE.md:15` reintroduces literal top-level `backend/`, so the phase’s required stale-path scan fails. Reword the historical explanation without the obsolete path literal.

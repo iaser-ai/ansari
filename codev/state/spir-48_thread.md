@@ -613,3 +613,43 @@ PR description or Phase 6's sweep will re-litigate it.
 
 Suite after all fixes: 623 passed / 3 pending / 0 failed; name-set diff still exactly the
 one intentional rename.
+
+## 2026-08-20 — Phase 1 iteration 2: gemini APPROVE, codex REQUEST_CHANGES (3)
+
+Codex found three, all real, all fixed. Claude still running.
+
+**1. Lockfile drift — and this was a miss against my OWN plan.** My phase-1 commit carried
+three dependency-graph changes unrelated to the move: `@babel/parser` 7.27.0 → 7.29.8 and
+two added `deprecated:` lines on `@xmldom/xmldom`. These came from running plain
+`pnpm install` (non-frozen) after changing the workspace globs — pnpm re-resolved and
+quietly updated the graph.
+
+My plan has a risk row that says, verbatim, *"Review the pnpm-lock.yaml diff for entries
+unrelated to turbo and the new packages."* I wrote that mitigation and then did not perform
+it. Reverted the three hunks; the lockfile now differs from pre-phase-1 by **exactly the
+two importer renames** (`backend:` → `apps/api:`, `frontend:` → `apps/frontend:`) and
+nothing else. Confirmed `pnpm install --frozen-lockfile` still succeeds, so the reverted
+lockfile is genuinely consistent rather than merely smaller.
+
+Lesson: in a relocation phase, `pnpm install` is not a neutral operation. Use
+`--frozen-lockfile` where possible, and diff the lockfile before committing — a
+dependency bump smuggled inside a "pure move" commit is invisible in review and impossible
+to attribute later.
+
+**2. `apps/api/.env.ci:4`** — comment documented local verification as
+`env $(grep -v '^#' .env.ci | xargs) npm test`. npm-era, violates the pnpm-only constraint.
+Now `pnpm test`. (Comments are stripped by the `grep -v '^#'` loader, so this is
+documentation-only and cannot affect the env contract.)
+
+**3. `RELEASE.md:15` — self-inflicted, and pleasingly ironic.** The operator-action note I
+added *last round* to document the CI-check rename itself contained a literal top-level
+`backend/` ("until the `backend/` → `apps/api/` move"), which the phase's own stale-path
+scan flags. Reworded to "until the monorepo restructure renamed the CI job to `api`".
+
+I introduced a stale-path violation inside the note warning about a stale-name violation.
+Worth remembering: **prose written to describe a migration is itself subject to the
+migration's scan.** Explaining an old path and using an old path look identical to grep.
+
+Re-verified after all three: suite 623 passed / 3 pending / 0 failed; name-set diff still
+exactly the one intentional rename; stale-path scan clean across all live files (remaining
+hits are only in the exempt codev/{specs,plans,projects,state} records).
