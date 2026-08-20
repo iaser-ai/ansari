@@ -1,0 +1,34 @@
+### Review: Phase 6 — Repo-Wide Acceptance Verification and Fresh-Clone Walkthrough
+
+This review evaluates **Phase 6** of the monorepo standardization and Turborepo migration plan against the specification and plan requirements.
+
+---
+
+### Key Findings & Verification
+
+#### 1. Spec Adherence & Plan Alignment
+- **Cross-Cutting Acceptance Verification**: The final acceptance sweep across all 12 criteria is fully documented in [`codev/reviews/48-standardise-to-apps-packages-m.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/reviews/48-standardise-to-apps-packages-m.md).
+- **Stale-Path Verification**: Stale path scans were negative-tested against known-bad and known-good strings before verifying that live files contain 0 unexempt references to top-level `backend/` or `frontend/`. Governance files in `codev/resources/` (such as [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/resources/arch.md#L11)) have been updated properly.
+- **Compensating Control for Phase 2 (`turbo.json`)**: Re-reviewed `globalEnv` against all four derivation methods (Zod schema in [`apps/api/lib/config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/lib/config.ts), static `process.env.X` grep, dynamic `process.env[name]` lookups such as facilitator budget variables, and documented build-time dependencies such as `SENTRY_AUTH_TOKEN` and `EXPO_PUBLIC_*`). Cache hash behavior was verified in both directions.
+- **Shared Packages in Task Hash**: [`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/turbo.json#L20-L25) correctly includes `packages/tsconfig/*.json` and `packages/eslint-config/*.js` in `globalDependencies`, ensuring edits to shared packages invalidate consumer tasks.
+- **CI Task Matrix & `@ansari/types` Coverage**: [`ci.yml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/.github/workflows/ci.yml#L115-L117) includes explicit coverage (`turbo run lint typecheck --filter './packages/*'`) positioned before the frontend build step to ensure unconsumed shared packages are tested and fail-fast without being skipped on build failure. The emitted CI check names remain frozen to match existing branch protection rules.
+- **Container & Deployment Configurations**: Both [`apps/api/Dockerfile`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/Dockerfile#L30) and [`apps/frontend/Dockerfile.web`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/frontend/Dockerfile.web#L20) copy `packages` prior to `pnpm install --frozen-lockfile` to satisfy `workspace:*` dependencies. Both [`railway.toml`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/railway.toml) files have valid `dockerfilePath` settings and matching `watchPatterns`.
+- **Operator Runbook & Actions**: Out-of-repo operational steps for Railway dashboard configuration cutover are codified in [`RELEASE.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/RELEASE.md#L30-L35) and detailed in the review summary.
+
+#### 2. Code Quality & Invariant Protection
+- **Env Guards & Allowlist Locality**: The `no-restricted-properties` rule in [`apps/api/eslint.config.mjs`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/eslint.config.mjs) remains in the api app, verified by 9/9 passing tests in [`apps/api/tests/eslint-env-guard.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/eslint-env-guard.test.ts).
+- **Doc Consistency Tests**: Both [`apps/api/tests/release-doc.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/release-doc.test.ts) and [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/apps/api/tests/self-hosting-docs.test.ts) have been updated for the three-level directory depth and negative-tested to confirm they assert against the true repo root.
+- **Interactive TUI Handling**: [`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/turbo.json#L186-L197) configures `interactive: true` for the `dev` task, and [`CONTRIBUTING.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/CONTRIBUTING.md#L26-L30) documents the terminal requirements and per-app fallback scripts.
+
+---
+
+### Verdict
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 6 cross-cutting verification is complete, rigorous, negative-tested, and fully satisfies all spec and plan acceptance criteria.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

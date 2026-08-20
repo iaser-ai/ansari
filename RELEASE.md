@@ -27,6 +27,39 @@ migration runbook were both proven in real releases on 2026-08-02.
   > `develop`'s required-check name **and** the `name:` line in
   > `.github/workflows/ci.yml` together. It needs repo-admin access. Do not change
   > either half on its own.
+> ### Railway service configuration (spec 48 — monorepo layout)
+>
+> Both services build with the **repo root** as their Root Directory: the pnpm
+> workspace needs the root `pnpm-lock.yaml`, and both Dockerfiles now also
+> `COPY packages packages`. Do **not** set Root Directory to the app folder.
+>
+> | Service | Dockerfile path |
+> |---|---|
+> | backend | `apps/api/Dockerfile` |
+> | frontend (web) | `apps/frontend/Dockerfile.web` |
+>
+> **Watch paths** — set these per service, or Railway rebuilds *both* on every push
+> (any commit touches the root lockfile):
+>
+> ```
+> backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> ```
+>
+> `packages/**` is **not optional**. The shared config packages are copied into both
+> images, so a packages-only change alters the built artifact. Omit the pattern and
+> that change ships nothing — no rebuild, no deploy, and no error. The image simply
+> drifts from the repo.
+>
+> **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
+> healthcheck `/`; restart ON_FAILURE, max 3 retries.
+>
+> The `apps/*/railway.toml` files record these same values in version control. They
+> are **reference only** unless the service is explicitly pointed at them: Railway
+> resolves a config file relative to the service Root Directory, and these live one
+> level down. The dashboard is authoritative — when you change a setting there,
+> update the toml in the same PR so the two do not drift.
+
 - **`main`** is the production branch. The Railway service `backend` (a name in the
   Railway dashboard — unrelated to the `apps/api/` directory, and not stale)
   auto-deploys every push to `main` (service root directory = repo root, config

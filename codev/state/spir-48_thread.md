@@ -1255,3 +1255,57 @@ from the hash; and now a lint task discovering no files. All reported success.
   different ranges had drifted across four packages (^9.39.2 / ^9.39.4 / ^9.39.5). Added
   `eslint` to the workspace catalog and pointed all four at `catalog:`; all now resolve to
   9.39.5. `CONTRIBUTING.md` already stated this convention — I just had not followed it.
+
+## 2026-08-21 — PHASE 6: acceptance sweep, and a defect the sweep itself found
+
+All 12 criteria executed. gemini APPROVE; codex and claude both REQUEST_CHANGES, and
+between them they caught four things — one a real defect, three gaps in my evidence.
+
+### The defect: railway `watchPatterns` omitted `packages/**`
+
+Claude's find, and it is a direct consequence of my own phases 3–5. Both Dockerfiles now
+`COPY packages packages`, so the shared config packages are part of the built image — but
+neither `watchPatterns` list included `packages/**`.
+
+Consequence: editing `packages/tsconfig/base.json` changes what the image contains, triggers
+**no rebuild and no deploy**, and produces **no error**. The deployed image silently drifts
+from the repo. Sixth instance of this project's one shape.
+
+Fixed in both files, with a comment saying why, and every pattern re-verified against the
+real tree (`packages/**` → 4 matches, so it is not a glob that matches nothing — which is
+the same trap one level up).
+
+### Evidence gaps I had left
+
+- **End-to-end ESLint comparison vs `develop`** — the plan required comparing against the
+  *baseline*, not phase-to-phase, and I had only done the latter. Created a `develop`
+  worktree, installed, captured both apps' violations, normalised the paths, diffed:
+  **api 77 files / 7 violations, frontend 6 / 0 — sets identical.** Claude had independently
+  verified the `tsc --showConfig` half (zero deltas).
+- **gitleaks** — not installed locally, so I verified what I actually could rather than
+  claiming a scan: `.gitleaks.toml` and `.gitleaksignore` are byte-identical to `develop`
+  (historic fingerprints intact), and the CI job still runs with `fetch-depth: 0`. The scan
+  itself runs in CI; I have not run it and do not claim to have.
+- **`@ansari/types` CI-log confirmation** — genuinely cannot be settled before CI runs.
+  Stays a PR-time check.
+
+### RELEASE.md finally carries the Railway operator action
+
+Both reviewers flagged this, correctly: it existed only in the review document, which is not
+the operator's runbook. Now a blockquoted block in RELEASE.md with Root Directory, both
+Dockerfile paths, the watch paths per service, and the deploy settings.
+
+**Corrected a wrong assumption of mine while writing it.** I had been documenting "point the
+service's config file path at `apps/api/railway.toml`" — inherited from the pre-move header
+comment. The human reported Railway's UI offers a Dockerfile path but no config-file path.
+That fits how Railway resolves config: relative to the service Root Directory, which is the
+repo root here, so files one level down at `apps/*/railway.toml` are never picked up.
+
+So the tomls were documentation describing a setup nobody uses — the exact failure this PR
+has spent six phases hunting, sitting in my own deliverable. Both headers now say
+REFERENCE ONLY, name the dashboard as authoritative, and ask that they be kept in sync.
+
+Human has since configured Railway, so the largest post-merge risk is closed ahead of merge.
+
+Suite after all edits: 66 files / 623 passed / 3 skipped; release-doc test 6/6 green after
+the RELEASE.md rewrite.

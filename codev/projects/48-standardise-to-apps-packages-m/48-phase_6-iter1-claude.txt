@@ -1,0 +1,40 @@
+I'll start by getting oriented in the actual worktree and reading the phase 6 artifacts.I've completed an independent verification sweep — reading the files from disk and re-running phase 6's load-bearing checks myself rather than trusting the review table.
+
+## What I independently verified (all pass)
+
+| Check | My result |
+|---|---|
+| Stale-path scan | Clean. I negative-tested my own regex first (matches `backend/lib/x` and `the frontend/ dir`, does **not** match `apps/frontend/foo`). Remaining `ansari-backend` hits are only the `/api/health` `service` field — correctly exempt as a spec-3 API contract. |
+| `globalEnv` completeness | Re-derived from scratch: every Zod key in `lib/config.ts`, every static `process.env.X` under `apps/`, and both dynamic `process.env[name]` call sites (`envBudgetMs` → the two `FACILITATOR_*` vars). **Nothing missing.** `SENTRY_AUTH_TOKEN` correctly present from the docs channel. |
+| `globalDependencies` (shared config in hash) | Appended a newline to `packages/tsconfig/base.json` → `ansari-api#typecheck` hash moved `c81d18f6…` → `077cf8e3…`. Restored clean. |
+| FULL TURBO | Ran `turbo run build` twice: `3 successful, 3 cached, 11ms` then `10ms >>> FULL TURBO`. |
+| Doc-consistency tests | `repoRoot = apps/api/../..` and `../../../docs/self-hosting.md` both resolve to the true repo root. 23/23 green. **Negative check reproduced independently:** moving `apps/api/railway.toml` away produced `apps/api/railway.toml referenced but missing`; restored clean. |
+| `git log --follow` | `apps/api/Dockerfile` traces back through `f55c52a build(backend): Dockerfile deploy for Railway`. |
+| Dependabot | Single `/` npm entry (covers root `package.json` where turbo lives) + `github-actions`; the false lockfile comment is gone. |
+| CI matrix | `--filter <app>...` closures, plus the explicit `--filter './packages/*'` step correctly placed **before** the frontend build. |
+| **End-to-end `tsc --showConfig` vs `develop`** | I ran this myself for both apps against the `develop` worktree: **zero deltas on either.** (See issue 4 — it passes, but wasn't recorded.) |
+| `.gitleaksignore` | Untouched. |
+
+The `turbo.json` re-review (phase 2's compensating control) holds up — the four-method env derivation is real, and the comments explain *why* each method exists rather than just asserting the list.
+
+## Issues
+
+**1. The Railway operator action is missing from `RELEASE.md`.** The spec criterion is verbatim: *"The out-of-repo Railway change required by this move… is documented in the PR description and in `RELEASE.md` as an explicit operator action."* The plan repeats it in phase 6's file list and deliverables. It is currently only in `codev/reviews/…md` under "Out-of-repo actions required after merge". `RELEASE.md` describes the *post-change* state (`config in apps/api/railway.toml`) but never tells a releaser they must go change the dashboard's "config file path" setting from `backend/railway.toml` / `frontend/railway.toml`, nor that deploys break silently until they do. This is the spec's one High-probability/High-impact risk, and `RELEASE.md` is the document an operator actually opens. It already has a precedent format at line 15 (`> **Naming note (spec 48) — deferred follow-up…**`) — a sibling block is ~6 lines.
+
+**2. `codev/state/spir-48_thread.md` has no phase-6 entry.** Plan phase 6 names it under both "Files to Create / Modify" and Deliverables ("final entry, committed with the PR"). The last entry is the phase-5 review. Given this phase's entire output is the record of a verification sweep, the missing entry matters more than usual.
+
+**3. Neither `railway.toml` watches `packages/**`.** Both Dockerfiles now `COPY packages packages`, and `next.config.ts` disables only ESLint during builds — TypeScript checking is live, so `packages/tsconfig/base.json` genuinely affects the api image. A commit touching only `packages/**` produces a different image and triggers **no** Railway deploy. This gets materially worse the moment `@ansari/types` gains real contracts the apps import. Phase 6's literal criterion ("every glob matches at least one real path") passes, so this is a judgment call — but it is the exact failure shape the review names in item 6 of its own list. Adding `"packages/**"` to both is a two-line change; deferring it should at least be a recorded decision.
+
+**4. The end-to-end vs-`develop` behaviour-preservation comparison isn't in the evidence table.** It was added as a phase-6 criterion specifically because adjacent-phase diffs can each be clean while drift accumulates. I ran the `tsc --showConfig` half myself and it passes with zero deltas on both apps — so this is a *recording* gap, not a correctness one. The ESLint violation-set half vs `develop` is still unrecorded (though `eslint-env-guard.test.ts` passing 9/9 through the real composed config covers the load-bearing part).
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The verification sweep is genuinely rigorous and every technical claim I re-ran independently holds, but an explicit spec success criterion — the Railway operator action in RELEASE.md — is unmet, along with the phase's named thread-entry deliverable.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `RELEASE.md` contains no explicit Railway "config file path" operator action, despite being a verbatim spec success criterion and a phase-6 deliverable; it exists only in the review document, which is not the operator's runbook.
+- `codev/state/spir-48_thread.md` has no phase-6 entry, though the plan lists it as both a file to modify and a deliverable for this phase.
+- Both `railway.toml` `watchPatterns` omit `packages/**`, so a shared-package-only change alters the built image without triggering a deploy — silently, which is this project's recurring failure shape. Fix or record as a deliberate deferral.
+- The end-to-end behaviour-preservation comparison against `develop` is absent from the review's evidence table. I verified the `tsc --showConfig` half myself (zero deltas, both apps); the ESLint violation-set half vs `develop` remains unrecorded.
