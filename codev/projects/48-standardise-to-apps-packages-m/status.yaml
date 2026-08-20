@@ -35,8 +35,24 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 1
-build_complete: true
-history: []
+iteration: 2
+build_complete: false
+history:
+  - iteration: 1
+    plan_phase: phase_1
+    build_output: ''
+    reviews:
+      - model: gemini
+        verdict: APPROVE
+        file: >-
+          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/projects/48-standardise-to-apps-packages-m/48-phase_1-iter1-gemini.txt
+      - model: codex
+        verdict: REQUEST_CHANGES
+        file: >-
+          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/projects/48-standardise-to-apps-packages-m/48-phase_1-iter1-codex.txt
+      - model: claude
+        verdict: REQUEST_CHANGES
+        file: >-
+          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-48/codev/projects/48-standardise-to-apps-packages-m/48-phase_1-iter1-claude.txt
 started_at: '2026-08-20T03:34:38.142Z'
-updated_at: '2026-08-20T06:38:09.831Z'
+updated_at: '2026-08-20T06:54:05.483Z'
