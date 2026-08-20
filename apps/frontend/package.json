@@ -1,4 +1,5 @@
 {
+  "//": "build:web KEEPS its `pnpm run gen:types &&` chain deliberately. apps/frontend/Dockerfile.web installs with --filter ansari-frontend (which does not install root devDependencies, so turbo is absent from that image) and invokes build:web DIRECTLY. Without the chain, expo export runs with no uniwind-types.d.ts and the image build breaks. turbo.json also declares gen:types as a dependsOn edge, so graph-driven runs make the second invocation a cache hit rather than duplicate work. See turbo.json.",
   "name": "ansari-frontend",
   "version": "1.0.0",
   "private": true,
@@ -9,7 +10,6 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "_comment_build:web": "The `pnpm run gen:types &&` chain here is DELIBERATE and must stay. apps/frontend/Dockerfile.web installs with --filter ansari-frontend (which does not install root devDependencies, so turbo is absent from that image) and invokes build:web DIRECTLY. Without this chain, expo export runs with no uniwind-types.d.ts and the image build breaks. turbo.json also declares gen:types as a dependsOn edge for build/build:web, so graph-driven runs make this a cache hit rather than duplicate work.",
     "build": "pnpm run build:web",
     "build:web": "pnpm run gen:types && expo export --platform web",
     "lint": "eslint .",

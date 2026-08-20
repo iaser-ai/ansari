@@ -600,6 +600,14 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 - [ ] Both Docker builds succeed from the repo root.
 - [ ] Both `railway.toml` name a `dockerfilePath` that exists, and every `watchPatterns` glob
       matches at least one real path — **asserted against the tree, not read**.
+- [ ] **Run `typecheck` and `build` as SEPARATE commands, never one combined turbo
+      invocation.** `apps/api/tsconfig.json` includes `.next/types/**/*.ts`, which a
+      concurrent `next build` rewrites underneath `tsc` — producing an intermittent
+      `typecheck exited (2)` that passes on re-run. A reviewer observed it once in two runs
+      of this plan's own acceptance command. It predates the task graph but turbo makes
+      concurrency the default. **Do not paper over a flake here as "just a flake"** — if
+      typecheck fails during this sweep, check whether a build was running alongside it
+      before investigating anything else.
 - [ ] **MANDATORY: re-review `turbo.json` — phase_2's compensating control** (architect
       decision, 2026-08-20). Phase 2 shipped with **two reviewers, not three**: the claude
       lane wedged 3× on a never-terminating `turbo run dev` and produced no review (see
@@ -617,6 +625,13 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
          changes the task hash, AND removing it from `globalEnv` makes the override silently
          invisible (`configured` shows NONE). One direction alone does not distinguish
          working from broken.
+- [ ] **`docs/self-hosting.md` staying app-scoped is deliberate, not a skipped plan item.**
+      It was listed in phase 2's file list but its command blocks were left app-scoped, for
+      the same reason as `RELEASE.md`: it is an operator runbook executed *from* `apps/api`
+      (`cd apps/api`, `pnpm db:migrate`, `pnpm exec tsx scripts/grant-admin.ts`), and its
+      root-level instruction (`pnpm install` at the repo root) was already correct. Rewriting
+      it to root `turbo` commands would misdescribe how an operator actually runs it. Confirm
+      the doc is still accurate rather than treating its absence from phase 2's diff as drift.
 - [ ] **The open Dependabot PRs are NOT a defect and must NOT be closed** (human decision,
       2026-08-20). Ten are open, all emitting the `backend (...)` check. Repointing
       `dependabot.yml` obsoletes them and Dependabot re-opens against the new path on its

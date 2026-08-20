@@ -1029,3 +1029,53 @@ and (in phase 2's original bug) a task I forgot to annotate. Each time I fixed t
 AND the method, and each time a *new* category appeared. That is a good argument for the
 architect's phase-6 compensating control: `turbo.json` has now been wrong three times, and
 it is the file where being wrong is invisible.
+
+## 2026-08-20 — Phase 2 iter 2 CLOSED: claude APPROVE, and the hypothesis needs nuance
+
+gemini APPROVE | codex REQUEST_CHANGES (SENTRY_AUTH_TOKEN, fixed) | **claude APPROVE**
+(5763 bytes, completed normally).
+
+### Data point for the architect's wedge hypothesis
+
+Claude's lane **completed this time**, on the SAME phase with the SAME never-terminating
+`dev` task that wedged it three times on iteration 1.
+
+That does not refute the hypothesis — it refines it. The mechanism is "a reviewer that
+*decides* to exercise the dev task hangs forever", and whether it so decides is
+**stochastic**, not deterministic. 3 hangs then 1 completion is consistent with a
+probabilistic trigger; it is not consistent with "this phase always hangs". Worth reporting
+accurately rather than claiming the prediction was cleanly confirmed.
+
+Claude independently re-derived globalEnv, proved the cache key both directions, verified
+the gen:types edge cold AND warm, and ran the suite + api CI command + frontend build.
+
+### Four non-blocking findings, all real, all actioned
+
+1. **`typecheck` + `build` race** — the best of the four. `apps/api/tsconfig.json` includes
+   `.next/types/**/*.ts`, which a concurrent `next build` rewrites underneath `tsc`. Claude
+   hit it once in two runs of **the plan's own acceptance command**: intermittent
+   `typecheck exited (2)`, passes on re-run. Predates the task graph, but turbo makes
+   concurrency the default so it surfaces more often. CI is unaffected (separate sequential
+   steps).
+   Documented in turbo.json, and — the part that matters — **Phase 6's criteria now forbid
+   the combined invocation and explicitly warn against dismissing a typecheck failure there
+   as "just a flake"**. Phase 6 re-runs exactly that command, so without this it would have
+   been mis-diagnosed by whoever hit it.
+2. **`_comment_build:web` was inside `"scripts"`** — so npm listed a runnable "script" whose
+   body is an English sentence. Moved to a top-level `"//"` key. My mistake: I reached for a
+   JSON comment convention that package.json does have (`"//"`) but put it in the wrong
+   place.
+3. **`gen:types` narrowed `inputs` will go stale-silent** if `global.css` ever gains a
+   repo-local `@import`/`@source`. Correct today (its `@source` points into node_modules,
+   covered by the pnpm-lock globalDependency). Caveat added next to the task with the fix to
+   apply if it happens.
+4. **`docs/self-hosting.md` was in phase 2's file list but untouched** — defensible (same
+   app-scoped runbook logic as RELEASE.md) but the rationale existed only in my head.
+   Now a phase 6 criterion, so its absence from the diff reads as a decision rather than
+   drift.
+
+Also noted: the frontend job name is the one check that *could* be renamed without admin
+access, since it is not protection-required. Left frozen per the architect's decision.
+
+Re-verified with typecheck and build run SEPARATELY (per the new rule): 3 tasks each,
+66 files / 623 passed.

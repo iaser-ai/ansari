@@ -98,6 +98,13 @@
     // as an output: on a warm cache Turbo skips this task, and with no declared
     // output there would be nothing to restore — green on a cold cache, broken on
     // a warm one.
+    //
+    // CAVEAT on the narrowed `inputs`: correct only while `global.css` pulls in
+    // nothing repo-local. Its `@source` currently points into node_modules, which
+    // the pnpm-lock.yaml globalDependency already covers. The day someone adds a
+    // local `@import`/`@source`, this task goes STALE-SILENT — edits to that file
+    // will not bust the cache and the generated dts will quietly lag. If that
+    // happens, add the file here or fall back to `$TURBO_DEFAULT$`.
     "gen:types": {
       "inputs": ["src/global.css", "package.json"],
       "outputs": ["uniwind-types.d.ts"]
@@ -108,6 +115,15 @@
     },
 
     // Real graph edge, replacing the old `pnpm run gen:types && tsc` shell chain.
+    //
+    // RACE WARNING: do NOT run `typecheck` and `build` in a SINGLE turbo
+    // invocation for ansari-api. apps/api/tsconfig.json includes
+    // `.next/types/**/*.ts`, which a concurrent `next build` rewrites underneath
+    // `tsc` — an intermittent `typecheck exited (2)` that passes on re-run. CI is
+    // unaffected because it runs them as separate sequential steps; keep it that
+    // way, and run them as separate commands locally too. This predates the task
+    // graph (the same overlap existed with parallel pnpm runs) but turbo makes
+    // concurrency the default, so it surfaces more often.
     "typecheck": {
       "dependsOn": ["gen:types"],
       "outputs": []
