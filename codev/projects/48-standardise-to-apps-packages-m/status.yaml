@@ -1,7 +1,7 @@
 id: '48'
 title: standardise-to-apps-packages-m
 protocol: spir
-phase: specify
+phase: plan
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -16,7 +16,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-20T03:34:38.142Z'
-updated_at: '2026-08-20T04:06:05.177Z'
+updated_at: '2026-08-20T04:06:57.364Z'
