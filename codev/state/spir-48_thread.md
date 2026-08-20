@@ -99,3 +99,47 @@ Codex's catches worth recording:
    rather than being silently absorbed into Constraints.
 
 Next: fold in claude's review when it lands, then commit and reach spec-approval gate.
+
+## 2026-08-20 — Layout deviation: apps/backend -> apps/api
+
+Human raised a forward-looking objection I had not considered: `apps/auth` is planned
+(auth extracted out of the backend). Asked whether `apps/backend` still makes sense.
+
+It does not. **"backend" is a TIER name; "auth" is a DOMAIN name** — different axes.
+Once both exist, `apps/backend` carries no information, because auth is backend code
+too. (It is already slightly wrong today: the backend ships a React admin UI at
+`src/app/admin/analytics/page.tsx`.)
+
+Grounded the recommendation by measuring the actual split surface rather than guessing:
+auth would take 7 of 20 routes (`users/{login,logout,me,refresh_token,register}` +
+`request_password_reset` + `reset_password`) plus all 8 files of `lib/auth/`. What
+remains is the product engine — threads, chat completions, facilitator, tools, admin
+stats, feedback, share, preferences. `apps/api` names that accurately and pairs with
+`apps/auth` on one axis.
+
+**Decision (human): `backend/` → `apps/api`, package `ansari-backend` → `ansari-api`.
+Frontend unchanged** — one client, no announced sibling, so renaming it is churn
+without a driver (and `apps/mobile` would be wrong: it ships web via Caddy).
+
+The decisive argument was cost asymmetry, not naming taste: every path consumer a
+rename touches is *already* being rewritten by this PR, so renaming now is near-free,
+while renaming later costs a second full sweep **plus a second Railway dashboard
+coordination** — the one High/High out-of-repo risk in this spec. And `apps/api` is a
+good name even if the auth split never happens, so it is not a speculative bet.
+
+This **supersedes issue #48's baked target layout**, which says `apps/backend`
+verbatim. I did not apply it silently — notified the architect via `afx send`
+(delivered to `main`) with the rationale and an explicit offer to revert.
+
+Note for whoever plans this: **the rename is strictly a rename.** No route, module, or
+boundary moves. Extracting `apps/auth` is explicitly out of scope; this spec only makes
+the layout it lands into coherent. Added a risk row for a missed `--filter` call site
+silently no-opping, since the package rename touches every filter in CI and both
+Dockerfiles.
+
+Also baked the shared-package naming that was left implicit: **`@ansari/*` scoped**
+(`@ansari/eslint-config`, `@ansari/tsconfig`, `@ansari/types`) while the apps stay flat
+and unscoped. Decided default, cheap to override at the gate.
+
+Still waiting on the claude consultation (gemini APPROVE, codex REQUEST_CHANGES already
+folded in).

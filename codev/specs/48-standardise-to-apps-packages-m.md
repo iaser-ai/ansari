@@ -83,8 +83,8 @@ The repo uses the conventional monorepo layout, and one task runner owns the tas
 ```
 ansari/
 ├── apps/
-│   ├── backend/
-│   └── frontend/
+│   ├── api/          (was backend/)  — package `ansari-api`
+│   └── frontend/                     — package `ansari-frontend`
 ├── packages/
 │   ├── eslint-config/
 │   ├── tsconfig/
@@ -114,6 +114,17 @@ ahead of a consumer that needs them.
 **Every path consumer is updated in the same change**, so a fresh clone can be set up,
 built, tested, containerised, and deployed by following the documentation verbatim.
 
+**The layout is ready for a second service.** A planned `apps/auth` (auth extracted from
+today's backend) slots in alongside `apps/api` on the same naming axis, without renaming
+anything that this change puts in place. That extraction is **not** part of this spec.
+
+```
+apps/
+├── api/          the product engine — threads, chat, facilitator, tools, admin stats
+├── auth/         FUTURE, out of scope here
+└── frontend/     the Ask Ansari client (iOS, Android, web)
+```
+
 ## Success Criteria
 
 - [ ] `pnpm install` is clean from the repo root, and the repo still has exactly one
@@ -132,22 +143,23 @@ built, tested, containerised, and deployed by following the documentation verbat
       count alone cannot distinguish "a test was renamed" from "a test stopped being
       collected". (For orientation: `develop` currently has 66 test files under
       `backend/tests`, including the `api/`, `lib/`, and `migration/` subdirectories.)
-- [ ] `backend/tests/release-doc.test.ts` and `backend/tests/self-hosting-docs.test.ts`
+- [ ] `apps/api/tests/release-doc.test.ts` and `apps/api/tests/self-hosting-docs.test.ts`
       are **verified to still assert against the real repo root** — demonstrated by a
       deliberate negative check (temporarily breaking a referenced path makes the test
       fail), not merely by observing green.
-- [ ] `docker build -f apps/backend/Dockerfile .` succeeds from the repo root.
+- [ ] `docker build -f apps/api/Dockerfile .` succeeds from the repo root.
 - [ ] `docker build -f apps/frontend/Dockerfile.web .` succeeds from the repo root.
 - [ ] No file tracked in the repo still refers to a top-level `backend/` or `frontend/`
       path, except where the reference is deliberately historical (existing
       `codev/specs`, `codev/plans`, `codev/reviews`, `codev/projects`, `codev/state`
       records, and `.gitleaksignore` commit fingerprints, which pin history and must
       not be rewritten).
-- [ ] `git log --follow` on a representative moved file (e.g. the backend Dockerfile)
-      still shows its pre-move history.
+- [ ] `git log --follow` on a representative moved file (e.g. the api Dockerfile)
+      still shows its pre-move history. Note the rename compounds move+rename, so this
+      check matters more than it would for a plain move.
 - [ ] CI is green on the PR and runs the following explicit task matrix through
       Turborepo, with no task silently dropped relative to today:
-      - backend: `lint`, `typecheck`, `test:coverage`, `build`
+      - api (was backend): `lint`, `typecheck`, `test:coverage`, `build`
       - frontend: `lint`, `typecheck` (which must pull `gen:types` in via the graph),
         and `build`
       - shared packages: `lint` and `typecheck` for every package under `packages/`
@@ -189,19 +201,40 @@ is about to change. Internal commit granularity within that single PR is unconst
 by this decision — but any ordering chosen must never author `turbo.json` against the
 pre-move layout.
 
-Also fixed by the issue: the target layout is `apps/backend`, `apps/frontend`,
-`packages/eslint-config`, `packages/tsconfig`, `packages/types`, and `turbo.json` —
-those names and locations are the architect's choice, not open for re-derivation.
-`packages/types` is scaffolded minimally: **do not invent contracts.**
+Also fixed by the issue: the target layout is `apps/*` + `packages/eslint-config`,
+`packages/tsconfig`, `packages/types`, and `turbo.json` — those locations are the
+architect's choice, not open for re-derivation. `packages/types` is scaffolded
+minimally: **do not invent contracts.** The one deviation is the backend app's name
+(`apps/backend` → `apps/api`), decided by the human and recorded immediately below.
+
+**Shared package names are scoped `@ansari/*`** — `@ansari/eslint-config`,
+`@ansari/tsconfig`, `@ansari/types` — while the two apps keep flat, unscoped names
+(`ansari-api`, `ansari-frontend`). Rationale: the apps are private and never published,
+whereas the scope on the shared packages signals "internal, workspace-only" at every
+import site and cannot collide with a public npm name. Decided default; cheap for the
+architect to override at `spec-approval` in favour of flat `ansari-*` names.
 
 Further constraints imposed by the existing system:
 
 - **No behaviour change.** This is a layout and tooling change. No application source
   logic, no API surface, no database schema, and no runtime configuration semantics may
   change. The only source edits permitted are path corrections and config extraction.
-- **Package names stay.** `ansari-backend` and `ansari-frontend` are referenced by CI,
-  both Dockerfiles, and prose across the docs. Renaming them would multiply the blast
-  radius for no benefit.
+- **The backend app is renamed to `api`; the frontend keeps its name** (human decision,
+  2026-08-20, superseding the `apps/backend` name in issue #48's target layout — the
+  architect was notified). Directory `backend/` → `apps/api`, package `ansari-backend` →
+  `ansari-api`. Frontend is unchanged: `frontend/` → `apps/frontend`, package
+  `ansari-frontend`.
+  **Reasoning:** an `apps/auth` service is planned (auth extraction out of the backend).
+  "backend" is a *tier* name while "auth" is a *domain* name; once both exist,
+  `apps/backend` is ambiguous, because auth is backend code too. `apps/api` sits on the
+  same axis as `auth`, and remains a good name even if the auth split never happens — so
+  this is not a speculative bet. The rename is nearly free **only if done here**: every
+  path consumer it touches is already being rewritten by this change. Deferring it costs
+  a second full sweep of the same files plus a second Railway dashboard coordination,
+  which is this spec's one High-probability/High-impact out-of-repo risk.
+  **The rename is strictly a rename** — no route, module, or behaviour boundary moves in
+  this change. Extracting `apps/auth` is explicitly **out of scope** here and is a future
+  piece of work; this spec only ensures the layout it will land into is coherent.
 - **The `catalog:` and `onlyBuiltDependencies` blocks in `pnpm-workspace.yaml` survive
   intact.** The catalog pins `typescript: ~6.0.3`; `onlyBuiltDependencies` allowlists
   postinstall scripts for bcrypt, sharp, esbuild, `@sentry/cli`, `unrs-resolver`,
@@ -385,7 +418,7 @@ later.
    layout is stable.
 6. **Should Dependabot gain `apps/frontend` and `packages/*` coverage?** Today it watches
    only `/backend`; the frontend has never been covered. Correcting `/backend` →
-   `/apps/backend` is in scope; *adding* coverage is a policy expansion.
+   `/apps/api` is in scope; *adding* coverage is a policy expansion.
    Recommendation: fix the path here, propose the expansion separately.
 7. **Does `pnpm dev` running Expo under Turbo remain usable?** `expo start` is an
    interactive TUI (keypress commands for iOS/Android/reload); multiplexed under
@@ -407,7 +440,7 @@ later.
 
 - *The two doc-consistency tests still point at the real repo root.* Positive check:
   both suites pass. **Negative check (required):** temporarily rename a file that
-  `release-doc.test.ts` asserts exists (e.g. `apps/backend/railway.toml`) and confirm
+  `release-doc.test.ts` asserts exists (e.g. `apps/api/railway.toml`) and confirm
   the test **fails**; likewise remove a distinguishing error phrase from
   `startup-checks.ts` and confirm `self-hosting-docs.test.ts` fails. A test that passes
   because it is looking at nothing is the specific failure mode this change invites.
@@ -423,7 +456,7 @@ later.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` each run through Turbo and
   each report a task for every package that defines it.
 - *Cache.* `turbo run build` twice with no changes → second run is FULL TURBO. Then
-  touch one backend source file → backend build re-runs, frontend build stays cached.
+  touch one api source file → the api build re-runs, frontend build stays cached.
 - *Codegen edge is real.* Delete `apps/frontend/uniwind-types.d.ts`, then run
   `turbo run typecheck --filter ansari-frontend`: it must succeed, having run `gen:types`
   as a graph dependency. Removing the `dependsOn` edge must make it fail — confirming
@@ -433,8 +466,8 @@ later.
 
 **Containers and deployment config**
 
-- `docker build -f apps/backend/Dockerfile .` succeeds from the repo root, including the
-  `--frozen-lockfile --filter ansari-backend` install step — which must still resolve
+- `docker build -f apps/api/Dockerfile .` succeeds from the repo root, including the
+  `--frozen-lockfile --filter ansari-api` install step — which must still resolve
   after the apps gain `workspace:` devDependencies on the shared packages.
 - `docker build -f apps/frontend/Dockerfile.web .` succeeds from the repo root and the
   Caddy stage finds the exported SPA.
@@ -443,7 +476,7 @@ later.
 
 **Regression / non-functional**
 
-- Full backend Vitest suite (61 files) green, no test removed or skipped.
+- Full api Vitest suite green against the `develop` baseline, no test removed or skipped.
 - `eslint-env-guard.test.ts` green **after** the eslint extraction — proving the
   `no-restricted-properties` env guard still fires tree-wide and still stays silent in
   `lib/config.ts` and `drizzle.config.ts`.
@@ -463,8 +496,9 @@ later.
 | `release-doc.test.ts` asserts RELEASE.md *contains* literal `backend/...` strings **and** that every `pnpm <script>` it names exists in the backend's `package.json` — doc and test are coupled in both directions, and root-level turbo scripts break the second assertion | Medium | Medium | Update doc and test as one unit; decide deliberately whether RELEASE.md quotes app-scoped or root scripts, and make the test's assumption explicit rather than incidental |
 | The shared eslint/tsconfig packages turn out near-empty, adding indirection for no benefit | Medium | Low | Resolve Open Question 1 with the architect before building them; prefer a thin, honest base over a contrived one |
 | `expo start` becomes unusable multiplexed under `turbo run dev` | Medium | Low | Verify interactively; if degraded, document per-app scripts as the path for interactive Expo work while `pnpm dev` still satisfies the both-apps criterion |
-| 9 open Dependabot PRs against `/backend` all conflict | High | Low | Update `.github/dependabot.yml` to `/apps/backend`; close the stale PRs and let Dependabot recreate them |
+| 9 open Dependabot PRs against `/backend` all conflict | High | Low | Update `.github/dependabot.yml` to `/apps/api`; close the stale PRs and let Dependabot recreate them |
 | Rename detection fails, losing blame/history on a moved file | Low | Medium | Git records no rename — it infers one at diff time from content similarity, so moving and path-fixing a file in the *same* commit is safe as long as similarity stays above threshold, which it does for edits this small. Do **not** split move from path-fix into separate commits: a move-only commit would leave path consumers broken and unbuildable. Verify with `git log --follow` and `git show -M --stat` on the moved files instead |
+| The `ansari-backend` → `ansari-api` package rename is missed in one `--filter` call site, so a task silently no-ops instead of failing | Medium | High | `turbo run` errors on an unmatched `--filter`, unlike some pnpm paths; additionally grep for the old package name repo-wide as part of the "no stale path survives" scan, and confirm every CI job reports the tasks it is supposed to run rather than zero |
 | Lockfile churn from adding Turborepo and three new workspace packages masks an unintended dependency change | Low | Medium | Review the `pnpm-lock.yaml` diff for entries unrelated to turbo and the new packages |
 | Build/cache artifacts (`.turbo/`) get committed | Low | Low | Add `.turbo` to `.gitignore` and `.dockerignore` alongside the existing `.next` / `dist` entries |
 
