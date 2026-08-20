@@ -1,13 +1,14 @@
-# Railway config for this service, kept in version control.
+# Railway settings for this service, kept in version control.
 #
-# REFERENCE ONLY unless the service is explicitly pointed at this file. Railway
-# resolves a config file relative to the service's Root Directory, which is the
-# REPO ROOT here (the pnpm workspace needs the root lockfile) — so this file, one
-# level down, is not picked up automatically. The dashboard settings are
-# authoritative; see the "Railway service configuration" block in RELEASE.md.
+# NOT READ BY RAILWAY IN THIS PROJECT (confirmed by the operator, 2026-08-21).
+# Deployment is configured in the Railway dashboard using a Dockerfile path:
+#   apps/frontend/Dockerfile.web
+# Railway does support a config-as-code path setting, so a future maintainer could
+# switch to it — this project does not. The dashboard is the live configuration;
+# this file is the reviewable record of what it should contain.
 #
-# Keep this in sync when you change the dashboard, so the intended configuration
-# stays reviewable in git.
+# Keep the two in sync: if you change a dashboard setting, update this file in the
+# same PR. See the "Railway service configuration" block in RELEASE.md.
 
 [build]
 builder = "dockerfile"

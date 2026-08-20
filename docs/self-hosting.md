@@ -142,11 +142,10 @@ For a Railway deploy from this monorepo, configure the service in the dashboard:
   copied into the image, so omitting it means a packages-only change ships nothing:
   no rebuild, no deploy, and no error.
 
-`apps/api/railway.toml` records these same values in version control, but Railway
-resolves a config file relative to the service root directory — the repo root here —
-so a file one level down is not picked up automatically. Treat the dashboard as
-authoritative and the toml as the reviewable record. RELEASE.md carries the full
-per-service table.
+`apps/api/railway.toml` records these same values in version control but is **not read
+by Railway in this deployment** — the dashboard settings above are the live
+configuration. (Railway does support a config-as-code path setting; this project does
+not use it.) RELEASE.md carries the full per-service table.
 
 Because `/api/health` now returns 503 when the database is unreachable, it is a real
 deploy gate: a deploy with a broken or unset `DATABASE_URL` will fail its healthcheck

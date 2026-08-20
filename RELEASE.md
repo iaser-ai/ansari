@@ -54,11 +54,12 @@ migration runbook were both proven in real releases on 2026-08-02.
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
 > healthcheck `/`; restart ON_FAILURE, max 3 retries.
 >
-> The `apps/*/railway.toml` files record these same values in version control. They
-> are **reference only** unless the service is explicitly pointed at them: Railway
-> resolves a config file relative to the service Root Directory, and these live one
-> level down. The dashboard is authoritative — when you change a setting there,
-> update the toml in the same PR so the two do not drift.
+> **`apps/*/railway.toml` are not read by Railway here.** This project configures
+> deployment through the dashboard with a Dockerfile path (confirmed by the operator,
+> 2026-08-21). Railway does support a config-as-code path setting; this project does
+> not use it. The tomls record the same values in git so the intended configuration
+> stays reviewable — update them in the same PR whenever you change a dashboard
+> setting, or the record drifts from reality.
 
 - **`main`** is the production branch. The Railway service `backend` (a name in the
   Railway dashboard — unrelated to the `apps/api/` directory, and not stale)
