@@ -390,3 +390,58 @@ Other six:
 7. **Phase 6 now compares against `develop`, not just adjacent phases.** Adjacent-phase
    diffs can each be clean while drift accumulates across Phases 3–5. Only the end-to-end
    comparison satisfies the spec's behaviour-preservation criterion.
+
+## 2026-08-20 — Claude plan review: the CI-breaking env omission
+
+Claude REQUEST_CHANGES. **Most serious finding of the project so far**, and it verified the
+whole chain against the tree rather than reasoning from the plan's own text:
+
+`turbo.json` declared **no `env` at all**. `apps/api/lib/config.ts` `getEnv()` does
+`envSchema.safeParse(process.env)`; the schema hard-requires DATABASE_URL, JWT_SECRET,
+KALEMAT_API_KEY, USUL_API_TOKEN. CI injects `.env.ci` via `>> "$GITHUB_ENV"` — as **process
+env**, not a `.env` file Next would load. Turbo 2.x defaults to **strict env mode**, where
+task children see only declared vars. So Phase 2 moving CI onto `turbo run` would have
+filtered them out and failed the Zod parse — breaking Phase 2's own "CI green" criterion.
+
+I verified each link myself before accepting. All confirmed.
+
+Fixed with per-task `env` **derived from the Zod schema, not hand-guessed**, `.env.ci` in
+`inputs`, and — the part that matters — an acceptance check that supplies the values **as
+process env**, reproducing CI's mechanism. Running the same tasks via `pnpm --filter` would
+pass regardless and prove nothing, which is exactly how this would have escaped.
+
+Accepted separately (not folded in) the **cache-correctness** half: undeclared env is
+excluded from the task hash, and `Dockerfile.web` bakes `EXPO_PUBLIC_*` into the bundle at
+export time — so a cached frontend build restored under a different API URL ships wrong
+config **while reporting a cache hit**. True regardless of what the strict-mode default is,
+so it deserves its own fix and its own check.
+
+Other findings, all accepted:
+
+- **`interactive: true` exists on Turbo 2.x `dev` tasks** for stdin-needing tasks. My plan
+  went straight to "document the Expo TUI caveat" — pre-accepting a workaround without
+  trying the mechanism built to prevent the problem. Fair hit on the plan's posture.
+- **`.dockerignore` needs `**/.turbo`**, not `.turbo` — that file uses `**/.next` style, and
+  a bare entry matches only the repo root, leaving `apps/*/.turbo` in both build contexts.
+  Root `.gitignore` keeps the bare form, which is correct since git matches at any depth.
+- **Two live path consumers I missed**: `scripts/grant-admin.ts:8` ("Usage (from backend/)"
+  — a *live production runbook* instruction) and `codev/resources/arch.md:11`. The second is
+  the important one: arch.md is a **living** governance doc, not one of the historical
+  records the spec exempts. Phase 6's exclusion list now names `codev/resources/**` as
+  explicitly NOT exempt, inline where the sweep is defined — an exclusion reading "codev/"
+  would have waved the real drift straight through.
+- Both `railway.toml` **header comments** name the dashboard config path — the exact string
+  an operator pastes into Railway.
+- `packages/tsconfig` `exports` must omit or include `./base.json`, or the extends chain
+  silently breaks.
+- Enumerate intentional test-title renames in the PR, since the baseline is a name set.
+
+RELEASE.md scoping was already fixed from codex's round — claude reviewed a pre-fix
+snapshot. Both reviewers found it independently and both agreed app-scoped is right.
+
+**Pattern across this whole project worth naming:** nearly every serious defect found has
+the same shape — *it looks like passing*. Unresolved eslint config reports nothing. Warm
+cache skips codegen with nothing to restore. Cached build ships wrong baked env. Filter that
+matches no package. watchPatterns glob that matches nothing. Undercounted test glob. That is
+the failure mode this codebase's tooling produces, and it is why so many acceptance criteria
+here are phrased as "assert against the tree" rather than "confirm it passes".

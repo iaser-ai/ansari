@@ -133,6 +133,19 @@ packages: it is a pure relocation, verifiable entirely on its own.
 - `apps/api/README.md`, `apps/api/AGENTS.md`, `apps/api/CLAUDE.md` (note `cd ..` →
   `cd ../..` in the install snippets), `apps/frontend/README.md` (its `../backend/` links).
 
+**Path consumers that are easy to miss — explicitly in scope:**
+- `apps/api/scripts/grant-admin.ts` line ~8 — the header comment reads
+  `Usage (from backend/):`. It is the instruction an operator follows during the admin
+  bootstrap step of a release, so a stale path here misdirects a live production runbook.
+- `codev/resources/arch.md` line ~11 — references `backend/lib/auth/` and
+  `backend/lib/db/users.ts`. **This is a living architecture document, NOT one of the
+  deliberately-historical records the spec exempts** (`codev/specs`, `codev/plans`,
+  `codev/reviews`, `codev/projects`, `codev/state`). It must be updated.
+- **Both `railway.toml` header comments.** Each says: point the service's "config file path"
+  at `backend/railway.toml` / `frontend/railway.toml`. That exact string is what an operator
+  pastes into the Railway dashboard, so it is the single most consequential comment in
+  either file — update it precisely, not approximately.
+
 #### Deliverables
 
 - [ ] Both apps moved with `git mv`; `ansari-backend` renamed to `ansari-api`.
@@ -164,6 +177,11 @@ packages: it is a pure relocation, verifiable entirely on its own.
   that emits test names, and save the list. Every later comparison is against this file.
   A count is explicitly not sufficient — it cannot distinguish a renamed test from one that
   stopped being collected.
+- **Intentional title renames get enumerated in the PR description.** This phase legitimately
+  renames at least one test title — `'only references package scripts that exist in
+  backend/package.json'` becomes `apps/api/package.json`. Because the baseline is a test-*name*
+  set, such renames show up as one removal plus one addition. List them up front, or the diff
+  invites exactly the hand-waving the baseline exists to prevent.
 - **Negative check on `release-doc.test.ts` (required).** Temporarily rename
   `apps/api/railway.toml`; the test **must fail**. Restore.
 - **Negative check on `self-hosting-docs.test.ts` (required).** Temporarily remove a
@@ -204,7 +222,27 @@ including `pnpm dev` bringing up **both** apps.
   - `test:coverage` — `outputs: ["coverage/**"]`. Required because **CI runs
     `test:coverage`, not `test`**; without it CI must bypass Turbo.
   - `lint` — no outputs.
-  - `dev` — `cache: false`, `persistent: true`.
+  - `dev` — `cache: false`, `persistent: true`, **and `interactive: true`** (see below).
+  - **`env` declarations — REQUIRED, and their absence would break CI.**
+    `apps/api/lib/config.ts` calls `envSchema.safeParse(process.env)` inside `getEnv()`,
+    and CI injects `apps/api/.env.ci` into the **process environment** via
+    `>> "$GITHUB_ENV"` — not as a `.env` file Next would load itself. Turborepo 2.x
+    defaults to **strict env mode**: a task's child process sees only variables declared in
+    `env` / `globalEnv` / `passThroughEnv` plus a small builtin allowlist. Move CI onto
+    `turbo run ... --filter ansari-api` without declaring env and the Zod parse fails,
+    breaking this phase's own "CI green" criterion.
+    - api `build`, `test`, `test:coverage`, `typecheck` — declare at minimum the schema's
+      hard-required vars (`DATABASE_URL`, `JWT_SECRET`, `KALEMAT_API_KEY`,
+      `USUL_API_TOKEN`) plus the optional ones `.env.ci` actually supplies. Derive the list
+      from the Zod schema in `lib/config.ts`; do not hand-guess it.
+    - frontend `build` / `build:web` — declare `EXPO_PUBLIC_*`.
+    - api `build` and `test:coverage` — add `apps/api/.env.ci` to `inputs`, so editing the
+      dummy env busts the cache.
+    **This is a cache-correctness bug independently of the strict-mode default.** Undeclared
+    env is excluded from the task hash, and `Dockerfile.web` bakes `EXPO_PUBLIC_*` into the
+    bundle at export time — so a cached frontend `build` restored under a different
+    `EXPO_PUBLIC_API_V2_URL` would ship wrong configuration while reporting a cache hit.
+    Declaring `env` is required whether or not strict mode is the active default.
 - `package.json` (root) — add `turbo` to `devDependencies`; convert `dev`, `lint`,
   `typecheck`, `test`, `build` to `turbo run <task>`. Keep the `api` / `frontend`
   convenience aliases (architect decision) for scripts Turbo does not model
@@ -224,7 +262,10 @@ including `pnpm dev` bringing up **both** apps.
   reach it — Phase 5 adds its explicit coverage. The frontend job gains a **`build`** step.
   Update the existing comment that explicitly says the typecheck step relies on the `&&` —
   it must not be silently invalidated.
-- `.gitignore` and `.dockerignore` — add `.turbo`.
+- `.gitignore` — add `.turbo` (git matches at any depth, so the bare entry is correct here).
+- `.dockerignore` — add **`**/.turbo`**, matching the file's existing `**/.next`, `**/dist`,
+  `**/coverage` style. A bare `.turbo` matches only the repo root and would leave
+  `apps/api/.turbo` and `apps/frontend/.turbo` in both build contexts.
 - `CONTRIBUTING.md`, `README.md`, `docs/self-hosting.md`, `apps/api/README.md`,
   `apps/api/AGENTS.md`, `apps/api/CLAUDE.md`, `apps/frontend/README.md` — command blocks
   rewritten for the root `turbo` scripts.
@@ -268,9 +309,13 @@ including `pnpm dev` bringing up **both** apps.
       *Turbo multiplexes child stdio, and an Expo TUI that has lost keypress handling still
       looks like a perfectly healthy running process. Do not infer this from the process
       starting.*
-- [ ] If TUI interactivity is degraded, that is an acceptable outcome **only if** the caveat
-      is written into `CONTRIBUTING.md` pointing at the per-app scripts for interactive Expo
-      work. Undocumented degradation fails this phase.
+- [ ] **Before accepting any degradation, try Turborepo 2.x's `interactive: true`** task
+      option on `dev` — it exists precisely for tasks that need stdin, and the plan must not
+      pre-accept a documented workaround without first using the mechanism built to prevent
+      the problem. Documenting the caveat is the **fallback**, not the first stop.
+- [ ] If TUI interactivity is still degraded with `interactive: true` set, that is an
+      acceptable outcome **only if** the caveat is written into `CONTRIBUTING.md` pointing at
+      the per-app scripts for interactive Expo work. Undocumented degradation fails this phase.
 - [ ] `.turbo` is ignored by git and Docker.
 
 #### Test Plan
@@ -306,6 +351,9 @@ Create `@ansari/tsconfig` as the shared TypeScript base and rewire both apps ont
   It ships **only JSON** and deliberately has **no `lint` / `typecheck` scripts** — there is
   nothing to compile or lint. Turbo simply skips packages that do not define a task, so this
   is correct rather than a gap; do not add empty scripts to make it "appear" in task output.
+  **Either omit `exports` entirely or explicitly export `./base.json`.** TypeScript resolves
+  `extends: "@ansari/tsconfig/base.json"` through node resolution, so an `exports` map that
+  lacks that entry silently breaks the extends chain.
 - `packages/tsconfig/base.json` (**new**) — only what the apps genuinely share:
   `strict`, `skipLibCheck`, `esModuleInterop`, `isolatedModules`, `resolveJsonModule`.
   Deliberately thin (spec decision, confirmed at the gate).
@@ -504,8 +552,11 @@ dominant risk in this change is a *silent* wrong-path failure, and the sweep is 
 
 - [ ] **No stale path survives.** Repo-wide search for top-level `backend/` / `frontend/`
       paths and the `ansari-backend` package name returns only deliberately historical
-      records (`codev/specs`, `codev/plans`, `codev/reviews`, `codev/projects`,
-      `codev/state`, `.gitleaksignore` fingerprints).
+      records: `codev/specs`, `codev/plans`, `codev/reviews`, `codev/projects`,
+      `codev/state`, and `.gitleaksignore` fingerprints.
+      **`codev/resources/**` is explicitly NOT exempt** — `arch.md` and the other governance
+      docs are living documents that must be updated. Stating this inline matters: an
+      exclusion list that reads "`codev/`" would wave the real drift straight through.
 - [ ] Both Docker builds succeed from the repo root.
 - [ ] Both `railway.toml` name a `dockerfilePath` that exists, and every `watchPatterns` glob
       matches at least one real path — **asserted against the tree, not read**.

@@ -1,0 +1,51 @@
+I'll verify the plan against the actual repository state before judging it.I verified the plan against the actual tree at `.builders/spir-48` — reading both Dockerfiles, both `railway.toml`, `ci.yml`, `dependabot.yml`, both eslint configs and tsconfigs, both doc-consistency tests, `lib/config.ts`, and the `.gitignore`/`.dockerignore` pair.
+
+## What holds up
+
+The plan is unusually good on the traps that matter. Three specific calls are correct and non-obvious:
+
+- **`COPY packages packages` (not just `packages/*/package.json`)** in Phase 3 — confirmed necessary: `apps/api/tsconfig.json` extending a shared base means `next build` needs package *contents*, and the manifest-only fix produces exactly the "install succeeds, build fails later" failure the plan describes.
+- **Keeping `build:web`'s `&&` chain.** Verified: `frontend/Dockerfile.web` runs `pnpm install --frozen-lockfile --filter ansari-frontend` then `pnpm --filter ansari-frontend run build:web` directly. No turbo in that image. Removing the chain breaks the image.
+- **`gen:types` needing declared `outputs`.** Verified `frontend/.gitignore` line 15 ignores `uniwind-types.d.ts`, so the warm-cache-restore concern is real, not theoretical.
+
+Phase 1 being indivisible, and Phase 2 rewriting docs a second time, are both correctly reasoned.
+
+## Where it breaks
+
+**1. `turbo.json` has no env configuration at all — this will fail Phase 2's own "CI green" criterion.**
+
+`backend/lib/config.ts:83` does `envSchema.safeParse(process.env)` at import time. `backend/.env.ci` supplies `DATABASE_URL`, `JWT_SECRET`, `KALEMAT_API_KEY`, `USUL_API_TOKEN`, `GEMINI_API_KEY`, and CI injects them via `grep -v '^#' backend/.env.ci >> "$GITHUB_ENV"` — i.e. as *process env*, not as a `.env` file Next would load itself. Turborepo 2.x defaults to **strict** env mode: task children see only vars declared in `env`/`globalEnv`/`passThroughEnv` plus a small builtin allowlist. Phase 2 moves CI onto `turbo run typecheck test:coverage build --filter ansari-api`, so those five vars get filtered out and the Zod parse fails.
+
+Independently of the strict-mode default, there is a **cache-correctness** bug: with no `env` declared, env vars are not in the task hash. `Dockerfile.web` bakes `EXPO_PUBLIC_*` into the bundle at export time, and Phase 2 adds a frontend `build` to CI — a cached `build` restored under different `EXPO_PUBLIC_API_V2_URL` ships wrong config. Declaring `env` is required whether or not I'm right about the default.
+
+Fix: per-task `env` (api: the five above; frontend: `EXPO_PUBLIC_*`), plus `.env.ci` in the api `build`/`test:coverage` `inputs` so editing it busts the cache. Add an acceptance check — change an env value, confirm the task re-runs instead of hitting cache.
+
+**2. Phase 2 pre-accepts Expo TUI degradation without trying the mechanism built to prevent it.** Turborepo 2.x has an `interactive: true` task option specifically for tasks needing stdin. The plan's `dev` task is `cache: false, persistent: true` only. Try `interactive: true` first; the "document the caveat in CONTRIBUTING.md" fallback should be the fallback, not the first stop.
+
+**3. `.dockerignore` needs `**/.turbo`, not `.turbo`.** That file uses `**/.next`, `**/dist`, `**/coverage` — bare `.turbo` matches only the repo root, leaving `apps/api/.turbo` in every build context. (Root `.gitignore` `.turbo` is fine; git matches at any depth.)
+
+**4. Two live path consumers are missing from Phase 1's inventory:**
+- `backend/scripts/grant-admin.ts:8` — `* Usage (from backend/):`
+- `codev/resources/arch.md:11` — references `backend/lib/auth/` and `backend/lib/db/users.ts`. This is a **living** architecture doc, not one of the deliberately-historical records the spec exempts (`specs`, `plans`, `reviews`, `projects`, `state`). Phase 6's exclusion list should say `codev/resources/**` is explicitly *not* exempt, or the sweep will get waved through.
+
+Also: both `railway.toml` files carry header comments naming the config-file path ("point the service's config file path at `backend/railway.toml`") — that string is what an operator pastes into the Railway dashboard, so it's the one comment worth updating precisely.
+
+**5. RELEASE.md's script coupling is decided by omission.** `release-doc.test.ts` asserts every `pnpm <script>` in RELEASE.md exists in the api `package.json`. Phase 2 omits RELEASE.md from its doc-rewrite list, which silently decides RELEASE.md stays app-scoped. That's the right call — but the spec asked for it to be explicit ("make the test's assumption explicit rather than incidental"). One sentence in Phase 2 saying RELEASE.md deliberately stays app-scoped, and why, closes it.
+
+## Two smaller notes
+
+- `packages/tsconfig/package.json` must either omit `exports` entirely or export `./base.json` — TS resolves `extends: "@ansari/tsconfig/base.json"` through node resolution and an `exports` map without that entry silently breaks it.
+- Phase 1 will legitimately rename test titles (`'only references package scripts that exist in backend/package.json'`). Since the baseline is a test-*name* set, say up front that intentional title renames get enumerated in the PR, otherwise the diff invites hand-waving.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong plan with the hard Docker/codegen traps correctly identified, but turbo.json omits env declaration entirely, which will break CI's api build and makes the frontend build cache incorrect.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `turbo.json` declares no `env`/`globalEnv`/`passThroughEnv`. `lib/config.ts:83` Zod-parses `process.env` at import; CI injects `.env.ci`'s five vars via `$GITHUB_ENV`. Under Turbo 2.x strict env mode these are filtered out and `turbo run build --filter ansari-api` fails. Separately, undeclared env is excluded from the cache hash, so a cached frontend `build` can ship wrong baked `EXPO_PUBLIC_*` values. Add per-task `env`, put `.env.ci` in the api build's `inputs`, and add a "change an env var → task re-runs" cache check.
+- Phase 2 accepts degraded Expo TUI as a documented outcome without trying Turborepo 2.x's `interactive: true` task option, which exists for exactly this.
+- `.dockerignore` entry must be `**/.turbo` to match the file's existing `**/.next` / `**/dist` style; bare `.turbo` leaves `apps/*/.turbo` in both build contexts.
+- Phase 1 inventory misses `backend/scripts/grant-admin.ts:8` and `codev/resources/arch.md:11`; Phase 6's exclusion list must state that `codev/resources/**` is a living doc and not exempt. Both `railway.toml` header comments naming the dashboard config path also need updating.
+- Phase 2 omits RELEASE.md from the doc rewrite, implicitly deciding it stays app-scoped. The spec required that decision be explicit given `release-doc.test.ts` asserts every referenced `pnpm <script>` exists in the api manifest.
