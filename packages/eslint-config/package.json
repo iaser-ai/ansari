@@ -1,0 +1,17 @@
+{
+  "name": "@ansari/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared ESLint flat-config base for the Ansari monorepo.",
+  "exports": {
+    "./base": "./base.js"
+  },
+  "files": ["base.js"],
+  "peerDependencies": {
+    "eslint": ">=9"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5"
+  }
+}

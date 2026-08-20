@@ -66,6 +66,9 @@ importers:
         specifier: ^4.3.5
         version: 4.4.3
     devDependencies:
+      '@ansari/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
       '@ansari/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
@@ -202,6 +205,9 @@ importers:
         specifier: ^1.10.0
         version: 1.10.1(@expo/metro-config@57.0.7(expo@57.0.11)(typescript@6.0.3))(metro-cache@0.84.4)(metro-transform-worker@0.84.4)(metro@0.84.4)(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.86.2(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(tailwindcss@4.3.3)
     devDependencies:
+      '@ansari/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
       '@ansari/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
@@ -220,6 +226,12 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
+
+  packages/eslint-config:
+    devDependencies:
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
 
   packages/tsconfig: {}
 

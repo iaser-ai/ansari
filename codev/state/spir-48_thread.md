@@ -1126,3 +1126,41 @@ modes, reachability. Each was plausible and each was wrong. Comments deserve the
 run the thing and read the output before writing the sentence.
 
 Suite still 66 files / 623 passed; `pnpm build` twice → FULL TURBO.
+
+## 2026-08-21 — Phase 4: shared eslint config
+
+`@ansari/eslint-config` created, both apps consuming it, violation sets provably unchanged.
+
+**Behaviour preservation, with non-zero denominators** (an empty-to-empty diff proves
+nothing, so the file counts matter as much as the violation counts):
+
+| app | linted files | violations | set identical |
+|---|---|---|---|
+| api | 77 → 77 | 7 → 7 | YES |
+| frontend | 6 → 6 | 0 → 0 | YES |
+
+**The env guard is intact and stays in the api.** `eslint-env-guard.test.ts`: 9/9 passing.
+It lints virtual files through the *real composed* config, so it proves the guard survived
+being layered on top of a shared base. The package README states why it is not shared:
+its allowlist names backend-relative paths (`lib/config.ts`, `drizzle.config.ts`) that mean
+nothing in an Expo app — security rules belong where their allowlist is meaningful.
+
+**The CJS→ESM conversion had a real cost, and it failed loudly.**
+`eslint-config-expo/flat` is a DIRECTORY. CommonJS `require()` resolves it via index.js;
+ESM `import` does not — `ERR_UNSUPPORTED_DIR_IMPORT`. Fixed with an explicit
+`eslint-config-expo/flat.js` and a comment recording why. Worth noting this is the *good*
+failure mode: a hard error, not a config that silently resolves to zero rules.
+
+**Guarded against the silent-zero case anyway.** Wrote a throwaway probe file with an unused
+variable, confirmed the frontend config reports it, then deleted the probe. That is the
+check that distinguishes "config is clean" from "config isn't running" — the two look
+identical in a violation diff.
+
+### Phase 3 review (landed mid-phase-4)
+gemini APPROVE. codex REQUEST_CHANGES — but both points were requests for *evidence* rather
+than defects: record the frontend image rebuild and the frozen-lockfile re-run. I had done
+both and simply not recorded the output, which is a fair hit: "I did it" is not evidence.
+Re-ran `pnpm install --frozen-lockfile` (clean, lockfile up to date) and surfaced the
+phase-3 frontend build log lines (`COPY packages packages` → frozen install → `Exported:
+dist` → `FRONTEND_EXIT=0`). Both images are rebuilding again now against the phase-4 tree,
+which covers both phases at once.

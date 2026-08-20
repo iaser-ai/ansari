@@ -1,6 +1,7 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { FlatCompat } from '@eslint/eslintrc';
+import ansari from '@ansari/eslint-config/base';
 
 // ESLint 9 flat config for Next 15. eslint-config-next ships legacy (eslintrc)
 // shareable configs, so we bridge them into flat config via FlatCompat — the
@@ -13,6 +14,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  // Shared build-output/node_modules ignores. The app-specific ignores below
+  // (next-env.d.ts, tests/**) stay here — they are not shared.
+  ...ansari,
   {
     // Not linted: build output, deps, coverage reports, and the Vitest suite
     // (tests/** is likewise excluded from typecheck in tsconfig.json — kept
