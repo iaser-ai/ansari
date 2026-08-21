@@ -50,3 +50,24 @@ inert. Proven, not assumed:
   The "test" is the before/after task-scope verification above.
 - Scope: well under 300 LOC of authored change (README + small config edits); the rest is a
   verbatim reference copy.
+
+## Post-PR: made it boot & run standalone (at human's direction)
+
+After the initial reference import, the human asked to actually run the prototype. All
+config-only, no code/endpoint porting; PR stays a clean reference import and the workspace
+stays inert (lockfile byte-identical, turbo scope 5 throughout):
+
+- Added minimal `start: expo start` script.
+- `expo start` crashed the web bundle: `Cannot find module 'babel-preset-expo'`. The source
+  relied on the Replit monorepo hoisting that preset; a standalone install nests it under
+  `node_modules/expo/` where `babel.config.js` can't resolve it. Fixed by declaring
+  `babel-preset-expo ~54.0.12` as an explicit top-level devDependency (Expo's recommended fix).
+  Web bundle then built — 1464 modules exported.
+- Then API calls hit `https://undefined/api/...`: `app/_layout.tsx:34` builds the base URL from
+  `EXPO_PUBLIC_DOMAIN`, which was unset. Human created a gitignored `.env.local` with
+  `EXPO_PUBLIC_DOMAIN=<their live Replit backend>` — the prototype's ORIGINAL backend, not this
+  repo's API. Prototype is now functional against that backend.
+- Added `.gitignore` for standalone-run artifacts (`node_modules/`, lockfiles, `.expo/`) and
+  `.env*.local` so per-machine state / the personal backend URL never get committed.
+- NOT done (still out of #57 scope): endpoint adapters onto this repo's `/api/v2/threads` API.
+  Flagged to the architect.
