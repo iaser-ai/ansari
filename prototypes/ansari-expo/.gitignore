@@ -1,0 +1,14 @@
+# Artifacts from running this reference standalone (see README).
+# These are per-machine and must never be committed — the prototype is
+# reference-only and is NOT part of the repo's pnpm workspace or lockfile.
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# NOTE: expo-env.d.ts is intentionally NOT ignored here — it is a tracked
+# reference file (Expo's own template would ignore it).

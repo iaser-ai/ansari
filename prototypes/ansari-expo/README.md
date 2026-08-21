@@ -27,7 +27,13 @@ frontend in `apps/frontend`.
   ```
 
   This renders the UI shell only. The data layer will not work — see the API gap in section 3.
-  Running it does **not** enroll it in the workspace; that isolated `node_modules` is untracked.
+  Running it does **not** enroll it in the workspace; the isolated `node_modules`, any lockfile
+  it writes, and `.expo/` are gitignored here so they never get committed.
+
+  `babel-preset-expo` is listed as an explicit devDependency purely so this standalone install
+  works: the source relied on the Replit monorepo hoisting it to the top level, but a
+  single-package install nests it under `node_modules/expo/` where `babel.config.js` can't
+  resolve it. Declaring it top-level is the fix Expo's own error message recommends.
 
 ## 2. Source + SHA
 
