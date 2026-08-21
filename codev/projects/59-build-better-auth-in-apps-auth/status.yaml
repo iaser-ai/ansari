@@ -1,7 +1,7 @@
 id: '59'
 title: build-better-auth-in-apps-auth
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-21T01:06:14.771Z'
-updated_at: '2026-08-21T02:23:54.093Z'
+updated_at: '2026-08-21T02:23:55.990Z'
 pr_history:
   - phase: review
     pr_number: 61
