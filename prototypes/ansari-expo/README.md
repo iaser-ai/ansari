@@ -12,11 +12,22 @@ frontend in `apps/frontend`.
 - **Do not** move it under `apps/`, add it to `pnpm-workspace.yaml`, or wire it into CI or the
   task graph. Doing so enrolls it in every workspace task and breaks the build — it targets a
   different toolchain (see below) and a different backend.
-- The `package.json` here is kept only so a reader can see the prototype's dependency list. Its
+- The `package.json` here is kept so a reader can see the prototype's dependency list. Its
   `catalog:` and `workspace:*` specifiers (which pointed at the source repo's pnpm catalog and
   sibling packages) have been resolved to concrete versions so nothing here is misleading. Its
   Replit-specific `dev`/`build`/`serve` scripts and the `server/` + `scripts/` deploy scaffolding
   they invoked have been dropped — they taught us nothing about the frontend.
+- A minimal `start` script (`expo start`) is kept for convenience if you want to boot the UI
+  **standalone**, outside this repo's workspace:
+
+  ```bash
+  cd prototypes/ansari-expo
+  pnpm install          # creates an isolated node_modules HERE (not the workspace's)
+  pnpm start            # expo start
+  ```
+
+  This renders the UI shell only. The data layer will not work — see the API gap in section 3.
+  Running it does **not** enroll it in the workspace; that isolated `node_modules` is untracked.
 
 ## 2. Source + SHA
 
