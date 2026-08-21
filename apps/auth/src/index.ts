@@ -6,7 +6,7 @@
 // existing route or table. Whether the end state keeps two services or folds
 // auth into apps/api is #60's call.
 import 'dotenv/config';
-import { createAuth } from '@ansari/auth';
+import { createAuth, getEnv } from '@ansari/auth';
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import cors from 'cors';
 import express from 'express';
@@ -20,10 +20,11 @@ const auth = createAuth();
 const app = express();
 
 // CORS must allow credentials so the browser stores/sends the session cookie.
-const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:3100';
+// Read CORS_ORIGIN through the validated env (one source of truth) — createAuth()
+// above already hard-failed if it were missing/invalid, so no fallback is needed.
 app.use(
   cors({
-    origin: corsOrigin,
+    origin: getEnv().CORS_ORIGIN,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -55,7 +56,13 @@ app.get('/api/me', async (req, res) => {
     return;
   }
 
-  res.status(200).json(sessionData);
+  // Return only the user (plus the session's expiry) — NOT the full session
+  // object, whose `token` is the raw session-cookie value. Echoing it into a
+  // JS-readable body would defeat the httpOnly cookie.
+  res.status(200).json({
+    user: sessionData.user,
+    session: { expiresAt: sessionData.session.expiresAt },
+  });
 });
 
 const port = Number(process.env.PORT ?? 3100);

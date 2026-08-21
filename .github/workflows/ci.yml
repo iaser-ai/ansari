@@ -159,15 +159,17 @@ jobs:
       - name: Typecheck
         run: pnpm exec turbo run typecheck --filter ansari-frontend...
 
-      # This step exists for @ansari/types specifically. It is the only package under
-      # packages/ that defines lint/typecheck scripts, so despite the `./packages/*`
-      # filter putting all three in scope, the tasks that RUN are its two — expect
-      # "3 packages in scope, 2 tasks".
+      # This step exists for @ansari/types specifically — the one package under
+      # packages/ with NO consumer, so it sits outside every app's dependency closure
+      # and no `--filter <app>...` can reach it. `./packages/*` now puts four packages
+      # in scope (eslint-config, tsconfig, types, auth); the tasks that RUN are the
+      # lint+typecheck of the two that define them — @ansari/types and @ansari/auth —
+      # so expect "4 packages in scope, 4 tasks".
       #
-      # It needs its own step because it has no consumer by design, so it sits outside
-      # every app's dependency closure and no `--filter <app>...` can reach it. The
-      # other two config packages need no step: they define no tasks, and the apps that
-      # consume them fail if they break.
+      # @ansari/auth is picked up here incidentally (lint+typecheck only); its test AND
+      # build coverage live in the dedicated `auth` job above via `ansari-auth...`. The
+      # two config packages (eslint-config, tsconfig) define no tasks and need no step:
+      # the apps that consume them fail if they break.
       #
       # Placed BEFORE the frontend build deliberately: steps are sequential and
       # fail-fast, so running it after `build` would mean a build failure silently

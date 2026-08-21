@@ -174,6 +174,30 @@ task you care about, not the package as a whole.
   a browser-like request. Worth knowing when wiring `apps/frontend` later (#60 scope).
 - **`.env.ci`** uses the `placeholder-not-a-real-*` convention from `apps/api/.env.ci` (gitleaks-safe).
 
+## 3-way consultation outcome (single advisory pass)
+
+All three reviewers returned **APPROVE / HIGH confidence** (gemini, codex, claude). No blocking
+findings. Claude raised four non-blocking nits (two of them doc-accuracy issues that this repo's
+own "fix docs everywhere" lesson mandates); I addressed all four proactively before the pr gate:
+
+1. **`/api/me` leaked the raw session token.** `res.json(sessionData)` echoed `session.token` — the
+   httpOnly cookie value — into a JS-readable body. Fixed: the route now returns
+   `{ user, session: { expiresAt } }`. Re-verified against real Postgres: `200`, no `token` in body.
+   (`apps/auth/src/index.ts`)
+2. **Stale `ci.yml` frontend-job comment.** It claimed `@ansari/types` was "the only package under
+   `packages/` that defines lint/typecheck" and "3 packages in scope, 2 tasks". `packages/auth` now
+   defines both → corrected to "4 packages in scope, 4 tasks", noting auth's test/build live in the
+   dedicated `auth` job.
+3. **Dead CORS fallback.** `process.env.CORS_ORIGIN ?? 'http://localhost:3100'` was unreachable
+   (`createAuth()` already hard-fails via `getEnv()` if it's missing). Now reads `getEnv().CORS_ORIGIN`
+   — one source of truth.
+4. **`globalDependencies` is global.** Added a line to the `turbo.json` comment noting the accepted
+   trade-off (an auth-src edit invalidates every task's cache repo-wide, same as `globalEnv`).
+
+Claude also independently reproduced the `globalDependencies` both-directions hash result and
+confirmed the lockfile is clean (the `apps/api` drizzle-orm key gained only a `(kysely@0.29.5)` peer
+suffix — same version 0.45.2). Full verdicts in `codev/projects/59-build-better-auth-in-apps-auth/`.
+
 ## How to Test Locally
 
 - **View diff**: VSCode sidebar → right-click builder `pir-59` → **Review Diff**
