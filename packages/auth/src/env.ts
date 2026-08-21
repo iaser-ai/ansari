@@ -34,7 +34,17 @@ export function getEnv(): AuthEnv {
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
-    throw new Error(`Environment validation failed:\n${result.error.toString()}`);
+    // Name the offending vars and point at the template — this fires when the
+    // auth service is started without its env (e.g. `pnpm auth dev` before
+    // copying apps/auth/.env.example → .env). apps/auth is deliberately NOT in
+    // the default `pnpm dev` graph, so this never breaks a fresh contributor's
+    // `pnpm dev`; it only surfaces when someone runs auth on purpose.
+    const vars = [...new Set(result.error.issues.map((i) => String(i.path[0])))].join(', ');
+    throw new Error(
+      `@ansari/auth env validation failed for: ${vars}. ` +
+        `Set these before running the auth service — see apps/auth/.env.example ` +
+        `(BETTER_AUTH_SECRET must be >= 32 chars; BETTER_AUTH_URL and CORS_ORIGIN must be URLs).`
+    );
   }
 
   cachedEnv = result.data;

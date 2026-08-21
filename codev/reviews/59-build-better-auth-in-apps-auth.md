@@ -204,6 +204,49 @@ Claude also independently reproduced the `globalDependencies` both-directions ha
 confirmed the lockfile is clean (the `apps/api` drizzle-orm key gained only a `(kysely@0.29.5)` peer
 suffix — same version 0.45.2). Full verdicts in `codev/projects/59-build-better-auth-in-apps-auth/`.
 
+## Architect REQUEST_CHANGES — resolution (iter 2)
+
+The architect's integration review (independently confirming two of codex's findings) returned
+REQUEST_CHANGES with three items. All three fixed and re-verified from a **clean environment**:
+
+**Blocker 1 — `pnpm dev` broke for a fresh contributor.** `apps/auth`'s `dev` script ran under the
+root `turbo run dev`, and `createAuth()`→`getEnv()` **throws** when the auth vars are absent —
+which they are for anyone following `CONTRIBUTING.md` (it only sets `apps/api` env). My original
+"`pnpm dev` still starts the existing apps" check passed only because my shell already had those
+vars — the project's signature failure shape (a check that passed because the tester's environment
+wasn't clean). **Reproduced** it first: `node apps/auth/dist/index.mjs` with the vars unset →
+`Environment validation failed`. **Fix:** `apps/auth` is now excluded from the default dev graph —
+root `dev` is `turbo run dev --ui=tui --filter=!ansari-auth`, with `pnpm auth <script>` and
+`pnpm dev:auth` shortcuts for running it deliberately (it needs a Postgres + migration + secrets, a
+deliberate setup step, so it does not belong in the zero-config loop). `getEnv()`'s error now names
+the missing vars and points at `.env.example`. **Re-verified from a shell with all three vars UNSET:**
+the `pnpm dev` graph schedules `ansari-api#dev` + `ansari-frontend#dev` and **not** `ansari-auth#dev`.
+Rationale for this approach over "boot inert / 503": auth genuinely can't run without external infra,
+so keeping fail-fast intact (loud, clear error when you *do* run auth) while removing it from the
+shared dev loop is cleaner than a perpetually-inert service cluttering the dev TUI.
+
+**Blocker 2 — wrong Expo scheme.** `packages/auth/src/index.ts` trusted `ansari://`, but
+`apps/frontend/app.json` declares `"scheme": "askansari"` — native requests carrying
+`expo-origin: askansari://…` would fail origin validation in production. **Fixed** to `askansari://`.
+**Coverage** (`tests/auth.http.test.ts`): asserts the resolved `auth.options.trustedOrigins` contains
+`askansari://` and **not** `ansari://` — negative-tested (reverting the scheme fails the test).
+Honesty note: I probed better-auth 1.6.27 and it does **not** emit a discriminating 4xx for an
+untrusted *custom scheme* in process (sign-in/out with `askbad://` still return 200), so an
+HTTP-level "expect 403" test would have no teeth; the config-level assertion is the deterministic
+guard. The HTTP tests still exercise the real `auth.handler` path with `Origin` headers.
+
+**Finding 3 — Secure cookie over an http trusted origin.** `defaultCookieAttributes` hardcoded
+`secure: true, sameSite: 'none'`, which contradicts the `http://localhost:8081` trusted origin: a
+browser silently discards a `Secure` cookie over plain HTTP, so local web login fails with no error.
+**Fixed:** cookie attributes now track the transport — `secure` iff `BETTER_AUTH_URL` is https, and
+`sameSite` is `'none'` only when secure (the cookie spec requires Secure with SameSite=None), else
+`'lax'`. Commented with the reason. **Coverage:** HTTP-level tests assert a non-Secure/SameSite=Lax
+cookie over an http baseURL and a Secure/SameSite=None cookie over an https baseURL — both
+negative-tested (reverting to the hardcoded values fails the http case).
+
+New test count: `@ansari/auth` now has **8** tests (4 API-level integration + 4 HTTP-level). Full
+suite still green; `apps/api` 623 pass / 3 pre-existing skips, unchanged.
+
 ## How to Test Locally
 
 - **View diff**: VSCode sidebar → right-click builder `pir-59` → **Review Diff**
@@ -212,7 +255,8 @@ suffix — same version 0.45.2). Full verdicts in `codev/projects/59-build-bette
   1. `docker run -d -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ansari_auth_dev -p 55432:5432 postgres:16`
   2. `cp packages/auth/.env.example packages/auth/.env` and point `DATABASE_URL` at `:55432`
   3. `pnpm --filter @ansari/auth db:migrate` (creates the 4 tables)
-  4. `cp apps/auth/.env.example apps/auth/.env` (same DB URL), then `pnpm --filter ansari-auth dev`
+  4. `cp apps/auth/.env.example apps/auth/.env` (same DB URL), then `pnpm dev:auth` (or `pnpm auth dev`)
+     — `apps/auth` is intentionally NOT part of `pnpm dev`; run it explicitly
   5. `curl` the sign-up → sign-in → `/api/me` → sign-out path (send `-H "Origin: http://localhost:3100"` on POSTs)
 - **Automated**: `pnpm --filter @ansari/auth test` (pglite, no Docker needed)
 

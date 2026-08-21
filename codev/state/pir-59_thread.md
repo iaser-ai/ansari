@@ -97,6 +97,30 @@ package hashes → busts on auth edits on its own). Proved both directions per t
 in turbo.json corrected to say exactly this. @ansari/auth's own lint/typecheck/test run on
 its own files regardless.
 
+### REVIEW phase — PR #61, consultation + architect REQUEST_CHANGES (iter 2)
+
+3-way consultation: gemini APPROVE, codex REQUEST_CHANGES, claude APPROVE (all after I fixed a
+gitleaks CI failure — the fake BETTER_AUTH_SECRET test fixture tripped generic-api-key; allowlisted
+the literal in .gitleaks.toml, verified `gitleaks detect` → no leaks over full history). Addressed
+claude's 4 non-blocking nits proactively.
+
+Architect then returned **REQUEST_CHANGES** (confirmed 2 of codex's findings independently). Fixed all 3:
+1. **`pnpm dev` broke in a clean env** — apps/auth's dev script ran under `turbo run dev` and
+   getEnv() throws without auth env (a fresh contributor per CONTRIBUTING only sets apps/api env).
+   My "pnpm dev green" earlier passed only because my shell had the vars — the signature failure.
+   Reproduced (node dist, vars unset → crash). Fix: excluded apps/auth from default dev
+   (`--filter=!ansari-auth`), added `pnpm auth`/`pnpm dev:auth` shortcuts, clearer getEnv error.
+   Re-verified from a shell with all 3 vars UNSET → ansari-auth#dev not scheduled.
+2. **Wrong Expo scheme** — trusted `ansari://` but app.json scheme is `askansari`. Fixed →
+   `askansari://`. Coverage: assert auth.options.trustedOrigins ∋ askansari:// ∌ ansari://
+   (negative-tested — reverting fails it). Probed 1.6.27: no HTTP 403 discriminates a custom scheme
+   in-process, so config-level assertion is the honest test with teeth.
+3. **Secure cookie over http** — hardcoded secure:true/sameSite:none contradicts http://localhost:8081
+   (browser drops Secure cookie on http → silent login failure). Fixed: secure iff BETTER_AUTH_URL is
+   https, sameSite none-iff-secure else lax. Coverage: HTTP-level Set-Cookie assertions for http (Lax,
+   no Secure) and https (Secure, None) — negative-tested.
+   @ansari/auth now 8 tests (4 API + 4 HTTP). Full suite green; apps/api 623/3-skip unchanged.
+
 **CI**: added 3rd job `auth (lint, typecheck, test, build)` filtering `ansari-auth...`
 (covers @ansari/auth too). packages/auth already lint+typecheck'd by frontend job's
 `./packages/*`; its TESTS get a home in the new auth job. Comment above the job warns the

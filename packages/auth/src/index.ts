@@ -24,14 +24,23 @@ export { getEnv, resetEnvCache, type AuthEnv } from './env';
 export function createAuth(db: Db = createDb()) {
   const env = getEnv();
 
+  // A browser SILENTLY DISCARDS a `Secure` cookie sent over plain HTTP, so
+  // hardcoding secure:true breaks local web login (http://localhost:8081) with
+  // no visible error. Tie cookie security to the actual transport: Secure iff
+  // the service is served over HTTPS (its baseURL is https).
+  const secureCookies = env.BETTER_AUTH_URL.startsWith('https://');
+
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema,
     }),
-    // Kept from the scaffold — directly relevant to apps/frontend (Expo).
-    // CORS_ORIGIN is the web origin; the custom schemes + :8081 are Expo's.
-    trustedOrigins: [env.CORS_ORIGIN, 'ansari://', 'exp://', 'http://localhost:8081'],
+    // CORS_ORIGIN is the web origin; the rest are the Expo app's origins. The
+    // custom scheme MUST match apps/frontend/app.json (`"scheme": "askansari"`)
+    // — a native request carries `expo-origin: askansari://…`, and a mismatch
+    // fails origin validation in production. `exp://` is Expo Go; the
+    // `http://localhost:8081` is Metro's web/dev origin.
+    trustedOrigins: [env.CORS_ORIGIN, 'askansari://', 'exp://', 'http://localhost:8081'],
     emailAndPassword: {
       enabled: true,
     },
@@ -39,8 +48,14 @@ export function createAuth(db: Db = createDb()) {
     baseURL: env.BETTER_AUTH_URL,
     advanced: {
       defaultCookieAttributes: {
-        sameSite: 'none',
-        secure: true,
+        // sameSite:'none' lets the session cookie ride cross-origin requests
+        // from the Expo app / a web client on a different origin. But the cookie
+        // spec REQUIRES Secure alongside SameSite=None, and Secure needs HTTPS —
+        // so over plain HTTP (local dev) we must drop to 'lax' + non-Secure or
+        // the browser discards the cookie. Both attributes track the transport
+        // together via `secureCookies`.
+        sameSite: secureCookies ? 'none' : 'lax',
+        secure: secureCookies,
         httpOnly: true,
       },
     },
