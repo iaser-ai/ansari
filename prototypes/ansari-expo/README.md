@@ -4,7 +4,7 @@ This directory is a **read-only reference copy** of an earlier Replit Expo proto
 Ansari mobile/web app. It exists so the team can read a working UI while building the real
 frontend in `apps/frontend`.
 
-## 1. Reference only — it does not build, install, or run here
+## 1. Reference only — outside the workspace, runs standalone
 
 - It is **not** part of the pnpm workspace and **not** in the Turborepo task graph.
   `pnpm-workspace.yaml` globs only `apps/*` and `packages/*`; `prototypes/` matches neither,
@@ -26,14 +26,49 @@ frontend in `apps/frontend`.
   pnpm start            # expo start
   ```
 
-  This renders the UI shell only. The data layer will not work — see the API gap in section 3.
-  Running it does **not** enroll it in the workspace; the isolated `node_modules`, any lockfile
-  it writes, and `.expo/` are gitignored here so they never get committed.
+  With no backend configured this renders the UI shell only — every data call goes to
+  `https://undefined/api/...` and fails (see "Running with a live backend" below). Running it
+  does **not** enroll it in the workspace; the isolated `node_modules`, any lockfile it writes,
+  and `.expo/` are gitignored here so they never get committed.
 
   `babel-preset-expo` is listed as an explicit devDependency purely so this standalone install
   works: the source relied on the Replit monorepo hoisting it to the top level, but a
   single-package install nests it under `node_modules/expo/` where `babel.config.js` can't
   resolve it. Declaring it top-level is the fix Expo's own error message recommends.
+
+### Running with a live backend (full functionality)
+
+The data layer **does** work if you point it at the backend the prototype was built for. That
+backend was **not** imported (it's out of scope for this reference), but it lives in the same
+source monorepo and needs no database:
+
+- It is `artifacts/api-server` in `/Users/amrmohamed/Downloads/Ansari` @ `896cd4c` — a small
+  Express 5 server that mounts everything under `/api`. It seeds an **in-memory** store at
+  startup with canned, cited answers (`src/routes/ansari.ts`, `seed()` near line 340), so there
+  is **no DB to provision**. Its `@workspace/db` dependency is vestigial and unused at runtime;
+  at runtime it only really needs `@workspace/api-zod` (two validators). Run it from inside that
+  monorepo so its `workspace:*`/`catalog:` deps resolve:
+
+  ```bash
+  # in /Users/amrmohamed/Downloads/Ansari
+  PORT=5000 pnpm --filter @workspace/api-server dev   # builds, then starts on $PORT
+  ```
+
+- Then tell the prototype where the backend is. `app/_layout.tsx` builds the base URL as
+  `"https://" + EXPO_PUBLIC_DOMAIN`, so set **`EXPO_PUBLIC_DOMAIN` to a host only, no scheme**,
+  in a `.env.local` (gitignored — copy `.env.local.example`):
+
+  ```bash
+  cp .env.local.example .env.local
+  # then edit EXPO_PUBLIC_DOMAIN, and restart `expo start` (EXPO_PUBLIC_* is inlined at bundle time)
+  ```
+
+- **Scheme warning — the `https://undefined` symptom.** The base URL is hardcoded to `https://`.
+  Two consequences: (1) if `EXPO_PUBLIC_DOMAIN` is unset you literally request
+  `https://undefined/api/...` (`ERR_NAME_NOT_RESOLVED`) — that's the failure you'll see with no
+  `.env.local`; (2) a **local** `http://localhost:5000` backend won't work as-is — you need an
+  HTTPS URL (an already-https tunnel such as a Replit/ngrok dev domain works unpatched), or a
+  one-line local patch to `app/_layout.tsx` to use `http://` for localhost.
 
 ## 2. Source + SHA
 
@@ -62,9 +97,11 @@ overlapping endpoints** with the API this repo serves, and the prototype has **n
 | `/api/healthz` | `/api/health` |
 | — | `/api/v2/users/*` (all auth) |
 
-**The whole data layer is unusable here.** `vendor/api-client-react/` and every hook/query that
-calls it must be rebuilt against this repo's API. **The value of this reference is the UI; the
-plumbing is throwaway.**
+**Against _this repo's_ API the whole data layer is unusable** — `vendor/api-client-react/` and
+every hook/query that calls it would have to be rebuilt against `/api/v2/threads` (+ auth). It
+_does_ work against the prototype's **original** backend (see "Running with a live backend"
+above), which is how you see it fully functional. But for porting into `apps/frontend`, **the
+value of this reference is the UI; the plumbing is throwaway.**
 
 ## 4. Version gaps a porter will hit
 
