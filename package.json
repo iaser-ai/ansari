@@ -9,7 +9,9 @@
   "scripts": {
     "api": "pnpm --filter ansari-api",
     "frontend": "pnpm --filter ansari-frontend",
-    "dev": "turbo run dev --ui=tui",
+    "auth": "pnpm --filter ansari-auth",
+    "dev": "turbo run dev --ui=tui --filter=!ansari-auth",
+    "dev:auth": "pnpm --filter ansari-auth dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test --",

@@ -1,0 +1,37 @@
+{
+  "name": "ansari-auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Better Auth service for the Ansari monorepo. Additive (issue #59).",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsdown",
+    "start": "node dist/index.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ansari/auth": "workspace:*",
+    "better-auth": "1.6.27",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@ansari/eslint-config": "workspace:*",
+    "@ansari/tsconfig": "workspace:*",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^25.0.10",
+    "eslint": "catalog:",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:"
+  }
+}

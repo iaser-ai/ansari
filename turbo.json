@@ -21,7 +21,28 @@
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "packages/tsconfig/*.json",
-    "packages/eslint-config/*.js"
+    "packages/eslint-config/*.js",
+
+    // Same rule as the config packages above (issue #59), for apps/auth#typecheck
+    // and #lint specifically. Those tasks declare no `^`-prefixed dependency
+    // (typecheck.dependsOn is ["gen:types"], lint none), so turbo does NOT walk
+    // apps/auth's internal deps when hashing them — and a `workspace:*` dep's file
+    // contents are not hashed on their own. Without this line, editing the auth
+    // library (@ansari/auth) leaves apps/auth#typecheck/#lint at the SAME hash and
+    // replays a stale result.
+    //
+    // apps/auth#build does NOT need it — build.dependsOn includes "^build", whose
+    // caret makes turbo traverse dependency package hashes, so build already busts
+    // on @ansari/auth edits. Tested both directions per task: with this entry,
+    // editing packages/auth/src moves apps/auth#typecheck's hash; without it, the
+    // typecheck hash is unchanged (build's changes either way). @ansari/auth's own
+    // lint/typecheck/test run on its own files regardless.
+    //
+    // Trade-off (same one accepted for globalEnv above): a globalDependencies entry
+    // is GLOBAL, so editing packages/auth/src invalidates EVERY task's cache repo-wide
+    // (verified: @ansari/eslint-config#build's hash moves too), not just apps/auth's.
+    // A slightly colder cache is the accepted cost of never replaying a stale result.
+    "packages/auth/src/**"
   ],
 
   // Declared GLOBALLY rather than per-task, deliberately.
@@ -66,6 +87,14 @@
   // ship the wrong API URL while reporting a cache hit.
   "globalEnv": [
     "DATABASE_URL",
+    // Better Auth service (issue #59: apps/auth + packages/auth). Under strict
+    // env mode an undeclared var is invisible to tasks AND absent from the cache
+    // key, so a cached apps/auth build could ship the wrong secret/URL while
+    // reporting a hit. Declared globally for the same reason as everything else
+    // here — per-task lists are where omissions hide.
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "CORS_ORIGIN",
     "JWT_SECRET",
     "ACCESS_TOKEN_EXPIRY_HOURS",
     "REFRESH_TOKEN_EXPIRY_HOURS",

@@ -14,4 +14,9 @@ regexes = [
   # 'testpassword123', generated for the Python<->Node compatibility test. The
   # plaintext is printed beside it in the test; not a real user's hash.
   '''\$2b\$12\$qr31iYHUYhv/HngLaSEgpePzhlT7HIfUmh32ZdoZ5eKLtS0Wl8Vgi''',
+  # packages/auth/tests/auth.integration.test.ts (spec 59): a deliberately fake
+  # BETTER_AUTH_SECRET, set on process.env so createAuth() passes its zod min(32)
+  # check while the test drives sign-up/sign-in against pglite. Literal string,
+  # not a credential; trips generic-api-key purely on length + the "secret" key.
+  '''test-secret-at-least-32-characters-long-000''',
 ]

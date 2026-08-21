@@ -1,0 +1,11 @@
+{
+  "extends": "@ansari/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "drizzle.config.ts"]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@ansari/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Better Auth configuration, Drizzle schema, and db client for the Ansari monorepo. Self-contained, additive (issue #59).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./env": "./src/env.ts",
+    "./db": "./src/db.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@better-auth/expo": "1.6.27",
+    "better-auth": "1.6.27",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.17.2",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@ansari/eslint-config": "workspace:*",
+    "@ansari/tsconfig": "workspace:*",
+    "@electric-sql/pglite": "^0.5.3",
+    "@types/node": "^25.0.10",
+    "@types/pg": "^8.16.0",
+    "dotenv": "^17.2.3",
+    "drizzle-kit": "^0.31.8",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

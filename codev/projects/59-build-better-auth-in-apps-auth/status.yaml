@@ -1,0 +1,30 @@
+id: '59'
+title: build-better-auth-in-apps-auth
+protocol: pir
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-08-21T01:10:24.367Z'
+    approved_at: '2026-08-21T01:22:43.310Z'
+  dev-approval:
+    status: approved
+    requested_at: '2026-08-21T01:42:42.640Z'
+    approved_at: '2026-08-21T01:46:59.504Z'
+  pr:
+    status: approved
+    requested_at: '2026-08-21T01:56:30.244Z'
+    approved_at: '2026-08-21T02:23:54.092Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-21T01:06:14.771Z'
+updated_at: '2026-08-21T02:23:55.990Z'
+pr_history:
+  - phase: review
+    pr_number: 61
+    branch: builder/pir-59
+    created_at: '2026-08-21T01:49:37.654Z'
+pr_ready_for_human: false
