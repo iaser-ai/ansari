@@ -75,6 +75,56 @@ jobs:
       - name: Build
         run: pnpm exec turbo run build --filter ansari-api...
 
+  # Better Auth service (issue #59: apps/auth + packages/auth). Mirrors the `api`
+  # job, scoped to the auth dependency closure — `--filter ansari-auth...`
+  # (trailing dots) selects apps/auth AND its workspace deps, so @ansari/auth's
+  # lint/typecheck/test run here too. This is the ONLY job that reaches apps/auth;
+  # neither `ansari-api...` nor `ansari-frontend...` does. (packages/auth is ALSO
+  # lint+typecheck'd by the frontend job's `--filter ./packages/*` step — but that
+  # step runs no test/build, so its tests need this job as their home.)
+  #
+  # ⚠️ NOT YET A REQUIRED CHECK. GitHub only blocks merges on checks in develop's
+  # required list, which is admin-only to edit. Until an admin adds
+  # `auth (lint, typecheck, test, build)` there, this job RUNS and can FAIL while
+  # PRs merge anyway — covered on paper, enforcing nothing. Making it required is
+  # tracked as an admin step in #50. Do not assume a green here gates merges until
+  # that is done.
+  auth:
+    name: auth (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm exec turbo run lint --filter ansari-auth...
+
+      # Committed dummy env (apps/auth/.env.ci) — every value is deliberately
+      # fake, no repository secrets. Loaded so any code path that reads env has
+      # values during typecheck/test/build.
+      - name: Load CI dummy env
+        run: grep -v '^#' apps/auth/.env.ci >> "$GITHUB_ENV"
+
+      - name: Typecheck
+        run: pnpm exec turbo run typecheck --filter ansari-auth...
+
+      - name: Test
+        run: pnpm exec turbo run test --filter ansari-auth...
+
+      - name: Build
+        run: pnpm exec turbo run build --filter ansari-auth...
+
   frontend:
     # Emitted name deliberately unchanged (human decision, spec 48), even though
     # this job now also runs `build`. Check names are matched by branch
