@@ -1,7 +1,7 @@
 id: '59'
 title: build-better-auth-in-apps-auth
 protocol: pir
-phase: plan
+phase: implement
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -17,4 +17,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-21T01:06:14.771Z'
-updated_at: '2026-08-21T01:22:43.311Z'
+updated_at: '2026-08-21T01:22:45.371Z'
