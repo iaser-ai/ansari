@@ -173,6 +173,12 @@ task you care about, not the package as a whole.
 - **CSRF on state-changing routes.** `/api/auth/sign-out` requires an `Origin` header; verified with
   a browser-like request. Worth knowing when wiring `apps/frontend` later (#60 scope).
 - **`.env.ci`** uses the `placeholder-not-a-real-*` convention from `apps/api/.env.ci` (gitleaks-safe).
+- **`.gitleaks.toml` allowlist.** The integration test sets a deliberately fake
+  `BETTER_AUTH_SECRET` on `process.env` (to satisfy `createAuth()`'s zod `min(32)` check); its
+  length trips gitleaks' `generic-api-key` rule. Added one allowlist regex for that exact literal,
+  with justification, following the existing test-fixture precedent (`wrong-secret-key-…`). Verified
+  with `gitleaks detect` over full history → `no leaks found`. (History-scanned + `--merge` preserves
+  commits, so allowlisting the literal — not just editing the line — is what actually clears it.)
 
 ## 3-way consultation outcome (single advisory pass)
 
