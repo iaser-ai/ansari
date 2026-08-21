@@ -1,0 +1,18 @@
+id: '59'
+title: build-better-auth-in-apps-auth
+protocol: pir
+phase: plan
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: pending
+  dev-approval:
+    status: pending
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-21T01:06:14.771Z'
+updated_at: '2026-08-21T01:06:14.771Z'
