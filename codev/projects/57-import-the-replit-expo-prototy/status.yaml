@@ -1,7 +1,7 @@
 id: '57'
 title: import-the-replit-expo-prototy
 protocol: air
-phase: implement
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-21T00:25:18.910Z'
-updated_at: '2026-08-21T00:25:18.911Z'
+updated_at: '2026-08-21T00:32:18.122Z'
