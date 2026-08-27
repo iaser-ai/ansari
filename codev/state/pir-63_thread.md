@@ -124,3 +124,19 @@ question. Loud-failure gate intact (old shapes still throw; non-khushu fixture s
 Architect didn't request it and is confirming with main whether the human asked directly. It came
 as a DIRECT human message in my builder pane ("the main application has a login as guest
 option... replicate the behavior"). Left as-is, NOT extending, per architect's instruction.
+
+### Dev-approval: architect APPROVE recommendation forwarded to human (2026-08-27)
+
+Waiting for the relayed human decision — do NOT run porch approve on my own initiative.
+
+**PREPARED for after PR opens (architect will ask before merge — make 3 quiet failures loud;
+NOT required at this gate, don't touch the reviewed diff until approved):**
+1. `streaming.ts consume()` — currently `continue`s on a non-JSON `data:` frame. Should THROW
+   (`ChatStreamError`): heartbeat comment lines are already stripped by the SSE parser, so a
+   non-JSON data payload is a genuine protocol violation, not noise.
+2. Stream closes WITHOUT a `done` frame → currently resolves partial text as success. Track a
+   `doneSeen` flag in `consume()`; after the reader loop (and in XHR `onload`), throw if the
+   stream ended without `done`.
+3. `lib/auth/store.ts` web `setItem` swallows errors → a login can "succeed" without persisting
+   (next cold start = silently logged out). Let web `setItem` propagate (don't catch), so
+   `saveSession`/login surface the failure. getItem/deleteItem can stay defensive.
