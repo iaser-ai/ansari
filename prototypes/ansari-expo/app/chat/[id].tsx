@@ -44,7 +44,7 @@ import {
   useSendMessage,
   type Citation,
   type Message,
-} from '@/vendor/api-client-react';
+} from '@/lib/api';
 
 // The desktop reading column: message text lands near 70 characters a
 // line — a book's measure, not a stretched web page.

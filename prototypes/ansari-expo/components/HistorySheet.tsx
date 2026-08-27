@@ -26,7 +26,7 @@ import { useDesktop } from '@/hooks/useDesktop';
 import { fonts } from '@/constants/colors';
 import { confirmDestructive } from '@/lib/notice';
 import { isHovered } from '@/lib/web';
-import type { Conversation } from '@/vendor/api-client-react';
+import type { Conversation } from '@/lib/api';
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -55,6 +55,7 @@ export function HistorySheet({
   searching,
   onOpenConversation,
   onDeleteConversation,
+  onLogout,
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,6 +66,7 @@ export function HistorySheet({
   searching: boolean;
   onOpenConversation: (conversation: Conversation) => void;
   onDeleteConversation: (conversation: Conversation) => void;
+  onLogout: () => void;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -151,20 +153,36 @@ export function HistorySheet({
             <Text style={[styles.title, { color: colors.cardForeground }]}>
               Past questions
             </Text>
-            <Pressable
-              onPress={onClose}
-              hitSlop={8}
-              style={(state) => [
-                styles.closeButton,
-                {
-                  backgroundColor: colors.muted,
-                  opacity: state.pressed ? 0.6 : isHovered(state) ? 0.8 : 1,
-                },
-              ]}
-              testID="history-close"
-            >
-              <Feather name="x" size={17} color={colors.mutedForeground} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={onLogout}
+                hitSlop={8}
+                style={(state) => [
+                  styles.logoutButton,
+                  { opacity: state.pressed ? 0.6 : isHovered(state) ? 0.8 : 1 },
+                ]}
+                testID="history-logout"
+              >
+                <Feather name="log-out" size={15} color={colors.mutedForeground} />
+                <Text style={[styles.logoutText, { color: colors.mutedForeground }]}>
+                  Log out
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onClose}
+                hitSlop={8}
+                style={(state) => [
+                  styles.closeButton,
+                  {
+                    backgroundColor: colors.muted,
+                    opacity: state.pressed ? 0.6 : isHovered(state) ? 0.8 : 1,
+                  },
+                ]}
+                testID="history-close"
+              >
+                <Feather name="x" size={17} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
           </View>
 
           <View
@@ -335,6 +353,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     fontFamily: fonts.display,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  logoutText: {
+    fontSize: 14,
+    fontFamily: fonts.bodyMedium,
   },
   closeButton: {
     width: 30,

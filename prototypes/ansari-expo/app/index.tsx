@@ -54,7 +54,8 @@ import {
   useListConversations,
   useListSuggestedQuestions,
   type Conversation,
-} from '@/vendor/api-client-react';
+} from '@/lib/api';
+import { useAuth } from '@/lib/auth/context';
 
 // The ask is a single move, so the thread must not arrive before the
 // paper has finished clearing. Conversation creation is usually faster
@@ -65,6 +66,7 @@ const MIN_EXIT_MS = 320;
 
 export default function HomeScreen() {
   const colors = useColors();
+  const { logout } = useAuth();
   // The home screen stays mounted beneath open conversations, so
   // "first prompt sent" state must not strand it: the ambient layer
   // and chips reset whenever the screen comes back into focus.
@@ -331,14 +333,7 @@ export default function HomeScreen() {
   const showAbout = () => {
     showNotice(
       'About Ansari',
-      "Ansari answers questions about the Qur'an and Sunnah, and every answer cites its sources. Open a citation to read the original text — and verify important matters with scholars.",
-    );
-  };
-
-  const showLogin = () => {
-    showNotice(
-      'Sign-in is on the way',
-      'Ansari works without an account for now. Signing in to keep your conversations across devices is coming.',
+      "Ansari answers questions about the Qur'an and Sunnah. Verify important matters with scholars.",
     );
   };
 
@@ -349,7 +344,7 @@ export default function HomeScreen() {
           <title>Ansari — Ask about the Qur&apos;an and Sunnah</title>
           <meta
             name="description"
-            content="Ask Ansari about the Qur'an and Sunnah. Every answer cites its sources, so you can open the original text and verify."
+            content="Ask Ansari about the Qur'an and Sunnah."
           />
         </Head>
       )}
@@ -375,9 +370,9 @@ export default function HomeScreen() {
                 testID="about-button"
               />
               <WebNavButton
-                label="Log in"
-                onPress={showLogin}
-                testID="login-button"
+                label="Log out"
+                onPress={logout}
+                testID="logout-button"
               />
             </View>
           </>
@@ -533,6 +528,10 @@ export default function HomeScreen() {
         onDeleteConversation={(conversation: Conversation) =>
           deleteConversation.mutate({ conversationId: conversation.id })
         }
+        onLogout={() => {
+          setHistoryOpen(false);
+          logout();
+        }}
       />
     </PaperBackground>
   );
