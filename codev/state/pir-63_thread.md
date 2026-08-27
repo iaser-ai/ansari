@@ -40,3 +40,59 @@ true` (spec-invalid but harmless with bearer) — note in plan/README. Negative-
 hard gate (more important with a live API).
 
 Plan drafted → `codev/plans/63-prototypes-ansari-expo-run-aga.md`. Awaiting plan-approval gate.
+
+## Architect resolutions (2026-08-27, at plan gate)
+
+- Callout (1): **stay on `/threads/[id]/chat`** — the base `POST /threads/[id]` runs the same
+  facilitator but emits raw text, not structured SSE, so `/chat` is strictly better for error
+  surfacing. No fallback needed unless staging contradicts.
+- Callout (2): **buffer-until-done accepted**.
+- **IMPLEMENT-PHASE TODO (non-blocking):** trim the About copy in `app/index.tsx:331`
+  ("every answer cites its sources") since citations are empty against our API.
+
+Plan gate: read by prototypes architect, forwarded to human via main (held in mailbox). Waiting
+for human decision relayed by architect before `porch approve`.
+
+## PLAN APPROVED (2026-08-27) — conditions attached (all in #63 scope)
+
+1. **README**: state plainly that buffer-until-done is a **PROTOTYPE LIMITATION**, not intended
+   UX; the real app should render incrementally — a frontend dev must not copy the spinner.
+2. **README**: web tokens live in `localStorage`, are XSS-reachable in principle, acceptable
+   ONLY because it is staging — do not carry the pattern into the real app.
+3. Trim About text at `index.tsx:331` ("every answer cites its sources") — false against our API.
+- Live-streaming follow-up is a SEPARATE queued issue filed by architect — **don't build it**.
+- **dev-approval is the next human gate — stop there and message the architect.**
+
+## Implement phase (2026-08-28)
+
+- **CRITICAL install gotcha:** the prototype now lives INSIDE a pnpm workspace, so a bare
+  `pnpm install` from the prototype dir installs the whole ROOT workspace (ignoring the
+  prototype's own package.json). Must use **`pnpm install --ignore-workspace`** to get the
+  isolated node_modules the README promises. README run instructions updated to match.
+- **Never run any `pnpm install` variant from the worktree root** — `--ignore-workspace` from
+  root rewrote the root `pnpm-lock.yaml` (12 deletions); restored with `git checkout
+  pnpm-lock.yaml`. Always `cd` into the prototype first. Root lockfile is back to byte-identical.
+- Added `expo-secure-store ~15.0.8` (SDK-54 bundled version) + `vitest ^3` + `test`/`typecheck`
+  scripts to the prototype package.json. Prototype node_modules + its lockfile are gitignored.
+
+### Implementation complete — 5 commits, awaiting dev-approval
+
+1. Configurable base URL (default staging) + static suggested topics + `.env.local.example`.
+2. Adapter (`lib/api/`): zod wire-schemas, mappers, `decode.ts` pipeline, `apiFetch`
+   (refresh-on-401), `sse.ts` parser, `streaming.ts` (expo/fetch primary + XHR fallback,
+   buffer-until-done), drop-in hooks, barrel. Tests: `decode.test.ts` (loud-failure gate,
+   old Replit shapes throw) + `sse.test.ts`. 17 tests pass.
+3. Auth (`lib/auth/`): secure token store (SecureStore native / localStorage web), session
+   context (single-flight refresh, bridge wiring), `AuthForm` + login/register screens.
+4. Wire-up: `_layout` base URL + AuthProvider + route guard + retry-tuning; flipped 8 imports
+   `@/vendor/api-client-react` → `@/lib/api`; logout in chrome + HistorySheet; trimmed the
+   now-false "cites its sources" copy (About + web meta).
+5. README rewrite + this thread.
+
+**Verification:** `tsc --noEmit` clean; `vitest run` 17/17; turbo graph = **7 packages**;
+root `pnpm-lock.yaml` byte-identical; no `.env`/node_modules/lockfile staged. Streaming +
+secure-store validated by module resolution + typecheck; full manual run is the dev-approval
+gate (reviewer runs `afx dev pir-63` / Run Dev against staging).
+
+**Not runnable by me headless:** the actual register→ask→stream flow needs an interactive
+Expo session — that's the reviewer's job at the gate.
