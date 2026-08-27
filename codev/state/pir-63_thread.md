@@ -96,3 +96,13 @@ gate (reviewer runs `afx dev pir-63` / Run Dev against staging).
 
 **Not runnable by me headless:** the actual register→ask→stream flow needs an interactive
 Expo session — that's the reviewer's job at the gate.
+
+### Gate feedback #1 (2026-08-28): "Continue as guest"
+
+Human asked to replicate the main app's guest login (random `guest_<rand>@ansari.chat` /
+"Welcome Guest" account, `register_to_mail_list:false`). Added `lib/auth/guest.ts`
+(`generateGuestCredentials`, crypto/Math random, password guaranteed score ≥5 vs backend's
+min 3) + a "Continue as guest" button on both auth screens (registers then the route guard
+redirects). Verified `@ansari.chat` is NOT reserved by apps/api (only admin emails +
+`@system.ansari.chat`). Added `guest.test.ts` (500-iteration email/password-strength check).
+tsc clean; 19 tests pass. Gate still pending.

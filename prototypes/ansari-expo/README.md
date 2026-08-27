@@ -82,7 +82,10 @@ implementation hooks into.
 
 ## Auth & token storage
 
-Register/login/refresh/logout hit `apps/api`'s `/api/v2/users/*`. Tokens are stored with
+Register/login/refresh/logout hit `apps/api`'s `/api/v2/users/*`. The auth screens also offer
+**Continue as guest**, which registers a throwaway account with random credentials
+(`guest_<random>@ansari.chat`, name "Welcome Guest") — mirroring the main app — so you can try
+the flow without inventing an email. It still creates a real staging row. Tokens are stored with
 `expo-secure-store` on native (Keychain/Keystore) and attached as `Authorization: Bearer`
 to every request; a 401 triggers a single silent refresh, and a failed refresh returns you
 to the login screen. Tokens are never logged and never written to a committed file.

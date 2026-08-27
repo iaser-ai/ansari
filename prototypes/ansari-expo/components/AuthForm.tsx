@@ -18,6 +18,7 @@ import { isHovered } from '@/lib/web';
 import { AnsariWordmark } from '@/components/AnsariWordmark';
 import { PaperBackground } from '@/components/PaperBackground';
 import { useAuth } from '@/lib/auth/context';
+import { generateGuestCredentials } from '@/lib/auth/guest';
 
 type Mode = 'login' | 'register';
 
@@ -70,6 +71,24 @@ export function AuthForm({ mode }: { mode: Mode }) {
         e instanceof Error
           ? e.message
           : 'Something went wrong. Please try again.',
+      );
+      setSubmitting(false);
+    }
+  };
+
+  // Register a throwaway account with random guest credentials, mirroring the
+  // main app's "Continue as guest". On success the route guard redirects.
+  const continueAsGuest = async () => {
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await register(generateGuestCredentials());
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Couldn't start a guest session. Please try again.",
       );
       setSubmitting(false);
     }
@@ -189,6 +208,39 @@ export function AuthForm({ mode }: { mode: Mode }) {
               )}
             </Pressable>
 
+            <View style={styles.dividerRow}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
+                or
+              </Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <Pressable
+              onPress={continueAsGuest}
+              disabled={submitting}
+              testID="auth-guest"
+              style={(state) => [
+                styles.guestButton,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  borderRadius: colors.radius,
+                  opacity: submitting
+                    ? 0.6
+                    : state.pressed
+                      ? 0.85
+                      : isHovered(state)
+                        ? 0.92
+                        : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.guestText, { color: colors.foreground }]}>
+                Continue as guest
+              </Text>
+            </Pressable>
+
             <Pressable
               onPress={() => router.replace(isRegister ? '/login' : '/register')}
               style={styles.switch}
@@ -267,6 +319,30 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 15.5,
     fontFamily: fonts.bodySemiBold,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 6,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  dividerText: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+  },
+  guestButton: {
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  guestText: {
+    fontSize: 15.5,
+    fontFamily: fonts.bodyMedium,
   },
   switch: {
     alignItems: 'center',
