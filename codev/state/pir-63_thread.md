@@ -125,6 +125,26 @@ Architect didn't request it and is confirming with main whether the human asked 
 as a DIRECT human message in my builder pane ("the main application has a login as guest
 option... replicate the behavior"). Left as-is, NOT extending, per architect's instruction.
 
+### Guest hardening (architect, 2026-08-27) — feature accepted, 3 requirements
+
+1. **Device reuses its guest** — `store.ts` persists guest email+password under
+   `ansari.guestCredentials` (survives logout, unlike session keys). `context.loginAsGuest()`:
+   stored creds → login (reuse); on failure/none → register new + save. `AuthForm` guest button
+   calls `loginAsGuest()`. Repeated taps on one device reuse ONE staging user.
+2. **Test rigor (a check that cannot fail is not evidence)** — guest.ts exports
+   `makeGuestPassword({length,charset,guaranteeVariety})` + charset consts. guest.test.ts
+   (a) PROVES the scorer discriminates (`abcdefgh`→2, `password`→penalised, varied→≥5) and
+   (b) PROVES a weakened generator fails: `makeGuestPassword({length:8,charset:LOWER,
+   guaranteeVariety:false})` scores <3 — so the production assertion genuinely fails if it
+   regresses. 7 guest tests.
+3. **README** — guest paragraph: real + PERSISTENT staging accounts; device reuses its guest
+   (logout+re-tap = same account); N fresh devices = N users. Rewrote `--ignore-workspace` note
+   to explain WHY (pnpm walks up to root `pnpm-workspace.yaml` and installs that workspace;
+   `prototypes/` isn't in the globs, so this package is skipped).
+
+tsc clean; 26 tests; turbo=7; lockfile byte-identical. NOTE: web `localStorage.setItem` still
+swallows (deferred post-PR item 3) — that fix will also make guest-cred persistence loud.
+
 ### Dev-approval: architect APPROVE recommendation forwarded to human (2026-08-27)
 
 Waiting for the relayed human decision — do NOT run porch approve on my own initiative.

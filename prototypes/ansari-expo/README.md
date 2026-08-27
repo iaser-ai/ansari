@@ -24,11 +24,15 @@ pnpm start                        # expo start
 Then: **register a new account → you're signed in → ask a question → the answer streams
 in → open History to see the thread → Log out → log in again → the thread is still there.**
 
-> **`--ignore-workspace` is required.** Because this prototype now lives inside a pnpm
-> workspace, a bare `pnpm install` run from here installs the whole **root** workspace and
-> skips the prototype's own `package.json`. `--ignore-workspace` makes pnpm treat this
-> directory as a standalone project and creates the isolated `node_modules` here. The
-> isolated `node_modules`, any lockfile it writes, and `.expo/` are gitignored.
+> **Why `--ignore-workspace` is required.** This prototype sits inside the repo, which is a pnpm
+> workspace. On `pnpm install`, pnpm walks UP the directory tree, finds the root
+> `pnpm-workspace.yaml`, and installs **that workspace** (its `apps/*` + `packages/*`) — not the
+> package in your current directory. Since `prototypes/` isn't matched by the workspace globs,
+> the prototype's own `package.json` is skipped entirely and no `node_modules` is created here.
+> `--ignore-workspace` tells pnpm to ignore that root workspace file and treat this directory as
+> a standalone project, so it installs *these* dependencies into an isolated `node_modules` here.
+> That `node_modules`, any lockfile it writes, and `.expo/` are gitignored — and the root
+> `pnpm-lock.yaml` is never touched.
 
 ### ⚠️ Registration creates a REAL staging account
 
@@ -87,9 +91,19 @@ implementation hooks into.
 ## Auth & token storage
 
 Register/login/refresh/logout hit `apps/api`'s `/api/v2/users/*`. The auth screens also offer
-**Continue as guest**, which registers a throwaway account with random credentials
-(`guest_<random>@ansari.chat`, name "Welcome Guest") — mirroring the main app — so you can try
-the flow without inventing an email. It still creates a real staging row. Tokens are stored with
+**Continue as guest** (mirroring the main app), which signs you in with a random
+`guest_<random>@ansari.chat` / "Welcome Guest" account so you can try the flow without inventing
+an email.
+
+> **Guest accounts are REAL, PERSISTENT staging users.** Each *newly minted* guest is a real row
+> in the staging database that stays there (it is not a sandbox that resets). To avoid minting a
+> new user on every tap, a device **remembers its guest credentials and reuses them**: tapping
+> "Continue as guest" again on the same device — including after logging out — signs back into
+> the *same* account rather than creating another. A different device, or the same device after
+> its stored credentials are cleared, creates a new real account (so ten fresh devices tapping
+> once each leave ten staging users).
+
+Tokens are stored with
 `expo-secure-store` on native (Keychain/Keystore) and attached as `Authorization: Bearer`
 to every request; a 401 triggers a single silent refresh, and a failed refresh returns you
 to the login screen. Tokens are never logged and never written to a committed file.

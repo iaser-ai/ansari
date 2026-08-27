@@ -18,6 +18,10 @@ import * as SecureStore from 'expo-secure-store';
 const ACCESS_KEY = 'ansari.accessToken';
 const REFRESH_KEY = 'ansari.refreshToken';
 const NAME_KEY = 'ansari.userName';
+// Guest email+password persist ACROSS logout (unlike the session keys above) so a
+// device reuses its one guest account instead of minting a new staging user on
+// every "Continue as guest" tap.
+const GUEST_KEY = 'ansari.guestCredentials';
 
 const isWeb = Platform.OS === 'web';
 
@@ -96,9 +100,40 @@ export async function saveSession(session: StoredSession): Promise<void> {
 }
 
 export async function clearSession(): Promise<void> {
+  // Note: does NOT touch the guest credentials — logging out of a guest and
+  // tapping "Continue as guest" again must return to the SAME guest account.
   await Promise.all([
     deleteItem(ACCESS_KEY),
     deleteItem(REFRESH_KEY),
     deleteItem(NAME_KEY),
   ]);
+}
+
+export interface GuestCredentials {
+  email: string;
+  password: string;
+}
+
+export async function loadGuestCredentials(): Promise<GuestCredentials | null> {
+  const raw = await getItem(GUEST_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GuestCredentials>;
+    if (parsed.email && parsed.password) {
+      return { email: parsed.email, password: parsed.password };
+    }
+  } catch {
+    // corrupt blob → treat as absent so a fresh guest is minted
+  }
+  return null;
+}
+
+export async function saveGuestCredentials(
+  credentials: GuestCredentials,
+): Promise<void> {
+  await setItem(GUEST_KEY, JSON.stringify(credentials));
+}
+
+export async function clearGuestCredentials(): Promise<void> {
+  await deleteItem(GUEST_KEY);
 }

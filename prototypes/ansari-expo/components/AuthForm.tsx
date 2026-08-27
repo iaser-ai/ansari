@@ -18,7 +18,6 @@ import { isHovered } from '@/lib/web';
 import { AnsariWordmark } from '@/components/AnsariWordmark';
 import { PaperBackground } from '@/components/PaperBackground';
 import { useAuth } from '@/lib/auth/context';
-import { generateGuestCredentials } from '@/lib/auth/guest';
 
 type Mode = 'login' | 'register';
 
@@ -31,7 +30,7 @@ type Mode = 'login' | 'register';
 export function AuthForm({ mode }: { mode: Mode }) {
   const colors = useColors();
   const insets = screenInsets(useSafeAreaInsets());
-  const { login, register } = useAuth();
+  const { login, register, loginAsGuest } = useAuth();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -76,14 +75,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
     }
   };
 
-  // Register a throwaway account with random guest credentials, mirroring the
-  // main app's "Continue as guest". On success the route guard redirects.
+  // Continue as guest — reuses this device's guest account if it has one, else
+  // registers a fresh throwaway. On success the route guard redirects.
   const continueAsGuest = async () => {
     if (submitting) return;
     setError(null);
     setSubmitting(true);
     try {
-      await register(generateGuestCredentials());
+      await loginAsGuest();
     } catch (e) {
       setError(
         e instanceof Error

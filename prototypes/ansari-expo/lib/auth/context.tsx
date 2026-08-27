@@ -14,7 +14,9 @@ import {
 } from '@/lib/api/auth-bridge';
 import {
   clearSession,
+  loadGuestCredentials,
   loadSession,
+  saveGuestCredentials,
   saveSession,
   type StoredSession,
 } from '@/lib/auth/store';
@@ -25,6 +27,7 @@ import {
   registerRequest,
   type RegisterInput,
 } from '@/lib/auth/api';
+import { generateGuestCredentials } from '@/lib/auth/guest';
 
 type AuthStatus = 'loading' | 'signedIn' | 'signedOut';
 
@@ -33,6 +36,7 @@ interface AuthContextValue {
   session: StoredSession | null;
   login: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  loginAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -143,6 +147,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applySession],
   );
 
+  // Continue as guest. A device reuses its ONE guest account: if credentials are
+  // already stored, log back into that same account; only when none exist (or the
+  // stored account no longer authenticates) do we register a new guest and
+  // remember it. This keeps repeated taps from minting a new staging user each time.
+  const loginAsGuest = useCallback(async () => {
+    const stored = await loadGuestCredentials();
+    if (stored) {
+      try {
+        await login(stored.email, stored.password);
+        return;
+      } catch {
+        // Stored guest no longer works (e.g. deleted server-side) — fall through
+        // and mint a fresh one.
+      }
+    }
+    const creds = generateGuestCredentials();
+    await register(creds);
+    await saveGuestCredentials({ email: creds.email, password: creds.password });
+  }, [login, register]);
+
   const logout = useCallback(async () => {
     try {
       await logoutRequest();
@@ -155,8 +179,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, session, login, register, logout }),
-    [status, session, login, register, logout],
+    () => ({ status, session, login, register, loginAsGuest, logout }),
+    [status, session, login, register, loginAsGuest, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
