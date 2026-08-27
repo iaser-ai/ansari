@@ -53,10 +53,14 @@ cp .env.local.example .env.local
 
 Against `apps/api`, some UI is intentionally inert — this is **not** a bug:
 
-- **No citation chips / source sheets.** `apps/api` returns no structured citations, so the
-  adapter resolves `Citation[]` to `[]` for every message and `AnswerMessage`/`CitationChip`/
-  `CitationSheet` render nothing. If you were looking for the little superscript source
-  markers after an answer — that's why they're absent.
+- **Citations are SAMPLE DATA, not real output.** `apps/api` returns no structured citations,
+  so to keep the citation UI demonstrable the adapter attaches a **fixed sample set**
+  (`lib/sample-citations.ts`) to assistant answers in a thread **about khushu'** — ask *"How
+  can I develop khushu' in my prayer?"* to see the source pills, and tap one to open the
+  `CitationSheet`. These samples are **not derived from the answer** above them and are the
+  same for every khushu' answer; real, answer-derived citations arrive with **issue #66**.
+  Other questions show no citations (the API carries none). The pills appear in the footnote
+  list only — the model emits no inline `[1]`/`[2]` markers, so none are injected into the text.
 - **No safety cards.** `apps/api` emits no safety signal, so `SafetySignal` is always `null`
   and `SafetyCard` never appears.
 - **Suggested questions are a static, hardcoded list.** They live in

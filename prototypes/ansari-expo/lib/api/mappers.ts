@@ -9,6 +9,7 @@ import type {
   Message,
   MessageRole,
 } from '@/lib/api/types';
+import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
 
 /**
  * Map apps/api wire shapes onto the UI types.
@@ -16,9 +17,13 @@ import type {
  * FIELDS apps/api NEVER CARRIES — filled with documented constants, NOT silent
  * defaults hiding a shape mismatch:
  *   - `preview`, `messageCount`  → apps/api's thread summary has neither.
- *   - `citations`                → apps/api returns no structured citations, so
- *                                  this is `[]` forever (by design). CitationChip/
- *                                  CitationSheet therefore render nothing.
+ *   - `citations`                → apps/api returns no structured citations. To
+ *                                  keep the citation UI demonstrable, assistant
+ *                                  messages in a thread about khushu' get a FIXED
+ *                                  SAMPLE set (see `lib/sample-citations.ts`);
+ *                                  every other message gets `[]`. These samples
+ *                                  are not answer-derived — real citations arrive
+ *                                  with issue #66.
  *   - `safety`                   → apps/api emits no safety signal, so `null`
  *                                  forever. SafetyCard renders nothing.
  * These are the exact "empty by design" fields called out in the issue/README.
@@ -83,13 +88,29 @@ export function mapMessage(
   };
 }
 
+/**
+ * A thread counts as "about khushu'" when its first user message mentions it
+ * (khushu' / khushoo / khushū). Only then do we attach the sample citations, so
+ * they sit under an answer they actually support rather than under every reply.
+ */
+function isKhushuThread(messages: Message[]): boolean {
+  const firstUser = messages.find((m) => m.role === 'user');
+  if (!firstUser) return false;
+  return /khush/i.test(firstUser.content);
+}
+
 export function mapConversationDetail(
   detail: WireThreadDetail,
 ): ConversationDetail {
   const id = detail.thread_id;
-  const messages = detail.messages
+  const mapped = detail.messages
     .map((m) => mapMessage(m, id))
     .filter((m): m is Message => m !== null);
+  const messages = isKhushuThread(mapped)
+    ? mapped.map((m) =>
+        m.role === 'assistant' ? { ...m, citations: SAMPLE_CITATIONS } : m,
+      )
+    : mapped;
   return {
     id,
     title: detail.thread_name?.trim() || UNTITLED,

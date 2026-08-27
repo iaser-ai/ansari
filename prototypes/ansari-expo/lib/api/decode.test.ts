@@ -5,6 +5,7 @@ import {
   decodeConversationDetail,
   decodeConversationList,
 } from '@/lib/api/decode';
+import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
 
 /**
  * THE LOUD-FAILURE GATE (see issue #63).
@@ -133,8 +134,49 @@ describe('decodeConversationDetail — loud failure + content handling', () => {
     expect(detail.messages[1].content).toBe(
       'Fajr begins at dawn.\n\nSee your local timetable.',
     );
-    // citations/safety are empty by design.
+    // A non-khushu thread carries no citations.
     expect(detail.messages[1].citations).toEqual([]);
     expect(detail.messages[1].safety).toBeNull();
+  });
+});
+
+describe('sample citations — khushu-gated placement', () => {
+  const khushuThread = {
+    ...realThread,
+    messages: [
+      {
+        id: 'u',
+        role: 'user',
+        content: "How can I develop khushu' in my prayer?",
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'a',
+        role: 'assistant',
+        content: 'Begin by understanding the meaning of what you recite…',
+        created_at: '2026-01-01T00:00:05.000Z',
+      },
+    ],
+  };
+
+  it('attaches the sample set to assistant messages in a khushu thread', () => {
+    const detail = decodeConversationDetail(khushuThread);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    const user = detail.messages.find((m) => m.role === 'user');
+    expect(assistant?.citations).toEqual(SAMPLE_CITATIONS);
+    expect(assistant?.citations).toHaveLength(3);
+    // The user's own message never gets citations.
+    expect(user?.citations).toEqual([]);
+  });
+
+  it('attaches nothing when the thread is not about khushu', () => {
+    const detail = decodeConversationDetail({
+      ...khushuThread,
+      messages: [
+        { id: 'u', role: 'user', content: 'How do I calculate zakat?' },
+        { id: 'a', role: 'assistant', content: 'Zakat is 2.5%…' },
+      ],
+    });
+    for (const m of detail.messages) expect(m.citations).toEqual([]);
   });
 });

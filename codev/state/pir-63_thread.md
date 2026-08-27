@@ -106,3 +106,21 @@ min 3) + a "Continue as guest" button on both auth screens (registers then the r
 redirects). Verified `@ansari.chat` is NOT reserved by apps/api (only admin emails +
 `@system.ansari.chat`). Added `guest.test.ts` (500-iteration email/password-strength check).
 tsc clean; 19 tests pass. Gate still pending.
+
+### Amendment: static sample citations (issue #63 comment — human decision, BLOCKS gate)
+
+Implemented `lib/sample-citations.ts` (3 verified citations: Qur'an 20:14 Ta-Ha, Qur'an 23:1-2
+al-Mu'minun, Sahih al-Bukhari 528 — Arabic + faithful translations + source urls; Bukhari 528
+text cross-checked via web search since sunnah.com 403s automated fetch). Header comment states
+they're fixed sample data, not answer-derived, real when #66 ships. Placement = **preferred
+(khushu-gated)**: `mapConversationDetail` attaches the set only to assistant messages when the
+first user message matches `/khush/i`; every other thread stays `citations:[]`. README citations
+bullet rewritten to "sample data by design", names #66, tells the demoer to ask the khushu'
+question. Loud-failure gate intact (old shapes still throw; non-khushu fixture still asserts
+`[]`). Added 2 decode tests. 21 tests pass.
+
+### Guest feature — architect flagged (2026-08-27)
+
+Architect didn't request it and is confirming with main whether the human asked directly. It came
+as a DIRECT human message in my builder pane ("the main application has a login as guest
+option... replicate the behavior"). Left as-is, NOT extending, per architect's instruction.
