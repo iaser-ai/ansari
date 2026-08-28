@@ -3,7 +3,7 @@ import { Platform, StyleSheet, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
-import type { Citation } from '@/vendor/api-client-react';
+import type { Citation } from '@/lib/api';
 
 const SUPERSCRIPT_DIGITS = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 

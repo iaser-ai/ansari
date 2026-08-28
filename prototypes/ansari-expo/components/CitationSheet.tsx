@@ -23,7 +23,7 @@ import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
 import { fonts } from '@/constants/colors';
 import { isHovered } from '@/lib/web';
-import type { Citation } from '@/vendor/api-client-react';
+import type { Citation } from '@/lib/api';
 
 const SOURCE_LABEL: Record<string, string> = {
   quran: "Qur'an",

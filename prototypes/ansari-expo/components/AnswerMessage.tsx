@@ -9,7 +9,7 @@ import { withAlpha } from '@/lib/color';
 import { isHovered } from '@/lib/web';
 import { CitationChip, toSuperscript } from '@/components/CitationChip';
 import { SafetyCard } from '@/components/SafetyCard';
-import type { Citation, Message } from '@/vendor/api-client-react';
+import type { Citation, Message } from '@/lib/api';
 
 /**
  * Renders an assistant answer as a book page: unboxed serif prose set

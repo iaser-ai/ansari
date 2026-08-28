@@ -3,7 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
-import type { SafetySignal } from '@/vendor/api-client-react';
+import type { SafetySignal } from '@/lib/api';
 
 /**
  * Compassionate guidance card shown when a response carries a distress
