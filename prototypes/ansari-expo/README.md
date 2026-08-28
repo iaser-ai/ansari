@@ -33,6 +33,11 @@ in → open History to see the thread → Log out → log in again → the threa
 > a standalone project, so it installs *these* dependencies into an isolated `node_modules` here.
 > That `node_modules`, any lockfile it writes, and `.expo/` are gitignored — and the root
 > `pnpm-lock.yaml` is never touched.
+>
+> **Isolation proof:** this PR added dev dependencies to the prototype (`vitest`, `jsdom`,
+> `@testing-library/react`, `expo-secure-store`) and the root `pnpm-lock.yaml`,
+> `pnpm-workspace.yaml`, `package.json`, and `turbo.json` all stayed **byte-identical** — the
+> strongest evidence that `prototypes/` sits outside the workspace.
 
 ### ⚠️ Registration creates a REAL staging account
 
