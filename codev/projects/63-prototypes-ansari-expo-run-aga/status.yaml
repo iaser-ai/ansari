@@ -1,7 +1,7 @@
 id: '63'
 title: prototypes-ansari-expo-run-aga
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: true
 history: []
 started_at: '2026-08-27T22:50:20.876Z'
-updated_at: '2026-08-28T06:45:29.100Z'
+updated_at: '2026-08-28T06:45:38.096Z'
 pr_history:
   - phase: review
     pr_number: 68
