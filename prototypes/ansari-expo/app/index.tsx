@@ -88,9 +88,9 @@ export default function HomeScreen() {
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Search over past questions and answers. The query lives here (not in
-  // the sheet) so it can drive the server-side `q` filter, which searches
-  // full answer text — not just the titles and previews the client holds.
+  // Search over past questions. The query lives here (not in the sheet) so the
+  // debounced value can key the list query. apps/api has no full-text thread
+  // search, so the adapter filters the loaded conversations by TITLE client-side.
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
@@ -515,6 +515,7 @@ export default function HomeScreen() {
         onClose={() => setHistoryOpen(false)}
         conversations={conversations}
         loading={conversationsQuery.isLoading || conversationsQuery.isFetching}
+        error={conversationsQuery.isError}
         query={searchText}
         onQueryChange={setSearchText}
         searching={searching}

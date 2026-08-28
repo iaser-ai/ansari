@@ -112,17 +112,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
 
+  const inAuthRoute = segments[0] === 'login' || segments[0] === 'register';
+  // True while the current route disagrees with the auth status — i.e. a
+  // redirect is imminent. We must NOT render the mismatched route in the
+  // meantime, or a protected screen (and its data queries) mounts for a frame
+  // while signed out (and vice-versa).
+  const redirecting =
+    (status === 'signedOut' && !inAuthRoute) ||
+    (status === 'signedIn' && inAuthRoute);
+
   useEffect(() => {
     if (status === 'loading') return;
-    const inAuthRoute = segments[0] === 'login' || segments[0] === 'register';
     if (status === 'signedOut' && !inAuthRoute) {
       router.replace('/login');
     } else if (status === 'signedIn' && inAuthRoute) {
       router.replace('/');
     }
-  }, [status, segments, router]);
+  }, [status, inAuthRoute, router]);
 
-  if (status === 'loading') {
+  if (status === 'loading' || redirecting) {
     return (
       <View
         style={{

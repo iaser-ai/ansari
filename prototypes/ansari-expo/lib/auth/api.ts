@@ -3,7 +3,7 @@ import {
   loginResponseSchema,
   refreshResponseSchema,
   registerResponseSchema,
-  logoutResponseSchema,
+  messageResponseSchema,
 } from '@/lib/api/wire-schemas';
 
 /**
@@ -107,5 +107,5 @@ export async function logoutRequest(): Promise<void> {
   const raw = await customFetch<unknown>('/api/v2/users/logout', {
     method: 'POST',
   });
-  logoutResponseSchema.parse(raw);
+  messageResponseSchema.parse(raw);
 }

@@ -159,7 +159,7 @@ describe('sample citations — khushu-gated placement', () => {
     ],
   };
 
-  it('attaches the sample set to assistant messages in a khushu thread', () => {
+  it('attaches the sample set to the assistant answer in a khushu thread', () => {
     const detail = decodeConversationDetail(khushuThread);
     const assistant = detail.messages.find((m) => m.role === 'assistant');
     const user = detail.messages.find((m) => m.role === 'user');
@@ -167,6 +167,21 @@ describe('sample citations — khushu-gated placement', () => {
     expect(assistant?.citations).toHaveLength(3);
     // The user's own message never gets citations.
     expect(user?.citations).toEqual([]);
+  });
+
+  it('attaches to ONLY the first assistant answer, not follow-ups', () => {
+    const detail = decodeConversationDetail({
+      ...khushuThread,
+      messages: [
+        { id: 'u1', role: 'user', content: "How do I develop khushu'?" },
+        { id: 'a1', role: 'assistant', content: 'Understand what you recite…' },
+        { id: 'u2', role: 'user', content: 'And what about zakat?' },
+        { id: 'a2', role: 'assistant', content: 'Zakat is 2.5%…' },
+      ],
+    });
+    const answers = detail.messages.filter((m) => m.role === 'assistant');
+    expect(answers[0].citations).toEqual(SAMPLE_CITATIONS); // supported answer
+    expect(answers[1].citations).toEqual([]); // unrelated follow-up
   });
 
   it('attaches nothing when the thread is not about khushu', () => {

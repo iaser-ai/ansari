@@ -10,7 +10,9 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname) },
   },
   test: {
+    // Default env is node; component tests opt into jsdom via a
+    // `// @vitest-environment jsdom` header comment.
     environment: 'node',
-    include: ['lib/**/*.test.ts'],
+    include: ['lib/**/*.test.{ts,tsx}'],
   },
 });

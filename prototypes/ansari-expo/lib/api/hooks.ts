@@ -16,7 +16,7 @@ import {
   decodeConversationList,
   decodeHealth,
 } from '@/lib/api/decode';
-import { logoutResponseSchema } from '@/lib/api/wire-schemas';
+import { messageResponseSchema } from '@/lib/api/wire-schemas';
 import { SUGGESTED_TOPICS } from '@/lib/suggested-topics';
 import type {
   Conversation,
@@ -133,7 +133,7 @@ export function useDeleteConversation(
         `/api/v2/threads/${encodeURIComponent(conversationId)}`,
         { method: 'DELETE' },
       );
-      logoutResponseSchema.parse(raw); // { message: string }
+      messageResponseSchema.parse(raw); // { message: string }
     },
     ...options?.mutation,
   });

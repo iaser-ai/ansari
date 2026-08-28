@@ -50,13 +50,24 @@ export function consume(
       throw new ChatStreamError('Malformed (non-JSON) SSE frame in the chat stream.');
     }
     onEvent?.(event);
-    if (event.type === 'text' && typeof event.content === 'string') {
+    if (event.type === 'text') {
+      // Loud failure: a text frame whose content is not a string is malformed;
+      // dropping it silently would lose answer text without a trace.
+      if (typeof event.content !== 'string') {
+        throw new ChatStreamError('Malformed text frame: `content` is not a string.');
+      }
       state.answer += event.content;
     } else if (event.type === 'error') {
-      throw new ChatStreamError(event.message || 'The assistant reported an error.');
+      const message =
+        typeof event.message === 'string' && event.message
+          ? event.message
+          : 'The assistant reported an error.';
+      throw new ChatStreamError(message);
     } else if (event.type === 'done') {
       state.done = true;
     }
+    // tool_call / tool_result (and any future non-answer type) are intentionally
+    // not folded into the answer text in this first PR.
   }
 }
 

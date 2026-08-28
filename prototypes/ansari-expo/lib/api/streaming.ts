@@ -31,9 +31,12 @@ export interface StreamChatParams {
  * event is delivered to `onEvent` as it arrives, ready for that follow-up). A
  * frontend developer must not copy the spinner-until-done behaviour.
  *
- * Transport: `expo/fetch` (streaming `response.body`) is primary and works on
- * native and web; a 401 before the stream opens triggers one refresh + retry.
- * If streaming `response.body` is unavailable, we fall back to XHR `onprogress`.
+ * Transport: exactly ONE POST is issued. `expo/fetch` returns a streaming
+ * `response.body` on native and web, which we read incrementally. If a runtime
+ * exposes no streaming body, we consume the RESPONSE ALREADY IN HAND
+ * (`response.text()`) — we never re-send the request (a second POST would
+ * duplicate the user's message and re-invoke the model). A 401 before the stream
+ * opens triggers one refresh + retry.
  */
 export async function streamChat(params: StreamChatParams): Promise<string> {
   const token = await getAccessToken();
@@ -71,27 +74,28 @@ async function runStream(
 
   if (response.status === 401) throw new UnauthorizedStreamError();
   if (!response.ok) {
-    throw new ChatStreamError(
-      `Chat request failed (HTTP ${response.status})`,
-    );
-  }
-
-  if (!response.body) {
-    // Runtime without a streaming body reader — read via XHR fallback.
-    return streamChatViaXHR(url, headers, body, params.onEvent, params.signal);
+    throw new ChatStreamError(`Chat request failed (HTTP ${response.status})`);
   }
 
   const parser = new SSEParser();
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
   const state = createStreamState();
 
+  if (!response.body) {
+    // No streaming reader in this runtime. Consume the response WE ALREADY HAVE —
+    // do NOT issue a second request. `.text()` buffers the full SSE payload
+    // (which, given buffer-until-done, is equivalent to reading the stream).
+    consume(parser.push(await response.text()), params.onEvent, state);
+    assertComplete(state);
+    return state.answer;
+  }
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      consume(parser.push(chunk), params.onEvent, state);
+      consume(parser.push(decoder.decode(value, { stream: true })), params.onEvent, state);
     }
   } finally {
     reader.releaseLock?.();
@@ -100,64 +104,4 @@ async function runStream(
   // text is never passed off as a complete answer.
   assertComplete(state);
   return state.answer;
-}
-
-/**
- * XHR fallback: reads `responseText` as it grows. The platform decodes bytes to
- * a string for us, so no `TextDecoder` is needed; we diff the growing text and
- * feed only the new tail to the parser.
- */
-function streamChatViaXHR(
-  url: string,
-  headers: Record<string, string>,
-  body: string,
-  onEvent: StreamChatParams['onEvent'],
-  signal?: AbortSignal,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const parser = new SSEParser();
-    const state = createStreamState();
-    let seen = 0;
-    let aborted = false;
-
-    xhr.open('POST', url);
-    for (const [key, value] of Object.entries(headers)) {
-      xhr.setRequestHeader(key, value);
-    }
-
-    const drain = () => {
-      const text = xhr.responseText;
-      if (text.length > seen) {
-        const delta = text.slice(seen);
-        seen = text.length;
-        try {
-          consume(parser.push(delta), onEvent, state);
-        } catch (error) {
-          aborted = true;
-          xhr.abort();
-          reject(error);
-        }
-      }
-    };
-
-    xhr.onprogress = drain;
-    xhr.onload = () => {
-      drain();
-      if (aborted) return; // already rejected from within drain()
-      if (xhr.status === 401) reject(new UnauthorizedStreamError());
-      else if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new ChatStreamError(`Chat request failed (HTTP ${xhr.status})`));
-      } else if (!state.done) {
-        reject(new ChatStreamError('Chat stream ended before completion.'));
-      } else {
-        resolve(state.answer);
-      }
-    };
-    xhr.onerror = () => reject(new ChatStreamError('Network error during chat stream'));
-    if (signal) {
-      signal.addEventListener('abort', () => xhr.abort(), { once: true });
-    }
-    xhr.send(body);
-  });
 }

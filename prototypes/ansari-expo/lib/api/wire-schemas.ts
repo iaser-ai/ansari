@@ -90,8 +90,9 @@ export const refreshResponseSchema = z.object({
   token_type: z.string().optional(),
 });
 
-/** `POST /users/logout`. */
-export const logoutResponseSchema = z.object({
+/** Endpoints returning a bare `{ message }` — `POST /users/logout` and
+ * `DELETE /threads/{id}`. */
+export const messageResponseSchema = z.object({
   message: z.string(),
 });
 

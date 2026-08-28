@@ -18,12 +18,13 @@ import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
  * defaults hiding a shape mismatch:
  *   - `preview`, `messageCount`  → apps/api's thread summary has neither.
  *   - `citations`                → apps/api returns no structured citations. To
- *                                  keep the citation UI demonstrable, assistant
- *                                  messages in a thread about khushu' get a FIXED
- *                                  SAMPLE set (see `lib/sample-citations.ts`);
- *                                  every other message gets `[]`. These samples
- *                                  are not answer-derived — real citations arrive
- *                                  with issue #66.
+ *                                  keep the citation UI demonstrable, the FIRST
+ *                                  assistant answer of a thread about khushu' gets
+ *                                  a FIXED SAMPLE set (see `lib/sample-citations.ts`)
+ *                                  — the one answer those sources actually support;
+ *                                  follow-ups and every other message get `[]`.
+ *                                  These samples are not answer-derived — real
+ *                                  citations arrive with issue #66.
  *   - `safety`                   → apps/api emits no safety signal, so `null`
  *                                  forever. SafetyCard renders nothing.
  * These are the exact "empty by design" fields called out in the issue/README.
@@ -90,8 +91,9 @@ export function mapMessage(
 
 /**
  * A thread counts as "about khushu'" when its first user message mentions it
- * (khushu' / khushoo / khushū). Only then do we attach the sample citations, so
- * they sit under an answer they actually support rather than under every reply.
+ * (khushu' / khushoo / khushū). Only then do we attach the sample citations, and
+ * only to the FIRST assistant answer — the one those sources support. Follow-ups
+ * on unrelated topics must not inherit unrelated Islamic source attributions.
  */
 function isKhushuThread(messages: Message[]): boolean {
   const firstUser = messages.find((m) => m.role === 'user');
@@ -106,10 +108,15 @@ export function mapConversationDetail(
   const mapped = detail.messages
     .map((m) => mapMessage(m, id))
     .filter((m): m is Message => m !== null);
+  let citationsAttached = false;
   const messages = isKhushuThread(mapped)
-    ? mapped.map((m) =>
-        m.role === 'assistant' ? { ...m, citations: SAMPLE_CITATIONS } : m,
-      )
+    ? mapped.map((m) => {
+        if (m.role === 'assistant' && !citationsAttached) {
+          citationsAttached = true;
+          return { ...m, citations: SAMPLE_CITATIONS };
+        }
+        return m;
+      })
     : mapped;
   return {
     id,

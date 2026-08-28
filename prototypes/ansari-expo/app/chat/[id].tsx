@@ -77,6 +77,35 @@ function ThinkingIndicator() {
   );
 }
 
+/**
+ * Shown when a send fails — a network error, or a `type:"error"` SSE frame from
+ * the model. The failure must be visible: dropping the spinner with no answer
+ * and no error would read as a silent hang.
+ */
+function SendErrorNotice({ onRetry }: { onRetry: () => void }) {
+  const colors = useColors();
+  return (
+    <View style={styles.sendError}>
+      <Feather name="alert-circle" size={18} color={colors.destructive} />
+      <Text style={[styles.sendErrorText, { color: colors.mutedForeground }]}>
+        The answer couldn&apos;t be delivered.
+      </Text>
+      <Pressable
+        onPress={onRetry}
+        testID="chat-retry"
+        style={(state) => [
+          styles.sendRetry,
+          { borderColor: colors.border, opacity: state.pressed ? 0.7 : 1 },
+        ]}
+      >
+        <Text style={[styles.sendRetryText, { color: colors.primary }]}>
+          Try again
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const colors = useColors();
   const insets = screenInsets(useSafeAreaInsets());
@@ -127,8 +156,10 @@ export default function ChatScreen() {
     },
   });
 
+  const lastSent = useRef<string | null>(null);
   const send = (content: string) => {
     if (!conversationId || sendMessage.isPending) return;
+    lastSent.current = content;
     sendMessage.mutate({ conversationId, data: { content } });
   };
 
@@ -258,7 +289,17 @@ export default function ChatScreen() {
             showsVerticalScrollIndicator={false}
             // Inverted list: the header renders below index 0, so the
             // waiting state sits beneath the question that prompted it.
-            ListHeaderComponent={awaitingAnswer ? <ThinkingIndicator /> : null}
+            ListHeaderComponent={
+              awaitingAnswer ? (
+                <ThinkingIndicator />
+              ) : sendMessage.isError ? (
+                <SendErrorNotice
+                  onRetry={() => {
+                    if (lastSent.current) send(lastSent.current);
+                  }}
+                />
+              ) : null
+            }
             renderItem={({ item }) =>
               item.role === 'user' ? (
                 // The reader's own voice: a soft card a step darker
@@ -453,6 +494,27 @@ const styles = StyleSheet.create({
   thinkingText: {
     fontSize: 15,
     fontFamily: fonts.displayItalic,
+  },
+  sendError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  sendErrorText: {
+    fontSize: 15,
+    fontFamily: fonts.body,
+  },
+  sendRetry: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  sendRetryText: {
+    fontSize: 13.5,
+    fontFamily: fonts.bodySemiBold,
   },
   inputBarContainer: {
     paddingHorizontal: 16,

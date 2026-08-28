@@ -26,30 +26,23 @@ import { useDesktop } from '@/hooks/useDesktop';
 import { fonts } from '@/constants/colors';
 import { confirmDestructive } from '@/lib/notice';
 import { isHovered } from '@/lib/web';
+import { timeAgo } from '@/lib/time';
 import type { Conversation } from '@/lib/api';
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
 
 /**
  * Past conversations, tucked behind the menu button: recent list with
  * a search field, tap to reopen, long-press to delete.
  *
- * The search query is controlled by the parent, which forwards it to the
- * server so matches cover full answer text — not just titles and previews.
+ * The search query filters the loaded conversations by TITLE, client-side
+ * (apps/api has no full-text thread search). `error` renders an explicit error
+ * state — a failed/shape-mismatched list must never masquerade as "no history".
  */
 export function HistorySheet({
   open,
   onClose,
   conversations,
   loading,
+  error,
   query,
   onQueryChange,
   searching,
@@ -61,6 +54,7 @@ export function HistorySheet({
   onClose: () => void;
   conversations: Conversation[];
   loading: boolean;
+  error: boolean;
   query: string;
   onQueryChange: (text: string) => void;
   searching: boolean;
@@ -198,7 +192,7 @@ export function HistorySheet({
             <TextInput
               value={query}
               onChangeText={onQueryChange}
-              placeholder="Search your questions and answers"
+              placeholder="Search your questions"
               placeholderTextColor={colors.mutedForeground}
               autoFocus={desktop}
               style={[styles.searchInput, { color: colors.cardForeground }]}
@@ -222,7 +216,14 @@ export function HistorySheet({
             )}
           </View>
 
-          {loading ? (
+          {error ? (
+            <View style={styles.empty}>
+              <Feather name="alert-circle" size={22} color={colors.destructive} />
+              <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                Your history didn&apos;t load. Check your connection and try again.
+              </Text>
+            </View>
+          ) : loading ? (
             <ActivityIndicator color={colors.primary} style={styles.loader} />
           ) : conversations.length === 0 ? (
             <View style={styles.empty}>

@@ -9,8 +9,10 @@ import type { Citation } from '@/lib/api/types';
  *
  * These are NOT derived from the answer they appear beneath — they are a fixed
  * set chosen to support the question "How can I develop khushu' in my prayer?".
- * They become REAL, answer-derived citations when issue #66 ships; until then,
- * treat them as illustrative only. Do not read them as evidence the API returned.
+ * They are attached ONLY to the FIRST assistant answer of a thread about khushu'
+ * (the one answer these sources support); follow-ups carry none. They become
+ * REAL, answer-derived citations when issue #66 ships; until then, treat them as
+ * illustrative only. Do not read them as evidence the API returned.
  *
  * Accuracy: every reference, Arabic text, and translation below is real and
  * verified (Qur'an 20:14 / 23:1-2; Sahih al-Bukhari 528 via sunnah.com). A wrong

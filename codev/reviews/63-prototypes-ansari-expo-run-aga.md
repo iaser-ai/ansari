@@ -67,10 +67,39 @@ workspace lockfile is touched.
 - `43ea25b` Make three quiet stream/storage failures loud: non-JSON frame, truncated stream, web setItem
 - `567bbab` Negative test for loud web setItem: saveSession rejects on missing/throwing localStorage
 
+## Review feedback addressed (integration REQUEST_CHANGES)
+
+The 3-way consultation + main's integration review returned REQUEST_CHANGES. All findings are
+fixed on this branch, each with a regression test proven to fail when its guard is removed:
+
+- 🔴 **Double-POST on the no-body path** (`streaming.ts`) — the chat POST was re-sent when
+  `response.body` was absent (duplicate message + double model invocation). Now the transport
+  issues **exactly one request**: with a streaming body it reads the reader; without one it
+  consumes `response.text()` already in hand. The XHR fallback (and its abort gap) is removed.
+  Pinned by `streaming.test.ts` (counts requests across expo/fetch **and** XHR; both = 1).
+- 🔴 **React Query cache survived logout** (`context.tsx`) — `queryClient.clear()` now runs on
+  every principal transition (sign-in, guest sign-in, logout, failed refresh). Pinned by the
+  cross-account `context.test.tsx` (seed user A → sign in as B → cache empty; and logout).
+- 🟠 **AuthGate rendered the mismatched route during redirect** (`_layout.tsx`) — now renders a
+  spinner while `redirecting`, so no protected screen/query mounts signed-out.
+- 🟠 **Static citations on unrelated follow-ups** — narrowed to the **first assistant answer** of
+  a khushu' thread only (architect's decision); README + module header updated. New
+  `decode.test.ts` case asserts follow-ups get `[]`.
+- **Malformed `text` SSE frame** (`chat-stream.ts`) — a `text` frame whose `content` isn't a
+  string now throws instead of being silently dropped (`chat-stream.test.ts`).
+- **History list swallowed errors** — `HistorySheet` now shows an explicit error state on
+  `conversationsQuery.isError` instead of an empty "no history" (the empty-vs-broken confusion
+  this PR exists to kill).
+- **Chat send failures were invisible** — `chat/[id].tsx` shows a "couldn't be delivered" notice
+  with retry when a send / SSE `error` frame fails, instead of just dropping the spinner.
+- **Honesty**: search placeholder + comments corrected to "title-only, client-side" (no
+  server full-text search); `timeAgo('')` → `''` guard (was "NaNd"), pinned by `time.test.ts`;
+  `useDeleteConversation` now validates with `messageResponseSchema` (was misleadingly named).
+
 ## Test Results
 
 - **Build**: ✓ (porch `build` check green)
-- **`pnpm test`** (vitest): ✓ **37 tests**, 5 files. **`tsc --noEmit`**: ✓ clean.
+- **`pnpm test`** (vitest): ✓ **45 tests**, 8 files. **`tsc --noEmit`**: ✓ clean.
 - **Manual (human, staging)**: register / continue-as-guest → ask → streamed answer → thread list
   → logout → login again, verified at the dev-approval gate.
 

@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { setAuthTokenGetter } from '@/vendor/api-client-react/custom-fetch';
 import {
   setAccessTokenGetter,
@@ -43,6 +44,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [session, setSession] = useState<StoredSession | null>(null);
 
@@ -52,11 +54,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<StoredSession | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
 
-  const applySession = useCallback((next: StoredSession | null) => {
-    sessionRef.current = next;
-    setSession(next);
-    setStatus(next ? 'signedIn' : 'signedOut');
-  }, []);
+  // Every call to this is a PRINCIPAL TRANSITION (sign-in, guest sign-in,
+  // logout, or startup restore). Wipe the React Query cache so one account's
+  // cached threads can never render for the next — the guest→register flow makes
+  // switching principal on one device routine. (Refresh SUCCESS keeps the same
+  // principal and deliberately does NOT go through here.)
+  const applySession = useCallback(
+    (next: StoredSession | null) => {
+      queryClient.clear();
+      sessionRef.current = next;
+      setSession(next);
+      setStatus(next ? 'signedIn' : 'signedOut');
+    },
+    [queryClient],
+  );
 
   // Single-flight refresh: on a 401 the transport calls this; concurrent callers
   // share one refresh round-trip. A failed refresh signs the user out.
@@ -76,6 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(updated);
         return accessToken;
       } catch {
+        // Failed refresh is a principal transition (→ signed out): clear the
+        // cache too, so a subsequent sign-in never inherits stale threads.
+        queryClient.clear();
         sessionRef.current = null;
         await clearSession();
         setSession(null);
@@ -86,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
     return refreshInFlight.current;
-  }, []);
+  }, [queryClient]);
 
   // Register transport bridges ONCE. The getters read the ref, so they stay
   // current across logins/refreshes without re-registration.

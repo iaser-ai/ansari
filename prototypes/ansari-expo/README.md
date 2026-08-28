@@ -59,17 +59,20 @@ Against `apps/api`, some UI is intentionally inert — this is **not** a bug:
 
 - **Citations are SAMPLE DATA, not real output.** `apps/api` returns no structured citations,
   so to keep the citation UI demonstrable the adapter attaches a **fixed sample set**
-  (`lib/sample-citations.ts`) to assistant answers in a thread **about khushu'** — ask *"How
-  can I develop khushu' in my prayer?"* to see the source pills, and tap one to open the
-  `CitationSheet`. These samples are **not derived from the answer** above them and are the
-  same for every khushu' answer; real, answer-derived citations arrive with **issue #66**.
-  Other questions show no citations (the API carries none). The pills appear in the footnote
-  list only — the model emits no inline `[1]`/`[2]` markers, so none are injected into the text.
+  (`lib/sample-citations.ts`) to the **first assistant answer** of a thread **about khushu'** —
+  the one answer those sources support — and to nothing else. Ask *"How can I develop khushu' in
+  my prayer?"* to see the source pills, and tap one to open the `CitationSheet`; follow-up
+  questions in that thread and every other thread show no citations. These samples are **not
+  derived from the answer** above them; real, answer-derived citations arrive with **issue #66**.
+  The pills appear in the footnote list only — the model emits no inline `[1]`/`[2]` markers, so
+  none are injected into the text.
 - **No safety cards.** `apps/api` emits no safety signal, so `SafetySignal` is always `null`
   and `SafetyCard` never appears.
 - **Suggested questions are a static, hardcoded list.** They live in
   `lib/suggested-topics.ts`. `apps/api` has no suggested-questions endpoint — don't go
   hunting for one.
+- **History search is title-only, client-side.** `apps/api` has no full-text thread search, so
+  the search box filters the loaded conversations by title (not answer text).
 
 Because a correct-but-empty screen and a *broken* integration look identical here, the data
 adapter validates every response with **zod and throws on any shape mismatch** (react-query

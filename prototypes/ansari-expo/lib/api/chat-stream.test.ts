@@ -53,6 +53,12 @@ describe('reduceChatStream — loud failures', () => {
     ).toThrowError(/boom/);
   });
 
+  it('throws on a text frame whose content is not a string', () => {
+    expect(() =>
+      reduceChatStream(['data: {"type":"text","content":123}\n\n', done]),
+    ).toThrow(ChatStreamError);
+  });
+
   it('throws when the stream ends WITHOUT a done frame', () => {
     // This is the truncation guard: partial text must not resolve as success.
     expect(() => reduceChatStream([text('half an answer')])).toThrow(

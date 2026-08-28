@@ -171,6 +171,27 @@ with a working stub. PROVEN it fails when the guard is removed: temporarily reve
 swallowing → cases (a)+(b) failed (2 failed/1 passed); restored → 37 pass. tsc clean; turbo=7;
 lockfile byte-identical. This was the last requested item.
 
+### Review phase — PR #68 + integration REQUEST_CHANGES (2026-08-28)
+
+Opened PR #68 vs develop; porch 3-way consult: gemini APPROVE, codex REQUEST_CHANGES, claude
+COMMENT. main's integration review (PR comment 5449213791) = REQUEST_CHANGES, 2 verified blockers.
+Fixed ALL on-branch (each negative-tested, proven to fail when guard removed):
+- **BLOCKER 1 double-POST**: streaming.ts re-sent the chat POST when response.body absent (dup
+  message + double model call). Fix: ONE request — read reader if body present, else consume
+  `response.text()` in hand; removed XHR fallback entirely (moots codex's XHR-abort). New
+  `streaming.test.ts` counts requests across expo/fetch + XHR (=1); verified 2nd POST → fail.
+- **BLOCKER 2 cache-survives-logout**: `queryClient.clear()` in `applySession` (sign-in, guest,
+  logout, startup) + refresh-failure. Cross-account `context.test.tsx` (jsdom; +@testing-
+  library/react + jsdom devDeps — root lockfile still clean). Verified removing clear → fails.
+- AuthGate: render spinner while `redirecting` (no protected mount signed-out).
+- Citations: narrowed to FIRST assistant answer of khushu' thread; README + header + decode test.
+- chat-stream: throw on `text` frame with non-string content.
+- HistorySheet: explicit error state on isError (was empty). chat/[id]: send-error notice + retry.
+- Honesty: search placeholder/comments (title-only client-side) + README bullet; timeAgo('')→''
+  guard (`lib/time.ts` + test); delete uses `messageResponseSchema` (renamed from logout*).
+tsc clean; **45 tests** (8 files); turbo=7; root lockfile byte-identical. Did NOT run porch
+next/approve — architect drives re-verify + hand-back to main.
+
 ### Dev-approval: architect APPROVE recommendation forwarded to human (2026-08-27)
 
 Waiting for the relayed human decision — do NOT run porch approve on my own initiative.
