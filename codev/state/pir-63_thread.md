@@ -162,6 +162,15 @@ thin and the failure paths are unit-testable. New `chat-stream.test.ts`: 8 tests
 throws, error-event throws, missing-done throws, done-terminated passes. 34 tests total; tsc
 clean; turbo=7; lockfile byte-identical.
 
+### Negative test for fix (3) — store.test.ts (architect, 2026-08-28)
+
+Added `lib/auth/store.test.ts`: `vi.mock('react-native', Platform.OS='web')` +
+`vi.mock('expo-secure-store')`. Asserts saveSession (a) rejects when `globalThis.localStorage`
+is undefined, (b) rejects when `setItem` throws a QuotaExceededError stub, (c) resolves + persists
+with a working stub. PROVEN it fails when the guard is removed: temporarily reverted setItem to
+swallowing → cases (a)+(b) failed (2 failed/1 passed); restored → 37 pass. tsc clean; turbo=7;
+lockfile byte-identical. This was the last requested item.
+
 ### Dev-approval: architect APPROVE recommendation forwarded to human (2026-08-27)
 
 Waiting for the relayed human decision — do NOT run porch approve on my own initiative.
