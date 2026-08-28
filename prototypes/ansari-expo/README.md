@@ -76,8 +76,13 @@ Against `apps/api`, some UI is intentionally inert — this is **not** a bug:
 - **Suggested questions are a static, hardcoded list.** They live in
   `lib/suggested-topics.ts`. `apps/api` has no suggested-questions endpoint — don't go
   hunting for one.
-- **History search is title-only, client-side.** `apps/api` has no full-text thread search, so
-  the search box filters the loaded conversations by title (not answer text).
+- **History search is title-only, client-side.** `apps/api`'s `GET /api/v2/threads` ignores query
+  params and returns only `[{thread_id, thread_name, source, created_at, updated_at}]` — no message
+  bodies — so the search box filters the loaded threads by **title (`thread_name`) only**, in the
+  adapter's list hook. **Message/answer text is not searchable** (matching it client-side would mean
+  fetching every thread); this is a deliberate prototype limitation, **not** a bug — don't file
+  "search doesn't find message text". Matching is case-insensitive; an unnamed thread
+  (`thread_name: null`) matches nothing and clearing the box restores the full list.
 
 Because a correct-but-empty screen and a *broken* integration look identical here, the data
 adapter validates every response with **zod and throws on any shape mismatch** (react-query

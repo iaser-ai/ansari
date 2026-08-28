@@ -14,9 +14,9 @@ import {
   decodeConversation,
   decodeConversationDetail,
   decodeConversationList,
+  decodeDeleteResult,
   decodeHealth,
 } from '@/lib/api/decode';
-import { messageResponseSchema } from '@/lib/api/wire-schemas';
 import { SUGGESTED_TOPICS } from '@/lib/suggested-topics';
 import type {
   Conversation,
@@ -67,11 +67,9 @@ async function fetchConversations(
   params?: ListConversationsParams,
 ): Promise<Conversation[]> {
   const raw = await apiFetch<unknown>('/api/v2/threads');
-  const conversations = decodeConversationList(raw);
-  const q = params?.q?.trim().toLowerCase();
-  if (!q) return conversations;
-  // apps/api has no server-side thread search, so filter by title client-side.
-  return conversations.filter((c) => c.title.toLowerCase().includes(q));
+  // apps/api ignores query params, so `decodeConversationList` applies the
+  // client-side title-only search (over raw `thread_name`) after validating.
+  return decodeConversationList(raw, params?.q);
 }
 
 export function useListConversations(
@@ -133,7 +131,7 @@ export function useDeleteConversation(
         `/api/v2/threads/${encodeURIComponent(conversationId)}`,
         { method: 'DELETE' },
       );
-      messageResponseSchema.parse(raw); // { message: string }
+      decodeDeleteResult(raw); // throws on a non-`{ message }` shape
     },
     ...options?.mutation,
   });
