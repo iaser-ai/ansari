@@ -145,6 +145,23 @@ option... replicate the behavior"). Left as-is, NOT extending, per architect's i
 tsc clean; 26 tests; turbo=7; lockfile byte-identical. NOTE: web `localStorage.setItem` still
 swallows (deferred post-PR item 3) — that fix will also make guest-cred persistence loud.
 
+### Three loud-failure fixes done (architect, 2026-08-28) — at the gate, not deferred
+
+Architect moved these up (garbled-word clarification: item 2 = consume()'s `continue` on non-JSON).
+1. **Non-JSON SSE frame throws** — `consume()` no longer `continue`s past a malformed `data:`
+   payload (heartbeats already stripped by SSEParser, so it's a real protocol violation).
+2. **Truncated stream throws** — track `done`; `assertComplete()` throws if the stream closes
+   without a `done` frame (both expo/fetch reader loop and XHR `onload`), so partial text never
+   resolves as success.
+3. **web `setItem` surfaces failures** — removed the swallow; a missing localStorage or a
+   quota/security error now propagates so `saveSession`/`saveGuestCredentials` (hence login/guest)
+   fail loudly instead of "succeeding" without persisting.
+Refactored the RN-free reducer into `lib/api/chat-stream.ts` (ChatStreamEvent/Error, consume,
+assertComplete, reduceChatStream) so streaming.ts (imports expo/fetch, unloadable in node) stays
+thin and the failure paths are unit-testable. New `chat-stream.test.ts`: 8 tests incl. non-JSON
+throws, error-event throws, missing-done throws, done-terminated passes. 34 tests total; tsc
+clean; turbo=7; lockfile byte-identical.
+
 ### Dev-approval: architect APPROVE recommendation forwarded to human (2026-08-27)
 
 Waiting for the relayed human decision — do NOT run porch approve on my own initiative.

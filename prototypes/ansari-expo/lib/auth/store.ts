@@ -38,11 +38,14 @@ async function getItem(key: string): Promise<string | null> {
 
 async function setItem(key: string, value: string): Promise<void> {
   if (isWeb) {
-    try {
-      globalThis.localStorage?.setItem(key, value);
-    } catch {
-      // ignore quota / unavailable storage
+    // Loud failure: a write that silently fails would let a login "succeed"
+    // without persisting, so the next cold start is unexpectedly signed out.
+    // Let quota/security errors — and a missing localStorage — propagate so the
+    // caller (saveSession / saveGuestCredentials) surfaces them.
+    if (!globalThis.localStorage) {
+      throw new Error('Local storage is unavailable; the session cannot be saved.');
     }
+    globalThis.localStorage.setItem(key, value);
     return;
   }
   await SecureStore.setItemAsync(key, value);

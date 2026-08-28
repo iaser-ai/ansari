@@ -1,24 +1,16 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import { SSEParser } from '@/lib/api/sse';
+import {
+  assertComplete,
+  ChatStreamError,
+  consume,
+  createStreamState,
+  type ChatStreamEvent,
+} from '@/lib/api/chat-stream';
 import { getAccessToken, handleUnauthorized } from '@/lib/api/auth-bridge';
 
-/**
- * The structured SSE events emitted by `POST /api/v2/threads/{id}/chat`.
- * Only `text` events carry answer content; `error` aborts; `done` terminates.
- * `tool_call` / `tool_result` are observed for future use (e.g. progress) but do
- * not contribute to the answer text in this first PR.
- */
-export type ChatStreamEvent =
-  | { type: 'text'; content: string }
-  | { type: 'tool_call'; name?: string }
-  | { type: 'tool_result'; tool?: string; query?: string; resultCount?: number }
-  | { type: 'error'; message: string }
-  | { type: 'done' };
-
-/** Raised when the stream delivers a `{ type: "error" }` frame. */
-export class ChatStreamError extends Error {
-  readonly name = 'ChatStreamError';
-}
+export type { ChatStreamEvent } from '@/lib/api/chat-stream';
+export { ChatStreamError } from '@/lib/api/chat-stream';
 
 export interface StreamChatParams {
   baseUrl: string;
@@ -92,19 +84,22 @@ async function runStream(
   const parser = new SSEParser();
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
-  let answer = '';
+  const state = createStreamState();
 
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
-      answer = consume(parser.push(chunk), params.onEvent, answer);
+      consume(parser.push(chunk), params.onEvent, state);
     }
   } finally {
     reader.releaseLock?.();
   }
-  return answer;
+  // Loud failure: throws if the stream closed without a `done` frame, so partial
+  // text is never passed off as a complete answer.
+  assertComplete(state);
+  return state.answer;
 }
 
 /**
@@ -122,8 +117,9 @@ function streamChatViaXHR(
   return new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const parser = new SSEParser();
-    let answer = '';
+    const state = createStreamState();
     let seen = 0;
+    let aborted = false;
 
     xhr.open('POST', url);
     for (const [key, value] of Object.entries(headers)) {
@@ -136,8 +132,9 @@ function streamChatViaXHR(
         const delta = text.slice(seen);
         seen = text.length;
         try {
-          answer = consume(parser.push(delta), onEvent, answer);
+          consume(parser.push(delta), onEvent, state);
         } catch (error) {
+          aborted = true;
           xhr.abort();
           reject(error);
         }
@@ -147,9 +144,15 @@ function streamChatViaXHR(
     xhr.onprogress = drain;
     xhr.onload = () => {
       drain();
+      if (aborted) return; // already rejected from within drain()
       if (xhr.status === 401) reject(new UnauthorizedStreamError());
-      else if (xhr.status >= 200 && xhr.status < 300) resolve(answer);
-      else reject(new ChatStreamError(`Chat request failed (HTTP ${xhr.status})`));
+      else if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ChatStreamError(`Chat request failed (HTTP ${xhr.status})`));
+      } else if (!state.done) {
+        reject(new ChatStreamError('Chat stream ended before completion.'));
+      } else {
+        resolve(state.answer);
+      }
     };
     xhr.onerror = () => reject(new ChatStreamError('Network error during chat stream'));
     if (signal) {
@@ -157,32 +160,4 @@ function streamChatViaXHR(
     }
     xhr.send(body);
   });
-}
-
-/**
- * Parse SSE payloads into events, append text, surface errors, and stop on done.
- * Returns the updated answer string.
- */
-function consume(
-  payloads: string[],
-  onEvent: StreamChatParams['onEvent'],
-  answer: string,
-): string {
-  let next = answer;
-  for (const payload of payloads) {
-    let event: ChatStreamEvent;
-    try {
-      event = JSON.parse(payload) as ChatStreamEvent;
-    } catch {
-      continue; // ignore non-JSON frames defensively
-    }
-    onEvent?.(event);
-    if (event.type === 'text' && typeof event.content === 'string') {
-      next += event.content;
-    } else if (event.type === 'error') {
-      throw new ChatStreamError(event.message || 'The assistant reported an error.');
-    }
-    // 'done' needs no action; the stream closes after it.
-  }
-  return next;
 }
