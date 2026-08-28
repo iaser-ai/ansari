@@ -1,7 +1,7 @@
 id: '64'
 title: prototypes-ansari-expo-inert-h
 protocol: air
-phase: implement
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-08-28T06:49:30.174Z'
-updated_at: '2026-08-28T06:49:30.174Z'
+updated_at: '2026-08-28T06:54:27.184Z'
