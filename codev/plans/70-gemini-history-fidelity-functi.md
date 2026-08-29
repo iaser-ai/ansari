@@ -14,9 +14,17 @@ sees `allCallCount <= finalCallCount` and returns `finalContent` unchanged — o
 `functionCall` parts included. The facilitator builds one `functionResponse` per
 *collected* tool call (`agent.ts:698-757`), so the replayed turn has more `functionCall`
 parts than `functionResponse` parts, and Vertex rejects the next call of the same request
-with the exact production 400. This fits every Sentry symptom (parallel calls only,
-`iterations: 2`) but is confirmed by elimination, not measurement — hence the issue's
-"instrument first" ask.
+with the exact production 400 message.
+
+**Correction (issue comment, 2026-08-29): this is a LATENT defect, not the production
+fire.** Production runs `main`, whose pre-#14 `agent.ts` pushes one single-part Content
+per tool call — every parallel tool call there is malformed by construction, which
+accounts for all the Sentry symptoms. `develop` already fixed that (#14's `responseParts`
+batching) but is unpromoted. The repetitionCut desync is present in both branches
+(`gemini-client.ts` is byte-identical), merely masked on `main` by the larger bug. So:
+fix it and instrument it, but the production 400 rate is NOT the success metric — it
+drops when develop is promoted. Success for Bug 1 = the desync instrumentation staying
+silent.
 
 **Bug 2 — rawPayload never persisted.** The whole rawPayload persistence design is a
 dangling wire. `agent.ts:658` passes `rawPayload` to `onMessage` — but no production
@@ -224,6 +232,8 @@ consistency guard (below).
   row has `raw_payload` populated (`psql: select raw_payload from messages …`), (b) the
   follow-up turn answers with awareness of the prior search and no Vertex 400, (c) logs
   show no desync warning.
-- **Post-deploy measurement** (issue ask #1): watch Sentry for the new desync message
-  and the extended repetition-cut summary for one day to confirm/refute the Bug 1
-  mechanism in production.
+- **Post-deploy measurement** (issue ask #1, per the 2026-08-29 correction): success
+  for Bug 1 is the new desync Sentry message staying SILENT (any hit = an unknown
+  desync path), plus the extended repetition-cut summary showing how often the guard
+  co-occurs with function calls. Do NOT expect the production 400 rate to move — that
+  is fixed by the develop→main promotion (#14), not by this change.
