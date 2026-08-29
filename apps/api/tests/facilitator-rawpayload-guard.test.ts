@@ -10,9 +10,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * no paired functionResponse would poison the thread permanently (Vertex 400 on
  * each turn) — the guard must null it loudly instead.
  *
- * Also locks the read-back side: an assistant message carrying a rawPayload must
- * be replayed VERBATIM as its history Content (convertToGeminiHistory's
- * rawPayload branch), signatures included.
+ * Also locks the persisted SHAPE: the payload is built from the COMPLETE
+ * arrival-ordered turn (`allParts`) — never from `rawPayload`, whose
+ * last-chunk-wins semantics (#83) hold only the final delta of a multi-chunk
+ * answer — with thought parts filtered (reasoning is never stored). And the
+ * read-back side: an assistant message carrying a rawPayload must be replayed
+ * VERBATIM as its history Content (convertToGeminiHistory's rawPayload branch),
+ * signatures included.
  *
  * Mock scaffolding mirrors tests/facilitator-continuation.test.ts.
  */

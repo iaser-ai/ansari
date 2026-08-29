@@ -27,8 +27,9 @@ instrumentation staying **silent**. See the correction comment on #70.
 - `apps/api/db/schema/messages.ts` (+7 / -0) — nullable `rawPayload` jsonb column
 - `apps/api/drizzle/0004_ancient_mongu.sql` (+1 / -0) — the single `ALTER TABLE`
 - `apps/api/drizzle/meta/*` (+684 / -0) — generated snapshot/journal
-- `apps/api/lib/ai/gemini-client.ts` (+30 / -12 net 35/-12) — repetition-cut fix; desync tripwire; `payloadCallCount` in the cut summary
-- `apps/api/lib/facilitator/agent.ts` (+40 / -4) — `done` event `rawPayload`; `guardFinalRawPayload`
+- `apps/api/lib/ai/gemini-client.ts` — repetition-cut fix; desync tripwire; `payloadCallCount` in the cut summary; `GeminiResponse.allParts` (complete arrival-ordered turn)
+- `apps/api/lib/facilitator/agent.ts` — `done` event `rawPayload`; `buildPersistablePayload` (full turn from `allParts`, thought-part filter, orphan-functionCall guard)
+- `apps/api/lib/ai/inkling-client.ts` — populate `allParts`
 - `apps/api/src/app/api/v2/threads/[id]/route.ts` (+6 / -2), `.../chat/route.ts` (+6 / -2) — persist + read back
 - `apps/api/tests/gemini-repetition.test.ts` (+68) — regression: tripping chunk carrying functionCalls keeps counts equal
 - `apps/api/tests/facilitator-rawpayload-guard.test.ts` (+230, new) — done-event hand-off, guard both directions, verbatim history replay
@@ -46,12 +47,15 @@ instrumentation staying **silent**. See the correction comment on #70.
 - `a0789a2` [PIR #70] Plan: reframe Bug 1 as latent (prod 400s are pre-#14 main, per issue correction)
 - `85a7984` [PIR #70] Tests: repetition-cut desync regression, rawPayload guard, pglite round-trip; add raw_payload to test DDLs
 - `975b845` [PIR #70] Thread log: implement phase
+- `2e5152d` [PIR #70] Persist the complete turn (allParts), never the last-chunk fragment; filter thought parts
 
 ## Test Results
 
 - `pnpm build`: ✓ pass
 - `pnpm typecheck`: ✓ pass
-- `pnpm test`: ✓ pass — 68 files, 633 passed, 3 pre-existing skips; 16 new tests
+- `pnpm test`: ✓ pass — 68 files, 638 passed, 3 pre-existing skips; 15 new tests
+  (2 repetition regressions, 1 allParts semantics, 7 facilitator guard/replay, 5 pglite
+  persistence)
 - Manual verification (dev-approval gate, Waleed): suite re-run from a clean shell
   matched; all 16 new tests confirmed executing; **live Vertex checks** — a real
   final-turn rawPayload with a `thoughtSignature` replays as turn-2 history at HTTP 200
@@ -97,15 +101,36 @@ Routed to both tiers this commit:
 
 ## Things to Look At During PR Review
 
-- **`guardFinalRawPayload` nulls instead of throwing** (`agent.ts`). Deliberate: a
+- **Consultation iteration 1 (gemini APPROVE, codex + claude REQUEST_CHANGES) — all
+  findings dispositioned**, full detail in
+  `codev/projects/70-gemini-history-fidelity-functi/70-review-iter1-rebuttals.md`:
+  - *Fixed (blocking, found by Claude review)*: the persisted payload was built from
+    `rawPayload`, whose last-chunk-wins semantics (#83) meant a multi-chunk answer would
+    persist only its final text delta and replay a fragment on turn 2+. `GeminiResponse`
+    now exposes `allParts` (the complete arrival-ordered turn) and the facilitator builds
+    the persisted Content from it — in-request `rawPayload` semantics are byte-identical
+    to before (existing identity tests still pass). Regression tests at both layers fail
+    against the pre-fix code.
+  - *Fixed*: thought (`thought: true`) parts are filtered at persist time — reasoning is
+    never stored (policy from `inkling-client.ts`); empty-after-filter persists null.
+  - *Fixed (Codex)*: `continueWithToolResult` now has the mirrored repetition-cut
+    regression; the "16 new tests" figure corrected to 15.
+  - *Rebutted (both reviewers, using the option Claude's review offered)*: the
+    gemini-client desync tripwire has no fires-on-mismatch test because the mismatch is
+    structurally unreachable through the public API post-fix — both counts derive from
+    the same processed part stream. It exists for unknown/future paths. The check with
+    teeth — the persist-path orphan-functionCall guard — does have a positive
+    fires-test. PIR consultation is single-pass; please weigh this rebuttal at the gate.
+- **`buildPersistablePayload` nulls instead of throwing** (`agent.ts`). Deliberate: a
   desynced final payload degrades that one message to today's text-only replay with a
   loud Sentry error, rather than failing the user's turn or poisoning the thread
   (a persisted orphan `functionCall` would 400 every later turn). Flagging because
   "fail fast, no fallbacks" is house policy — this is a guarded degradation with the
   failure surfaced, not a silent fallback.
 - **Replay semantics change on turn 2+**: with a stored payload, the replayed model turn
-  is the final call's parts (signatures intact) rather than the aggregate streamed text —
-  preamble text from earlier tool iterations stays in the user-visible `content` but not
+  is the final call's COMPLETE part list (all streamed chunks, signatures intact, thought
+  parts excluded) rather than the aggregate streamed text — preamble text from earlier
+  tool-loop iterations (separate model turns) stays in the user-visible `content` but not
   in the replayed turn. This is the original design's intent; the persisted `content`
   column is byte-identical to before.
 - **What is deliberately NOT stored**: intermediate tool-call rounds (tool args embed

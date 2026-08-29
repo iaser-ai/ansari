@@ -121,6 +121,13 @@ consistency guard (below).
    (mobile compat: no API contract change anywhere — the thread GET response does not
    expose `raw_payload`).
 
+   > **Amendment (review iteration 1):** consultation found that `response.rawPayload`
+   > is last-chunk-wins (#83) — for a multi-chunk answer it holds only the final text
+   > delta, so persisting it would replay a fragment. The persisted payload is instead
+   > built from the new `GeminiResponse.allParts` (the complete arrival-ordered turn),
+   > with `thought: true` parts filtered out (reasoning is never stored). In-request
+   > `rawPayload` semantics are unchanged.
+
 7. **Persist-time consistency guard** (flagged in ask #5's "consider before
    implementing" spirit, and the poisoning hazard above): the `done` event's rawPayload
    is the *final* call's Content — a turn that ended with zero collected tool calls. If
