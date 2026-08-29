@@ -43,6 +43,7 @@ function doneResponse(
     text,
     toolCalls,
     rawPayload: { role: 'model', parts: text ? [{ text }] : [] },
+    allParts: text ? [{ text }] : [],
     hasThinking: false,
     usage: { promptTokenCount: 1, candidatesTokenCount: 1, thoughtsTokenCount: 0, totalTokenCount: 2 },
     finishReason,

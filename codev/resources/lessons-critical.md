@@ -15,7 +15,9 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - Prefer failures that are loud over checks that are quiet — when a check can pass by not running (unresolved config, warm cache, empty glob, undeclared env, a filter matching no package), prove it fails when it should AND stops failing when restored.
 - A verification pattern is code, and untested code is not evidence — negative-test every scan against a known-bad line and a known-good near-miss, then report hit counts rather than a verdict.
 - Fix a documentation defect everywhere, not just where you are already editing — a partial fix turns one wrong doc into several that disagree, which is worse than the original error.
+- Before attributing a production symptom to code you are reading, confirm the revision production actually runs — prod can be hundreds of commits behind your branch, with the bug already fixed or differently shaped there.
 
 ## Map of lessons-learned.md (consult when…)
 - Auth hardening (spec 4) — consult when working on sessions/tokens, revocation races, anti-oracle responses, or drizzle/pg error handling.
+- Gemini history fidelity (issue #70) — consult when persisting replayed payloads, cutting streams mid-loop, or changing the messages schema used by pglite test DDL.
 - Monorepo migration & verification discipline (spec 48) — consult when verifying build/cache/env changes, writing scan patterns, or fixing docs across a monorepo.

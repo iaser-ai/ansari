@@ -432,6 +432,9 @@ export async function* streamInkling(
       text,
       toolCalls,
       rawPayload: { role: 'model', parts: responseParts },
+      // Inkling aggregates the full turn already (and reasoning_content is
+      // excluded above), so the complete-turn view equals the replay view.
+      allParts: responseParts,
       hasThinking: false,
       usage,
       durationMs: Date.now() - startTime,

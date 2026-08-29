@@ -67,6 +67,7 @@ beforeAll(async () => {
       output_tokens integer,
       thinking_tokens integer,
       total_tokens integer,
+      raw_payload jsonb,
       created_at timestamp with time zone DEFAULT now()
     );
   `);

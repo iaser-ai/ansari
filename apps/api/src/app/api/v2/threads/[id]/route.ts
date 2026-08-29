@@ -159,11 +159,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // Auto-name thread on first message (fire-and-forget)
     void maybeGenerateThreadName(threadId, user.id, content);
 
-    // Load message history
+    // Load message history. rawPayload rides along so the facilitator replays the
+    // real model turn — tool history and thought signatures — on turn 2+ (issue #70).
     const dbMessages = await findMessagesByThread(threadId);
     const messageHistory: Message[] = dbMessages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
+      rawPayload: m.rawPayload ?? null,
     }));
 
     // Create SSE stream
@@ -256,6 +258,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     outputTokens: event.usage?.candidatesTokenCount ?? null,
                     thinkingTokens: event.usage?.thoughtsTokenCount ?? null,
                     totalTokens: event.usage?.totalTokenCount ?? null,
+                    // Final model turn for turn-2+ history replay (issue #70).
+                    rawPayload: event.rawPayload ?? null,
                   });
                 }
                 safeClose();
