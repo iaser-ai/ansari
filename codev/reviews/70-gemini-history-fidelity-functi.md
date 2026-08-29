@@ -110,7 +110,14 @@ Routed to both tiers this commit:
     now exposes `allParts` (the complete arrival-ordered turn) and the facilitator builds
     the persisted Content from it — in-request `rawPayload` semantics are byte-identical
     to before (existing identity tests still pass). Regression tests at both layers fail
-    against the pre-fix code.
+    against the pre-fix code. **Verification lesson**: the dev-approval live Vertex check
+    ran BEFORE this fix and passed — for the wrong reason: it used a single-chunk answer,
+    the one shape that hides last-chunk-wins truncation entirely. It was re-run after the
+    fix against a real 23-chunk / 23-part streamed turn (one part signature-bearing),
+    rebuilt the way the fixed code persists (allParts, thought parts filtered),
+    JSON-round-tripped, and replayed as turn-2 history: HTTP 200 with and without tools.
+    A live check is only as strong as the shape it exercises — pick fixtures that can
+    exhibit the failure mode.
   - *Fixed*: thought (`thought: true`) parts are filtered at persist time — reasoning is
     never stored (policy from `inkling-client.ts`); empty-after-filter persists null.
   - *Fixed (Codex)*: `continueWithToolResult` now has the mirrored repetition-cut
