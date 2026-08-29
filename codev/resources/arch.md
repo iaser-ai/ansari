@@ -24,6 +24,14 @@ JWT auth over Postgres (Drizzle), in `apps/api/lib/auth/` and `apps/api/lib/db/u
 
 **Deploy runbook (order matters).** `drizzle-kit generate` → review SQL (never `db:push`) → apply migration → run `scripts/grant-admin.ts <email>` for each configured admin (creates-or-promotes with a bcrypt password, revokes prior tokens) → deploy (prod boot asserts admin existence and fails fast otherwise). Inspect for a pre-registered reserved address before applying the conditional system-row backfill.
 
+## Gemini facilitator & message history
+
+The facilitator (`apps/api/lib/facilitator/agent.ts`) answers via a Gemini tool loop: model turn (may carry parallel `functionCall` parts) → one user-role Content holding ALL of that round's `functionResponse` parts → continuation, until a final turn with no tool calls.
+
+**Vertex history contract.** Vertex (not the public Gemini API) validates that the turn after a `functionCall` model turn carries *exactly* as many `functionResponse` parts as the model emitted `functionCall` parts; any producer or replayer of history must keep those counts in sync or the next call 400s. Two past violations: pre-#14 code pushed one single-part Content per call, and the issue #51 repetition guard's mid-chunk `break` skipped `functionCall` parts out of `toolCalls` while `finalContent` kept them (issue #70). The guard now stops text *emission* only — part processing always completes — and `gemini-client.ts` carries a Sentry tripwire that fires if `toolCalls.length` ever diverges from the payload's `functionCall` count.
+
+**rawPayload persistence (issue #70).** `messages.raw_payload` (nullable jsonb) stores ONLY the final model turn's Gemini Content — visible text parts plus opaque `thoughtSignature` blobs, never intermediate tool rounds, so tool args/results are not duplicated and size stays bounded. The facilitator's `done` event hands it to the stateful SSE routes behind a consistency guard: a final turn whose payload carries any `functionCall` part persists NULL (with a Sentry error) rather than poisoning the thread — a persisted orphan call would 400 every later turn. On read-back, `convertToGeminiHistory` replays a stored payload verbatim (signatures intact; Gemini 3 validates them on replay) and falls back to text-only Contents for NULL/legacy rows. `v2/mcp-complete` (one-shot threads) and `v1/chat/completions` (stateless) don't persist payloads.
+
 ## Monorepo layout, build & deploy
 
 The repo is a pnpm workspace of `apps/*` + `packages/*`, driven by Turborepo.
