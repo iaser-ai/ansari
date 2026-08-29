@@ -34,6 +34,11 @@ The other two facilitator callers don't need this: `v2/mcp-complete` creates a f
 one-shot thread per request and never re-reads it; `v1/chat/completions` is stateless
 (history arrives in the request body).
 
+**Impact scale** (measured over the last 60 days of human traffic, per Waleed):
+65.9% of all questions are follow-ups (51,825 of 78,691) and 52% of threads are
+multi-turn — so the rawPayload gap degrades roughly two-thirds of questions, not an
+edge case.
+
 **Interaction between the bugs (important):** today Bug 2 *masks* Bug 1 across turns —
 text-only history has zero `functionCall` parts, so nothing can mismatch on turn 2+. Once
 rawPayload is persisted, a desynced payload with an orphan `functionCall` would be
@@ -83,6 +88,19 @@ consistency guard (below).
    human-applied at deploy per `arch-critical.md`. NEVER `db:push`. Deploy order:
    migration first, then deploy (old code ignores the new column, so the migration is
    safe to apply ahead of the code).
+
+   **Production runbook** (architect addition, 2026-08-29): prod `messages` is
+   679,634 rows / 326MB heap on PostgreSQL 17.11. A nullable, no-default ADD COLUMN
+   is catalog-only — instant — but the ACCESS EXCLUSIVE lock still has to be
+   *acquired*, and without a timeout it would queue every other query behind any
+   in-flight long transaction. Apply with a fail-fast lock timeout:
+
+   ```sql
+   SET lock_timeout = '3s';
+   ALTER TABLE "messages" ADD COLUMN "raw_payload" jsonb;
+   ```
+
+   If it times out, just re-run once the blocking transaction has finished.
 
 6. **Carry rawPayload on the `done` event**: add optional `rawPayload?: Content | null`
    to `FacilitatorStreamEvent` and set it on both `done` yields (`agent.ts:662` main
