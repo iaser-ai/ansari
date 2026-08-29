@@ -44,9 +44,10 @@ const SAMPLE_RESULT = {
   },
 };
 
-// Issue #54: usulSearch is now a single flat-timeout attempt — no retry, no
-// backoff. Any transient failure (5xx / network / timeout) degrades immediately.
-describe('usulSearch single-attempt timeout', () => {
+// Issue #54: usulSearch uses a flat per-attempt timeout — no backoff. Issue #72
+// adds exactly one immediate retry on timeout ONLY; every other failure class
+// (5xx / 4xx / network / invalid_body) still degrades on the first attempt.
+describe('usulSearch resilience', () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -192,12 +193,68 @@ describe.each([
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    // The single flat AbortController timeout fires, so the tool degrades instead
-    // of hanging indefinitely — with exactly one fetch attempt.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The per-attempt AbortController timeout fires, the #72 timeout-only retry
+    // runs once, and the tool degrades instead of hanging indefinitely.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.documents[0].title).toBe('Source Temporarily Unavailable');
     expect(result.documents[0].citations?.enabled).toBe(false);
     expect(result.isDegraded).toBe(true);
+  });
+
+  it('recovers real documents when the first attempt times out and the retry succeeds (issue #72)', async () => {
+    // The issue's production scenario end to end: a tail-latency excursion eats
+    // attempt 1; the immediate retry lands in the ~1-4s bulk and the user gets a
+    // real answer instead of a degraded source.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              const err = new Error('The operation was aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }),
+      )
+      .mockResolvedValue(okResponse([SAMPLE_RESULT]));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const promise = makeTool().run('zakat');
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0].title).toContain(expectedTitleFragment);
+    expect(result.isDegraded).toBeUndefined();
+  });
+
+  it('reports attempts=2 and errorClass=timeout in the degraded telemetry when both attempts time out (issue #72)', async () => {
+    const Sentry = await import('@sentry/nextjs');
+    (Sentry.captureMessage as ReturnType<typeof vi.fn>).mockClear();
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const promise = makeTool().run('zakat');
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.isDegraded).toBe(true);
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const [, context] = (Sentry.captureMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(context.extra.errorClass).toBe('timeout');
+    // "Timed out twice" is distinguishable from a single-shot failure.
+    expect(context.extra.attempts).toBe(2);
   });
 
   it('reports the degraded event to Sentry with NON-PII fields only', async () => {

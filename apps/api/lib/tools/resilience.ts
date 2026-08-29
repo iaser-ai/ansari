@@ -21,15 +21,34 @@ import type { ToolResult } from './types';
  * was hard to reason about. One AbortController timeout is simpler to debug,
  * lets slow-but-healthy calls through, and directly gives the per-tool
  * ≤{@link TOOL_FETCH_TIMEOUT_MS} bound the request-time budget (#49) needs.
+ *
+ * Issue #72: one immediate retry, on `timeout` ONLY. Usul latency is
+ * heavy-tailed (bulk ~1–4s, rare >10s excursions; production timeouts are
+ * mostly isolated, i.e. per-call-independent), so re-sampling once turns a
+ * guaranteed degrade into a likely ~1–4s success. This does NOT reintroduce
+ * #54's problem: the per-attempt timeout stays at the full
+ * {@link TOOL_FETCH_TIMEOUT_MS} (nothing is squeezed to fit a schedule), there
+ * is no backoff, and the other error classes (5xx/4xx/network/invalid_body/
+ * too_large) still fail fast on the first attempt. Per-tool worst case is
+ * {@link TOOL_FETCH_MAX_ATTEMPTS} × {@link TOOL_FETCH_TIMEOUT_MS} = 20s, well
+ * inside #49's 120s request budget.
  */
 
 /**
- * Flat per-tool request timeout (AbortController). A single attempt bounded by
- * this timeout is the entire per-tool wall-clock budget: no retries, no backoff.
- * Set to 10s so slow-but-healthy providers still succeed while a hung or failing
- * provider cannot overrun the request-time budget (#49).
+ * Flat PER-ATTEMPT request timeout (AbortController). Set to 10s so
+ * slow-but-healthy providers still succeed while a hung or failing provider
+ * cannot overrun the request-time budget (#49). With the timeout-only retry
+ * (issue #72) the per-tool wall-clock bound is
+ * {@link TOOL_FETCH_MAX_ATTEMPTS} × this value.
  */
 export const TOOL_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Maximum attempts per tool call (issue #72): the initial attempt plus at most
+ * one immediate retry, and ONLY when the first attempt failed with
+ * `errorClass === 'timeout'`. Every other error class fails on attempt 1.
+ */
+export const TOOL_FETCH_MAX_ATTEMPTS = 2;
 
 /**
  * Hard cap on the response body a tool will buffer (issue #2). A provider that streams an
@@ -64,8 +83,9 @@ export type ToolFetchErrorClass =
 export class ToolFetchError extends Error {
   readonly status?: number;
   /**
-   * Attempts made before failing. Always 1 under the single-attempt model
-   * (issue #54); retained so the degraded-event monitoring shape is stable.
+   * Attempts made before failing: 2 when a timeout was retried (issue #72),
+   * else 1. Lets the degraded telemetry distinguish "timed out twice" from a
+   * single-shot failure.
    */
   readonly attempts: number;
   readonly errorClass: ToolFetchErrorClass;
@@ -153,21 +173,20 @@ async function readBodyText(
 }
 
 /**
- * Fetch a URL and return its parsed JSON body with a single flat timeout that covers BOTH the
- * headers AND the body (issue #2), one attempt, no retry, no backoff.
+ * One fetch attempt with a flat timeout that covers BOTH the headers AND the body (issue #2).
  *
  * The predecessor (`fetchWithTimeout`, issue #54) cleared its abort timer the moment `fetch()`
  * resolved — i.e. after headers — and returned the raw `Response`, so the caller's
  * `response.json()` ran with no timeout and no size bound. A provider that returned headers then
  * stalled the body bypassed both the per-tool cap and the facilitator wall-clock guarantee. This
  * wrapper reads, size-caps, and parses the body inside the AbortController window, so the whole
- * per-tool wall-clock is bounded by `timeoutMs` (≤{@link TOOL_FETCH_TIMEOUT_MS}) and an oversized
- * body degrades loudly.
+ * attempt's wall-clock is bounded by `timeoutMs` (≤{@link TOOL_FETCH_TIMEOUT_MS}) and an
+ * oversized body degrades loudly.
  *
  * Throws a {@link ToolFetchError} on any non-2xx status, network error, timeout, oversized body,
- * or unparseable JSON. Callers convert the thrown error into a graceful degraded result.
+ * or unparseable JSON.
  */
-export async function fetchJsonWithTimeout<T>(
+async function fetchJsonAttempt<T>(
   url: string,
   init: RequestInit,
   options: FetchTimeoutOptions = {},
@@ -235,6 +254,42 @@ export async function fetchJsonWithTimeout<T>(
 }
 
 /**
+ * Fetch a URL and return its parsed JSON body: one attempt bounded by a flat timeout, plus at
+ * most one immediate retry when — and only when — that attempt timed out (issue #72; policy
+ * rationale in the module docblock). Non-timeout failures (5xx/4xx/network/invalid_body/
+ * too_large) are thrown from the first attempt untouched, with `attempts: 1`. A failure after
+ * the retry — whatever its class — carries `attempts: 2` for the degraded telemetry.
+ *
+ * Throws a {@link ToolFetchError}; callers convert it into a graceful degraded result.
+ */
+export async function fetchJsonWithTimeout<T>(
+  url: string,
+  init: RequestInit,
+  options: FetchTimeoutOptions = {},
+): Promise<T> {
+  try {
+    return await fetchJsonAttempt<T>(url, init, options);
+  } catch (err) {
+    if (!(err instanceof ToolFetchError) || err.errorClass !== 'timeout') {
+      throw err;
+    }
+    // Timeout-only retry: immediate (no backoff), same full per-attempt timeout.
+    try {
+      return await fetchJsonAttempt<T>(url, init, options);
+    } catch (retryErr) {
+      if (retryErr instanceof ToolFetchError) {
+        throw new ToolFetchError(retryErr.message, {
+          status: retryErr.status,
+          attempts: TOOL_FETCH_MAX_ATTEMPTS,
+          errorClass: retryErr.errorClass,
+        });
+      }
+      throw retryErr;
+    }
+  }
+}
+
+/**
  * Map from internal tool id to the human-facing source label. Used by BOTH the
  * tools and the facilitator backstop so the degraded wording is identical
  * everywhere (no per-site drift).
@@ -290,7 +345,7 @@ export interface DegradedToolInfo {
   provider: string;
   /** HTTP status, when the failure was an HTTP error. */
   status?: number;
-  /** Attempts made before degrading (always 1 under the single-attempt model). */
+  /** Attempts made before degrading: 2 when a timeout was retried (issue #72), else 1. */
   attempts?: number;
   /** Why it ultimately failed. */
   errorClass?: ToolFetchErrorClass;

@@ -122,7 +122,9 @@ describe.each([
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The shared #72 timeout-only retry applies to the Kalemat tools too: one
+    // immediate retry per timed-out call, then the graceful degrade.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.documents[0].title).toBe('Source Temporarily Unavailable');
     expect(result.documents[0].citations?.enabled).toBe(false);
     expect(result.isDegraded).toBe(true);
