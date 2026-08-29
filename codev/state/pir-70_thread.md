@@ -29,3 +29,26 @@ Investigated both bugs. Key findings beyond the issue text:
   else Sentry error + persist null) — this doubles as the instrumentation the issue asks for.
 
 Plan written to codev/plans/70-gemini-history-fidelity-functi.md.
+
+## 2026-08-29 — Implement phase
+
+Plan approved. Two mid-flight architect updates, both incorporated:
+
+1. **Migration runbook**: prod apply must use `SET lock_timeout = '3s';` before the
+   ALTER (679K rows; ADD COLUMN is catalog-only but the ACCESS EXCLUSIVE acquisition
+   can queue). In the plan's migration step.
+2. **DIAGNOSIS CORRECTION** (issue #70 comment): production runs `main`, whose pre-#14
+   agent.ts pushes one single-part Content per tool call — THAT is the cause of the
+   production 400 spike, already fixed on develop but unpromoted. The repetitionCut
+   desync is a real but LATENT defect (gemini-client.ts byte-identical on both
+   branches). Success metric for Bug 1 is the desync instrumentation staying silent,
+   NOT the production 400 rate. Plan reworded accordingly.
+
+Implementation (commits 7e86836..): repetition-cut break fix + desync tripwire in
+gemini-client; guarded rawPayload on the facilitator done event; raw_payload jsonb
+column + migration 0004_ancient_mongu.sql (single ALTER, reviewed); both stateful
+thread routes persist + replay. Tests: regression (repetition chunk carrying
+functionCalls), facilitator guard both directions, pglite round-trip through the real
+route. Had to add raw_payload to five test files' hand-written messages DDL.
+
+typecheck ✓, full suite 633 passed / 3 pre-existing skips ✓, build ✓. At dev-approval gate.
