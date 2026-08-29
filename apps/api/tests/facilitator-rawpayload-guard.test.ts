@@ -29,12 +29,17 @@ function doneResponse(
   text: string,
   toolCalls: Array<{ name: string; args: unknown }> = [],
   finishReason = 'STOP',
+  // The complete arrival-ordered turn; rawPayload (in-request replay view) may
+  // legitimately hold only the final delta — see the fragment test below.
+  allParts?: unknown[],
   rawPayload?: { role: string; parts: unknown[] }
 ) {
+  const parts = text ? [{ text }] : [];
   return {
     text,
     toolCalls,
-    rawPayload: rawPayload ?? { role: 'model', parts: text ? [{ text }] : [] },
+    rawPayload: rawPayload ?? { role: 'model', parts },
+    allParts: allParts ?? parts,
     hasThinking: false,
     usage: { promptTokenCount: 1, candidatesTokenCount: 1, thoughtsTokenCount: 0, totalTokenCount: 2 },
     finishReason,
@@ -114,12 +119,9 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
-describe('done event carries the final rawPayload (issue #70)', () => {
-  it('hands the final model turn through verbatim — signatures included — on done and onMessage', async () => {
-    const finalPayload = {
-      role: 'model',
-      parts: [{ text: 'Sabr is patience.', thoughtSignature: 'sig-final' }],
-    };
+describe('done event carries the final turn payload (issue #70)', () => {
+  it('hands the final model turn through — signatures included — on done and onMessage', async () => {
+    const finalParts = [{ text: 'Sabr is patience.', thoughtSignature: 'sig-final' }];
     h.scripts = [
       // Round 1: model requests two parallel tools.
       async function* () {
@@ -133,10 +135,10 @@ describe('done event carries the final rawPayload (issue #70)', () => {
           ]),
         };
       },
-      // Round 2: final text answer with a signature-bearing payload.
+      // Round 2: final text answer with a signature-bearing part.
       async function* () {
         yield { type: 'text', data: 'Sabr is patience.' };
-        yield { type: 'done', response: doneResponse('Sabr is patience.', [], 'STOP', finalPayload) };
+        yield { type: 'done', response: doneResponse('Sabr is patience.', [], 'STOP', finalParts) };
       },
     ];
 
@@ -149,28 +151,100 @@ describe('done event carries the final rawPayload (issue #70)', () => {
 
     const done = events.find((e) => e.type === 'done');
     expect(done).toBeDefined();
-    // Verbatim, by identity: no cloning/mangling between the model turn and the caller.
-    expect(done?.rawPayload).toBe(finalPayload);
+    expect(done?.rawPayload).toEqual({ role: 'model', parts: finalParts });
     expect(persisted).toHaveLength(1);
-    expect(persisted[0].rawPayload).toBe(finalPayload);
+    expect(persisted[0].rawPayload).toEqual({ role: 'model', parts: finalParts });
     // Guard stayed silent on a clean payload.
     expect(
       vi.mocked(Sentry.captureMessage).mock.calls.some((c) => String(c[0]).includes('desync'))
     ).toBe(false);
   });
 
+  it('persists the COMPLETE multi-chunk turn, not the last-chunk rawPayload fragment', async () => {
+    // The consultation-found defect: for a streamed multi-chunk answer,
+    // response.rawPayload is last-chunk-wins (#83) — only the final text delta.
+    // The persisted payload must come from allParts (the whole turn), or turn 2+
+    // replays a fragment of the prior answer.
+    const fullTurn = [
+      { text: 'Sabr in the Quran means patient perseverance. ' },
+      { text: 'And Allah knows best.', thoughtSignature: 'sig-tail' },
+    ];
+    const lastChunkOnly = { role: 'model', parts: [fullTurn[1]] };
+    h.scripts = [
+      async function* () {
+        yield { type: 'text', data: fullTurn[0].text };
+        yield { type: 'text', data: fullTurn[1].text };
+        yield {
+          type: 'done',
+          response: doneResponse(
+            fullTurn[0].text + fullTurn[1].text,
+            [],
+            'STOP',
+            fullTurn,
+            lastChunkOnly
+          ),
+        };
+      },
+    ];
+
+    const events = await collect(runFacilitator([USER_TURN]));
+
+    const done = events.find((e) => e.type === 'done');
+    expect(done?.rawPayload).toEqual({ role: 'model', parts: fullTurn });
+    // Signature stays attached to its original part.
+    expect(done?.rawPayload?.parts?.[1].thoughtSignature).toBe('sig-tail');
+  });
+
+  it('never persists thought parts (reasoning must not be stored)', async () => {
+    const turn = [
+      { text: 'internal reasoning summary', thought: true },
+      { text: 'Visible answer.' },
+    ];
+    h.scripts = [
+      async function* () {
+        yield { type: 'text', data: 'Visible answer.' };
+        yield { type: 'done', response: doneResponse('Visible answer.', [], 'STOP', turn) };
+      },
+    ];
+
+    const events = await collect(runFacilitator([USER_TURN]));
+
+    const done = events.find((e) => e.type === 'done');
+    expect(done?.rawPayload).toEqual({ role: 'model', parts: [{ text: 'Visible answer.' }] });
+  });
+
+  it('persists null when nothing remains after filtering (no empty payloads)', async () => {
+    // Only a thought part in the turn; visible text arrives but the turn parts
+    // are all filtered — persist null so replay falls back to content text.
+    const turn = [{ text: 'reasoning only', thought: true }];
+    h.scripts = [
+      async function* () {
+        yield { type: 'text', data: 'A real visible answer nonetheless.' };
+        yield {
+          type: 'done',
+          response: doneResponse('A real visible answer nonetheless.', [], 'STOP', turn),
+        };
+      },
+    ];
+
+    const events = await collect(runFacilitator([USER_TURN]));
+
+    const done = events.find((e) => e.type === 'done');
+    expect(done?.rawPayload).toBeNull();
+  });
+
   it('guard: nulls a final payload carrying functionCall parts, loudly (never poison the thread)', async () => {
-    // A desynced final: zero tool_call events reached the loop, yet the payload
+    // A desynced final: zero tool_call events reached the loop, yet the turn
     // carries a functionCall part. Persisting it would replay an orphan
     // functionCall on every later turn of the thread.
-    const poisoned = {
-      role: 'model',
-      parts: [{ text: 'Partial answer.' }, { functionCall: { name: 'search_quran', args: {} } }],
-    };
+    const poisonedTurn = [
+      { text: 'Partial answer.' },
+      { functionCall: { name: 'search_quran', args: {} } },
+    ];
     h.scripts = [
       async function* () {
         yield { type: 'text', data: 'Partial answer.' };
-        yield { type: 'done', response: doneResponse('Partial answer.', [], 'STOP', poisoned) };
+        yield { type: 'done', response: doneResponse('Partial answer.', [], 'STOP', poisonedTurn) };
       },
     ];
 

@@ -305,6 +305,34 @@ describe('Gemini repetition-loop degeneration (issue #51)', () => {
     expect(sdk.establishCalls).toBe(1);
   });
 
+  it('keeps the same invariant on the continueWithToolResult path (issue #70)', async () => {
+    // Same desync shape as above, but on the tool-continuation call — the other
+    // streaming entry point that feeds toolCalls/rawPayload back into the loop.
+    const call = { functionCall: { name: 'search_tafsir_encyclopedia', args: { query: 'q' } } };
+    const preCount = Math.floor((8192 - 1) / LOOP_SENTENCE.length);
+    sdk.scripts = [
+      async function* () {
+        for (let i = 0; i < preCount; i++) yield fragmentChunk(LOOP_SENTENCE);
+        yield {
+          candidates: [
+            { content: { role: 'model', parts: [{ text: LOOP_SENTENCE.repeat(3) }, call] } },
+          ],
+        } as Chunk;
+        yield finishOnlyChunk('STOP');
+      },
+    ];
+
+    const { continueWithToolResult } = await import('../lib/ai/gemini-client');
+    const res = await continueWithToolResult('search_quran', { ok: true }, []);
+
+    expect(res.toolCalls.map((t) => t.name)).toEqual(['search_tafsir_encyclopedia']);
+    const payloadCalls = (res.rawPayload.parts ?? []).filter((p) => p.functionCall);
+    expect(payloadCalls).toHaveLength(res.toolCalls.length);
+    // The complete-turn view carries the call too (persistence source, issue #70).
+    expect(res.allParts.filter((p) => p.functionCall)).toHaveLength(1);
+    expect(sdk.establishCalls).toBe(1);
+  });
+
   it('delivers a MAX_TOKENS-terminated stream normally (cap hit is a deliberate stop, never retried)', async () => {
     sdk.scripts = [
       async function* () {

@@ -199,8 +199,21 @@ export interface GeminiResponse {
   text: string;
   /** Tool calls made by the model */
   toolCalls: GeminiToolCall[];
-  /** Raw API response for storage - includes thought signatures */
+  /**
+   * The model turn as replayed WITHIN the request (tool-loop continuations and
+   * same-model retries). On the streaming path this is last-chunk-wins plus the
+   * issue #83 merge that restores dropped functionCall parts — for a multi-chunk
+   * final answer it holds only the FINAL text delta, so it must never be treated
+   * as the complete turn. For that, use `allParts`.
+   */
   rawPayload: Content;
+  /**
+   * Every part of every chunk in exact arrival order — the COMPLETE model turn,
+   * thought signatures attached to their original parts (issue #70). This is the
+   * source for anything persisted and replayed across requests; on the
+   * non-streaming path it equals the candidate's parts.
+   */
+  allParts: Part[];
   /** Whether this response contains thinking parts */
   hasThinking: boolean;
   /** Token usage metadata */
@@ -637,6 +650,7 @@ async function streamWithRetry(
       text: fullText,
       toolCalls,
       rawPayload,
+      allParts,
       hasThinking,
       usage: finalUsage,
       durationMs: Date.now() - startTime,
@@ -793,6 +807,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
       text: '',
       toolCalls: [],
       rawPayload: { role: 'model', parts: [] },
+      allParts: [],
       hasThinking: false,
     };
   }
@@ -803,6 +818,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
     text: extractDisplayText(parts),
     toolCalls: extractToolCalls(parts),
     rawPayload: candidate.content, // Preserve exact format with thought signatures
+    allParts: parts,
     hasThinking: hasThinkingParts(parts),
   };
 }

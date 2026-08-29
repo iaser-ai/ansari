@@ -401,25 +401,37 @@ export async function* runFacilitator(
     totalUsage.totalTokenCount += usage.totalTokenCount;
   };
 
-  // Consistency guard on the payload handed out for persistence (issue #70). The
-  // final turn of a request ends with zero collected tool calls, so its rawPayload
-  // must carry zero functionCall parts. Persisting a violating payload would replay
-  // an orphan functionCall — no paired functionResponse — on EVERY later turn of the
-  // thread: a permanently poisoned thread, not a one-request rescue. Degrade that
-  // one message to the text-only fallback (null), loudly. Counts only, never content.
-  const guardFinalRawPayload = (rawPayload: Content): Content | null => {
-    const orphanCallCount = (rawPayload.parts ?? []).filter((p) => p.functionCall).length;
-    if (orphanCallCount === 0) return rawPayload;
-    const summary = { orphanCallCount, iterations, toolCallCount: tracker.history.length };
-    console.error(
-      '[facilitator] final rawPayload carries functionCall parts — persisting null instead (issue #70)',
-      summary
-    );
-    Sentry.captureMessage('facilitator final rawPayload functionCall desync', {
-      level: 'error',
-      extra: summary,
-    });
-    return null;
+  // Build the payload handed out for persistence (issue #70), from the COMPLETE
+  // arrival-ordered turn (`allParts`) — NOT `rawPayload`, whose last-chunk-wins
+  // semantics (#83) mean a multi-chunk final answer's rawPayload holds only the
+  // final text delta; persisting that would replay a fragment of the prior answer
+  // on every later turn. Two rules applied here:
+  //  - thought parts are never persisted (policy stated in inkling-client.ts:
+  //    reasoning content must not be stored; with includeThoughts:false they
+  //    should not arrive at all — this is the enforcement of that policy);
+  //  - consistency guard: the final turn of a request ends with zero collected
+  //    tool calls, so the persisted payload must carry zero functionCall parts.
+  //    A violating payload would replay an orphan functionCall — no paired
+  //    functionResponse — on EVERY later turn of the thread: a permanently
+  //    poisoned thread. Degrade that one message to the text-only fallback
+  //    (null), loudly. Counts only in logs, never content.
+  const buildPersistablePayload = (response: GeminiResponse): Content | null => {
+    const parts = response.allParts.filter((p) => p.thought !== true);
+    if (parts.length === 0) return null;
+    const orphanCallCount = parts.filter((p) => p.functionCall).length;
+    if (orphanCallCount > 0) {
+      const summary = { orphanCallCount, iterations, toolCallCount: tracker.history.length };
+      console.error(
+        '[facilitator] final turn carries functionCall parts — persisting null instead (issue #70)',
+        summary
+      );
+      Sentry.captureMessage('facilitator final rawPayload functionCall desync', {
+        level: 'error',
+        extra: summary,
+      });
+      return null;
+    }
+    return { role: 'model', parts };
   };
 
   // Graceful short-circuit (Spec 49): stop gathering and make ONE final, tools-disabled
@@ -500,7 +512,7 @@ export async function* runFacilitator(
     addUsage(synthResponse?.usage);
     // Guarded payload for persistence (issue #70). Synthesis runs tools-disabled, so a
     // functionCall part here is a desync by definition — the guard nulls it loudly.
-    const persistablePayload = guardFinalRawPayload(synthResponse.rawPayload);
+    const persistablePayload = buildPersistablePayload(synthResponse);
     // Mirror the normal done path: persist via onMessage if a caller passed it (the SSE routes
     // do not — they persist the streamed text on the `done` event).
     if (onMessage) {
@@ -683,8 +695,8 @@ export async function* runFacilitator(
         }
 
         // Guarded payload for persistence (issue #70): this turn collected zero tool
-        // calls, so any functionCall part in its rawPayload is a desync — nulled loudly.
-        const persistablePayload = guardFinalRawPayload(response.rawPayload);
+        // calls, so any functionCall part in its full turn is a desync — nulled loudly.
+        const persistablePayload = buildPersistablePayload(response);
 
         // Store the assistant message with rawPayload for history preservation
         if (onMessage && assistantContent.length > 0) {
