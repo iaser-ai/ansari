@@ -52,3 +52,26 @@ functionCalls), facilitator guard both directions, pglite round-trip through the
 route. Had to add raw_payload to five test files' hand-written messages DDL.
 
 typecheck ✓, full suite 633 passed / 3 pre-existing skips ✓, build ✓. At dev-approval gate.
+
+## 2026-08-29 — Review phase
+
+dev-approval approved (Waleed independently verified, incl. live Vertex replay checks).
+PR #71 opened against develop (review file as body). Governance updates routed: new
+arch.md section "Gemini facilitator & message history" + hot fact (Vertex parity
+contract, arch-critical now at 10-fact cap) + hot lesson (confirm the deployed revision
+before diagnosing prod) + cold lessons section "Gemini history fidelity (issue #70)".
+
+3-way consultation: gemini APPROVE, codex + claude REQUEST_CHANGES. Claude's blocking
+finding was REAL and I'm glad it ran: I was persisting `rawPayload`, which is
+last-chunk-wins (#83) — a multi-chunk final answer would have persisted only its final
+text delta and turn 2+ would replay a fragment (worse than the text-only fallback).
+Fixed in 2e5152d: `GeminiResponse.allParts` = complete arrival-ordered turn is now the
+persistence source; thought parts filtered (reasoning never stored); empty→null;
+in-request rawPayload semantics untouched (identity tests still pass). Also added the
+continueWithToolResult repetition regression (codex) and corrected the new-test count
+(15). Tripwire fires-on-mismatch test rebutted as structurally unreachable post-fix —
+documented in review + rebuttals file. Suite 638 green.
+
+At pr gate. Note for cleanup: worktree-local `.codev/config.json` shadows the shared
+symlink (stale pre-monorepo checks; shared file must NOT change — 10 other worktrees
+still use backend/+npm).
