@@ -240,6 +240,14 @@ export interface FacilitatorStreamEvent {
   data: string;
   /** Set on the final 'done' event: token usage summed across all tool-loop iterations. */
   usage?: GeminiUsageMetadata;
+  /**
+   * Set on the final 'done' event: the final model turn's Gemini Content — thought
+   * signatures included — for the caller to persist so turn 2+ replays real history
+   * instead of the text-only fallback (issue #70). Null when the payload failed the
+   * consistency guard (a functionCall part with no paired functionResponse must
+   * never be persisted — it would 400 every later turn of the thread).
+   */
+  rawPayload?: Content | null;
 }
 
 /**
@@ -393,6 +401,27 @@ export async function* runFacilitator(
     totalUsage.totalTokenCount += usage.totalTokenCount;
   };
 
+  // Consistency guard on the payload handed out for persistence (issue #70). The
+  // final turn of a request ends with zero collected tool calls, so its rawPayload
+  // must carry zero functionCall parts. Persisting a violating payload would replay
+  // an orphan functionCall — no paired functionResponse — on EVERY later turn of the
+  // thread: a permanently poisoned thread, not a one-request rescue. Degrade that
+  // one message to the text-only fallback (null), loudly. Counts only, never content.
+  const guardFinalRawPayload = (rawPayload: Content): Content | null => {
+    const orphanCallCount = (rawPayload.parts ?? []).filter((p) => p.functionCall).length;
+    if (orphanCallCount === 0) return rawPayload;
+    const summary = { orphanCallCount, iterations, toolCallCount: tracker.history.length };
+    console.error(
+      '[facilitator] final rawPayload carries functionCall parts — persisting null instead (issue #70)',
+      summary
+    );
+    Sentry.captureMessage('facilitator final rawPayload functionCall desync', {
+      level: 'error',
+      extra: summary,
+    });
+    return null;
+  };
+
   // Graceful short-circuit (Spec 49): stop gathering and make ONE final, tools-disabled
   // best-effort synthesis pass from whatever context is already in hand. Reuses the existing
   // events (streamed `text` → `done`, or a single clean `error`) — no new wire events — and
@@ -469,17 +498,20 @@ export async function* runFacilitator(
     }
 
     addUsage(synthResponse?.usage);
+    // Guarded payload for persistence (issue #70). Synthesis runs tools-disabled, so a
+    // functionCall part here is a desync by definition — the guard nulls it loudly.
+    const persistablePayload = guardFinalRawPayload(synthResponse.rawPayload);
     // Mirror the normal done path: persist via onMessage if a caller passed it (the SSE routes
     // do not — they persist the streamed text on the `done` event).
     if (onMessage) {
       await onMessage({
         role: 'assistant',
         content: [{ type: 'text', text: synthText }],
-        rawPayload: synthResponse?.rawPayload ?? null,
+        rawPayload: persistablePayload,
       });
     }
     logShortCircuit('done');
-    yield { type: 'done', data: '', usage: totalUsage };
+    yield { type: 'done', data: '', usage: totalUsage, rawPayload: persistablePayload };
   };
 
   while (iterations < MAX_ITERATIONS) {
@@ -650,16 +682,20 @@ export async function* runFacilitator(
           assistantContent.push({ type: 'text', text: assistantText });
         }
 
+        // Guarded payload for persistence (issue #70): this turn collected zero tool
+        // calls, so any functionCall part in its rawPayload is a desync — nulled loudly.
+        const persistablePayload = guardFinalRawPayload(response.rawPayload);
+
         // Store the assistant message with rawPayload for history preservation
         if (onMessage && assistantContent.length > 0) {
           await onMessage({
             role: 'assistant',
             content: assistantContent,
-            rawPayload: response.rawPayload, // Preserve for multi-turn conversations
+            rawPayload: persistablePayload, // Preserve for multi-turn conversations
           });
         }
 
-        yield { type: 'done', data: '', usage: totalUsage };
+        yield { type: 'done', data: '', usage: totalUsage, rawPayload: persistablePayload };
         return;
       }
 
