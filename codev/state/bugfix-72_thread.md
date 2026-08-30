@@ -92,3 +92,28 @@ attempts=2. Verified the regression tests FAIL against HEAD's resilience.ts
 (12 failures) and pass with the fix (47/47). Full suite 631 passed, 3
 pre-existing skips; typecheck + build green. Kalemat hang test updated 1→2
 attempts (shared-layer consequence).
+
+## 2026-08-30 — pr phase
+
+PR #76 opened against develop (Fixes #72). Porch checks initially blocked by
+stale workspace check config (cwd 'backend', npm) — architect fixed
+.codev/config.json (now apps/api + pnpm); checks green.
+
+CMAP verdicts:
+- gemini: APPROVE (high confidence, no issues).
+- codex: REQUEST_CHANGES — (1) branch 55 commits behind develop → merged
+  origin/develop, full suite green post-merge (646 passed); (2) docblock
+  overclaimed attempts=2 for raw non-ToolFetchError retry failures → narrowed.
+- claude: APPROVE (high confidence) — non-blocking findings, all addressed:
+  (1) CORRECTION: agent.ts dispatches tool calls SERIALLY, so my "same-turn
+  parallel calls explain sub-10s Sentry gaps" claim was wrong — those gaps are
+  concurrent user requests; T1=2 double-timeout is real but serial. PR body
+  and this thread hereby corrected. (2) Soft-deadline overrun now doubles
+  (10s→20s into the 25s synthesis reserve, worst case ~5s left; 120s hard
+  deadline still holds) — recorded in PR as a flagged follow-up, not fixed
+  (needs deadline awareness in the resilience layer, out of BUGFIX scope).
+  (3) T1 comment tightened to "≤~40s of tool time". (4) Original error kept
+  as .cause on the attempts=2 rethrow.
+
+All fixes committed (9972f36, 1fe27e4) and pushed; PR body updated. Full
+suite 646 passed / 3 skipped, typecheck + build green on the merged base.
