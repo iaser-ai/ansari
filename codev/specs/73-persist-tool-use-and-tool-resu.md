@@ -72,24 +72,48 @@ After implementation:
   counts, failure (degraded) rates, latency distributions, and thread-level
   usage percentages — restoring (and improving on) what the legacy Mongo data
   supported.
-- The mawsuah degradation rate becomes exactly computable
-  (degraded mawsuah results / total mawsuah calls).
+- The mawsuah degradation rate becomes exactly computable **over persisted
+  assistant turns** (degraded mawsuah results / total mawsuah calls recorded).
 - Assistant turns with no tool activity store `NULL` (not `[]`), keeping the
   common case free and scans cheap.
 - The mobile/web API response contract is **byte-identical** to today's.
+
+**Known, accepted denominator limitation:** turns that end in an `error` event,
+an empty final answer, or mcp-complete's empty-answer 502 persist **no
+assistant row at all** today (`chat/route.ts` skips `createMessage` on empty
+`fullText`; mcp-complete returns 502 before persisting; a failed synthesis
+yields `error`). Tool calls executed during those turns are therefore not
+captured, and such turns are plausibly failure-correlated, so the measured
+degradation rate is a floor computed over successful turns, not over all
+attempts. Capturing tool records for turns that produce no assistant message
+would require persisting rows that today's thread GET and history-replay paths
+must then filter out — a contract-adjacent design change deliberately **out of
+scope** here (the issue's acceptance is "populated for assistant turns"). The
+error paths remain observable via Sentry, whose per-event reporting is exactly
+what works today; this spec adds the denominator for completed turns. If the
+architect wants error-path capture, that is a follow-on.
 
 ## Success Criteria
 
 - [ ] `tool_calls` is populated for assistant turns that invoked tools, on all
       three persist sites (web chat POST, SSE chat route, mcp-complete); it is
       `NULL` otherwise.
-- [ ] Each persisted record captures, per tool call: a correlating id, the tool
-      name, the input arguments, the result content the model actually
-      received, the degraded marker (`isDegraded`), and per-call duration —
-      enough to compute usage, reliability, and latency trends.
+- [ ] Each persisted record captures, per tool call: a correlating id (minted
+      at the loop level, since Gemini supplies none), the tool name, the input
+      arguments, the result content the model actually received (the full
+      `formatToolResultForGemini` output — this is definitive, not optional),
+      and per-call duration in milliseconds (`NULL` for calls that never
+      executed) — enough to compute usage, reliability, and latency trends.
+- [ ] Every tool_result record carries an explicit **status** field with a
+      fixed category set — success, degraded, budget-skipped, limit-refused,
+      unknown-tool — so provider degradation is never conflated with budget
+      cutoffs. The degraded marker is read off the `ToolResult.isDegraded`
+      flag (it is NOT present in the model-facing payload, which is only
+      `{results, summary}`). Exact field names are a plan detail; the category
+      set is fixed here.
 - [ ] Tool calls skipped by the budget/degradation short-circuits (T1/T2) and
       tool-limit refusals are still recorded (they are part of the reliability
-      picture), distinguishable from successful results.
+      picture), distinguishable from successful results via the status field.
 - [ ] **Regression test asserting the thread GET response shape is
       byte-identical before and after** — specifically that a message whose
       `content` is a single text block still returns a bare **string**, not an
@@ -130,6 +154,13 @@ Additional technical constraints:
 - The `tool_calls` column must never be serialized into any API response —
   today's routes select whole rows, so response construction must remain an
   explicit field-by-field mapping (as it is today), and tests must pin this.
+  This covers **both** serializing surfaces: the thread GET
+  (`threads/[id]/route.ts`) and the share snapshot
+  (`createThreadSnapshot`, `lib/db/shares.ts:36-44`), which also selects whole
+  message rows and maps explicitly.
+- The persisted tool_result content is the full `formatToolResultForGemini`
+  output (documents included, ~7 KB median) — the ground truth of what the
+  model saw, matching the legacy storage math the operator already accepted.
 - The facilitator's `raw_payload` guard semantics (issue #70) are untouched:
   `raw_payload` still stores only the final model turn; `tool_calls` is the
   new, separate home for tool history. No duplication concern — `raw_payload`
@@ -141,11 +172,20 @@ Additional technical constraints:
 
 ## Assumptions
 
-- Current facilitator in-process data is sufficient: `callsWithArgs` (tool,
-  args, generated id) plus `processToolCall`'s returned `ToolResult`
-  (`content`, `documents`, `isDegraded`) capture everything worth persisting.
-  Gemini does not supply tool-call ids, so the facilitator's generated ids are
-  the correlating ids.
+- Current facilitator in-process data is sufficient for **executed** calls:
+  `processToolCall`'s returned `ToolResult` (`content`, `documents`,
+  `isDegraded`) plus the call's args capture everything worth persisting.
+  Gemini does not supply tool-call ids, so ids must be minted by our code —
+  and specifically **at the loop level**, not inside `processToolCall`:
+  tool-limit refusals return before the tracker push (`agent.ts:176-197`) and
+  T1/T2-skipped calls never reach `processToolCall` at all
+  (`agent.ts:748-770`), so the existing `callsWithArgs` tracker alone does NOT
+  cover the record set this spec requires. Duration is likewise new
+  instrumentation (no timing exists in the loop today) and is `NULL` for
+  skipped/refused calls, which never executed.
+- Conveyance rides on the `done` event in practice: `onMessage` currently has
+  no production callers (routes persist on `done`), so both channels carry the
+  array but the `done` event is the one that matters.
 - The result payload worth persisting is what the model actually received
   (`formatToolResultForGemini` output), since that is the ground truth for
   reliability/behavior analysis; full `documents` bodies are included in it
@@ -219,22 +259,23 @@ concentrates correctness (ordering, short-circuit coverage) in one place.
 
 ## Open Questions
 
-- **Important — result payload fidelity:** persist the full
-  `formatToolResultForGemini` output (documents included, ~7 KB median, matches
-  legacy and the issue's storage math) or only the summary + result count
-  (~10x smaller, but loses ground truth)? Spec recommends full output; the
-  issue's storage table implies the operator already priced this in.
-- **Important — skipped-call representation:** T2/T1-skipped and
-  tool-limit-refused calls need a distinguishable marker (e.g. a status field
-  on the result record) so degradation math can separate "provider degraded"
-  from "budget skipped". Exact field naming is a plan detail; the requirement
-  that they be distinguishable is fixed here.
+Resolved during review (promoted out of Open Questions into Success
+Criteria/Constraints): result payload fidelity (full
+`formatToolResultForGemini` output is definitive) and skipped-call
+representation (explicit status field with a fixed category set).
+
+- **Important — error-path capture (architect decision, non-blocking):**
+  turns ending in error/empty persist no assistant row, so their tool records
+  are lost (see Desired State's denominator limitation). This spec scopes the
+  guarantee to persisted assistant turns, per the issue's acceptance wording.
+  If the floor-vs-true-rate gap matters for the Usul figure, error-path
+  capture is a follow-on with its own design (rows invisible to GET/replay).
 - **Nice-to-know — retention/analytics indexing:** whether a partial index or
   generated columns for common queries (e.g. tool name extraction) is worth it.
   Defer until real queries exist; jsonb scans are fine at current volume.
 
-None are critical/blocking: the recommended answers are stated and consistent
-with the issue.
+Nothing here blocks planning: the recommended answers are stated and
+consistent with the issue.
 
 ## Test Scenarios
 
@@ -243,7 +284,9 @@ with the issue.
    `tool_calls` populated. GET the thread through the real route handler.
    Assert `content` in the response is the bare string (`typeof === 'string'`),
    the serialized response contains no `tool_use`/`tool_result`/`tool_calls`
-   keys anywhere, and the message object's key set is exactly today's.
+   keys anywhere, and the message object's key set is exactly today's. Repeat
+   the leak assertion for the share snapshot surface: `createThreadSnapshot`
+   on the same thread produces a snapshot with no tool keys.
 2. **pglite round-trip.** `createMessage` with a `tool_calls` array (tool_use +
    tool_result blocks, degraded flags, durations) → read back via
    `findMessagesByThread`/`getThreadWithMessages` → deep-equal.
@@ -255,20 +298,24 @@ with the issue.
    tool_use₂, tool_result₂, with args and result content matching what the
    mocked tools returned, ids correlating use↔result pairs.
 5. **Degraded result.** A tool returning `isDegraded: true` → its persisted
-   tool_result record carries the degraded marker (this is the mawsuah
-   denominator/numerator test).
+   tool_result record carries status `degraded` (this is the mawsuah
+   denominator/numerator test), while a successful call in the same turn
+   carries the success status — proving the flag is read off `ToolResult`,
+   not the model-facing payload.
 6. **Short-circuit coverage.** A T2 (budget) run where remaining calls are
    skipped → skipped calls appear in the persisted array with the
    skipped/distinguishable marker; a synthesis-path `done` still delivers the
    accumulated records from earlier rounds.
 7. **Multi-round loop.** Tool calls across two loop iterations → one flat
    ordered array on the final `done`, not just the last round's.
-8. **Route persistence integration.** Web chat POST route with mocked
-   facilitator emitting tool events + done → row written with `tool_calls`
-   populated; same for a no-tool run writing `NULL`. Equivalent check for
-   mcp-complete.
+8. **Route persistence integration — all three sites.** Web chat POST route
+   with mocked facilitator emitting tool events + done → row written with
+   `tool_calls` populated; same for a no-tool run writing `NULL`. Equivalent
+   checks for the SSE `/threads/[id]/chat` route and mcp-complete.
 9. **Error paths unchanged.** Facilitator `error` event → no assistant row
-   (as today); tool bookkeeping introduces no new persistence on error.
+   (as today); tool bookkeeping introduces no new persistence on error. This
+   intentionally freezes the documented denominator limitation (see Desired
+   State) — the records from an errored turn are lost, by scoped decision.
 10. **Migration shape.** Generated `0005` migration is a single additive
     nullable `ALTER TABLE messages ADD COLUMN tool_calls jsonb` (reviewed by
     eye; asserted structurally in the schema test DDL updates — the pglite test
@@ -279,7 +326,8 @@ with the issue.
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Tool blocks leak into an API response via `content` or row-spread serialization | Low | High (breaks frozen mobile clients) | Separate column (baked); regression test #1 pins bare-string shape and absence of tool keys; routes keep explicit field mapping |
+| Tool blocks leak into an API response via `content` or row-spread serialization | Low | High (breaks frozen mobile clients) | Separate column (baked); regression test #1 pins bare-string shape and absence of tool keys on both serializing surfaces (thread GET + share snapshot); routes keep explicit field mapping |
+| Degradation rate read as exact when error-path turns are uncounted | Medium | Medium (repeat of the 15x-spread credibility problem) | Limitation stated explicitly in Desired State and Open Questions; rate is documented as a floor over persisted turns; error paths stay Sentry-observable |
 | Result payloads bloat storage beyond estimate | Low | Low-Med | Issue already priced ~4–10 GB/yr vs 47 GB headroom; jsonb TOAST compresses; monitor volume post-deploy |
 | Skipped/short-circuit paths silently unrecorded → denominator undercounts | Medium | Medium (wrong reliability rates again) | Explicit success criterion + tests #6; accumulation lives in the loop, not in `processToolCall` alone |
 | New bookkeeping breaks the streaming chat path | Low | High | Accumulation is passive (no awaits added to hot path); full-suite green + route integration tests |
