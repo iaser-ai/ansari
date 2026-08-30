@@ -279,11 +279,13 @@ export async function fetchJsonWithTimeout<T>(
       return await fetchJsonAttempt<T>(url, init, options);
     } catch (retryErr) {
       if (retryErr instanceof ToolFetchError) {
-        throw new ToolFetchError(retryErr.message, {
+        const wrapped = new ToolFetchError(retryErr.message, {
           status: retryErr.status,
           attempts: TOOL_FETCH_MAX_ATTEMPTS,
           errorClass: retryErr.errorClass,
         });
+        wrapped.cause = retryErr;
+        throw wrapped;
       }
       throw retryErr;
     }
