@@ -29,4 +29,16 @@ Key findings that shaped the spec:
 - pglite test DDL (`CREATE TABLE messages` in ~5 test files) must gain the
   column in the same change — lesson from issue #70.
 
-Status: spec drafted, awaiting porch 3-way consultation then spec-approval gate.
+3-way consultation: gemini APPROVE; claude + codex REQUEST_CHANGES. All
+points verified against code and accepted (no contest): error-path turns
+persist no assistant row so the degradation rate is a floor over persisted
+turns (now stated explicitly, error-path capture flagged as architect
+follow-on); ids must be minted at loop level (tracker misses limit-refusals
+and T1/T2 skips); status taxonomy (success/degraded/budget-skipped/
+limit-refused/unknown-tool) promoted to success criterion; duration is new
+instrumentation, ms, NULL for never-executed calls; share snapshot
+(`lib/db/shares.ts`) added as second leak-test surface; SSE route added to
+integration tests. Rebuttal at
+`codev/projects/73-persist-tool-use-and-tool-resu/73-specify-iter1-rebuttals.md`.
+
+Status: at spec-approval gate, architect notified, waiting.
