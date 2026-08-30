@@ -257,8 +257,9 @@ async function fetchJsonAttempt<T>(
  * Fetch a URL and return its parsed JSON body: one attempt bounded by a flat timeout, plus at
  * most one immediate retry when — and only when — that attempt timed out (issue #72; policy
  * rationale in the module docblock). Non-timeout failures (5xx/4xx/network/invalid_body/
- * too_large) are thrown from the first attempt untouched, with `attempts: 1`. A failure after
- * the retry — whatever its class — carries `attempts: 2` for the degraded telemetry.
+ * too_large) are thrown from the first attempt untouched, with `attempts: 1`. A classified
+ * ({@link ToolFetchError}) failure after the retry carries `attempts: 2` for the degraded
+ * telemetry; a raw body-read failure still surfaces as-is (pre-existing contract).
  *
  * Throws a {@link ToolFetchError}; callers convert it into a graceful degraded result.
  */
