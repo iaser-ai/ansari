@@ -1,0 +1,14 @@
+id: '87'
+title: feedback-upsert-dedupe-rows-an
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-30T11:03:43.122Z'
+updated_at: '2026-08-30T11:03:43.122Z'
