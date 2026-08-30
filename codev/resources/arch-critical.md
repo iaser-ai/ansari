@@ -16,7 +16,9 @@ STARTER: replace the examples below with YOUR project's facts and arch.md sectio
 - Turborepo runs STRICT env mode: a var missing from `turbo.json` `globalEnv` is invisible to tasks AND absent from the cache key — a cached artifact can ship wrong values while reporting a hit. Derive additions four ways (Zod schema, static `process.env.X`, dynamic `process.env[`, documented env surface).
 - A `workspace:*` dependency does NOT put a package's contents in a consumer's cache hash; shared packages must ALSO be listed in `globalDependencies`, or a warm cache replays stale results against changed shared config.
 - Railway deploy config is the DASHBOARD, not `apps/*/railway.toml` — the tomls are the reviewable git record only. Watch paths must include `packages/**`, since both images copy it.
+- Vertex rejects any turn after a `functionCall` model turn that lacks EXACTLY matching `functionResponse` parts; `messages.raw_payload` therefore stores only the FINAL model turn, guard-checked to carry zero functionCall parts.
 
 ## Map of arch.md (consult when…)
 - Authentication & Authorization — consult when touching login/register/refresh/logout/reset, tokens, admin/system access, or the JWT config.
+- Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, or the repetition guard.
 - Monorepo layout, build & deploy — consult when changing the workspace layout, `turbo.json`, env vars, Docker builds, CI task wiring, or Railway deploy config.

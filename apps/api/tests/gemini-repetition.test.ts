@@ -237,6 +237,102 @@ describe('Gemini repetition-loop degeneration (issue #51)', () => {
     expect(sdk.createConfigs[0].maxOutputTokens).toBe(32768);
   });
 
+  it('keeps toolCalls in sync with rawPayload functionCalls when the tripping chunk carries them (issue #70)', async () => {
+    // The production desync: the repetition guard trips on a chunk whose parts
+    // list carries functionCall parts AFTER the degenerate text part. The old
+    // mid-chunk `break` skipped those parts — they stayed in finalContent (and so
+    // in rawPayload) but never reached `toolCalls`, so the facilitator built
+    // fewer functionResponse parts than the stored turn's functionCall parts and
+    // Vertex 400'd the next call. The fix processes the whole chunk and only
+    // stops text emission.
+    const callA = { functionCall: { name: 'search_quran', args: { query: 'q1' } } };
+    const callB = {
+      functionCall: { name: 'search_hadith', args: { query: 'q2' } },
+      thoughtSignature: 'sig-on-call-b',
+    };
+    // Stay just under the 8,192-char check floor with plain fragments, so the
+    // guard trips exactly on the chunk that also carries the function calls.
+    const preCount = Math.floor((8192 - 1) / LOOP_SENTENCE.length);
+    sdk.scripts = [
+      async function* () {
+        for (let i = 0; i < preCount; i++) yield fragmentChunk(LOOP_SENTENCE);
+        yield {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: LOOP_SENTENCE.repeat(3) }, callA, callB],
+              },
+            },
+          ],
+        } as Chunk;
+        // Never pulled: the cut stops the stream after the tripping chunk.
+        yield finishOnlyChunk('STOP');
+      },
+    ];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+    const Sentry = await import('@sentry/nextjs');
+
+    const toolCallNames: string[] = [];
+    let response:
+      | { toolCalls: Array<{ name: string }>; rawPayload: { parts?: Array<Record<string, unknown>> } }
+      | undefined;
+    for await (const ev of streamGemini('question')) {
+      if (ev.type === 'tool_call') toolCallNames.push(ev.data.name);
+      if (ev.type === 'done') response = ev.response;
+    }
+
+    // Both parallel calls were collected AND emitted despite the cut...
+    expect(toolCallNames).toEqual(['search_quran', 'search_hadith']);
+    expect(response?.toolCalls.map((t) => t.name)).toEqual(['search_quran', 'search_hadith']);
+    // ...and the stored model turn carries exactly as many functionCall parts as
+    // toolCalls entries — the invariant that keeps Vertex happy on replay.
+    const payloadCalls = (response?.rawPayload.parts ?? []).filter((p) => p.functionCall);
+    expect(payloadCalls).toHaveLength(response?.toolCalls.length ?? -1);
+    // Signature stays attached to its part in the stored payload.
+    expect((response?.rawPayload.parts ?? []).some((p) => p.thoughtSignature === 'sig-on-call-b')).toBe(
+      true
+    );
+    // Cut still happened (loud warning) but the desync tripwire stayed silent.
+    const warns = vi.mocked(console.warn).mock.calls.map((c) => String(c[0]));
+    expect(warns.some((w) => w.includes('repetition loop detected'))).toBe(true);
+    expect(warns.some((w) => w.includes('desync'))).toBe(false);
+    expect(
+      vi.mocked(Sentry.captureMessage).mock.calls.some((c) => String(c[0]).includes('desync'))
+    ).toBe(false);
+    // No retry: delivered tokens must never be duplicated.
+    expect(sdk.establishCalls).toBe(1);
+  });
+
+  it('keeps the same invariant on the continueWithToolResult path (issue #70)', async () => {
+    // Same desync shape as above, but on the tool-continuation call — the other
+    // streaming entry point that feeds toolCalls/rawPayload back into the loop.
+    const call = { functionCall: { name: 'search_tafsir_encyclopedia', args: { query: 'q' } } };
+    const preCount = Math.floor((8192 - 1) / LOOP_SENTENCE.length);
+    sdk.scripts = [
+      async function* () {
+        for (let i = 0; i < preCount; i++) yield fragmentChunk(LOOP_SENTENCE);
+        yield {
+          candidates: [
+            { content: { role: 'model', parts: [{ text: LOOP_SENTENCE.repeat(3) }, call] } },
+          ],
+        } as Chunk;
+        yield finishOnlyChunk('STOP');
+      },
+    ];
+
+    const { continueWithToolResult } = await import('../lib/ai/gemini-client');
+    const res = await continueWithToolResult('search_quran', { ok: true }, []);
+
+    expect(res.toolCalls.map((t) => t.name)).toEqual(['search_tafsir_encyclopedia']);
+    const payloadCalls = (res.rawPayload.parts ?? []).filter((p) => p.functionCall);
+    expect(payloadCalls).toHaveLength(res.toolCalls.length);
+    // The complete-turn view carries the call too (persistence source, issue #70).
+    expect(res.allParts.filter((p) => p.functionCall)).toHaveLength(1);
+    expect(sdk.establishCalls).toBe(1);
+  });
+
   it('delivers a MAX_TOKENS-terminated stream normally (cap hit is a deliberate stop, never retried)', async () => {
     sdk.scripts = [
       async function* () {

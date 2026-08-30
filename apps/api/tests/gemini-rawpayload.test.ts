@@ -127,6 +127,34 @@ describe('rawPayload functionCall preservation (issue #83)', () => {
     ]);
   });
 
+  it('allParts carries the COMPLETE multi-chunk turn while rawPayload stays last-chunk (issue #70)', async () => {
+    // Streamed chunks are DELTAS: rawPayload (in-request replay view) keeps
+    // last-chunk-wins semantics (#83), so for a plain multi-chunk answer it holds
+    // only the final delta. allParts is the complete arrival-ordered turn — the
+    // source for cross-request persistence, where a fragment would replay as a
+    // truncated prior answer.
+    const p1: Part = { text: 'Sabr means patient perseverance. ' };
+    const p2: Part = { text: 'It is mentioned throughout the Quran. ' };
+    const p3: Part = { text: 'And Allah knows best.', thoughtSignature: 'sig-tail' };
+    sdk.scripts = [
+      async function* () {
+        yield chunk([p1]);
+        yield chunk([p2]);
+        yield chunk([p3], 'STOP');
+      },
+    ];
+
+    const { callGeminiStreaming } = await import('../lib/ai/gemini-client');
+    const res = await callGeminiStreaming('What is sabr?');
+
+    // Complete turn, arrival order, same part objects (signatures stay attached).
+    expect(res.allParts).toEqual([p1, p2, p3]);
+    expect(res.allParts[2]).toBe(p3);
+    // The in-request view is unchanged: last chunk only, by identity.
+    expect(res.rawPayload).toBe(sdk.lastChunkContents[2]);
+    expect(res.rawPayload.parts).toEqual([p3]);
+  });
+
   it('leaves the primary path untouched: single-chunk content is returned by identity', async () => {
     sdk.scripts = [
       async function* () {

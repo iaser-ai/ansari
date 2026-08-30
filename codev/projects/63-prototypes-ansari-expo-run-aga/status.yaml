@@ -1,0 +1,30 @@
+id: '63'
+title: prototypes-ansari-expo-run-aga
+protocol: pir
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-08-27T22:56:57.249Z'
+    approved_at: '2026-08-27T23:00:42.433Z'
+  dev-approval:
+    status: approved
+    requested_at: '2026-08-27T23:20:10.887Z'
+    approved_at: '2026-08-28T00:27:42.815Z'
+  pr:
+    status: approved
+    requested_at: '2026-08-28T06:45:20.722Z'
+    approved_at: '2026-08-28T06:45:29.098Z'
+iteration: 1
+build_complete: true
+history: []
+started_at: '2026-08-27T22:50:20.876Z'
+updated_at: '2026-08-28T06:45:38.096Z'
+pr_history:
+  - phase: review
+    pr_number: 68
+    branch: builder/pir-63
+    created_at: '2026-08-28T00:30:34.668Z'
+pr_ready_for_human: false

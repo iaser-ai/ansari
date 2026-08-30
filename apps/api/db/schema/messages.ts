@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core';
+import type { Content } from '@google/genai';
 import { threads } from './threads';
 
 // Content block types matching Claude's format
@@ -25,6 +26,12 @@ export const messages = pgTable('messages', {
   outputTokens: integer('output_tokens'),
   thinkingTokens: integer('thinking_tokens'),
   totalTokens: integer('total_tokens'),
+  // Final model turn's Gemini Content — thought signatures included — so turn 2+
+  // replays real history instead of a text-only fallback (issue #70). Only the
+  // final turn is stored (never intermediate tool rounds), so tool args/results
+  // are not duplicated here. Nullable: user messages, legacy rows, and
+  // guard-rejected payloads legitimately have none.
+  rawPayload: jsonb('raw_payload').$type<Content>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_messages_thread').on(table.threadId, table.createdAt),

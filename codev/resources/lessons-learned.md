@@ -16,6 +16,13 @@ Durable engineering wisdom captured across the project's work. Update it during 
 - **Drizzle wraps the driver error; the SQLSTATE `code` (e.g. `23505`) is under `.cause`, not the top level.** Walk the cause chain when discriminating unique violations from outages/schema errors — and never treat *every* insert failure as the expected constraint case.
 - **Never log a raw driver/DB error object** — it can embed the submitted email, query params, or a password hash. Log sanitized metadata (`{ name, code }`) and return a generic client message.
 
+## Gemini history fidelity (issue #70)
+
+- **Validate invariants at persist time when the record is replayed forever.** A payload that is re-sent on every later request turns a transient producer bug into a permanent per-record poison (here: an orphan `functionCall` would 400 every subsequent turn of the thread). Guard the invariant where the data is persisted and degrade loudly to a safe shape (NULL + Sentry error) instead of storing corrupt state.
+- **Stop emitting, don't stop processing.** A mid-loop `break` that cuts one accumulator (streamed events / `toolCalls`) while another (the stored payload) keeps the whole input desyncs the two views of the same turn. Suppress the unwanted *output* with a flag and let the loop complete, so every derived view stays consistent.
+- **Hand-written test DDL is a schema copy and drifts like one.** Adding a column meant updating five pglite `CREATE TABLE messages` blocks across test files; the real-DB suites failed loudly until they matched — which is exactly the drift-detection a mocked suite would have silently missed.
+- **A live check is only as strong as the shape it exercises.** A pre-fix live Vertex replay check passed for the wrong reason: its single-chunk fixture was the one shape that hides last-chunk-wins truncation. Pick verification fixtures that *can* exhibit the suspected failure mode (here: a multi-chunk streamed turn), or the pass certifies nothing.
+
 ## Monorepo migration & verification discipline (spec 48)
 
 See `codev/reviews/48-standardise-to-apps-packages-m.md` for the full context.

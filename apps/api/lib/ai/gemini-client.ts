@@ -199,8 +199,21 @@ export interface GeminiResponse {
   text: string;
   /** Tool calls made by the model */
   toolCalls: GeminiToolCall[];
-  /** Raw API response for storage - includes thought signatures */
+  /**
+   * The model turn as replayed WITHIN the request (tool-loop continuations and
+   * same-model retries). On the streaming path this is last-chunk-wins plus the
+   * issue #83 merge that restores dropped functionCall parts — for a multi-chunk
+   * final answer it holds only the FINAL text delta, so it must never be treated
+   * as the complete turn. For that, use `allParts`.
+   */
   rawPayload: Content;
+  /**
+   * Every part of every chunk in exact arrival order — the COMPLETE model turn,
+   * thought signatures attached to their original parts (issue #70). This is the
+   * source for anything persisted and replayed across requests; on the
+   * non-streaming path it equals the candidate's parts.
+   */
+  allParts: Part[];
   /** Whether this response contains thinking parts */
   hasThinking: boolean;
   /** Token usage metadata */
@@ -535,17 +548,22 @@ async function streamWithRetry(
         for (const part of candidate.content.parts) {
           allParts.push(part);
 
-          if (part.text && !part.thought) {
+          if (part.text && !part.thought && !repetitionCut) {
             fullText += part.text;
             await emitOrBuffer({ type: 'text', data: part.text });
 
             // Repetition guard (issue #51): once past the floor, periodically test
             // the tail for a degenerate verbatim loop and cut the stream early.
+            // The cut stops text accumulation/emission ONLY — the remaining parts
+            // of this chunk (functionCall, thoughts, signatures) still go through
+            // this loop. A mid-chunk `break` here used to orphan later functionCall
+            // parts: they stayed in finalContent but never reached `toolCalls`, so
+            // the turn replayed with more functionCall than functionResponse parts
+            // and Vertex rejected the next call with a 400 (issue #70).
             if (fullText.length >= nextRepetitionCheckAt) {
               nextRepetitionCheckAt = fullText.length + REPETITION_CHECK_EVERY_CHARS;
               if (hasDegenerateRepetitionTail(fullText)) {
                 repetitionCut = true;
-                break;
               }
             }
           }
@@ -589,9 +607,16 @@ async function streamWithRetry(
       if (repetitionCut) break;
     }
 
+    const rawPayload = streamRawPayload(finalContent, allParts);
+    // Count of functionCall parts the stored model turn will replay as history.
+    // The facilitator builds exactly one functionResponse per entry in `toolCalls`,
+    // so this MUST equal toolCalls.length or the next call 400s on Vertex.
+    const payloadCallCount = (rawPayload.parts ?? []).filter((p) => p.functionCall).length;
+
     if (repetitionCut) {
-      // fullText length is not PII; never log the text itself.
-      const summary = { label, chars: fullText.length, toolCalls: toolCalls.length };
+      // fullText length is not PII; never log the text itself. payloadCallCount
+      // measures how often the guard co-occurs with function calls (issue #70).
+      const summary = { label, chars: fullText.length, toolCalls: toolCalls.length, payloadCallCount };
       console.warn('[gemini] repetition loop detected — stream cut early (issue #51)', summary);
       Sentry.addBreadcrumb({
         category: 'gemini',
@@ -608,10 +633,24 @@ async function streamWithRetry(
       throw new TruncatedStreamError(fullText);
     }
 
+    // Desync tripwire (issue #70). With the repetition-cut fix above, every
+    // functionCall part that lands in rawPayload also lands in toolCalls, so this
+    // should never fire — any production hit means an UNKNOWN desync path exists
+    // and would mint a Vertex 400 on the turn's replay. Counts only, never content.
+    if (payloadCallCount !== toolCalls.length) {
+      const summary = { label, toolCallCount: toolCalls.length, payloadCallCount, repetitionCut };
+      console.warn('[gemini] functionCall/toolCalls desync — replayed history will mismatch (issue #70)', summary);
+      Sentry.captureMessage('gemini functionCall/toolCalls desync', {
+        level: 'warning',
+        extra: summary,
+      });
+    }
+
     return {
       text: fullText,
       toolCalls,
-      rawPayload: streamRawPayload(finalContent, allParts),
+      rawPayload,
+      allParts,
       hasThinking,
       usage: finalUsage,
       durationMs: Date.now() - startTime,
@@ -768,6 +807,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
       text: '',
       toolCalls: [],
       rawPayload: { role: 'model', parts: [] },
+      allParts: [],
       hasThinking: false,
     };
   }
@@ -778,6 +818,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
     text: extractDisplayText(parts),
     toolCalls: extractToolCalls(parts),
     rawPayload: candidate.content, // Preserve exact format with thought signatures
+    allParts: parts,
     hasThinking: hasThinkingParts(parts),
   };
 }
