@@ -8,6 +8,7 @@ import {
   unavailableResult,
   reportDegradedTool,
   TOOL_FETCH_TIMEOUT_MS,
+  TOOL_FETCH_MAX_ATTEMPTS,
   MAX_RESPONSE_BYTES,
 } from '../lib/tools/resilience';
 
@@ -101,10 +102,11 @@ describe('fetchJsonWithTimeout', () => {
 
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('timeout');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // A stalled body is a timeout, so it gets the one #72 retry before failing.
+    expect(fetchMock).toHaveBeenCalledTimes(TOOL_FETCH_MAX_ATTEMPTS);
   });
 
-  it('caps an oversized response body and degrades as too_large (issue #2)', async () => {
+  it('caps an oversized response body and degrades as too_large — no retry (issue #2)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(oversizedResponse(2048));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -112,6 +114,8 @@ describe('fetchJsonWithTimeout', () => {
 
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('too_large');
+    expect(err.attempts).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('degrades a 2xx with an unparseable body as invalid_body (issue #2)', async () => {
@@ -130,6 +134,8 @@ describe('fetchJsonWithTimeout', () => {
 
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('invalid_body');
+    expect(err.attempts).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('reads a streamed body inside the timeout window and returns parsed JSON', async () => {
@@ -187,7 +193,24 @@ describe('fetchJsonWithTimeout', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('aborts a hung request at timeoutMs and classifies it as "timeout" (single attempt)', async () => {
+  it('retries a timeout exactly once and succeeds on attempt 2 (issue #72)', async () => {
+    // The issue's scenario: attempt 1 exceeds the timeout, the immediate retry
+    // lands in the bulk of the latency distribution and succeeds.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(hangingFetch())
+      .mockResolvedValue(okResponse({ results: ['warm'] }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const data = await fetchJsonWithTimeout<{ results: string[] }>(URL_UNDER_TEST, {}, {
+      timeoutMs: 30,
+    });
+
+    expect(data).toEqual({ results: ['warm'] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts a hung request at timeoutMs per attempt, retries once, and reports attempts=2 (issue #72)', async () => {
     const fetchMock = vi.fn().mockImplementation(hangingFetch());
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -197,9 +220,28 @@ describe('fetchJsonWithTimeout', () => {
 
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('timeout');
-    expect(err.attempts).toBe(1);
-    // Hung requests are aborted and degraded, never retried.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Telemetry distinguishes "timed out twice" from a single-shot failure.
+    expect(err.attempts).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(TOOL_FETCH_MAX_ATTEMPTS);
+  });
+
+  it('carries the retry attempt\'s error class with attempts=2 when the retry fails differently', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(hangingFetch())
+      .mockResolvedValue(errorResponse(502, 'Bad Gateway'));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, {
+      timeoutMs: 30,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ToolFetchError);
+    expect(err.errorClass).toBe('http_5xx');
+    expect(err.status).toBe(502);
+    expect(err.attempts).toBe(2);
+    // The retry's 5xx is NOT retried again — the retry is strictly one extra attempt.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('classifies a network error as "network" immediately (no retry)', async () => {
@@ -211,15 +253,43 @@ describe('fetchJsonWithTimeout', () => {
     expect(err).toBeInstanceOf(ToolFetchError);
     expect(err.errorClass).toBe('network');
     expect(err.message).toBe('fetch failed');
+    expect(err.attempts).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('bounds per-tool wall-clock at ≤10s under the default flat timeout (issue #54)', async () => {
-    // The old retry schedule (3×5000ms + backoff) burned ~16s, overrunning #49's
-    // request budget. A single flat 10s AbortController timeout is now the whole
-    // per-tool budget. Simulate a persistently hung provider with fake timers and
-    // assert the total (simulated) wall-clock stays within the flat timeout — and
-    // that fetch is attempted exactly ONCE (no retry).
+  it('never retries any non-timeout error class, even when a retry would succeed (issue #72)', async () => {
+    // Negative test (lessons-critical): the #72 retry fires for `timeout` ONLY.
+    // Each failure mode below is followed by a would-succeed response; if the
+    // retry ever fired for these classes, fetch would be called twice and the
+    // call would succeed — both assertions would catch it.
+    const failures: Array<{ expectClass: string; impl: (f: ReturnType<typeof vi.fn>) => void }> = [
+      { expectClass: 'http_5xx', impl: (f) => f.mockResolvedValueOnce(errorResponse(503, 'Service Unavailable')) },
+      { expectClass: 'http_4xx', impl: (f) => f.mockResolvedValueOnce(errorResponse(429, 'Too Many Requests')) },
+      { expectClass: 'network', impl: (f) => f.mockRejectedValueOnce(new Error('socket hang up')) },
+      { expectClass: 'too_large', impl: (f) => f.mockResolvedValueOnce(oversizedResponse(2048)) },
+    ];
+
+    for (const { expectClass, impl } of failures) {
+      const fetchMock = vi.fn().mockResolvedValue(okResponse());
+      impl(fetchMock);
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const err = await fetchJsonWithTimeout(URL_UNDER_TEST, {}, { maxBytes: 1024 }).catch((e) => e);
+
+      expect(err, expectClass).toBeInstanceOf(ToolFetchError);
+      expect(err.errorClass).toBe(expectClass);
+      expect(err.attempts, expectClass).toBe(1);
+      expect(fetchMock, expectClass).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('bounds per-tool wall-clock at ≤2×10s with the timeout-only retry (issues #54/#72)', async () => {
+    // The pre-#54 retry schedule (3×5000ms + backoff) burned ~16s by squeezing the
+    // per-attempt timeout; #72 instead keeps the full flat timeout per attempt and adds
+    // exactly one immediate retry on timeout. Simulate a persistently hung provider with
+    // fake timers and assert the total (simulated) wall-clock stays within
+    // TOOL_FETCH_MAX_ATTEMPTS × TOOL_FETCH_TIMEOUT_MS — still well inside #49's 120s
+    // request budget — and that fetch is attempted exactly twice.
     vi.useFakeTimers();
     try {
       const fetchMock = vi.fn().mockImplementation(hangingFetch());
@@ -234,8 +304,8 @@ describe('fetchJsonWithTimeout', () => {
 
       expect(err).toBeInstanceOf(ToolFetchError);
       expect(err.errorClass).toBe('timeout');
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(elapsed).toBeLessThanOrEqual(TOOL_FETCH_TIMEOUT_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(TOOL_FETCH_MAX_ATTEMPTS);
+      expect(elapsed).toBeLessThanOrEqual(TOOL_FETCH_MAX_ATTEMPTS * TOOL_FETCH_TIMEOUT_MS);
     } finally {
       vi.useRealTimers();
     }
@@ -252,8 +322,12 @@ describe('fetchJsonWithTimeout', () => {
     expect((init.headers as Record<string, string>)['x-api-key']).toBe('k');
   });
 
-  it('exposes a flat 10s default timeout (issue #54)', () => {
+  it('exposes a flat 10s default per-attempt timeout (issue #54)', () => {
     expect(TOOL_FETCH_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('exposes a 2-attempt cap: one retry, timeout-only (issue #72)', () => {
+    expect(TOOL_FETCH_MAX_ATTEMPTS).toBe(2);
   });
 });
 
