@@ -47,4 +47,27 @@ outcome, invisible to GET/replay (mechanism left to the plan); (2) storage
 estimate added (~4.2–4.4 GB/yr raw, ~1.5–2.5 GB/yr after TOAST, vs 47 GB
 headroom). Spec updated accordingly.
 
-Status: at spec-approval gate, updates sent back to architect, waiting.
+Spec approved (Waleed via architect). Merged develop (PR #76 timeout retry)
+into branch before planning.
+
+## 2026-08-30 — Plan phase
+
+Plan drafted: 3 phases (schema/migration/helpers → facilitator accumulation →
+route wiring + contract tests). Big design choice: error-turn records go to a
+separate `tool_call_orphans` table, NOT invisible message rows — invisibility
+by construction (no existing query reads it), avoids filters in 5+ messages
+consumers and admin-stats skew. PR #76 coherence: ToolResult gains optional
+`degradation` ({errorClass?, attempts?, status?}) so persisted records carry
+attempts=2 on retried timeouts (today that detail dies at reportDegradedTool).
+
+3-way plan review: gemini APPROVE, claude+codex COMMENT. All folded in:
+read-path projection omitting tool_calls (findMessagesByThread /
+getThreadWithMessages / createThreadSnapshot — structural contract safety,
+avoids ~7KB/row detoast per turn; raw_payload kept for replay);
+createToolCallOrphan must NOT bump threads.updatedAt (createMessage does —
+verified); mcp-complete facilitator-error 500 contract pinned across the
+throw→return refactor; skip_trigger T1/T2 field; degradation fields optional
+even when degraded; orphan writes after safeClose(); ToolFetchErrorClass via
+type-only import (resilience already type-imports types.ts).
+
+Status: at plan-approval gate, architect notified, waiting.
