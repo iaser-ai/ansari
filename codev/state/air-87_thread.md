@@ -36,3 +36,20 @@ CLAUDE.md).
 Gotcha hit once: a trimmed pglite `messages` DDL made `findMessageInOwnedThread`
 throw 42703 (route 500s) — pglite DDL must mirror the full schema columns.
 Used the executor-test DDL verbatim.
+
+## PR (2026-08-30)
+
+- PR #88 opened against develop; review embedded in PR body (AIR — no review file).
+- CMAP (gemini/codex/claude, `--type pr --issue 87`): 3× APPROVE, HIGH confidence,
+  no blocking issues. Claude advisories handled: pre-deploy operator checklist
+  (backup + legacy class-value check) added to migration 0006 header; merged
+  origin/develop (bugfix-72, no overlap) — suite green post-merge (659/3 skip).
+  Advisory noted for later: `findFeedbackByMessage` lacks ORDER BY (test-only).
+- NOTE first CMAP attempt failed: from builder context, `consult --protocol air
+  --type pr` still needs `--issue 87` (project auto-detect found all projects).
+- Workspace defect found: shared `.codev/config.json` (main checkout, symlinked
+  into worktrees) has porch check overrides with cwd `backend` — pre-monorepo,
+  ENOENT for every builder. I replaced my worktree's symlink with a corrected
+  local copy (cwd ".", pnpm + apps/api/.env.ci). Main's config untouched —
+  architect should fix it centrally.
+- Awaiting pr gate approval.
