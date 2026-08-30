@@ -1,0 +1,17 @@
+id: bugfix-72
+title: usul-cold-starts-16s-exceed-th
+protocol: bugfix
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-08-30T06:09:03.793Z'
+    approved_at: '2026-08-30T10:35:04.117Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-08-29T20:23:59.244Z'
+updated_at: '2026-08-30T10:35:24.387Z'
+pr_ready_for_human: false

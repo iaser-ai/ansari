@@ -7,11 +7,12 @@ import { fetchJsonWithTimeout, ToolFetchError } from './resilience';
  * SearchTafsir. Both tools hit the same `{base}/{bookId}/{versionId}?q=...`
  * pattern, so the request building and auth live here (DRY).
  *
- * Resilience is a single flat per-request timeout, delegated to
- * `fetchWithTimeout` (Spec 43; simplified in issue #54 — no more retries).
- * Without a timeout a hung request could stall a chat indefinitely. `usulSearch`
- * THROWS on failure — a `ToolFetchError` carrying status/errorClass — and the
- * calling tools convert that into a graceful degraded result.
+ * Resilience is delegated to `fetchJsonWithTimeout` (Spec 43): a flat
+ * per-attempt timeout (issue #54) plus one immediate retry on timeout only
+ * (issue #72). Without a timeout a hung request could stall a chat
+ * indefinitely. `usulSearch` THROWS on failure — a `ToolFetchError` carrying
+ * status/errorClass/attempts — and the calling tools convert that into a
+ * graceful degraded result.
  */
 
 export interface UsulSearchOptions {
@@ -22,7 +23,8 @@ export interface UsulSearchOptions {
 }
 
 /**
- * Query the Usul.ai vector-search API with a single flat timeout (issue #54).
+ * Query the Usul.ai vector-search API with a flat per-attempt timeout (#54)
+ * and one immediate retry on timeout only (#72).
  * Throws a `ToolFetchError` on any non-2xx status, network error, or timeout —
  * callers keep their own graceful fallback for that case.
  *

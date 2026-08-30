@@ -47,7 +47,8 @@ export const FACILITATOR_SYNTHESIS_RESERVE_MS = envBudgetMs('FACILITATOR_SYNTHES
 
 // Fail-fast on degradation (Spec 49, T1). Once this many tool calls in a request have returned
 // #54's degraded ("temporarily unavailable") result, stop gathering and synthesize — so a real
-// outage exits in ~20–30s instead of grinding to the 120s wall-clock backstop (T2). Time alone
+// outage exits after ≤~40s of tool time (tools dispatch serially; ≤20s per timed-out tool with
+// #72's timeout-only retry) instead of grinding to the 120s wall-clock backstop (T2). Time alone
 // cannot separate slow-but-healthy (p99 ~75s) from degraded; this keys off #54's marker instead.
 const T1_DEGRADED_THRESHOLD = 2;
 
