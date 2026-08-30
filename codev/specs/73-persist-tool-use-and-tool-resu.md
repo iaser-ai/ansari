@@ -72,32 +72,64 @@ After implementation:
   counts, failure (degraded) rates, latency distributions, and thread-level
   usage percentages — restoring (and improving on) what the legacy Mongo data
   supported.
-- The mawsuah degradation rate becomes exactly computable **over persisted
-  assistant turns** (degraded mawsuah results / total mawsuah calls recorded).
+- The mawsuah degradation rate becomes exactly computable (degraded mawsuah
+  results / total mawsuah calls dispatched) — **over every completed tool
+  dispatch, including those in turns that end in error or empty**.
 - Assistant turns with no tool activity store `NULL` (not `[]`), keeping the
   common case free and scans cheap.
 - The mobile/web API response contract is **byte-identical** to today's.
 
-**Known, accepted denominator limitation:** turns that end in an `error` event,
-an empty final answer, or mcp-complete's empty-answer 502 persist **no
-assistant row at all** today (`chat/route.ts` skips `createMessage` on empty
-`fullText`; mcp-complete returns 502 before persisting; a failed synthesis
-yields `error`). Tool calls executed during those turns are therefore not
-captured, and such turns are plausibly failure-correlated, so the measured
-degradation rate is a floor computed over successful turns, not over all
-attempts. Capturing tool records for turns that produce no assistant message
-would require persisting rows that today's thread GET and history-replay paths
-must then filter out — a contract-adjacent design change deliberately **out of
-scope** here (the issue's acceptance is "populated for assistant turns"). The
-error paths remain observable via Sentry, whose per-event reporting is exactly
-what works today; this spec adds the denominator for completed turns. If the
-architect wants error-path capture, that is a follow-on.
+**Error turns are in scope (operator decision at spec review).** Turns that
+end in an `error` event, an empty final answer, or mcp-complete's empty-answer
+502 persist **no assistant row at all** today (`chat/route.ts` skips
+`createMessage` on empty `fullText`; mcp-complete returns 502 before
+persisting; a failed synthesis yields `error`). Tool calls executed during
+those turns are disproportionately the degraded ones — excluding them biases
+exactly the reliability metric this feature exists to measure. The guarantee
+therefore extends to **every completed tool dispatch regardless of turn
+outcome**: tool records from error/empty turns must be durably persisted, and
+they must be **invisible to thread GET responses and to history replay** (the
+same invisibility discipline `raw_payload` already observes). The persistence
+mechanism for record-bearing error turns (an assistant-less record row, a
+separate sink, or another design) is a plan question, bounded by the
+invisibility requirement and the frozen API contract.
+
+### Storage estimate (full scope: both block types, all three sites, error turns)
+
+Inputs: legacy medians of 144 B per `tool_use` and ~7 KB per `tool_result`;
+~1,486 assistant messages/day; the legacy sample's ratio of 1,649 tool calls
+per 1,521 assistant text blocks ≈ **1.08 dispatches per assistant turn**;
+error/empty turns ~1–3% of turns (production observation).
+
+- Per dispatch: ~144 B + ~7 KB ≈ **~7.1 KB** (status/duration/id metadata adds
+  tens of bytes — noise).
+- Successful turns: 1,486 × 1.08 × 7.1 KB ≈ **~11.4 MB/day ≈ ~4.2 GB/year**
+  raw.
+- Error turns add ~1–3% on top: **~0.04–0.13 GB/year** — negligible; their
+  inclusion changes the metric, not the storage picture.
+- Total: **~4.2–4.4 GB/year raw**, before jsonb TOAST compression (tool
+  results are compressible text; 2–4× reduction is typical, so on-disk growth
+  plausibly ~1.5–2.5 GB/year).
+
+Against the production volume of 50 GB with 2.58 GB (5%) used: even at the
+uncompressed ~4.4 GB/year this is ~9% of the volume per year — **several years
+of headroom**, consistent with the issue's own ~4–10 GB/year estimate that the
+operator already accepted.
 
 ## Success Criteria
 
 - [ ] `tool_calls` is populated for assistant turns that invoked tools, on all
       three persist sites (web chat POST, SSE chat route, mcp-complete); it is
       `NULL` otherwise.
+- [ ] **Every completed tool dispatch is durably recorded regardless of turn
+      outcome**: a turn that executes tools and then ends in an `error` event,
+      an empty final answer, or mcp-complete's empty-answer 502 still persists
+      its tool records. The mechanism is a plan decision; the guarantee is
+      not.
+- [ ] Tool records from error/empty turns are **invisible to thread GET
+      responses and to history replay** — the same discipline `raw_payload`
+      observes. No API surface changes shape or content because an error
+      turn's records exist.
 - [ ] Each persisted record captures, per tool call: a correlating id (minted
       at the loop level, since Gemini supplies none), the tool name, the input
       arguments, the result content the model actually received (the full
@@ -185,7 +217,10 @@ Additional technical constraints:
   skipped/refused calls, which never executed.
 - Conveyance rides on the `done` event in practice: `onMessage` currently has
   no production callers (routes persist on `done`), so both channels carry the
-  array but the `done` event is the one that matters.
+  array but the `done` event is the one that matters. With error turns in
+  scope, the accumulated records must also reach a durable write when the run
+  terminates in an `error` event (today that event carries only a message
+  string) — how is a plan decision.
 - The result payload worth persisting is what the model actually received
   (`formatToolResultForGemini` output), since that is the ground truth for
   reliability/behavior analysis; full `documents` bodies are included in it
@@ -264,12 +299,13 @@ Criteria/Constraints): result payload fidelity (full
 `formatToolResultForGemini` output is definitive) and skipped-call
 representation (explicit status field with a fixed category set).
 
-- **Important — error-path capture (architect decision, non-blocking):**
-  turns ending in error/empty persist no assistant row, so their tool records
-  are lost (see Desired State's denominator limitation). This spec scopes the
-  guarantee to persisted assistant turns, per the issue's acceptance wording.
-  If the floor-vs-true-rate gap matters for the Usul figure, error-path
-  capture is a follow-on with its own design (rows invisible to GET/replay).
+- **Important — error-turn persistence mechanism (plan question):**
+  error-path capture is IN scope by operator decision at spec review (see
+  Desired State). What remains open is the mechanism for persisting records
+  when no ordinary assistant row exists — e.g. an assistant-less record row
+  that GET/replay filter out, or a separate sink. Bounded by two fixed
+  requirements: durable capture of every completed dispatch, and invisibility
+  to thread GET and history replay. The plan decides; the spec does not.
 - **Nice-to-know — retention/analytics indexing:** whether a partial index or
   generated columns for common queries (e.g. tool name extraction) is worth it.
   Defer until real queries exist; jsonb scans are fine at current volume.
@@ -312,10 +348,12 @@ consistent with the issue.
    with mocked facilitator emitting tool events + done → row written with
    `tool_calls` populated; same for a no-tool run writing `NULL`. Equivalent
    checks for the SSE `/threads/[id]/chat` route and mcp-complete.
-9. **Error paths unchanged.** Facilitator `error` event → no assistant row
-   (as today); tool bookkeeping introduces no new persistence on error. This
-   intentionally freezes the documented denominator limitation (see Desired
-   State) — the records from an errored turn are lost, by scoped decision.
+9. **Error-turn capture and invisibility.** A run that executes tools (some
+   degraded) and then ends in an `error` event → the tool records are durably
+   persisted with their statuses; no ordinary assistant message appears in the
+   thread GET response (byte-identical to today's error behavior on the wire);
+   history replay for the thread's next turn is unaffected by the error-turn
+   records. Same check for the empty-final path and mcp-complete's 502.
 10. **Migration shape.** Generated `0005` migration is a single additive
     nullable `ALTER TABLE messages ADD COLUMN tool_calls jsonb` (reviewed by
     eye; asserted structurally in the schema test DDL updates — the pglite test
@@ -327,7 +365,7 @@ consistent with the issue.
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
 | Tool blocks leak into an API response via `content` or row-spread serialization | Low | High (breaks frozen mobile clients) | Separate column (baked); regression test #1 pins bare-string shape and absence of tool keys on both serializing surfaces (thread GET + share snapshot); routes keep explicit field mapping |
-| Degradation rate read as exact when error-path turns are uncounted | Medium | Medium (repeat of the 15x-spread credibility problem) | Limitation stated explicitly in Desired State and Open Questions; rate is documented as a floor over persisted turns; error paths stay Sentry-observable |
+| Error-turn record persistence leaks into GET/replay or breaks error semantics | Medium | High (frozen contract; thread replay poisoning) | Invisibility is a hard success criterion with dedicated Test Scenario 9 covering GET shape, replay, and all three error paths |
 | Result payloads bloat storage beyond estimate | Low | Low-Med | Issue already priced ~4–10 GB/yr vs 47 GB headroom; jsonb TOAST compresses; monitor volume post-deploy |
 | Skipped/short-circuit paths silently unrecorded → denominator undercounts | Medium | Medium (wrong reliability rates again) | Explicit success criterion + tests #6; accumulation lives in the loop, not in `processToolCall` alone |
 | New bookkeeping breaks the streaming chat path | Low | High | Accumulation is passive (no awaits added to hot path); full-suite green + route integration tests |

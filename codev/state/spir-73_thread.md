@@ -41,4 +41,10 @@ instrumentation, ms, NULL for never-executed calls; share snapshot
 integration tests. Rebuttal at
 `codev/projects/73-persist-tool-use-and-tool-resu/73-specify-iter1-rebuttals.md`.
 
-Status: at spec-approval gate, architect notified, waiting.
+Spec-review feedback from Waleed (via architect): (1) error turns are IN
+scope — every completed tool dispatch must be recorded regardless of turn
+outcome, invisible to GET/replay (mechanism left to the plan); (2) storage
+estimate added (~4.2–4.4 GB/yr raw, ~1.5–2.5 GB/yr after TOAST, vs 47 GB
+headroom). Spec updated accordingly.
+
+Status: at spec-approval gate, updates sent back to architect, waiting.
