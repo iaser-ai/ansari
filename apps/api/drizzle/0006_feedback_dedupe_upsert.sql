@@ -1,4 +1,14 @@
 -- Issue #87: one-time dedup, then the unique index that prevents recurrence.
+--
+-- PRE-DEPLOY (operator checklist, from PR #88 review):
+--   1. Snapshot first — the DELETE is irreversible:
+--        CREATE TABLE feedback_backup_20260830 AS SELECT * FROM feedback;
+--   2. Check for legacy raw class values (pre-normalization rows). Raw
+--      'thumbsup'/'thumbsdown' would be treated as a DIFFERENT class than
+--      'thumbs_up'/'thumbs_down' by both this dedup and the index:
+--        SELECT feedback_class, count(*) FROM feedback GROUP BY 1 ORDER BY 2 DESC;
+--      If legacy values exist, resolve with the owner before applying.
+--
 -- The index cannot build while duplicate (user_id, message_id, feedback_class)
 -- groups exist, so dedup-then-index must run in this order, in one migration.
 -- Hand-written DELETE below (human-reviewed, human-applied at deploy): keep the
