@@ -22,3 +22,12 @@ Key findings that shaped it:
   TS ~6.0.3 vs @types/react 18 (fallback: app-local pin, surfaced not silent).
 
 Plan committed; sitting at plan-approval gate.
+
+## 2026-08-30 — STOOD DOWN at plan-approval gate
+
+Architect instruction (owner decision): the port's risk is too high for now. The feedback
+422 bug is being fixed and deployed in the old repo instead
+(`ansari-project/ansari-frontend` PR #76). No approval, no implementation. Worktree and
+plan left intact — the plan (root-cause analysis, identity-merge table, env-var
+enumeration, risk list) remains reference material if the port is revived. Awaiting
+cleanup direction from the owner.
