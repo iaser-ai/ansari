@@ -1,0 +1,9 @@
+---
+VERDICT: COMMENT
+SUMMARY: The plan is comprehensive and implementable, with one contract-safety clarification needed around orphan insertion behavior.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Specify that `createToolCallOrphan` must **not** update `threads.updatedAt`. Copying the existing `createMessage` pattern literally would change thread GET content after failed turns, weakening the required invisibility/byte-identical behavior.
+- Ensure the error-turn regression test compares `updated_at` as well as messages and replay inputs, so orphan persistence is proven fully invisible.
+- Use a type-only dependency—or relocate `ToolFetchErrorClass`—when adding it to `ToolResult`, avoiding a circular `types.ts` ↔ `resilience.ts` runtime dependency.

@@ -35,9 +35,24 @@ semantics.
 Record shape (internal column, no wire contract): interleaved
 `{type:'tool_use', id, name, input}` /
 `{type:'tool_result', tool_use_id, content, status, duration_ms, error_class?,
-attempts?}` blocks; `status ∈ ok | degraded | budget_skipped | limit_refused |
-unknown_tool`; `content` is the full `formatToolResultForGemini` output;
-`duration_ms` is `null` for never-executed calls; ids minted at loop level.
+attempts?, skip_trigger?}` blocks; `status ∈ ok | degraded | budget_skipped |
+limit_refused | unknown_tool`; `content` is the full
+`formatToolResultForGemini` output; `duration_ms` is `null` for never-executed
+calls; ids minted at loop level. `error_class`/`attempts` are optional even on
+degraded results (non-`ToolFetchError` degrades and the agent backstop carry
+no detail); `skip_trigger: 'T1' | 'T2'` on budget-skipped records preserves
+the provider-down vs. out-of-time distinction at zero cost.
+
+**Read-path projection (structural contract safety + hot-path cost):**
+`findMessagesByThread`, `getThreadWithMessages`, and `createThreadSnapshot`
+currently `select()` whole rows and run on every chat turn / snapshot; without
+a change they would detoast ~7 KB median (up to ~70 KB) of `tool_calls` jsonb
+per assistant row only to discard it. They switch to explicit column
+projection that **omits `tool_calls`** (keeping `raw_payload` in
+`findMessagesByThread` — history replay needs it). This also upgrades the
+frozen-contract guarantee from ".map() discipline" to "the column is never
+selected on any serializing path" — structural, complementing the regression
+tests.
 
 ## Phases (Machine Readable)
 
@@ -80,9 +95,16 @@ migration — with real-DB (pglite) proof.
   `ALTER TABLE messages ADD COLUMN tool_calls jsonb` + `CREATE TABLE
   tool_call_orphans …`. NEVER `db:push`.
 - `apps/api/lib/db/threads.ts` — `createToolCallOrphan(data, exec = db)`
-  helper following the existing `createMessage` pattern (takes the `exec`
-  executor param). `createMessage` itself needs no signature change
-  (`NewMessage` picks up the column).
+  helper taking the `exec` executor param like `createMessage`, but — unlike
+  `createMessage` — it must **NOT** update `threads.updatedAt`: an orphan
+  write is bookkeeping for a failed turn and must be invisible in thread
+  metadata too (a bumped `updated_at` would change the thread GET response
+  after a failed turn). `createMessage` itself needs no signature change
+  (`NewMessage` picks up the column). Read-path projection: change
+  `findMessagesByThread` and `getThreadWithMessages` to explicit column lists
+  omitting `tool_calls` (keeping `raw_payload` — replay needs it).
+- `apps/api/lib/db/shares.ts` — `createThreadSnapshot`'s message select gets
+  the same explicit projection (it only uses role/content/createdAt).
 - pglite test DDL updates — every `CREATE TABLE messages` block gains
   `tool_calls jsonb`: `apps/api/tests/attribution-schema.test.ts`,
   `executor-threads-feedback.test.ts`, `feedback-idor.test.ts`,
@@ -104,10 +126,17 @@ migration — with real-DB (pglite) proof.
 - [ ] Migration file contains exactly the additive column + new table (no
       drops, no alters of existing columns).
 - [ ] pglite round-trip: `createMessage` with a populated `toolCalls` array →
-      read back via `findMessagesByThread` / `getThreadWithMessages` →
-      deep-equal (spec Test Scenario 2).
+      read back via a direct `db.select().from(messages)` (the analytics-side
+      read; the app-facing helpers deliberately project the column OUT in
+      this same phase) → deep-equal (spec Test Scenario 2).
+- [ ] Projection test: `findMessagesByThread` / `getThreadWithMessages` /
+      `createThreadSnapshot` results contain NO `toolCalls` key even when the
+      column is populated, and `findMessagesByThread` still returns
+      `rawPayload`.
 - [ ] Negative test: `createMessage` without `toolCalls` reads back `NULL`,
       not `[]` (spec Test Scenario 3).
+- [ ] `createToolCallOrphan` does NOT change `threads.updated_at` (asserted
+      against a real pglite thread row).
 - [ ] Orphan round-trip: `createToolCallOrphan` → select → deep-equal,
       including `reason`; thread delete cascades the orphan rows.
 - [ ] `pnpm typecheck` and full `pnpm test` green.
@@ -132,8 +161,13 @@ unknown-tool — and delivers it on **both** terminal event kinds (`done` and
 #### Files to Create / Modify
 
 - `apps/api/lib/tools/types.ts` — `ToolResult` gains optional
-  `degradation?: { errorClass: ToolFetchErrorClass; attempts?: number;
-  status?: number }` (populated only when `isDegraded`).
+  `degradation?: { errorClass?: ToolFetchErrorClass; attempts?: number;
+  status?: number }` (populated only when `isDegraded`; every field optional —
+  a non-`ToolFetchError` degrade and the agent backstop carry partial or no
+  detail). Reference `ToolFetchErrorClass` via `import type` from
+  `./resilience` — resilience already type-imports `ToolResult` from
+  `./types`, and a type-only cycle is erased at runtime (no runtime circular
+  dependency is introduced).
 - `apps/api/lib/tools/resilience.ts` — `unavailableResult` accepts optional
   degradation detail and attaches it.
 - `apps/api/lib/tools/search-quran.ts`, `search-hadith.ts`,
@@ -148,7 +182,8 @@ unknown-tool — and delivers it on **both** terminal event kinds (`done` and
     records `tool_use` before dispatch, times execution
     (`duration_ms`, `null` when never executed), and records `tool_result`
     with status derived from outcome + `isDegraded` + short-circuit state;
-    T1/T2-skipped calls are recorded at the skip site;
+    T1/T2-skipped calls are recorded at the skip site with
+    `skip_trigger: 'T1' | 'T2'` from the existing `shortCircuitTrigger`;
   - `FacilitatorStreamEvent` gains `toolCalls?: ToolCallRecord[]`, attached to
     every terminal yield: both `done` yields (normal + synthesis), every
     terminal `error` yield (degenerate-final fail, synthesis failure,
@@ -171,13 +206,16 @@ unknown-tool — and delivers it on **both** terminal event kinds (`done` and
 - [ ] Happy path: two calls in one round → ordered use₁,result₁,use₂,result₂
       with correlating ids, args, full `formatToolResultForGemini` content
       (spec Scenario 4).
-- [ ] Degraded call carries `status: 'degraded'` with `error_class` and
-      `attempts: 2` when the underlying `ToolFetchError` was a retried
-      timeout (#76 coherence); a sibling ok call carries `status: 'ok'`
-      (spec Scenario 5).
+- [ ] Degraded call carries `status: 'degraded'`, and — when the underlying
+      failure was a `ToolFetchError` — its `error_class`, with `attempts: 2`
+      for a retried timeout (#76 coherence); a degrade with no
+      `ToolFetchError` detail (e.g. the agent backstop) still carries
+      `status: 'degraded'` with the detail fields absent; a sibling ok call
+      carries `status: 'ok'` (spec Scenario 5).
 - [ ] T2 short-circuit: skipped calls recorded with `status:
-      'budget_skipped'`, `duration_ms: null`; synthesis `done` still carries
-      the earlier rounds' records (spec Scenario 6).
+      'budget_skipped'`, `skip_trigger: 'T2'`, `duration_ms: null`; a T1 run
+      records `skip_trigger: 'T1'`; synthesis `done` still carries the
+      earlier rounds' records (spec Scenario 6).
 - [ ] Limit-refused and unknown-tool calls recorded with their statuses.
 - [ ] Multi-round loop → one flat ordered array (spec Scenario 7).
 - [ ] Terminal `error` yields carry the accumulated records.
@@ -208,8 +246,11 @@ byte-identical by regression tests on both serializing surfaces.
 - `apps/api/src/app/api/v2/threads/[id]/route.ts` — `done`: pass
   `toolCalls`(non-empty → array, else null) to `createMessage`; empty-final
   branch and `error` event: `createToolCallOrphan` with reason
-  `empty_final`/`error` when records exist.
-- `apps/api/src/app/api/v2/threads/[id]/chat/route.ts` — same wiring.
+  `empty_final`/`error` when records exist. On streaming error paths the
+  orphan write happens **after** `safeClose()` — bookkeeping must never delay
+  the client's error delivery.
+- `apps/api/src/app/api/v2/threads/[id]/chat/route.ts` — same wiring, same
+  after-`safeClose()` ordering.
 - `apps/api/src/app/api/v2/mcp-complete/route.ts` —
   `collectFacilitatorResponse` returns `toolCalls` and exposes records on the
   error path (return-based, not throw-losing); assistant persist passes
@@ -240,8 +281,14 @@ byte-identical by regression tests on both serializing surfaces.
       populated `tool_calls`; no-tool run → `NULL` (spec Scenarios 3, 8).
 - [ ] Error-turn capture: facilitator `error` after executed tools → orphan
       row with records and reason `error`; no assistant message row; thread
-      GET response and next-turn history replay unchanged. Same for
-      empty-final and mcp-complete 502 (spec Scenario 9).
+      GET response — **including `updated_at`** — and next-turn history
+      replay unchanged. Same for empty-final and mcp-complete 502 (spec
+      Scenario 9).
+- [ ] mcp-complete error contract unchanged: a facilitator `error` event
+      still produces the same status code and body as today (currently a 500
+      via the route's catch) after the throw→return refactor of
+      `collectFacilitatorResponse` — pinned by extending the existing
+      mcp-complete tests.
 - [ ] SSE wire output byte-identical for a given mocked event sequence
       (heartbeats and event JSON unchanged).
 - [ ] Full suite green with only `.env.ci`.
