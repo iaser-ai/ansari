@@ -146,6 +146,16 @@ async function seedConversation() {
   });
 }
 
+describe('TOOL_KEY_PATTERN is a live scan (negative-tested per lessons-critical)', () => {
+  it('matches each known-bad key and not a near-miss', () => {
+    for (const bad of ['tool_use', 'tool_result', 'tool_calls', 'toolCalls', 'rawPayload', 'raw_payload', 'duration_ms']) {
+      expect(JSON.stringify({ [bad]: 1 })).toMatch(TOOL_KEY_PATTERN);
+    }
+    // Near-misses that legitimately appear in responses must NOT trip the scan.
+    expect(JSON.stringify({ thread_name: 'tools of the trade', agent_name: 'facilitator' })).not.toMatch(TOOL_KEY_PATTERN);
+  });
+});
+
 describe('GET /api/v2/threads/[id] — frozen contract with tool_calls populated', () => {
   it('a single-text-block assistant message still returns a bare STRING content', async () => {
     await seedConversation();

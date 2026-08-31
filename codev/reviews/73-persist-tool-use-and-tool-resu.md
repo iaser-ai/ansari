@@ -278,8 +278,13 @@ No flaky tests encountered. (Three pre-existing `it.skip`s in
 
 ## Follow-up Items
 
-- **Deploy**: apply `apps/api/drizzle/0007_tool_calls_persistence.sql` before
-  deploying (additive, nullable — safe ahead of deploy; old code ignores it).
+- **Deploy — ordering is BLOCKING, not preferred**: apply
+  `apps/api/drizzle/0007_tool_calls_persistence.sql` **before** deploying. The
+  migration is additive and nullable, so applying it ahead is safe (old code
+  ignores the column) — but the reverse is not: the new code always includes
+  `tool_calls` in Drizzle's INSERT column list, so deploying first would fail
+  **every** assistant-message write (and every orphan write) with an
+  unknown-column error until the migration lands.
 - **Next migration author**: drizzle-kit will emit a second `0007_*` prefix
   (journal idx 7); name the file/tag `0008_*`.
 - **Usul email** (`tmp/usul-degradation-email.md`): compute the real mawsuah

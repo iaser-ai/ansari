@@ -150,6 +150,12 @@ export async function createMessage(data: NewMessage, exec: Executor = db): Prom
  * Unlike createMessage, this must NOT touch threads.updatedAt: an orphan write
  * is bookkeeping for a failed turn, and a bumped updated_at would change the
  * thread GET response — the write must be invisible in thread metadata too.
+ *
+ * Deployment assumption: the streaming routes call this AFTER safeClose(), i.e.
+ * as post-response work inside the ReadableStream body. That relies on the
+ * long-lived Node runtime (Railway) not tearing the request down on close — the
+ * same assumption the heartbeat teardown in those routes' `finally` already
+ * makes. An edge/serverless runtime that freezes on response end would drop it.
  */
 export async function createToolCallOrphan(
   data: NewToolCallOrphan,
