@@ -1,7 +1,7 @@
 id: '73'
 title: persist-tool-use-and-tool-resu
 protocol: spir
-phase: implement
+phase: review
 plan_phases:
   - id: phase_1
     title: Schema, migration 0005, and DB helpers
@@ -11,8 +11,8 @@ plan_phases:
     status: complete
   - id: phase_3
     title: Route persistence and frozen-contract regression tests
-    status: in_progress
-current_plan_phase: phase_3
+    status: complete
+current_plan_phase: null
 gates:
   spec-approval:
     status: approved
@@ -26,8 +26,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 2
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_2
@@ -62,4 +62,4 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-claude.txt
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-08-31T03:26:28.314Z'
+updated_at: '2026-08-31T03:29:27.893Z'
