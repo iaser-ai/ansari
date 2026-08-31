@@ -13,7 +13,7 @@ import {
 } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
-import type { ContentBlock } from '@/db/schema/messages';
+import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import {
   startHeartbeat,
@@ -278,7 +278,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     // Final model turn for turn-2+ history replay (issue #70).
                     rawPayload: event.rawPayload ?? null,
                     // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
-                    toolCalls: event.toolCalls ?? null,
+                    toolCalls: toolCallsOrNull(event.toolCalls),
                   });
                 }
                 safeClose();

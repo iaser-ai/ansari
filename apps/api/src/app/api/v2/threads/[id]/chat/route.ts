@@ -7,7 +7,7 @@ import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import { startHeartbeat, SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
-import type { ContentBlock } from '@/db/schema/messages';
+import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     // Final model turn for turn-2+ history replay (issue #70).
                     rawPayload: event.rawPayload ?? null,
                     // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
-                    toolCalls: event.toolCalls ?? null,
+                    toolCalls: toolCallsOrNull(event.toolCalls),
                   });
                 }
 

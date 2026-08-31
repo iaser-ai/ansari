@@ -1,4 +1,5 @@
 import { eq, and, desc } from 'drizzle-orm';
+import * as Sentry from '@sentry/nextjs';
 import { db, type Executor } from './index';
 import {
   threads,
@@ -183,13 +184,17 @@ export async function persistOrphanToolCalls(data: {
     });
   } catch (error) {
     const e = error as { name?: string; code?: string };
-    console.error('[tool-calls] orphan persist failed', {
+    const summary = {
       threadId: data.threadId,
       reason: data.reason,
       recordCount: data.toolCalls.length,
       name: e?.name,
       code: e?.code,
-    });
+    };
+    console.error('[tool-calls] orphan persist failed', summary);
+    // A lost orphan row is exactly the undercount this column exists to remove —
+    // surface it, at warning level (the user-facing error already fired).
+    Sentry.captureMessage('tool-calls orphan persist failed', { level: 'warning', extra: summary });
   }
 }
 

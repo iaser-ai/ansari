@@ -49,6 +49,15 @@ export type ToolCallRecord =
       skip_trigger?: 'T1' | 'T2';
     };
 
+/**
+ * Normalize a terminal event's records for the `tool_calls` column: a no-tool
+ * turn must store NULL, never [] — absent AND empty both map to null, so no
+ * persist site can write an empty array by accident.
+ */
+export function toolCallsOrNull(records: ToolCallRecord[] | null | undefined): ToolCallRecord[] | null {
+  return records && records.length > 0 ? records : null;
+}
+
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'cascade' }).notNull(),

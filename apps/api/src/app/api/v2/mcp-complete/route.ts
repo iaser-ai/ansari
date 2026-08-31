@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
-import type { ContentBlock, ToolCallRecord } from '@/db/schema/messages';
+import { toolCallsOrNull, type ContentBlock, type ToolCallRecord } from '@/db/schema/messages';
 import { db } from '@/lib/db/index';
 import { getOrCreateSystemUser } from '@/lib/db/users';
 import { createThread, createMessage, persistOrphanToolCalls } from '@/lib/db/threads';
@@ -214,7 +214,7 @@ async function handleMcpComplete(
     thinkingTokens: usage?.thoughtsTokenCount ?? null,
     totalTokens: usage?.totalTokenCount ?? null,
     // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
-    toolCalls: toolCalls ?? null,
+    toolCalls: toolCallsOrNull(toolCalls),
   });
 
   return new NextResponse(fullResponse, {

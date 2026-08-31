@@ -241,6 +241,12 @@ describe('POST /api/v2/threads/[id] (web)', () => {
     expect(rows[0].toolCalls).toBeNull();
   });
 
+  it('an explicitly EMPTY toolCalls array persists NULL, not [] (normalized by length)', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', [])());
+    await readAll(await threadPost(webReq('q'), ctx));
+    expect((await assistantRows())[0].toolCalls).toBeNull();
+  });
+
   it('a facilitator error after tools → no assistant row, one orphan with reason error', async () => {
     mockRunFacilitator.mockImplementation(() => toolTurnThenError('vertex exploded', RECORDS)());
 
@@ -317,6 +323,12 @@ describe('POST /api/v2/threads/[id]/chat (SSE)', () => {
     expect((await assistantRows())[0].toolCalls).toBeNull();
   });
 
+  it('an explicitly EMPTY toolCalls array persists NULL, not []', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Hello', [])());
+    await readAll(await chatPost(chatReq('q'), ctx));
+    expect((await assistantRows())[0].toolCalls).toBeNull();
+  });
+
   it('a facilitator error after tools → orphan with reason error, error event on the wire unchanged', async () => {
     mockRunFacilitator.mockImplementation(() => toolTurnThenError('vertex exploded', RECORDS)());
 
@@ -358,6 +370,18 @@ describe('POST /api/v2/mcp-complete (ai-skill)', () => {
     mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', undefined)());
     await mcpPost(mcpReq('q'));
     expect((await assistantRows())[0].toolCalls).toBeNull();
+  });
+
+  it('an explicitly EMPTY toolCalls array persists NULL, not []', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', [])());
+    await mcpPost(mcpReq('q'));
+    expect((await assistantRows())[0].toolCalls).toBeNull();
+  });
+
+  it('an empty toolCalls array on an error turn writes no orphan row', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenError('boom', [])());
+    await mcpPost(mcpReq('q'));
+    expect(await orphanRows()).toHaveLength(0);
   });
 
   it('a facilitator error after tools → orphan with reason error, and the 500 contract is unchanged', async () => {
