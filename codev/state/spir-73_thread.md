@@ -70,4 +70,26 @@ throw→return refactor; skip_trigger T1/T2 field; degradation fields optional
 even when degraded; orphan writes after safeClose(); ToolFetchErrorClass via
 type-only import (resilience already type-imports types.ts).
 
-Status: at plan-approval gate, architect notified, waiting.
+Plan approved (Waleed via architect, 2026-08-31). Coordination note: PR #88
+took journal idx 5 / file 0006 — my migration is idx 6, named 0007_*.
+
+## 2026-08-31 — Implement Phase 1 (schema, migration, helpers)
+
+Done: messages.tool_calls + ToolCallRecord types/status taxonomy;
+tool_call_orphans table; createToolCallOrphan (no updatedAt bump);
+read-path projections (findMessagesByThread/getThreadWithMessages via a
+shared column map; createThreadSnapshot selects only role/content/createdAt);
+5 test DDLs updated; toolcalls-persistence.test.ts (8 tests).
+
+Merged develop (PR #88) BEFORE generating the migration. drizzle-kit produced
+`0006_tool_calls_persistence` (idx 6) — renamed file + journal tag to
+`0007_tool_calls_persistence`; snapshot stays `0006_snapshot.json` (snapshots
+are idx-named). SQL reviewed: additive only.
+
+Surprise worth knowing: PR #88's new `feedback-upsert.test.ts` carried its own
+messages DDL without tool_calls — post-merge, `findMessageInOwnedThread`'s
+whole-row select failed with unknown column → 11 tests 500'd. Fixed by adding
+the column (now 6 DDL sites). Re-grep DDL sites AFTER every develop merge, not
+just once — the issue #70 lesson has a merge-timing corollary.
+
+Full suite: 70 files / 667 pass / 3 pre-existing skips; typecheck clean.
