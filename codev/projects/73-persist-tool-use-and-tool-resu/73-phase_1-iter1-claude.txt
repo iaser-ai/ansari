@@ -1,0 +1,38 @@
+I'll start by reading the key implementation files for phase_1.Full suite (70 files / 667 tests) and `pnpm typecheck` are green. Here's my phase_1 review.
+
+## What I verified
+
+**Schema (`db/schema/messages.ts`, `tool-call-orphans.ts`, `index.ts`)**
+- `toolCalls: jsonb('tool_calls')` nullable, `$type<ToolCallRecord[]>` — correct, outside `content`.
+- `ToolCallRecord` union and `TOOL_RESULT_STATUSES` match the plan's fixed category set (`ok | degraded | budget_skipped | limit_refused | unknown_tool`), with `duration_ms: number | null`, optional `error_class` / `attempts` / `http_status` / `skip_trigger: 'T1'|'T2'`. `content: Record<string, unknown>` matches `formatToolResultForGemini`'s actual return type (`agent.ts:306`) — phase 2 will type-check cleanly against it.
+- `tool_call_orphans` has all the plan's fields, FK cascade, and the `(thread_id, created_at)` index. Table exported from the barrel.
+
+**Migration**
+- `0007_tool_calls_persistence.sql` is strictly additive: `CREATE TABLE tool_call_orphans` + `ALTER TABLE messages ADD COLUMN tool_calls jsonb` + FK + index. No drops, no alters of existing columns — safe to apply ahead of deploy. Generated (not `db:push`): the snapshot chain is intact (`0006_snapshot.prevId` = `0005_snapshot.id`, and `0006_snapshot` contains `tool_call_orphans` + the nullable `tool_calls` column). The plan said "0005", but 0005/0006 were consumed by the feedback work that landed on develop in the interim — renumbering is correct, not a deviation.
+
+**Helpers (`lib/db/threads.ts`, `lib/db/shares.ts`)**
+- `messageReadColumns` projection omits `tool_calls`, keeps `raw_payload` for replay — exactly as planned, with a comment explaining why adding a schema column must not auto-add it here.
+- `createToolCallOrphan(data, exec = db)` takes the executor param and deliberately does *not* touch `threads.updatedAt`; the pglite test asserts `updated_at` is byte-identical after an orphan write. That's the subtle requirement most likely to be missed, and it's covered.
+- `createThreadSnapshot` now projects `role/content/createdAt` only.
+
+**Tests** — `toolcalls-persistence.test.ts` covers every phase-1 acceptance criterion against real pglite: verbatim round-trip via direct select (incl. non-ASCII, degraded + skipped records), NULL-not-`[]` negative test, projection absence on all three read paths while `rawPayload` survives, orphan round-trip with `reason`, no-`updated_at`-bump, and FK cascade. I re-ran the DDL grep independently: all 6 pre-existing `CREATE TABLE messages` blocks plus the new file carry `tool_calls jsonb`, so no drift (the #70 lesson is honored, and the grep hit list is recorded in the file header for re-verification).
+
+## Comments (non-blocking)
+
+1. **Migration filename prefix is now one ahead of the journal idx.** Journal `idx: 6` → tag `0007_tool_calls_persistence`. The drizzle migrator resolves by tag, so this is functionally fine — but the next `drizzle-kit generate` computes its prefix from the journal length and will emit a *second* `0007_*.sql`. Worth a one-line note in the deploy/review notes so whoever generates 0008 renames deliberately. (Root cause is inherited from the feedback migration, not introduced here.)
+
+2. **`findMessageById` and `findMessageInOwnedThread` still `select()` whole rows**, so they return `toolCalls`. Neither serializes the message today (the feedback route uses `findMessageInOwnedThread` purely as an ownership/existence check and returns only feedback fields), so there's no leak. But the comment on `MessageRow` claims "no serializing or history-replay path ever selects the tool records," which is a hair stronger than what the code enforces — a future caller of those two helpers that spreads the row would leak. Either project them too, or narrow the comment to name the helpers it actually covers.
+
+3. `tool_call_orphans.reason` is TS-narrowed to `'error' | 'empty_final'` but plain `text` in the DB with no CHECK. Consistent with `messages.role` / `source`, so I'd leave it — just noting it's convention, not constraint.
+
+None of these block phase 2.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 is complete and correct — additive migration, projected read paths, and real-pglite tests cover every acceptance criterion; suite and typecheck green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Minor: migration filename prefix (0007) is one ahead of journal idx 6, so the next `drizzle-kit generate` will emit a second `0007_*.sql` — note it for the deploy/handoff.
+- Minor: `findMessageById` / `findMessageInOwnedThread` still select whole rows (returning `toolCalls`); no leak today, but the `MessageRow` comment overstates the structural guarantee.

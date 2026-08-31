@@ -13,12 +13,16 @@ import {
 } from '@/db/schema';
 
 /**
- * Message row as returned by the app-facing read helpers: every column EXCEPT
- * `tool_calls` (spec 73). The projection is structural contract safety — no
- * serializing or history-replay path ever selects the tool records, so the
- * frozen API shape cannot leak them — and avoids detoasting ~7 KB median of
- * jsonb per assistant row on every turn's history load just to discard it.
- * Analytics reads select from `messages` directly.
+ * Message row as returned by the thread-listing read helpers
+ * (findMessagesByThread / getThreadWithMessages): every column EXCEPT
+ * `tool_calls` (spec 73). The projection is structural contract safety — the
+ * thread GET, share snapshot, and history-replay paths all read through these
+ * helpers and never select the tool records, so the frozen API shape cannot
+ * leak them — and avoids detoasting ~7 KB median of jsonb per assistant row on
+ * every turn's history load just to discard it. The single-message lookups
+ * (findMessageById / findMessageInOwnedThread) still return full rows; they
+ * feed feedback ownership checks, not API serialization. Analytics reads
+ * select from `messages` directly.
  */
 export type MessageRow = Omit<Message, 'toolCalls'>;
 
