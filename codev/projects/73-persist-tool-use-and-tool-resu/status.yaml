@@ -5,14 +5,14 @@ phase: implement
 plan_phases:
   - id: phase_1
     title: Schema, migration 0005, and DB helpers
-    status: in_progress
+    status: complete
   - id: phase_2
     title: Facilitator tool-record accumulation
-    status: pending
+    status: in_progress
   - id: phase_3
     title: Route persistence and frozen-contract regression tests
     status: pending
-current_plan_phase: phase_1
+current_plan_phase: phase_2
 gates:
   spec-approval:
     status: approved
@@ -27,7 +27,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-08-31T03:03:05.314Z'
+updated_at: '2026-08-31T03:06:04.789Z'
