@@ -8,11 +8,11 @@ plan_phases:
     status: complete
   - id: phase_2
     title: Facilitator tool-record accumulation
-    status: in_progress
+    status: complete
   - id: phase_3
     title: Route persistence and frozen-contract regression tests
-    status: pending
-current_plan_phase: phase_2
+    status: in_progress
+current_plan_phase: phase_3
 gates:
   spec-approval:
     status: approved
@@ -26,8 +26,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 2
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_2
@@ -46,4 +46,4 @@ history:
         file: >-
           /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-claude.txt
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-08-31T03:15:08.924Z'
+updated_at: '2026-08-31T03:17:47.442Z'
