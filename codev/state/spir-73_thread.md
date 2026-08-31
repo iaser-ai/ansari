@@ -149,3 +149,16 @@ try/catch, which swallows it — the suite stayed green while masking a
 TypeError. Added `persistOrphanToolCalls: vi.fn()` to each. Lesson: when
 adding an export a route calls on an error path, grep every factory mock of
 that module — a green suite is not evidence the path ran cleanly.
+
+Phase 3 review iter 1: gemini + claude APPROVE, codex REQUEST_CHANGES —
+`toolCalls ?? null` would persist `[]` if a terminal event ever carried an
+empty array (contract says "absent/empty"). Fixed with `toolCallsOrNull()`
+in db/schema/messages (pure helper → no mock churn), empty-array regression
+cases at all three sites. Also took Claude's non-blocking: Sentry warning on
+orphan-write failure. Claude's other note (post-close async DB work on the
+streaming routes relies on the runtime keeping the request context alive —
+true on Railway's Node runtime) is documented in the rebuttal for the review
+doc. 73 files / 708 pass.
+
+Phase 3 iter 2: 3x APPROVE. All three plan phases complete; opening the PR
+against develop.
