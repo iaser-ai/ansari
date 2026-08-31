@@ -160,5 +160,20 @@ streaming routes relies on the runtime keeping the request context alive —
 true on Railway's Node runtime) is documented in the rebuttal for the review
 doc. 73 files / 708 pass.
 
-Phase 3 iter 2: 3x APPROVE. All three plan phases complete; opening the PR
-against develop.
+Phase 3 iter 2: 3x APPROVE. All three plan phases complete.
+
+## 2026-08-31 — Review phase / PR #89
+
+Review doc written; governance routed (hot: raw_payload fact extended to
+tool_calls + no-serialization rule, cap held by folding; new hot lesson on
+factory mocks swallowing missing-export throws; cold: arch.md tool-call
+paragraph incl. analytics union query, lessons-learned spec-73 section).
+PR #89 opened against develop (Closes #73). PR-phase consultation: 3x
+APPROVE. Claude advisory that changed the deploy notes: migration 0007 must
+land BEFORE deploy — Drizzle lists tool_calls in every assistant INSERT, so
+deploying first fails every assistant write. Also negative-tested the
+contract test's key scan and documented the post-safeClose() runtime
+assumption.
+
+Status: at `pr` gate, architect notified, waiting for `porch approve 73 pr`.
+After merge: pull develop, `porch done 73 --merged 89`, verify phase.
