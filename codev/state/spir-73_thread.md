@@ -115,3 +115,13 @@ the catch block. Mock `@/lib/ai/inkling-client` (as facilitator-inkling-rung
 does) whenever a test drives the terminal-error path.
 
 Full suite: 71 files / 683 pass / 3 skips; typecheck clean.
+
+Phase 2 review: gemini APPROVE; claude + codex REQUEST_CHANGES on the same two
+test gaps — (1) ToolResult.degradation never asserted through a real tool
+(only via mocked unavailableResult), (2) degenerate-final and max-iterations
+error paths untested. Both fixed: usul-retry + kalemat-resilience now assert
+`degradation` end-to-end from real ToolFetchErrors (all four tools, timeout
+attempts=2 and http_5xx shapes); facilitator-toolcalls gains the two terminal
+paths (6/6 covered). Also made tool ids structurally unique (per-request seq).
+Second harness gotcha: the degenerate-final path lazily reads
+config.gemini.model → mock `@/lib/config` too. 71 files / 685 pass.

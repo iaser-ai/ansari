@@ -411,8 +411,12 @@ export async function* runFacilitator(
   // not inside processToolCall — so budget-skipped and limit-refused calls (which
   // never reach the tracker) are recorded too. Ids are minted here; Gemini has none.
   const toolCallRecords: ToolCallRecord[] = [];
+  // Per-request sequence makes id uniqueness structural within a turn; the timestamp
+  // + random tail keep ids distinct across turns of the same thread.
+  let toolIdSeq = 0;
   const recordToolUse = (name: string, input: Record<string, unknown>): string => {
-    const id = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    toolIdSeq++;
+    const id = `tool_${Date.now()}_${toolIdSeq}_${Math.random().toString(36).slice(2, 7)}`;
     toolCallRecords.push({ type: 'tool_use', id, name, input });
     return id;
   };

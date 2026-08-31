@@ -1,0 +1,51 @@
+I'll start by reading the key implementation files for phase_2.I've read the phase-2 implementation, run typecheck, and run the full suite. Here's my review.
+
+## What's solid
+
+**`agent.ts` accumulation** — the loop-level design is correct and complete. I enumerated every terminal yield and each one carries `collectedToolCalls()`:
+
+| Yield site | line | carries `toolCalls` |
+|---|---|---|
+| synthesis catch → BUDGET_ERROR | 580 | ✓ |
+| synthesis degenerate/truncated | 594 | ✓ |
+| synthesis `done` | 613 | ✓ |
+| degenerate-final failing | 777 | ✓ |
+| normal `done` | 805 | ✓ |
+| catch-all error | 990 | ✓ |
+| max-iterations error | 1000 | ✓ |
+| "No user message" (432) | 432 | n/a — no dispatch possible |
+
+`onMessage` gets `?? null` on both the normal and synthesis paths, matching the spec's NULL-not-`[]` rule.
+
+**Correctness details I verified:**
+- `recordToolUse` is called at the *loop* site (agent.ts:884) and at the skip site (866), so limit-refused and T1/T2-skipped dispatches — which never reach `tracker.callsWithArgs` — are recorded. This was the spec's stated failure mode and it's handled.
+- Status derivation is return-typed via `ToolDispatchOutcome` + `result.isDegraded`, no string-matching of `content` (honors the #54 lesson). `backstop_error` correctly falls through to `degraded` with `duration_ms` set (it executed), while `limit_refused`/`unknown_tool` get `null`.
+- `formatToolResultForGemini` still maps fields explicitly, so `degradation`/`isDegraded` cannot reach the model. Pinned by the test at line 267.
+- Wire events are genuinely unchanged — asserted at line 192–202, including `toolCalls === undefined` on non-terminal events.
+- The `types.ts` ↔ `resilience.ts` cycle is `import type` on both sides, erased at runtime.
+- `tsc --noEmit` clean; `vitest run` → **71 files, 683 passed, 3 skipped**.
+
+## Gaps
+
+**1. The four tool-file changes are untested production code.** The only change in `search-{quran,hadith,mawsuah,tafsir}.ts` is `unavailableResult(label)` → `unavailableResult(label, meta)`. Nothing anywhere asserts that a real degrade produces `result.degradation`. `facilitator-toolcalls.test.ts` stubs `run()` to return `unavailableResult(name, {errorClass:'timeout', attempts:2})` directly — that proves the facilitator reads the field, not that any tool populates it. `grep degradation apps/api/tests` returns zero assertions on `ToolResult.degradation`. If someone reverts one of those four lines, every persisted mawsuah record silently loses `error_class`/`attempts` and the suite stays green — which is the exact metric this spec exists to make trustworthy.
+
+The plan's Phase 2 Test Plan names this explicitly: *"a resilience-level test that a retried-timeout degrade yields `degradation.attempts === 2` end-to-end into the record."* `usul-retry.test.ts:144-162` already exercises the 5xx degrade through the real tool and asserts `isDegraded` — adding `expect(result.degradation).toMatchObject({ errorClass: 'http_5xx', status: 502, attempts: 1 })` there, plus the equivalent on the timeout-retry case and one in `kalemat-resilience.test.ts`, closes it in a few lines.
+
+**2. Two of the four enumerated terminal-error paths have no test.** The plan's risk table mitigates "Terminal-yield coverage gaps" with *"dedicated test per path (degenerate-final, synthesis, catch-all, max-iterations)."* The suite covers synthesis (line 352) and catch-all (line 342) but not **degenerate-final** (agent.ts:777) or **max-iterations** (agent.ts:1000). Both are reachable with the existing harness — degenerate-final needs `doneResponse` extended with a `finishReason` (e.g. `'SAFETY'`); max-iterations needs 10 `toolRound` scripts.
+
+## Minor (non-blocking)
+
+- **Id minting** (agent.ts:415): `tool_${Date.now()}_${Math.random().toString(36).slice(2,7)}` — two dispatches in the same ms could in principle collide, and `.slice(2,7)` occasionally yields fewer than 5 chars. A monotonic per-request counter (`tool_${++n}`) would make in-array uniqueness structural at zero cost. Analytics only needs uniqueness within the array, so this is a nit, not a bug.
+- **Unpaired-record tolerance**: `recordToolUse` fires before dispatch (deliberate, and right). But `createToolMap()` runs before `processToolCall`'s try — if it throws, the array ends with a `tool_use` and no `tool_result`. Analytics queries shouldn't assume strict pairing. Worth a line in the arch-doc note during review phase; the test helper `pairs()` currently encodes the stricter assumption.
+- The T2 test uses a 60ms `slow_ok` tool but never asserts `duration_ms` is in a plausible range — a cheap strengthening of the timing instrumentation.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Accumulation logic is correct and complete across every terminal yield, but the four tool-side `degradation` wirings have zero test coverage and two of the four plan-enumerated error paths are untested.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- No test asserts `ToolResult.degradation` is populated by any real tool — the only production change in the four `search-*.ts` files is unverified, and a revert would silently strip `error_class`/`attempts` from every persisted record with the suite still green. Plan's Test Plan explicitly required this ("retried-timeout degrade yields `degradation.attempts === 2` end-to-end into the record").
+- Terminal-error coverage is 2 of 4: `facilitator-toolcalls.test.ts` tests the catch-all and synthesis-failure paths but not degenerate-final (`agent.ts:777`) or max-iterations (`agent.ts:1000`), contrary to the plan's stated mitigation for the "silent undercount" risk. The code is correct on both paths; only the regression tests are missing.
+- Minor: `recordToolUse` id is `Date.now()` + 5 random base-36 chars; a per-request counter would make uniqueness structural. Non-blocking.

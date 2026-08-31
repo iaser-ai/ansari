@@ -24,7 +24,11 @@ const h = vi.hoisted(() => ({
   behavior: {} as Record<string, string>,
 }));
 
-function doneResponse(text: string, toolCalls: Array<{ name: string; args: unknown }> = []) {
+function doneResponse(
+  text: string,
+  toolCalls: Array<{ name: string; args: unknown }> = [],
+  finishReason?: string
+) {
   return {
     text,
     toolCalls,
@@ -32,6 +36,15 @@ function doneResponse(text: string, toolCalls: Array<{ name: string; args: unkno
     allParts: text ? [{ text }] : [],
     hasThinking: false,
     usage: { promptTokenCount: 1, candidatesTokenCount: 1, thoughtsTokenCount: 0, totalTokenCount: 2 },
+    finishReason,
+  };
+}
+
+// A round that completes with a finishReason but NO text and NO tool calls — the
+// degenerate-final shape (issue #60) that the empty-final ladder retries then fails.
+function emptyRound(finishReason: string): () => AsyncGenerator<AnyEvent> {
+  return async function* () {
+    yield { type: 'done', response: doneResponse('', [], finishReason) };
   };
 }
 
@@ -69,6 +82,12 @@ vi.mock('@/lib/ai/gemini-client', () => ({
     if (script) return script();
     return textRound('default answer')();
   }),
+}));
+
+// The degenerate-final ladder reads config.gemini.model lazily for its log summary;
+// validated config has no env here, so stub the two fields it touches.
+vi.mock('@/lib/config', () => ({
+  config: { gemini: { model: 'primary-model', fallbackModel: 'fallback-model' } },
 }));
 
 // The catch-all error path consults isInklingConfigured(), which reads validated
@@ -358,6 +377,34 @@ describe('terminal error events carry the accumulated records', () => {
     expect(t.type).toBe('error');
     expect(pairs(t.toolCalls!)).toHaveLength(2);
     expect(t.toolCalls!.filter((r) => r.type === 'tool_result').every((r) => r.status === 'degraded')).toBe(true);
+  });
+
+  it('degenerate final: empty answers after a tool round exhaust the ladder → error event with the records', async () => {
+    // Inkling is stubbed unavailable, so the ladder is one same-model retry: two empty
+    // STOP finals after the tool round land on the degenerate-final error yield.
+    h.scripts = [toolRound(['search_quran']), emptyRound('STOP'), emptyRound('STOP')];
+
+    const events = await collect(runFacilitator([userMessage('q')]));
+    const t = terminal(events);
+    expect(t.type).toBe('error');
+    expect(t.data).toMatch(/empty answer/i);
+    expect(pairs(t.toolCalls!)).toHaveLength(1);
+    expect(t.toolCalls![0]).toMatchObject({ type: 'tool_use', name: 'search_quran' });
+  });
+
+  it('max iterations: ten tool rounds → "Maximum iterations reached" error with every round recorded', async () => {
+    h.scripts = Array.from({ length: 10 }, () => toolRound(['search_quran']));
+
+    const events = await collect(runFacilitator([userMessage('q')]));
+    const t = terminal(events);
+    expect(t.type).toBe('error');
+    expect(t.data).toBe('Maximum iterations reached');
+    const p = pairs(t.toolCalls!);
+    expect(p).toHaveLength(10);
+    // The consecutive-same-tool limit refuses the 4th call onward; those never
+    // executed but are still in the denominator, distinguishable by status.
+    expect(p.slice(0, 3).map((x) => x.result.status)).toEqual(['ok', 'ok', 'ok']);
+    expect(p.slice(3).every((x) => x.result.status === 'limit_refused' && x.result.duration_ms === null)).toBe(true);
   });
 
   it('an error before any dispatch carries no toolCalls', async () => {
