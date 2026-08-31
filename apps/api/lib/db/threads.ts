@@ -10,6 +10,7 @@ import {
   type NewMessage,
   type ToolCallOrphan,
   type NewToolCallOrphan,
+  type ToolCallRecord,
 } from '@/db/schema';
 
 /**
@@ -155,6 +156,41 @@ export async function createToolCallOrphan(
 ): Promise<ToolCallOrphan> {
   const result = await exec.insert(toolCallOrphans).values(data).returning();
   return result[0];
+}
+
+/**
+ * Route-facing wrapper for the error/empty-final paths (spec 73): persist the
+ * turn's tool records as an orphan row, or nothing when the turn dispatched no
+ * tools. Never throws — a bookkeeping failure must not mask or delay the
+ * user-facing error already on the wire — and logs only {name, code} (a raw
+ * driver error can embed user content).
+ */
+export async function persistOrphanToolCalls(data: {
+  threadId: string;
+  reason: NewToolCallOrphan['reason'];
+  source: string;
+  client: string | null;
+  toolCalls: ToolCallRecord[] | undefined;
+}): Promise<void> {
+  if (!data.toolCalls || data.toolCalls.length === 0) return;
+  try {
+    await createToolCallOrphan({
+      threadId: data.threadId,
+      reason: data.reason,
+      source: data.source,
+      client: data.client,
+      toolCalls: data.toolCalls,
+    });
+  } catch (error) {
+    const e = error as { name?: string; code?: string };
+    console.error('[tool-calls] orphan persist failed', {
+      threadId: data.threadId,
+      reason: data.reason,
+      recordCount: data.toolCalls.length,
+      name: e?.name,
+      code: e?.code,
+    });
+  }
 }
 
 export async function findMessageById(

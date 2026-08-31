@@ -125,3 +125,27 @@ attempts=2 and http_5xx shapes); facilitator-toolcalls gains the two terminal
 paths (6/6 covered). Also made tool ids structurally unique (per-request seq).
 Second harness gotcha: the degenerate-final path lazily reads
 config.gemini.model → mock `@/lib/config` too. 71 files / 685 pass.
+
+Phase 2 iter 2: 3x APPROVE (added the degenerate-synthesis error-yield test
+Claude noted as the one uncovered sibling).
+
+## 2026-08-31 — Implement Phase 3 (routes + frozen-contract tests)
+
+Done: `persistOrphanToolCalls` wrapper in lib/db/threads (no-op without
+records, never throws, logs {name, code} only); web POST + SSE chat routes
+pass `toolCalls ?? null` to createMessage on done and write orphans AFTER
+safeClose() on error / empty-final; mcp-complete's collector returns the
+error instead of throwing (records survive), handler persists the orphan then
+re-throws so the 500 contract is byte-identical; 502 path writes empty_final.
+Tests: toolcalls-routes (14: all three sites × tool/no-tool/error/empty,
+replay unaffected, SSE wire bytes identical, mcp 500 body pinned) and
+thread-get-contract (4: bare-string content + exact key sets on serialized
+JSON, multi-block array branch unchanged, orphan invisibility byte-for-byte,
+share snapshot key sets).
+
+Gotcha: four existing route tests factory-mock `@/lib/db/threads` without
+the new export; vitest throws on the missing export INSIDE the stream's
+try/catch, which swallows it — the suite stayed green while masking a
+TypeError. Added `persistOrphanToolCalls: vi.fn()` to each. Lesson: when
+adding an export a route calls on an error path, grep every factory mock of
+that module — a green suite is not evidence the path ran cleanly.
