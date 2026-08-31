@@ -29,7 +29,7 @@ import {
   findMessageInOwnedThread,
   getThreadWithMessages,
 } from '@/lib/db/threads';
-import { createFeedback, findFeedbackByMessage } from '@/lib/db/feedback';
+import { upsertFeedback, findFeedbackByMessage } from '@/lib/db/feedback';
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -87,6 +87,8 @@ beforeAll(async () => {
       comment text,
       created_at timestamp with time zone DEFAULT now()
     );
+    CREATE UNIQUE INDEX idx_feedback_user_message_class
+      ON feedback (user_id, message_id, feedback_class);
   `);
   await client.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, [
     USER_ID,
@@ -119,7 +121,7 @@ describe('executor threading against a real transaction', () => {
           { threadId: thread.id, role: 'user', content: [{ type: 'text', text: 'hi' }] },
           tx
         );
-        await createFeedback(
+        await upsertFeedback(
           { userId: USER_ID, threadId: thread.id, messageId: message.id, feedbackClass: 'thumbsup' },
           tx
         );
@@ -139,7 +141,7 @@ describe('executor threading against a real transaction', () => {
         { threadId: thread.id, role: 'user', content: [{ type: 'text', text: 'salaam' }] },
         tx
       );
-      await createFeedback(
+      await upsertFeedback(
         { userId: USER_ID, threadId: thread.id, messageId: message.id, feedbackClass: 'thumbsup' },
         tx
       );
@@ -176,7 +178,7 @@ describe('no helper bypasses its executor', () => {
         { threadId: thread.id, role: 'user', content: [{ type: 'text', text: 'x' }] },
         db
       );
-      await createFeedback(
+      await upsertFeedback(
         { userId: USER_ID, threadId: thread.id, messageId: message.id, feedbackClass: 'thumbsdown' },
         db
       );
