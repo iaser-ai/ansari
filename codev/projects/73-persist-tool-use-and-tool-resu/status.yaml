@@ -1,9 +1,18 @@
 id: '73'
 title: persist-tool-use-and-tool-resu
 protocol: spir
-phase: plan
-plan_phases: []
-current_plan_phase: null
+phase: implement
+plan_phases:
+  - id: phase_1
+    title: Schema, migration 0005, and DB helpers
+    status: in_progress
+  - id: phase_2
+    title: Facilitator tool-record accumulation
+    status: pending
+  - id: phase_3
+    title: Route persistence and frozen-contract regression tests
+    status: pending
+current_plan_phase: phase_1
 gates:
   spec-approval:
     status: approved
@@ -18,7 +27,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-08-31T02:57:05.325Z'
+updated_at: '2026-08-31T02:57:23.513Z'
