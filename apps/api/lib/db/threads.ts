@@ -3,11 +3,43 @@ import { db, type Executor } from './index';
 import {
   threads,
   messages,
+  toolCallOrphans,
   type Thread,
   type NewThread,
   type Message,
   type NewMessage,
+  type ToolCallOrphan,
+  type NewToolCallOrphan,
 } from '@/db/schema';
+
+/**
+ * Message row as returned by the app-facing read helpers: every column EXCEPT
+ * `tool_calls` (spec 73). The projection is structural contract safety — no
+ * serializing or history-replay path ever selects the tool records, so the
+ * frozen API shape cannot leak them — and avoids detoasting ~7 KB median of
+ * jsonb per assistant row on every turn's history load just to discard it.
+ * Analytics reads select from `messages` directly.
+ */
+export type MessageRow = Omit<Message, 'toolCalls'>;
+
+// Explicit projection for the read helpers. Adding a column to the schema does
+// NOT add it here — that is the point; extend deliberately.
+const messageReadColumns = {
+  id: messages.id,
+  threadId: messages.threadId,
+  role: messages.role,
+  content: messages.content,
+  agentName: messages.agentName,
+  source: messages.source,
+  client: messages.client,
+  inputTokens: messages.inputTokens,
+  outputTokens: messages.outputTokens,
+  thinkingTokens: messages.thinkingTokens,
+  totalTokens: messages.totalTokens,
+  // raw_payload stays: turn-2+ history replay needs it (issue #70).
+  rawPayload: messages.rawPayload,
+  createdAt: messages.createdAt,
+};
 
 // Every helper takes a trailing `exec` (issue #20) so callers can compose
 // multi-step writes — including reads that must see uncommitted writes — into
@@ -86,9 +118,9 @@ export async function deleteThread(id: string, userId: string, exec: Executor = 
 
 // Message operations
 
-export async function findMessagesByThread(threadId: string, exec: Executor = db): Promise<Message[]> {
+export async function findMessagesByThread(threadId: string, exec: Executor = db): Promise<MessageRow[]> {
   return exec
-    .select()
+    .select(messageReadColumns)
     .from(messages)
     .where(eq(messages.threadId, threadId))
     .orderBy(messages.createdAt);
@@ -102,6 +134,22 @@ export async function createMessage(data: NewMessage, exec: Executor = db): Prom
     .where(eq(threads.id, data.threadId));
 
   const result = await exec.insert(messages).values(data).returning();
+  return result[0];
+}
+
+/**
+ * Persist tool dispatch records for a turn that produced NO assistant message
+ * row (spec 73): facilitator error, empty final, or mcp-complete's 502.
+ *
+ * Unlike createMessage, this must NOT touch threads.updatedAt: an orphan write
+ * is bookkeeping for a failed turn, and a bumped updated_at would change the
+ * thread GET response — the write must be invisible in thread metadata too.
+ */
+export async function createToolCallOrphan(
+  data: NewToolCallOrphan,
+  exec: Executor = db
+): Promise<ToolCallOrphan> {
+  const result = await exec.insert(toolCallOrphans).values(data).returning();
   return result[0];
 }
 
@@ -152,7 +200,7 @@ export async function getThreadWithMessages(
   threadId: string,
   userId: string,
   exec: Executor = db
-): Promise<{ thread: Thread; messages: Message[] } | undefined> {
+): Promise<{ thread: Thread; messages: MessageRow[] } | undefined> {
   const thread = await findThreadById(threadId, userId, exec);
   if (!thread) return undefined;
 
