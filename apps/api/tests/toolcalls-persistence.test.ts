@@ -17,8 +17,9 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
  *
  * pglite DDL drift guard: a fresh `grep -rln "CREATE TABLE messages" apps/api/tests/`
  * at implementation time hit exactly: attribution-schema, executor-threads-feedback,
- * feedback-idor, rawpayload-persistence, route-persistence-rollback (all updated
- * with tool_calls jsonb in the same commit as the schema change) — plus this file.
+ * feedback-idor, feedback-upsert, rawpayload-persistence, route-persistence-rollback
+ * (all carry tool_calls jsonb) — plus this file. Any whole-row select against a
+ * DDL missing the column fails loudly (unknown column), so drift cannot pass quietly.
  */
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
