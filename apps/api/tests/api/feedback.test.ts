@@ -8,9 +8,9 @@ vi.mock('@/lib/auth/middleware', () => ({
     NextResponse.json({ detail }, { status }),
 }));
 
-const mockCreateFeedback = vi.fn();
+const mockUpsertFeedback = vi.fn();
 vi.mock('@/lib/db/feedback', () => ({
-  createFeedback: (...args: unknown[]) => mockCreateFeedback(...args),
+  upsertFeedback: (...args: unknown[]) => mockUpsertFeedback(...args),
 }));
 
 const mockFindMessageInOwnedThread = vi.fn();
@@ -50,7 +50,7 @@ describe('POST /api/v2/feedback', () => {
     vi.clearAllMocks();
     mockAuthenticateRequest.mockResolvedValue({ user });
     mockFindMessageInOwnedThread.mockResolvedValue({ id: MESSAGE_ID, threadId: THREAD_ID });
-    mockCreateFeedback.mockImplementation(async (data) => ({
+    mockUpsertFeedback.mockImplementation(async (data) => ({
       id: 'feedback-uuid',
       threadId: data.threadId,
       messageId: data.messageId,
@@ -73,7 +73,7 @@ describe('POST /api/v2/feedback', () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(mockCreateFeedback).toHaveBeenCalledWith(
+    expect(mockUpsertFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ feedbackClass: value }),
     );
   });
@@ -87,7 +87,7 @@ describe('POST /api/v2/feedback', () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(mockCreateFeedback).toHaveBeenCalledWith(
+    expect(mockUpsertFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ feedbackClass: 'thumbs_up' }),
     );
     const body = await response.json();
@@ -103,7 +103,7 @@ describe('POST /api/v2/feedback', () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(mockCreateFeedback).toHaveBeenCalledWith(
+    expect(mockUpsertFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ feedbackClass: 'thumbs_down' }),
     );
     const body = await response.json();
@@ -119,7 +119,7 @@ describe('POST /api/v2/feedback', () => {
       }),
     );
     expect(response.status).toBe(422);
-    expect(mockCreateFeedback).not.toHaveBeenCalled();
+    expect(mockUpsertFeedback).not.toHaveBeenCalled();
   });
 
   it('scopes the lookup to the authenticated user (owner-scoped query)', async () => {
@@ -136,7 +136,7 @@ describe('POST /api/v2/feedback', () => {
       makeRequest({ thread_id: THREAD_ID, message_id: MESSAGE_ID, feedback_class: 'report' }),
     );
     expect(response.status).toBe(404);
-    expect(mockCreateFeedback).not.toHaveBeenCalled();
+    expect(mockUpsertFeedback).not.toHaveBeenCalled();
   });
 
   it('returns an IDENTICAL response for nonexistent, foreign-owned, and mismatched targets (no oracle)', async () => {
@@ -166,7 +166,7 @@ describe('POST /api/v2/feedback', () => {
       'insert failed: params = (my private feedback comment)'
     ) as Error & { code: string };
     driverError.code = '23503';
-    mockCreateFeedback.mockRejectedValueOnce(driverError);
+    mockUpsertFeedback.mockRejectedValueOnce(driverError);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await POST(

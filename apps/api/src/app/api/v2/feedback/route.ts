@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
-import { createFeedback } from '@/lib/db/feedback';
+import { upsertFeedback } from '@/lib/db/feedback';
 import { findMessageInOwnedThread } from '@/lib/db/threads';
 import { safeErrorMeta } from '@/lib/log';
 
@@ -46,8 +46,9 @@ export async function POST(request: NextRequest) {
       return createErrorResponse('Message not found', 404);
     }
 
-    // Create feedback
-    const feedback = await createFeedback({
+    // Upsert: idempotent per (user, message, class) — a repeat POST returns
+    // the same row (same id) with the possibly-updated comment (issue #87).
+    const feedback = await upsertFeedback({
       userId: user.id,
       threadId: thread_id,
       messageId: message_id,
