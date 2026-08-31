@@ -93,3 +93,25 @@ the column (now 6 DDL sites). Re-grep DDL sites AFTER every develop merge, not
 just once — the issue #70 lesson has a merge-timing corollary.
 
 Full suite: 70 files / 667 pass / 3 pre-existing skips; typecheck clean.
+
+Phase 1 review: 3x APPROVE. Claude's minor notes: (a) migration file prefix
+0007 sits one ahead of journal idx 6, so the NEXT `drizzle-kit generate` will
+emit another `0007_*.sql` — whoever writes migration idx 7 should name it
+0008_* (handoff note for the review doc); (b) single-message lookups
+(findMessageById / findMessageInOwnedThread) still select whole rows — they
+feed feedback ownership checks, not serialization; comment tightened.
+
+## 2026-08-31 — Implement Phase 2 (facilitator accumulation)
+
+Done: ToolResult.degradation + unavailableResult(label, detail) + 4 tools
+pass their existing meta; processToolCall → {result, outcome} with the id
+minted by the loop; loop-level accumulator covers executed / T1 / T2 /
+limit-refused / unknown-tool; toolCalls on every terminal yield (done x2,
+error x5) and via onMessage; wire events unchanged. 16 new tests.
+
+Gotcha: the catch-all error path calls isInklingConfigured(), which reads
+validated config — in a facilitator unit test without env that throws inside
+the catch block. Mock `@/lib/ai/inkling-client` (as facilitator-inkling-rung
+does) whenever a test drives the terminal-error path.
+
+Full suite: 71 files / 683 pass / 3 skips; typecheck clean.
