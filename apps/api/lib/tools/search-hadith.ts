@@ -149,7 +149,7 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
         queryLength: query.length,
         ...meta,
       });
-      return unavailableResult(toolLabel(this.getToolName()));
+      return unavailableResult(toolLabel(this.getToolName()), meta);
     }
   }
 }

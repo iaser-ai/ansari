@@ -131,7 +131,7 @@ Use this when the user wants to understand the meaning, context, or interpretati
         queryLength: query.length,
         ...meta,
       });
-      return unavailableResult(toolLabel(this.getToolName()));
+      return unavailableResult(toolLabel(this.getToolName()), meta);
     }
   }
 }
