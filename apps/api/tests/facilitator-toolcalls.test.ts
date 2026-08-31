@@ -379,6 +379,18 @@ describe('terminal error events carry the accumulated records', () => {
     expect(t.toolCalls!.filter((r) => r.type === 'tool_result').every((r) => r.status === 'degraded')).toBe(true);
   });
 
+  it('degenerate synthesis: a T1 short-circuit whose synthesis returns empty → budget error event with the records', async () => {
+    h.behavior = { search_quran: 'degrade', search_hadith: 'degrade' };
+    // Synthesis completes (a `done` arrives) but with no visible text — the
+    // unusable-synthesis branch, distinct from the synthesis-throw branch.
+    h.scripts = [toolRound(['search_quran', 'search_hadith']), emptyRound('STOP')];
+
+    const events = await collect(runFacilitator([userMessage('q')]));
+    const t = terminal(events);
+    expect(t.type).toBe('error');
+    expect(pairs(t.toolCalls!)).toHaveLength(2);
+  });
+
   it('degenerate final: empty answers after a tool round exhaust the ladder → error event with the records', async () => {
     // Inkling is stubbed unavailable, so the ladder is one same-model retry: two empty
     // STOP finals after the tool round land on the degenerate-final error yield.
