@@ -35,3 +35,24 @@ by full-body equality assert.
 - PR #91 open against develop (`builder/air-90`), review embedded in PR body per AIR.
 - At the **pr gate** — waiting for human approval. Staging var values (tinker:// LoRA id,
   INKLING_MAX_TOKENS=16384) are the architect's to set post-merge, per the issue's scope.
+
+## 2026-09-01 — scope update (crossed with PR open)
+
+Architect + issue comment: (1) widen INKLING_MAX_TOKENS to 8192–32768 (staging will run
+32768); (2) add INKLING_TIMEOUT_MS (default 180000, validated 30000–600000) and make "the
+chat route's hardcoded 25s Inkling rescue timeout" read it. Consult round now required
+(change touches beyond config).
+
+Done: window widened; INKLING_TIMEOUT_MS added to config + turbo.json globalEnv + docs;
+client's DEFAULT_TIMEOUT_MS backstop now reads config.inkling.timeoutMs (byte-identical
+default 180000). Tests updated + timeout backstop/override tests added. All green.
+
+**Discrepancy found — flagged to architect before proceeding:** there is NO hardcoded 25s
+Inkling timeout anywhere (verified working tree, origin/develop, and git history with
+`-S`). The only 25s constant is FACILITATOR_SYNTHESIS_RESERVE_MS (already env-overridable,
+not Inkling-specific). Inkling rescue calls are bounded by the Spec 49 budget:
+timeoutMs = remaining-to-soft-deadline (soft = FACILITATOR_REQUEST_BUDGET_MS 120s − reserve
+25s; rescue requires ≥20s remaining), synthesis gets ≤ the 25s reserve. Wiring
+INKLING_TIMEOUT_MS into those calls would override the budget architecture — an
+architectural decision, not mine. Options sent to architect; consult round + gate
+re-request deferred until resolved (the diff may change).

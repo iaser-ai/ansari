@@ -6,9 +6,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * Unlike inkling-client.test.ts (which mocks `@/lib/config`), these tests run
  * the REAL config module against a controlled `process.env`, so they pin the
  * whole chain the staging LoRA rollout depends on:
- *  - with INKLING_MODEL / INKLING_MAX_TOKENS unset, the outgoing request body
- *    is byte-identical to the previously hardcoded values;
- *  - setting the env vars changes exactly the `model` / `max_tokens` fields.
+ *  - with INKLING_MODEL / INKLING_MAX_TOKENS / INKLING_TIMEOUT_MS unset, the
+ *    outgoing request body (and timeout) is byte-identical to the previously
+ *    hardcoded values;
+ *  - setting the env vars changes exactly the `model` / `max_tokens` fields
+ *    and the call-timeout backstop.
  */
 
 vi.mock('@sentry/nextjs', () => ({
@@ -58,6 +60,7 @@ beforeEach(() => {
   for (const [k, v] of Object.entries(REQUIRED_ENV)) process.env[k] = v;
   delete process.env.INKLING_MODEL;
   delete process.env.INKLING_MAX_TOKENS;
+  delete process.env.INKLING_TIMEOUT_MS;
   resetEnvCache();
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
@@ -101,11 +104,11 @@ describe('Inkling env configuration (issue #90)', () => {
   });
 
   it('INKLING_MAX_TOKENS env var flows through config to the request max_tokens field', async () => {
-    process.env.INKLING_MAX_TOKENS = '16384';
+    process.env.INKLING_MAX_TOKENS = '32768';
     resetEnvCache();
 
     const body = JSON.parse(await requestBodyFor('hello'));
-    expect(body.max_tokens).toBe(16384);
+    expect(body.max_tokens).toBe(32768);
     expect(body.model).toBe('thinkingmachines/Inkling');
   });
 
@@ -114,7 +117,39 @@ describe('Inkling env configuration (issue #90)', () => {
     resetEnvCache();
 
     const events = streamInkling('hello');
-    await expect(events.next()).rejects.toThrow(/8192-16384/);
+    await expect(events.next()).rejects.toThrow(/8192-32768/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('INKLING_TIMEOUT_MS env var flows through config to the client timeout backstop', async () => {
+    process.env.INKLING_TIMEOUT_MS = '30000';
+    resetEnvCache();
+    vi.useFakeTimers();
+    try {
+      // A fetch that never settles on its own but honors the abort signal.
+      fetchMock.mockImplementation(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+          })
+      );
+
+      const events = streamInkling('hello');
+      // 30s proves the env value fired, not the 180s default.
+      const expectation = expect(events.next()).rejects.toThrow(/timed out after 30s/);
+      await vi.advanceTimersByTimeAsync(30000);
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an out-of-window INKLING_TIMEOUT_MS fails loudly when the client reads config', async () => {
+    process.env.INKLING_TIMEOUT_MS = '10000';
+    resetEnvCache();
+
+    const events = streamInkling('hello');
+    await expect(events.next()).rejects.toThrow(/30000-600000/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
