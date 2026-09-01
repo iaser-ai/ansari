@@ -1,7 +1,7 @@
 id: '73'
 title: persist-tool-use-and-tool-resu
 protocol: spir
-phase: review
+phase: verified
 plan_phases:
   - id: phase_1
     title: Schema, migration 0005, and DB helpers
@@ -27,47 +27,19 @@ gates:
     requested_at: '2026-08-31T03:36:34.337Z'
     approved_at: '2026-09-01T04:06:53.077Z'
   verify-approval:
-    status: pending
+    status: approved
+    requested_at: '2026-09-01T04:13:02.522Z'
+    approved_at: '2026-09-01T12:02:38.578Z'
 iteration: 1
 build_complete: true
-history:
-  - iteration: 1
-    plan_phase: phase_2
-    build_output: ''
-    reviews:
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-gemini.txt
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-codex.txt
-      - model: claude
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-claude.txt
-  - iteration: 1
-    plan_phase: phase_3
-    build_output: ''
-    reviews:
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-gemini.txt
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-codex.txt
-      - model: claude
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-claude.txt
+history: []
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-09-01T04:06:53.077Z'
+updated_at: '2026-09-01T12:02:40.423Z'
 pr_history:
   - phase: review
     pr_number: 89
     branch: builder/spir-73
     created_at: '2026-08-31T03:32:05.774Z'
+    merged: true
+    merged_at: '2026-09-01T04:09:58.041Z'
 pr_ready_for_human: false

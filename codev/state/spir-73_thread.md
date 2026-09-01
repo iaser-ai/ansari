@@ -177,3 +177,14 @@ assumption.
 
 Status: at `pr` gate, architect notified, waiting for `porch approve 73 pr`.
 After merge: pull develop, `porch done 73 --merged 89`, verify phase.
+
+## 2026-08-31 — Merge + verify
+
+PR #89 merged into develop (regular merge commit 47cf20d; head CI green
+pre-merge). Verification: local full suite on the merged state 73 files /
+709 pass / 3 pre-existing skips; develop CI on the merge commit all green
+(gitleaks, api, auth, frontend). Post-merge porch commits are on
+builder/spir-73 (pushed); plan is one chore PR to develop after
+verify-approval (develop's required checks block direct pushes).
+
+Status: verify-approval gate requested, waiting on architect.
