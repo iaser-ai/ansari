@@ -42,3 +42,24 @@ Implementation committed (24f1cd7) and porch advanced implement → pr.
 
 PR #96 open with review-in-body. CMAP (gemini/codex/claude, --protocol air
 --type pr) running in background; will record verdicts and fix real findings.
+
+## 2026-09-01 — CMAP round + develop merge
+
+CMAP verdicts: gemini=APPROVE, codex=REQUEST_CHANGES, claude=REQUEST_CHANGES.
+Real findings, all addressed in merge commit 148a486:
+1. Branch was 72 commits behind develop — AIR #90 (INKLING_MODEL/MAX_TOKENS/
+   TIMEOUT_MS via config) and SPIR #73 (tool-call persistence moved INTO
+   agent.ts) landed there. Merged develop; config.inkling now carries both
+   #90's and #95's fields; inkling-client is fully config-driven (model,
+   max_tokens, timeout, baseUrl); dropped the stale INKLING_MODEL export.
+2. codex: degenerate-final bookkeeping read config.gemini.model even under
+   inkling-primary — throws on an inkling-only deployment (no Gemini creds),
+   breaking the same-model retry. Fixed (currentModel reads gemini config only
+   on the gemini path); primary-backend.test.ts's config.gemini getter now
+   THROWS, and a new empty-final-retry test pins the fix.
+3. claude: #73's records accumulate in agent.ts, so "persistence unchanged"
+   needed a real assertion — added toolCallRecords checks (tool_use/tool_result,
+   status ok, paired ids) on both the done event and the persisted message.
+4. Minor: https-only INKLING_BASE_URL (loopback exempt) + test; stale comments
+   fixed (inkling-client header, v1 route header); blank lines; wording.
+Post-merge: 75 files / 745 tests pass, typecheck clean, build green.
