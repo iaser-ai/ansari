@@ -43,8 +43,10 @@ import {
   useGetConversation,
   useSendMessage,
   type Citation,
+  type ConversationDetail,
   type Message,
 } from '@/lib/api';
+import { formatTraceLine, traceReducer, type TraceEntry } from '@/lib/chat-trace';
 
 // The desktop reading column: message text lands near 70 characters a
 // line — a book's measure, not a stretched web page.
@@ -55,13 +57,29 @@ const READING_COLUMN = 672;
 // hand-off without remounting.
 const ECHO_ID = '__asked-question';
 
+// Per-turn key prefix for the in-progress assistant answer. The synthetic
+// streaming bubble and the persisted message it hands off to share one key so
+// the row updates in place instead of re-animating; a per-turn suffix keeps
+// successive answers from colliding on the key. (Same identity-reconciliation
+// trick as ECHO_ID, one key per streamed turn.)
+const STREAM_KEY_PREFIX = '__streaming-answer-';
+
 /**
  * The waiting state sits on the paper exactly as the answer will —
  * unboxed, so nothing has to dissolve away when the text arrives. It
  * only fades in (no travel), beneath the question that prompted it.
+ *
+ * While the model searches, it shows the live retrieval trace — one line
+ * per tool call ("Searching hadith for "patience" — 12 results"), falling
+ * back to the plain "Searching the sources…" line before any tool has run.
+ * The trace is transient: it is shown only here, while awaiting the answer,
+ * and is never persisted or replayed on reload. It shows what the answer is
+ * being built FROM; it is not citation UI.
  */
-function ThinkingIndicator() {
+function ThinkingIndicator({ trace }: { trace: TraceEntry[] }) {
   const colors = useColors();
+  const lines =
+    trace.length > 0 ? trace.map(formatTraceLine) : ['Searching the sources…'];
   return (
     <Animated.View
       entering={FadeIn.duration(320)
@@ -70,9 +88,16 @@ function ThinkingIndicator() {
       style={styles.thinking}
     >
       <ActivityIndicator size="small" color={colors.mutedForeground} />
-      <Text style={[styles.thinkingText, { color: colors.mutedForeground }]}>
-        Searching the sources…
-      </Text>
+      <View style={styles.thinkingLines}>
+        {lines.map((line, i) => (
+          <Text
+            key={i}
+            style={[styles.thinkingText, { color: colors.mutedForeground }]}
+          >
+            {line}
+          </Text>
+        ))}
+      </View>
     </Animated.View>
   );
 }
@@ -115,6 +140,20 @@ export default function ChatScreen() {
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const autoSent = useRef(false);
 
+  // The answer as it streams in: appended text and the live retrieval trace,
+  // both reset at the start of each send. `streamKey` is this turn's list key
+  // (see STREAM_KEY_PREFIX); `keyOverrides` remaps a landed server message's id
+  // to the stream key its synthetic bubble used, so the hand-off on `done`
+  // swaps content in place with no remount. `sentAtCount` is the persisted
+  // message count captured at send, used to tell the in-flight turn's answer
+  // apart from a prior turn's when the refetch lands.
+  const [streamingText, setStreamingText] = useState('');
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
+  const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
+  const turnSeq = useRef(0);
+  const streamKey = useRef('');
+  const sentAtCount = useRef(0);
+
   // Floating chrome: one uniform frosted bar spans from the physical
   // top edge (behind the status bar) down through the title row, and
   // the transcript visibly blurs beneath it. The back button + title
@@ -146,6 +185,11 @@ export default function ChatScreen() {
   const sendMessage = useSendMessage({
     mutation: {
       onSuccess: () => {
+        // Re-read the persisted thread so the final bubble carries the server's
+        // ids / timestamps / citations. The synthetic streaming bubble stays up
+        // until that answer actually lands (see the hand-off effect below), so
+        // there is no gap between the stream ending and the persisted message
+        // appearing.
         queryClient.invalidateQueries({
           queryKey: getGetConversationQueryKey(conversationId),
         });
@@ -154,12 +198,32 @@ export default function ChatScreen() {
         });
       },
     },
+    // Drive the incremental render: append text deltas, fold tool events into
+    // the retrieval trace. `error` / `done` are handled by react-query's
+    // isError / onSuccess; the partial `streamingText` is deliberately left
+    // intact on error so it stays on screen.
+    onEvent: (event) => {
+      if (event.type === 'text') {
+        // consume() calls onEvent before validating; guard the malformed case
+        // so a non-string content can't append an artifact before it throws.
+        if (typeof event.content === 'string') {
+          setStreamingText((prev) => prev + event.content);
+        }
+      } else if (event.type === 'tool_call' || event.type === 'tool_result') {
+        setTrace((prev) => traceReducer(prev, event));
+      }
+    },
   });
 
   const lastSent = useRef<string | null>(null);
   const send = (content: string) => {
     if (!conversationId || sendMessage.isPending) return;
     lastSent.current = content;
+    turnSeq.current += 1;
+    streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
+    sentAtCount.current = conversationQuery.data?.messages.length ?? 0;
+    setStreamingText('');
+    setTrace([]);
     sendMessage.mutate({ conversationId, data: { content } });
   };
 
@@ -187,30 +251,92 @@ export default function ChatScreen() {
   // so the row is never unmounted and remounted — nothing duplicates,
   // nothing re-animates, nothing jumps.
   const serverMessages = conversationQuery.data?.messages;
+
+  // The in-flight turn's answer has landed in the persisted thread once the
+  // message count has grown past what it was at send and the last message is
+  // the assistant reply. Distinguishing by count (not just "last is assistant")
+  // is what keeps a follow-up from mistaking the PRIOR turn's answer — which is
+  // still the last message in the stale thread while the new one streams — for
+  // the one it is waiting on.
+  const landedAnswer =
+    !!serverMessages &&
+    serverMessages.length > sentAtCount.current &&
+    serverMessages[serverMessages.length - 1]?.role === 'assistant'
+      ? serverMessages[serverMessages.length - 1]
+      : null;
+
   const messages = useMemo<Message[]>(() => {
     const server = serverMessages ?? [];
-    if (!q) return server;
-    let matched = false;
-    const reconciled = server.map((m) => {
-      if (!matched && m.role === 'user' && m.content === q) {
-        matched = true;
-        return { ...m, id: ECHO_ID };
-      }
-      return m;
-    });
-    if (matched) return reconciled;
-    return [
-      {
-        id: ECHO_ID,
-        conversationId,
-        role: 'user',
-        content: q,
-        citations: [],
-        createdAt: '',
-      },
-      ...reconciled,
-    ];
-  }, [serverMessages, q, conversationId]);
+    // While streaming, if the refetch has already delivered this turn's answer,
+    // hold it back — the synthetic bubble stands in until the atomic hand-off —
+    // so the answer never renders twice for a frame.
+    const base =
+      streamingText && landedAnswer ? server.slice(0, -1) : server.slice();
+
+    let withEcho: Message[];
+    if (!q) {
+      withEcho = base;
+    } else {
+      let matched = false;
+      const reconciled = base.map((m) => {
+        if (!matched && m.role === 'user' && m.content === q) {
+          matched = true;
+          return { ...m, id: ECHO_ID };
+        }
+        return m;
+      });
+      withEcho = matched
+        ? reconciled
+        : [
+            {
+              id: ECHO_ID,
+              conversationId,
+              role: 'user',
+              content: q,
+              citations: [],
+              createdAt: '',
+            },
+            ...reconciled,
+          ];
+    }
+
+    // The in-progress answer: a synthetic assistant bubble carrying this turn's
+    // key, rendered through AnswerMessage exactly like a persisted one. It is
+    // present only while text is streaming and before the hand-off; on `done`
+    // the persisted message inherits this same key (see keyOverrides) and the
+    // synthetic drops, so the row swaps content in place.
+    if (streamingText) {
+      withEcho = [
+        ...withEcho,
+        {
+          id: streamKey.current,
+          conversationId,
+          role: 'assistant',
+          content: streamingText,
+          citations: [],
+          safety: null,
+          createdAt: '',
+        },
+      ];
+    }
+    return withEcho;
+  }, [serverMessages, q, conversationId, streamingText, landedAnswer]);
+
+  // Hand-off on `done`: once this turn's answer is persisted, remap its server
+  // id to the stream key its synthetic bubble used (so the list row updates in
+  // place, no remount / re-animation) and clear the streaming state in the same
+  // commit — no duplicate, no gap.
+  useEffect(() => {
+    if (streamingText && landedAnswer) {
+      const key = streamKey.current;
+      const id = landedAnswer.id;
+      setKeyOverrides((prev) => (prev[id] === key ? prev : { ...prev, [id]: key }));
+      setStreamingText('');
+      setTrace([]);
+    }
+  }, [streamingText, landedAnswer]);
+
+  const keyFor = (m: Message) => keyOverrides[m.id] ?? m.id;
 
   const reversed = [...messages].reverse();
 
@@ -270,7 +396,7 @@ export default function ChatScreen() {
           <FlatList
             data={reversed}
             inverted
-            keyExtractor={(m: Message) => m.id}
+            keyExtractor={keyFor}
             scrollEnabled={!!reversed.length || awaitingAnswer}
             contentContainerStyle={[
               styles.messages,
@@ -289,9 +415,13 @@ export default function ChatScreen() {
             showsVerticalScrollIndicator={false}
             // Inverted list: the header renders below index 0, so the
             // waiting state sits beneath the question that prompted it.
+            // The trace indicator shows only until the first text frame — once
+            // the answer is streaming, the synthetic bubble in the list carries
+            // it and the indicator steps aside. On error the partial answer (if
+            // any) stays in the list above this notice.
             ListHeaderComponent={
-              awaitingAnswer ? (
-                <ThinkingIndicator />
+              awaitingAnswer && !streamingText ? (
+                <ThinkingIndicator trace={trace} />
               ) : sendMessage.isError ? (
                 <SendErrorNotice
                   onRetry={() => {
@@ -486,13 +616,20 @@ const styles = StyleSheet.create({
   // replace these words without a surface dissolving away.
   thinking: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Top-aligned: the spinner sits with the first trace line while the
+    // lines stack beneath it as more tool calls arrive.
+    alignItems: 'flex-start',
     gap: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
+  thinkingLines: {
+    flexShrink: 1,
+    gap: 4,
+  },
   thinkingText: {
     fontSize: 15,
+    lineHeight: 20,
     fontFamily: fonts.displayItalic,
   },
   sendError: {

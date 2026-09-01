@@ -135,4 +135,27 @@ describe('AnswerMessage markdown rendering', () => {
     expect(container.textContent).toContain('Prayer is');
     expect(container.textContent).not.toContain('**');
   });
+
+  it('renders the in-progress synthetic bubble (no citations, empty createdAt) with no timestamp artifact', () => {
+    // The streaming answer is a synthetic Message with no server metadata yet:
+    // empty createdAt, no citations. It must render the partial text and must
+    // NOT leak a timestamp artifact (e.g. "NaN") from the empty createdAt.
+    const synthetic: Message = {
+      id: '__streaming-answer-1',
+      conversationId: 'conv1',
+      role: 'assistant',
+      content: 'Prayer is obligatory',
+      citations: [],
+      safety: null,
+      createdAt: '',
+    };
+    const { container } = render(
+      <AnswerMessage message={synthetic} onCitationPress={() => {}} />,
+    );
+    expect(container.textContent).toContain('Prayer is obligatory');
+    expect(container.textContent).not.toContain('NaN');
+    // No footnote pills without citations, and no date/time rendered.
+    expect(container.querySelector('[data-testid^="footnote-"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}|\bnow\b|\d+[mhd]\b/);
+  });
 });

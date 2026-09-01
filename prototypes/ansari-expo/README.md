@@ -96,17 +96,35 @@ adapter validates every response with **zod and throws on any shape mismatch** (
 then shows an error state, never a silently-empty list). See `lib/api/wire-schemas.ts` and
 the loud-failure tests in `lib/api/decode.test.ts`. Run them with `pnpm test`.
 
-## Streaming chat — a known PROTOTYPE LIMITATION
+## Streaming chat — incremental render
 
-The chat answer is delivered over Server-Sent Events. This prototype **buffers the whole
-stream and shows a spinner ("Searching the sources…") until the answer is complete**, then
-renders it in one go.
+The chat answer is delivered over Server-Sent Events and **rendered incrementally as it
+arrives** — tokens appear in the answer bubble as each `text` frame streams in, not after a
+blocking spinner. This is the behaviour the real app should have, so it is the behaviour the
+prototype shows.
 
-**This is a prototype limitation, not the intended UX.** The real app should render tokens
-**incrementally** as they arrive. A frontend developer porting this must **not** copy the
-spinner-until-done behaviour — the streaming reader (`lib/api/streaming.ts`) already
-delivers each `text` event to an `onEvent` callback, which is the seam a live-render
-implementation hooks into.
+How it fits together:
+
+- `lib/api/streaming.ts` opens exactly one POST and delivers every typed event
+  (`text` / `tool_call` / `tool_result` / `error` / `done`) to an `onEvent` callback as it
+  arrives. `useSendMessage` (`lib/api/hooks.ts`) forwards that callback — the progress seam.
+- `app/chat/[id].tsx` appends each `text` delta to an in-progress assistant bubble (the same
+  `AnswerMessage` component a persisted answer uses, whose markdown parser tolerates partial
+  syntax). On `done` it re-reads the persisted thread and the bubble hands off **in place** to
+  the server's message, so the final answer carries the real ids, timestamps, and citations
+  with no flicker.
+- **While the model is searching** (before the first `text` frame) a transient **retrieval
+  trace** replaces the old static spinner copy: one line per tool call
+  (`Searching hadith for "patience" — 12 results`; a search that finds nothing reads
+  `no hadith found`). The trace shows what the answer is being built *from*; it is **not**
+  citation UI, and it is never persisted or replayed on reload.
+- **Loud failure is preserved.** A truncated stream (no `done`), a malformed frame, or an
+  answer with **zero** text frames surfaces as an error rather than an empty bubble. An error
+  *mid-stream* keeps the partial text on screen alongside the error — it is never blanked. See
+  the tests in `lib/api/chat-stream.test.ts`, `lib/api/streaming.test.ts`, and
+  `lib/chat-trace.test.ts`.
+
+Heartbeat (`: ping`) gaps between frames do not change any state, so they never flicker the UI.
 
 ## Auth & token storage
 
