@@ -47,6 +47,7 @@ import {
   type Message,
 } from '@/lib/api';
 import { formatTraceLine, traceReducer, type TraceEntry } from '@/lib/chat-trace';
+import { reconcileThread } from '@/lib/chat-reconcile';
 
 // The desktop reading column: message text lands near 70 characters a
 // line — a book's measure, not a stretched web page.
@@ -152,7 +153,9 @@ export default function ChatScreen() {
   const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
   const turnSeq = useRef(0);
   const streamKey = useRef('');
-  const sentAtCount = useRef(0);
+  // null = no baseline known yet (nothing sent, or the detail query hadn't
+  // resolved). Distinct from 0 (a loaded, empty thread) — see chat-reconcile.ts.
+  const sentAtCount = useRef<number | null>(null);
 
   // Floating chrome: one uniform frosted bar spans from the physical
   // top edge (behind the status bar) down through the title row, and
@@ -217,11 +220,16 @@ export default function ChatScreen() {
 
   const lastSent = useRef<string | null>(null);
   const send = (content: string) => {
-    if (!conversationId || sendMessage.isPending) return;
+    // Require the detail query to have RESOLVED before sending: the reconciler's
+    // baseline is the persisted message count, and without loaded data we cannot
+    // capture a real one (`?? 0` would look like an empty thread and make a
+    // pre-existing assistant answer read as this turn's, clearing the stream).
+    // The composer is also disabled until then, so this is defence-in-depth.
+    if (!conversationId || !conversationQuery.data || sendMessage.isPending) return;
     lastSent.current = content;
     turnSeq.current += 1;
     streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
-    sentAtCount.current = conversationQuery.data?.messages.length ?? 0;
+    sentAtCount.current = conversationQuery.data.messages.length;
     setStreamingText('');
     setTrace([]);
     sendMessage.mutate({ conversationId, data: { content } });
@@ -252,75 +260,24 @@ export default function ChatScreen() {
   // nothing re-animates, nothing jumps.
   const serverMessages = conversationQuery.data?.messages;
 
-  // The in-flight turn's answer has landed in the persisted thread once the
-  // message count has grown past what it was at send and the last message is
-  // the assistant reply. Distinguishing by count (not just "last is assistant")
-  // is what keeps a follow-up from mistaking the PRIOR turn's answer — which is
-  // still the last message in the stale thread while the new one streams — for
-  // the one it is waiting on.
-  const landedAnswer =
-    !!serverMessages &&
-    serverMessages.length > sentAtCount.current &&
-    serverMessages[serverMessages.length - 1]?.role === 'assistant'
-      ? serverMessages[serverMessages.length - 1]
-      : null;
-
-  const messages = useMemo<Message[]>(() => {
-    const server = serverMessages ?? [];
-    // While streaming, if the refetch has already delivered this turn's answer,
-    // hold it back — the synthetic bubble stands in until the atomic hand-off —
-    // so the answer never renders twice for a frame.
-    const base =
-      streamingText && landedAnswer ? server.slice(0, -1) : server.slice();
-
-    let withEcho: Message[];
-    if (!q) {
-      withEcho = base;
-    } else {
-      let matched = false;
-      const reconciled = base.map((m) => {
-        if (!matched && m.role === 'user' && m.content === q) {
-          matched = true;
-          return { ...m, id: ECHO_ID };
-        }
-        return m;
-      });
-      withEcho = matched
-        ? reconciled
-        : [
-            {
-              id: ECHO_ID,
-              conversationId,
-              role: 'user',
-              content: q,
-              citations: [],
-              createdAt: '',
-            },
-            ...reconciled,
-          ];
-    }
-
-    // The in-progress answer: a synthetic assistant bubble carrying this turn's
-    // key, rendered through AnswerMessage exactly like a persisted one. It is
-    // present only while text is streaming and before the hand-off; on `done`
-    // the persisted message inherits this same key (see keyOverrides) and the
-    // synthetic drops, so the row swaps content in place.
-    if (streamingText) {
-      withEcho = [
-        ...withEcho,
-        {
-          id: streamKey.current,
-          conversationId,
-          role: 'assistant',
-          content: streamingText,
-          citations: [],
-          safety: null,
-          createdAt: '',
-        },
-      ];
-    }
-    return withEcho;
-  }, [serverMessages, q, conversationId, streamingText, landedAnswer]);
+  // Reconciliation (landed-answer detection, echo identity, synthetic streaming
+  // bubble) is a pure function so its load/stream-timing seams are unit-testable
+  // without React — see lib/chat-reconcile.ts.
+  const { messages, landedAnswer } = useMemo(
+    () =>
+      reconcileThread({
+        serverMessages,
+        q,
+        conversationId,
+        streamingText,
+        streamKey: streamKey.current,
+        sentAtCount: sentAtCount.current,
+      }),
+    // streamKey / sentAtCount are refs, current at each recompute; the reactive
+    // inputs are the ones listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [serverMessages, q, conversationId, streamingText],
+  );
 
   // Hand-off on `done`: once this turn's answer is persisted, remap its server
   // id to the stream key its synthetic bubble used (so the list row updates in
@@ -496,7 +453,9 @@ export default function ChatScreen() {
         >
           <ChatInput
             onSend={send}
-            sending={sendMessage.isPending}
+            // Disabled until the detail query resolves, so a message can't be
+            // sent before a reconciler baseline exists (see send()).
+            sending={sendMessage.isPending || !conversationQuery.data}
             placeholder="Ask a follow-up…"
           />
         </Animated.View>

@@ -27,6 +27,9 @@ changes.**
   in-progress bubble with per-turn identity reconciliation, live retrieval trace, keep-partial-on-error
 - `prototypes/ansari-expo/lib/chat-trace.ts` (+107 / -0, new) — pure `traceReducer` /
   `formatTraceLine` / `displayTool` for the transient trace
+- `prototypes/ansari-expo/lib/chat-reconcile.ts` (new) — pure `reconcileThread` (landed-answer
+  detection with a `number | null` baseline, echo identity, synthetic streaming bubble)
+- `prototypes/ansari-expo/lib/chat-reconcile.test.ts` (new) — send-before-detail-load regression + hand-off cases
 - `prototypes/ansari-expo/lib/api/chat-stream.ts` (+18) — `sawText` flag + zero-text loud-fail guard
 - `prototypes/ansari-expo/lib/api/hooks.ts` (+17) — `onEvent` progress seam on `useSendMessage`
 - `prototypes/ansari-expo/lib/api/index.ts` (+2) — barrel exports `ChatStreamEvent` / `ChatStreamError`
@@ -47,7 +50,7 @@ changes.**
 ## Test Results
 
 - `pnpm typecheck` (tsc --noEmit): ✓ pass
-- `pnpm test` (vitest): ✓ **93 passed** (13 new). No `lint` script exists in the prototype.
+- `pnpm test` (vitest): ✓ **103 passed** (23 new). No `lint` script exists in the prototype.
 
 **Negative / loud-failure tests** (the character carried over from #63):
 
@@ -161,6 +164,29 @@ Nothing rose to the capped hot tier — these are render-layer recipes, not syst
   plan's "fix the doc defect everywhere" requirement; **addressed** — the docstring, the `onEvent`
   comment, and the fallback comment are rewritten to describe the incremental behaviour. Its
   non-blocking notes are captured in "Things to Look At" above.
+
+### Integration review (main, PR comment 5501322523) — REQUEST_CHANGES, fixed
+
+- **🔴 Reconciliation could latch onto a pre-existing answer.** `send()` guarded on
+  `conversationId`/`isPending` but not on the detail query having resolved, and recorded the
+  baseline as `conversationQuery.data?.messages.length ?? 0`. Sending in an existing thread (last
+  message an assistant answer) *before* the detail query resolved recorded a baseline of `0`; when
+  the data landed, the reconciler saw the **old** assistant message past that baseline, mistook it
+  for this turn's answer, and cleared the streamed text — breaking progressive rendering in the
+  manual-composer path (auto-send was safe because it requires resolved data). This was the
+  non-blocking `sentAtCount` note from the first consult, correctly escalated to blocking.
+
+  **Root-cause fix** (not a default-value change): `?? 0` conflated "no messages" with "not loaded
+  yet." (1) `send()` now requires `conversationQuery.data` to be resolved and the composer is
+  disabled until then, so a real baseline always exists; (2) the baseline is now `number | null`
+  and the reconciler **refuses to detect a landed answer when it is `null`** (unknown baseline),
+  distinguishing the two states. Reconciliation was extracted into a pure `lib/chat-reconcile.ts`
+  (`reconcileThread`) so the seam is testable without React.
+
+  **Regression test** (`lib/chat-reconcile.test.ts`): the send-before-detail-load case asserts the
+  reconciler refuses to latch and keeps the synthetic bubble + partial text. Verified it **fails on
+  the pre-fix logic** (dropping the `sentAtCount !== null` guard turns that test red) and passes
+  with the fix.
 
 ## How to Test Locally
 
