@@ -33,4 +33,25 @@ editing, confirm what revision is actually running — twice in one day.
   sft-dpo-bf16, DB ansari_eval on :5434). Battery script:
   scratchpad `run-battery-98.sh` (12 numeric + 6 taqwabench named asks + issue's
   "last two verses of al-Baqarah" + non-regression patience probe).
-- Battery running; results to be attached to the PR body.
+## 2026-09-01 — battery results (acceptance PASSED)
+
+- **Numeric battery: 12/12 invoked search_quran** (was 4/12). All three former
+  failures (36:1, 103:2, 83:1) now answer with the exact retrieved text — verified
+  against taqwabench `quranquote/data/quran_truth.json` (NFKD-normalized Arabic
+  comparison; truth rows carry a basmala prefix the retrieval rows don't).
+- **Named battery: 7/7 invoked search_quran** — the 6 taqwabench
+  `quran_truth_named.json` asks (Ayat al-Kursi, Ayat ad-Dayn, last verse of
+  al-Baqarah, Ayat an-Nur, Ayat al-Mubahala, first verse of al-Mulk) plus the
+  issue's "last two verses of Surah al-Baqarah" (3 calls, one per verse pair need).
+- **Non-regression:** "What does Islam say about patience" answered substantively
+  with `tool_calls: NULL` — the push stays scoped to producing scripture text.
+- Transcripts: builder scratchpad `air98-battery-transcripts.md`; runner
+  `run-battery-98.sh` (adapted from architect's run-battery.sh, port 3001).
+- Suite green (752 passed / 3 skipped), build + typecheck clean. Skipping CMAP:
+  prompt-text-only change; the scored battery is the substantive review.
+- Note for architect: on my pre-merge branch the same prompts ran with **Gemini**
+  primary (no PRIMARY_BACKEND support yet) and Gemini answered 36:1 from memory
+  without tools — tool_calls persistence was also missing there, so that NULL is
+  not conclusive. If Gemini-primary compliance matters for prod, worth a separate
+  spot-check post-merge; the issue's acceptance was defined on the weak Gemma
+  primary only.
