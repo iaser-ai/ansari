@@ -56,3 +56,17 @@ timeoutMs = remaining-to-soft-deadline (soft = FACILITATOR_REQUEST_BUDGET_MS 120
 INKLING_TIMEOUT_MS into those calls would override the budget architecture — an
 architectural decision, not mine. Options sent to architect; consult round + gate
 re-request deferred until resolved (the diff may change).
+
+## 2026-09-01 — architect decision: option (b), implemented
+
+Architect chose (b): facilitator Inkling calls use min(remaining budget, INKLING_TIMEOUT_MS)
+— budget owns the request deadline, INKLING_TIMEOUT_MS owns the per-call cap. (c) rejected
+(breaking Spec 49's hard wall answers nobody). Lengthening happens operationally on STAGING
+via FACILITATOR_REQUEST_BUDGET_MS / FACILITATOR_SYNTHESIS_RESERVE_MS.
+
+Implemented at both Inkling call sites in agent.ts (gathering/rescue + synthesis); Gemini
+calls untouched; default 180s makes min() a no-op (budget is 120s). Rung tests cover the cap
+(60s cap picked over ~95s remaining; Gemini uncapped) and the default no-op (budget-derived
+timeout wins). PR body updated with defaults (120s/25s) and recommended staging values
+(240s/60s → ~120s rescue window after a 60s hang; check the frontend-timeout invariant).
+All green: typecheck, full tests, build. Next: consult round, then gate re-request.

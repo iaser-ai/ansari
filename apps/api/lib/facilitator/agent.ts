@@ -477,8 +477,14 @@ export async function* runFacilitator(
         history: synthesisHistory,
         timeoutMs: remainingMs,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling('', synthesisOptions)
+        ? streamInkling('', {
+            ...synthesisOptions,
+            timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
+          })
         : streamGemini('', synthesisOptions);
       for await (const event of stream) {
         if (event.type === 'text') {
@@ -554,8 +560,14 @@ export async function* runFacilitator(
         tools,
         timeoutMs: remainingToSoft,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling(currentQuery, callOptions)
+        ? streamInkling(currentQuery, {
+            ...callOptions,
+            timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
+          })
         : streamGemini(currentQuery, callOptions);
 
       const toolCallsCollected: GeminiToolCall[] = [];

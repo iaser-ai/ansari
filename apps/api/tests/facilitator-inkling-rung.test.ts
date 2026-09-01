@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   inklingScripts: [] as Array<() => AsyncGenerator<AnyEvent>>,
   inklingConfigured: true,
   gemini: { model: 'primary-model', fallbackModel: 'fallback-model' },
+  inkling: { model: 'thinkingmachines/Inkling', timeoutMs: 180000 },
 }));
 
 function doneResponse(
@@ -104,10 +105,11 @@ vi.mock('@/lib/config', () => ({
     get gemini() {
       return h.gemini;
     },
-    // Model id lives in config since issue #90; the agent reads it for the
-    // model label on ladder log/breadcrumb summaries.
+    // Model id and per-call timeout cap live in config since issue #90; the
+    // agent reads the model for ladder log/breadcrumb labels and applies
+    // min(remaining budget, timeoutMs) to Inkling calls.
     get inkling() {
-      return { model: 'thinkingmachines/Inkling' };
+      return h.inkling;
     },
   },
 }));
@@ -186,6 +188,7 @@ beforeEach(() => {
   h.inklingScripts = [];
   h.inklingConfigured = true;
   h.gemini = { model: 'primary-model', fallbackModel: 'fallback-model' };
+  h.inkling = { model: 'thinkingmachines/Inkling', timeoutMs: 180000 };
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -413,6 +416,40 @@ describe('Inkling rescue on terminal Gemini errors (issue #79)', () => {
     expect(types).toContain('done');
     expect(types).not.toContain('error');
     expect(textOf(events)).toBe('Rescued continuation.');
+  });
+});
+
+describe('Inkling per-call timeout cap — min(remaining budget, INKLING_TIMEOUT_MS) (issue #90)', () => {
+  it('caps the Inkling call at config.inkling.timeoutMs when the budget has more remaining', async () => {
+    // Remaining-to-soft at rescue time is ~95s (default budget 120s − reserve
+    // 25s, instant mock rounds), far above this cap — min() must pick the cap.
+    h.inkling = { model: 'thinkingmachines/Inkling', timeoutMs: 60000 };
+    h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
+    h.inklingScripts = [textRound('Answer from Inkling.')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+
+    expect(h.inklingCalls).toHaveLength(1);
+    expect(h.inklingCalls[0].options.timeoutMs).toBe(60000);
+    // Gemini calls are NOT capped by the Inkling knob: they keep the full
+    // budget-derived timeout.
+    expect(h.calls[0].options.timeoutMs as number).toBeGreaterThan(60000);
+    expect(events.map((e) => e.type)).toContain('done');
+  });
+
+  it('at the default 180s the cap is a no-op: the budget-derived timeout wins the min()', async () => {
+    h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
+    h.inklingScripts = [textRound('Answer from Inkling.')];
+
+    await collect(
+      runFacilitator([userMessage('q')], undefined, { budgetMs: 5000, reserveMs: 1000 }) as AsyncGenerator<Event>
+    );
+
+    expect(h.inklingCalls).toHaveLength(1);
+    const timeoutMs = h.inklingCalls[0].options.timeoutMs as number;
+    // Bounded by remaining-to-soft (≤ budget − reserve = 4s), never the 180s cap.
+    expect(timeoutMs).toBeGreaterThan(0);
+    expect(timeoutMs).toBeLessThanOrEqual(4000);
   });
 });
 
