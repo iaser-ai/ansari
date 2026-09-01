@@ -33,12 +33,13 @@ import type {
 } from './gemini-client';
 import type { GeminiTool } from '../tools/types';
 
-export const INKLING_MODEL = 'thinkingmachines/Inkling';
+// Model id and max_tokens come from `config.inkling` (issue #90): env-overridable
+// via INKLING_MODEL / INKLING_MAX_TOKENS so staging can run a fine-tuned LoRA,
+// defaulting to thinkingmachines/Inkling @ 8192 — the evaluated BATIK
+// configuration. The 8–16K max_tokens window (see header) is enforced at config
+// parse, fail-fast.
 const INKLING_API_URL =
   'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions';
-// See header: must be 8–16K so the hidden reasoning pass cannot starve the
-// visible answer. Matches the evaluated BATIK configuration.
-const INKLING_MAX_TOKENS = 8192;
 const INKLING_TEMPERATURE = 0;
 // Backstop when the caller passes no timeoutMs (the facilitator always does).
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -321,8 +322,8 @@ export async function* streamInkling(
   }
 
   const body: Record<string, unknown> = {
-    model: INKLING_MODEL,
-    max_tokens: INKLING_MAX_TOKENS,
+    model: config.inkling.model,
+    max_tokens: config.inkling.maxTokens,
     temperature: INKLING_TEMPERATURE,
     stream: true,
     // OpenAI-compat streams omit the final usage chunk unless asked (#77);

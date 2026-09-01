@@ -43,6 +43,20 @@ const envSchema = z.object({
   // Optional: when unset both are skipped cleanly (logged once) and the ladder
   // is the single same-model retry.
   TINKER_API_KEY: z.string().optional(),
+  // Which Inkling model the client requests (issue #90). Overridable per
+  // environment so staging can run a fine-tuned LoRA (a tinker://... sampler-
+  // weights id) while prod stays on base Inkling.
+  INKLING_MODEL: z.string().min(1, 'INKLING_MODEL must not be empty').default('thinkingmachines/Inkling'),
+  // Completion cap for Inkling calls (issue #90). MUST sit in the 8K–16K window
+  // (see inkling-client.ts header): the visible answer follows a hidden
+  // reasoning pass, and a cap below 8192 lets that pass starve the visible
+  // content to null. Out-of-window values fail here at parse — no clamping.
+  INKLING_MAX_TOKENS: z.coerce
+    .number()
+    .int('INKLING_MAX_TOKENS must be an integer')
+    .min(8192, 'INKLING_MAX_TOKENS must be in the 8192-16384 window (below 8192 the hidden reasoning pass starves visible content)')
+    .max(16384, 'INKLING_MAX_TOKENS must be in the 8192-16384 window')
+    .default(8192),
 
 
   // Islamic Tools
@@ -142,8 +156,11 @@ export const config = {
   },
 
   get inkling() {
+    const env = getEnv();
     return {
-      apiKey: getEnv().TINKER_API_KEY,
+      apiKey: env.TINKER_API_KEY,
+      model: env.INKLING_MODEL,
+      maxTokens: env.INKLING_MAX_TOKENS,
     };
   },
 

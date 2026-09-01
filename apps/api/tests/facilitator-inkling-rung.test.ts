@@ -104,6 +104,11 @@ vi.mock('@/lib/config', () => ({
     get gemini() {
       return h.gemini;
     },
+    // Model id lives in config since issue #90; the agent reads it for the
+    // model label on ladder log/breadcrumb summaries.
+    get inkling() {
+      return { model: 'thinkingmachines/Inkling' };
+    },
   },
 }));
 
@@ -117,7 +122,6 @@ vi.mock('@/lib/ai/gemini-client', () => ({
 }));
 
 vi.mock('@/lib/ai/inkling-client', () => ({
-  INKLING_MODEL: 'thinkingmachines/Inkling',
   isInklingConfigured: vi.fn(() => h.inklingConfigured),
   streamInkling: vi.fn((message: string, options: Record<string, unknown>) => {
     h.inklingCalls.push({ message, options });

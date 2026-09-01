@@ -14,7 +14,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *  - fail-fast on HTTP errors, malformed args, and a missing key.
  */
 
-const h = vi.hoisted(() => ({ apiKey: 'test-tinker-key' as string | undefined }));
+const h = vi.hoisted(() => ({
+  apiKey: 'test-tinker-key' as string | undefined,
+  // Config defaults (issue #90): the real schema defaults these when the
+  // INKLING_MODEL / INKLING_MAX_TOKENS env vars are unset.
+  model: 'thinkingmachines/Inkling',
+  maxTokens: 8192,
+}));
 
 vi.mock('@sentry/nextjs', () => ({
   addBreadcrumb: vi.fn(),
@@ -25,16 +31,12 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('@/lib/config', () => ({
   config: {
     get inkling() {
-      return { apiKey: h.apiKey };
+      return { apiKey: h.apiKey, model: h.model, maxTokens: h.maxTokens };
     },
   },
 }));
 
-import {
-  streamInkling,
-  isInklingConfigured,
-  INKLING_MODEL,
-} from '../lib/ai/inkling-client';
+import { streamInkling, isInklingConfigured } from '../lib/ai/inkling-client';
 import type { GeminiStreamEvent } from '../lib/ai/gemini-client';
 
 function sseBody(chunks: object[]): string {
@@ -90,6 +92,8 @@ function doneOf(events: GeminiStreamEvent[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.apiKey = 'test-tinker-key';
+  h.model = 'thinkingmachines/Inkling';
+  h.maxTokens = 8192;
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -167,11 +171,11 @@ describe('streamInkling', () => {
     );
     expect(init.headers.Authorization).toBe('Bearer test-tinker-key');
     const body = JSON.parse(init.body);
-    expect(body.model).toBe(INKLING_MODEL);
+    expect(body.model).toBe('thinkingmachines/Inkling');
     // Load-bearing (#74): small max_tokens → the hidden reasoning pass starves
-    // the visible answer (null content). Must sit in the 8–16K window.
-    expect(body.max_tokens).toBeGreaterThanOrEqual(8192);
-    expect(body.max_tokens).toBeLessThanOrEqual(16384);
+    // the visible answer (null content). Must sit in the 8–16K window; the
+    // config-supplied default is exactly 8192.
+    expect(body.max_tokens).toBe(8192);
     expect(body.temperature).toBe(0);
     expect(body.stream).toBe(true);
     expect(body.stream_options).toEqual({ include_usage: true });
@@ -180,6 +184,20 @@ describe('streamInkling', () => {
       { role: 'user', content: 'hello' },
     ]);
     expect(body.tools).toBeUndefined();
+  });
+
+  it('uses config-overridden model and max_tokens in the request (issue #90)', async () => {
+    h.model = 'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final';
+    h.maxTokens = 16384;
+    fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
+
+    await collect(streamInkling('hello'));
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe(
+      'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final'
+    );
+    expect(body.max_tokens).toBe(16384);
   });
 
   it('never leaks reasoning_content into the stream, text, or rawPayload', async () => {

@@ -106,6 +106,12 @@
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     "TINKER_API_KEY",
+    // Inkling model id + completion cap (issue #90): in the Zod schema
+    // (derivation step 1). Undeclared, the staging LoRA override would be
+    // invisible to tasks AND absent from the cache key — the default would
+    // silently apply while a cached build reports a hit.
+    "INKLING_MODEL",
+    "INKLING_MAX_TOKENS",
     "KALEMAT_API_KEY",
     "USUL_API_TOKEN",
     "USUL_BASE_URL",
