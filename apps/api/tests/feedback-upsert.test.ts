@@ -67,7 +67,7 @@ const BASE_DDL = `
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     thread_id uuid NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
     role text NOT NULL, content jsonb NOT NULL, agent_name text, source text DEFAULT 'web', client text,
-    input_tokens integer, output_tokens integer, thinking_tokens integer, total_tokens integer, raw_payload jsonb,
+    input_tokens integer, output_tokens integer, thinking_tokens integer, total_tokens integer, raw_payload jsonb, tool_calls jsonb,
     created_at timestamp with time zone DEFAULT now()
   );
 `;

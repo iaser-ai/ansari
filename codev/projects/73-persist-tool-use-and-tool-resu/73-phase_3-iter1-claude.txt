@@ -1,0 +1,34 @@
+I'll start by reading the key implementation files for phase 3.I've read the phase-3 implementation, run the phase-3 tests, the full API suite (704 passed / 3 skipped, 73 files), and `tsc --noEmit` (clean). Here's my assessment.
+
+## Spec/plan adherence — phase 3
+
+**All three persist sites wired correctly.**
+- `threads/[id]/route.ts:281`, `chat/route.ts:166`, `mcp-complete/route.ts:217` all pass `toolCalls: event.toolCalls ?? null`. The NULL-not-`[]` guarantee holds structurally because phase 2's `collectedToolCalls()` (`agent.ts:427`) returns `undefined` for an empty accumulator — so `?? null` can't ever write `[]`. Good separation of concerns.
+- Orphan writes on both streaming routes happen **after** `safeClose()` (`route.ts:251-260`, `287-297`; `chat/route.ts:136-145`, `180-188`), exactly as the plan required — bookkeeping never delays the client's error delivery.
+- `persistOrphanToolCalls` (`threads.ts:168-194`) no-ops on an empty/absent record set, never throws, and logs only `{name, code}` + counts — consistent with the "never log a raw driver error" lesson.
+- mcp-complete's throw→return refactor is minimal and preserves the contract: the `error` case returns records, the handler persists the orphan then re-throws the same message, so the route catch still answers 500 with the facilitator's text. Pinned by a test asserting `{ error: 'Gemini API timeout' }` + status 500.
+
+**Frozen-contract regression tests are the real thing, not a gesture.** `thread-get-contract.test.ts` asserts on the *serialized* JSON string (`raw.not.toMatch(/tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms/)`), pins exact key sets and order at both levels, checks `typeof content === 'string'` for the single-block case, keeps the multi-block array branch pinned, and compares the GET response **byte-for-byte before and after an orphan insert** — which incidentally covers the `updated_at`-must-not-move criterion. The share-snapshot surface is covered too.
+
+**Leak-surface audit (my own, beyond the tests):** the only non-test selects from `messages` are `threads.ts` (projection omits `tool_calls`), `shares.ts` (three-column projection), `stats.ts` (aggregates + an explicit column list in `getRecentMessages`), and `findMessageById`/`findMessageInOwnedThread` — the latter return full rows but feed only the feedback route's existence check (`feedback/route.ts:44-47`), which serializes the *feedback* row, not the message. No leak path.
+
+**Test coverage** hits every phase-3 acceptance criterion: 3 sites × (tool / no-tool / error / empty), orphan reason tags, `source`/`client` attribution, replay-unaffected-by-orphans, SSE wire bytes byte-identical (with explicit `not.toContain('tool_use_id' | 'duration_ms')`), mcp 500 and 502 contracts. The added `persistOrphanToolCalls: vi.fn()` entries in the three factory-mocked suites are necessary, not padding — vitest's missing-export throw was being swallowed by the stream catch, which is a nice catch by the builder.
+
+## Non-blocking observations
+
+1. **Post-close async durability (COMMENT).** On the two streaming routes the orphan write runs inside `start()` after `controller.close()`. On Railway's long-lived Node process the promise settles normally, so this is fine as-shipped — but it's an implicit platform assumption. If this app ever runs somewhere that tears down the request context at response end, those writes vanish silently (and `persistOrphanToolCalls` swallowing errors means you'd never see it). Worth one sentence in the arch-doc update during review phase.
+
+2. **Orphan-write failures are console-only.** `persistOrphanToolCalls` logs but doesn't `Sentry.captureMessage`. Swallowing is correct (per plan); but a systemic failure of this write is exactly the silent-undercount failure mode the spec exists to prevent, and the metric would quietly skew again. A count-only Sentry message (no user content) would make it loud. Minor, and arguably a follow-on.
+
+3. **`runFacilitator` throwing rather than yielding `error` loses records** on all three sites. I checked `agent.ts` — the loop body's catch converts throws into terminal `error` yields (`agent.ts:993-999`) and max-iterations yields with records, so the only uncovered throws are pre-loop setup ones, which precede any dispatch. Residual risk is effectively zero; noting it only so it's a known boundary rather than an assumption.
+
+None of these block the phase.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 fully delivers route persistence, orphan capture on all three error paths, and genuinely strong frozen-contract regression tests; full suite and typecheck green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None (blocking). Non-blocking: orphan writes on streaming routes rely on post-`close()` async work surviving the request context (fine on Railway, worth documenting); orphan-write failures log to console only, with no Sentry signal for the very undercount this spec exists to eliminate.

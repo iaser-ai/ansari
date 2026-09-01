@@ -128,7 +128,7 @@ Use this for questions about fiqh (Islamic jurisprudence), halal/haram rulings, 
         queryLength: query.length,
         ...meta,
       });
-      return unavailableResult(toolLabel(this.getToolName()));
+      return unavailableResult(toolLabel(this.getToolName()), meta);
     }
   }
 }
