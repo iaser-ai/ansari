@@ -68,7 +68,13 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { eq } from 'drizzle-orm';
 import * as schema from '@/db/schema';
-import { messages, toolCallOrphans, threads, type ToolCallRecord } from '@/db/schema';
+import {
+  messages,
+  toolCallOrphans,
+  threads,
+  type ModelProvenance,
+  type ToolCallRecord,
+} from '@/db/schema';
 import { SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { POST as threadPost } from '../src/app/api/v2/threads/[id]/route';
 import { POST as chatPost } from '../src/app/api/v2/threads/[id]/chat/route';
@@ -128,6 +134,8 @@ beforeAll(async () => {
       total_tokens integer,
       raw_payload jsonb,
       tool_calls jsonb,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE tool_call_orphans (
@@ -137,6 +145,8 @@ beforeAll(async () => {
       source text,
       client text,
       tool_calls jsonb NOT NULL,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
   `);
@@ -191,21 +201,21 @@ function mcpReq(content: string): NextRequest {
   });
 }
 
-// Facilitator scripts. The wire-facing tool events stay lossy; the records ride
-// only on the terminal event.
-function toolTurnThenDone(text: string, toolCalls?: ToolCallRecord[]) {
+// Facilitator scripts. The wire-facing tool events stay lossy; the records —
+// and, since issue #99, the model provenance — ride only on the terminal event.
+function toolTurnThenDone(text: string, toolCalls?: ToolCallRecord[], provenance?: ModelProvenance) {
   return async function* () {
     yield { type: 'tool_use' as const, data: JSON.stringify({ name: 'search_mawsuah' }) };
     yield { type: 'tool_result' as const, data: JSON.stringify({ tool: 'search_mawsuah', query: 'q', resultCount: 0 }) };
     if (text) yield { type: 'text' as const, data: text };
-    yield { type: 'done' as const, data: '', usage: undefined, rawPayload: null, toolCalls };
+    yield { type: 'done' as const, data: '', usage: undefined, rawPayload: null, toolCalls, provenance };
   };
 }
 
-function toolTurnThenError(message: string, toolCalls?: ToolCallRecord[]) {
+function toolTurnThenError(message: string, toolCalls?: ToolCallRecord[], provenance?: ModelProvenance) {
   return async function* () {
     yield { type: 'tool_use' as const, data: JSON.stringify({ name: 'search_mawsuah' }) };
-    yield { type: 'error' as const, data: message, toolCalls };
+    yield { type: 'error' as const, data: message, toolCalls, provenance };
   };
 }
 
@@ -411,5 +421,100 @@ describe('POST /api/v2/mcp-complete (ai-skill)', () => {
 
     expect(await assistantRows()).toHaveLength(0);
     expect((await orphanRows())[0].reason).toBe('empty_final');
+  });
+});
+
+describe('per-turn model provenance (issue #99) — terminal-event provenance → columns, real pglite', () => {
+  const GEMINI: ModelProvenance = { provider: 'gemini', modelId: 'gemini-3.7-flash' };
+  const INKLING_PRIMARY: ModelProvenance = { provider: 'inkling', modelId: 'tinker://sft-dpo-bf16' };
+  // A #79 rescue reaches the route as provider 'inkling' on a request whose
+  // primary was gemini — indistinguishable at the persist site from
+  // inkling-primary by design; the distinct checkpoint id keeps it assertable.
+  const INKLING_RESCUE: ModelProvenance = { provider: 'inkling', modelId: 'thinkingmachines/Inkling' };
+
+  it('a gemini-served turn persists {gemini, model_id} on the assistant row', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', RECORDS, GEMINI)());
+
+    await readAll(await chatPost(chatReq('q'), ctx));
+
+    const rows = await assistantRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].modelProvider).toBe('gemini');
+    expect(rows[0].modelId).toBe('gemini-3.7-flash');
+  });
+
+  it('an inkling-primary-served turn persists {inkling, checkpoint id}', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', RECORDS, INKLING_PRIMARY)());
+
+    await readAll(await chatPost(chatReq('q'), ctx));
+
+    const rows = await assistantRows();
+    expect(rows[0].modelProvider).toBe('inkling');
+    expect(rows[0].modelId).toBe('tinker://sft-dpo-bf16');
+  });
+
+  it('an inkling-RESCUED turn persists {inkling, rescue model} — queryable, not just a Sentry event', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Rescued.', RECORDS, INKLING_RESCUE)());
+
+    await readAll(await chatPost(chatReq('q'), ctx));
+
+    const rows = await assistantRows();
+    expect(rows[0].modelProvider).toBe('inkling');
+    expect(rows[0].modelId).toBe('thinkingmachines/Inkling');
+  });
+
+  it('a no-provenance done event persists NULL on both columns — never the empty string', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', RECORDS, undefined)());
+
+    await readAll(await chatPost(chatReq('q'), ctx));
+
+    const rows = await assistantRows();
+    expect(rows[0].modelProvider).toBeNull();
+    expect(rows[0].modelId).toBeNull();
+  });
+
+  it('an error-turn orphan row carries the failed provider (web route)', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenError('vertex exploded', RECORDS, GEMINI)());
+
+    await readAll(await threadPost(webReq('q'), ctx));
+
+    const orphans = await orphanRows();
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0].modelProvider).toBe('gemini');
+    expect(orphans[0].modelId).toBe('gemini-3.7-flash');
+  });
+
+  it('an empty-final orphan row carries provenance (chat route)', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('', RECORDS, INKLING_RESCUE)());
+
+    await readAll(await chatPost(chatReq('q'), ctx));
+
+    const orphans = await orphanRows();
+    expect(orphans[0].reason).toBe('empty_final');
+    expect(orphans[0].modelProvider).toBe('inkling');
+    expect(orphans[0].modelId).toBe('thinkingmachines/Inkling');
+  });
+
+  it('mcp-complete: assistant row and error orphan both carry provenance; absence stays NULL', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', RECORDS, INKLING_PRIMARY)());
+    await mcpPost(mcpReq('q'));
+    const rows = await assistantRows();
+    expect(rows[0].modelProvider).toBe('inkling');
+    expect(rows[0].modelId).toBe('tinker://sft-dpo-bf16');
+
+    mockRunFacilitator.mockImplementation(() => toolTurnThenError('Gemini API timeout', RECORDS, GEMINI)());
+    await mcpPost(mcpReq('q'));
+    const orphans = await orphanRows();
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0].modelProvider).toBe('gemini');
+    expect(orphans[0].modelId).toBe('gemini-3.7-flash');
+
+    mockRunFacilitator.mockImplementation(() => toolTurnThenError('boom', RECORDS, undefined)());
+    await mcpPost(mcpReq('q'));
+    const all = await orphanRows();
+    expect(all).toHaveLength(2);
+    const noProvenance = all.find((o) => o.modelProvider === null);
+    expect(noProvenance).toBeDefined();
+    expect(noProvenance!.modelId).toBeNull();
   });
 });

@@ -22,7 +22,12 @@ import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import type { ToolResult } from '../tools/types';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
-import type { ContentBlock, ToolCallRecord, ToolResultStatus } from '@/db/schema/messages';
+import type {
+  ContentBlock,
+  ModelProvenance,
+  ToolCallRecord,
+  ToolResultStatus,
+} from '@/db/schema/messages';
 
 type ToolResultRecord = Extract<ToolCallRecord, { type: 'tool_result' }>;
 
@@ -318,6 +323,16 @@ export interface FacilitatorStreamEvent {
    * still counted — those are disproportionately the turns the metric exists for.
    */
   toolCalls?: ToolCallRecord[];
+  /**
+   * Set on every terminal event (`done` AND `error`) that a model call produced
+   * (issue #99): the serving backend + model id of the call that produced —
+   * or failed to produce — the final turn. A #79-rescued turn reports
+   * provider 'inkling' even though the request's primary was gemini, and the
+   * synthesis path reports the model that wrote the synthesis. Absent only
+   * when no provider was ever engaged (e.g. no user message to process);
+   * persist sites map absence to NULL.
+   */
+  provenance?: ModelProvenance;
 }
 
 /**
@@ -475,6 +490,16 @@ export async function* runFacilitator(
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
 
+  // Provenance of the provider currently serving this request (issue #99), read at
+  // terminal-yield time so it reflects the call that actually produced (or failed
+  // to produce) the final turn — after any ladder escalation or #79 rescue flipped
+  // useInklingRung. config.gemini is only read on the gemini path (same lazy-read
+  // rule as the ladder's model label: an inkling-only deployment's getter throws).
+  const currentProvenance = (): ModelProvenance =>
+    useInklingRung
+      ? { provider: 'inkling', modelId: config.inkling.model }
+      : { provider: 'gemini', modelId: config.gemini.model };
+
   // Overall request-time budget (Spec 49). softDeadline = when we stop starting new tool
   // work; the reserve between it and hardDeadline is the window for one synthesis pass.
   const budgetMs = options?.budgetMs ?? FACILITATOR_REQUEST_BUDGET_MS;
@@ -594,7 +619,12 @@ export async function* runFacilitator(
       console.error('Facilitator synthesis error:', error);
       Sentry.captureException(error);
       logShortCircuit('error');
-      yield { type: 'error', data: BUDGET_ERROR_MESSAGE, toolCalls: collectedToolCalls() };
+      yield {
+        type: 'error',
+        data: BUDGET_ERROR_MESSAGE,
+        toolCalls: collectedToolCalls(),
+        provenance: currentProvenance(),
+      };
       return;
     }
 
@@ -608,7 +638,12 @@ export async function* runFacilitator(
     // shipped as a successful `done`.
     if (!synthResponse || classifyDegenerateFinal(synthText) !== null) {
       logShortCircuit('error');
-      yield { type: 'error', data: BUDGET_ERROR_MESSAGE, toolCalls: collectedToolCalls() };
+      yield {
+        type: 'error',
+        data: BUDGET_ERROR_MESSAGE,
+        toolCalls: collectedToolCalls(),
+        provenance: currentProvenance(),
+      };
       return;
     }
 
@@ -633,6 +668,7 @@ export async function* runFacilitator(
       usage: totalUsage,
       rawPayload: persistablePayload,
       toolCalls: collectedToolCalls(),
+      provenance: currentProvenance(),
     };
   };
 
@@ -804,6 +840,7 @@ export async function* runFacilitator(
             type: 'error',
             data: finishReason === 'SAFETY' ? SAFETY_BLOCKED_ERROR_MESSAGE : EMPTY_ANSWER_ERROR_MESSAGE,
             toolCalls: collectedToolCalls(),
+            provenance: currentProvenance(),
           };
           return;
         }
@@ -834,6 +871,7 @@ export async function* runFacilitator(
           usage: totalUsage,
           rawPayload: persistablePayload,
           toolCalls: collectedToolCalls(),
+          provenance: currentProvenance(),
         };
         return;
       }
@@ -1017,6 +1055,7 @@ export async function* runFacilitator(
         type: 'error',
         data: error instanceof Error ? error.message : 'Unknown error',
         toolCalls: collectedToolCalls(),
+        provenance: currentProvenance(),
       };
       return;
     }
@@ -1027,5 +1066,6 @@ export async function* runFacilitator(
     type: 'error',
     data: 'Maximum iterations reached',
     toolCalls: collectedToolCalls(),
+    provenance: currentProvenance(),
   };
 }

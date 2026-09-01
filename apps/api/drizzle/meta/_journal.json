@@ -50,6 +50,13 @@
       "when": 1788145282112,
       "tag": "0007_tool_calls_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788270290856,
+      "tag": "0008_model_provenance",
+      "breakpoints": true
     }
   ]
 }

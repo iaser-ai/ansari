@@ -12,12 +12,14 @@ import {
   type ToolCallOrphan,
   type NewToolCallOrphan,
   type ToolCallRecord,
+  type ModelProvenance,
 } from '@/db/schema';
 
 /**
  * Message row as returned by the thread-listing read helpers
  * (findMessagesByThread / getThreadWithMessages): every column EXCEPT
- * `tool_calls` (spec 73). The projection is structural contract safety — the
+ * `tool_calls` (spec 73) and the `model_provider`/`model_id` provenance pair
+ * (issue #99). The projection is structural contract safety — the
  * thread GET, share snapshot, and history-replay paths all read through these
  * helpers and never select the tool records, so the frozen API shape cannot
  * leak them — and avoids detoasting ~7 KB median of jsonb per assistant row on
@@ -26,7 +28,7 @@ import {
  * feed feedback ownership checks, not API serialization. Analytics reads
  * select from `messages` directly.
  */
-export type MessageRow = Omit<Message, 'toolCalls'>;
+export type MessageRow = Omit<Message, 'toolCalls' | 'modelProvider' | 'modelId'>;
 
 // Explicit projection for the read helpers. Adding a column to the schema does
 // NOT add it here — that is the point; extend deliberately.
@@ -178,6 +180,9 @@ export async function persistOrphanToolCalls(data: {
   source: string;
   client: string | null;
   toolCalls: ToolCallRecord[] | undefined;
+  // Required key (not optional) so no persist site can forget it (issue #99);
+  // undefined — a terminal event that engaged no provider — persists NULL.
+  provenance: ModelProvenance | undefined;
 }): Promise<void> {
   if (!data.toolCalls || data.toolCalls.length === 0) return;
   try {
@@ -187,6 +192,8 @@ export async function persistOrphanToolCalls(data: {
       source: data.source,
       client: data.client,
       toolCalls: data.toolCalls,
+      modelProvider: data.provenance?.provider ?? null,
+      modelId: data.provenance?.modelId ?? null,
     });
   } catch (error) {
     const e = error as { name?: string; code?: string };

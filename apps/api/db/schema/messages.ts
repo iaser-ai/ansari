@@ -58,6 +58,24 @@ export function toolCallsOrNull(records: ToolCallRecord[] | null | undefined): T
   return records && records.length > 0 ? records : null;
 }
 
+/** Serving backends a turn can be produced by (issue #99). */
+export type ModelProvider = 'gemini' | 'inkling';
+
+/**
+ * Provenance of the model that produced a turn (issue #99): carried on the
+ * facilitator's terminal events and persisted on `messages` /
+ * `tool_call_orphans`. With PRIMARY_BACKEND switching (#95), per-env Inkling
+ * checkpoints (#90), and the #79 rescue, which model served a given answer is
+ * runtime state — this makes it queryable per row instead of inferable from
+ * usage fingerprints or Sentry events. On the gemini path `modelId` is the
+ * request's configured primary model; the intra-Vertex 429 fast-failover (#45)
+ * stays within provider 'gemini' and is not distinguished here.
+ */
+export interface ModelProvenance {
+  provider: ModelProvider;
+  modelId: string;
+}
+
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'cascade' }).notNull(),
@@ -86,6 +104,14 @@ export const messages = pgTable('messages', {
   // projections in lib/db/threads.ts / shares.ts: no serializing or replay
   // path selects it, so the frozen API contract cannot leak it structurally.
   toolCalls: jsonb('tool_calls').$type<ToolCallRecord[]>(),
+  // Per-turn model provenance (issue #99): which serving backend and model id
+  // produced this assistant turn — including a #79-rescued turn (provider
+  // 'inkling' while the primary was gemini). NULL (never '') for user
+  // messages, historical rows, and turns with no provenance on the terminal
+  // event. Excluded from messageReadColumns / the share projection, so the
+  // frozen API contract cannot serialize it structurally.
+  modelProvider: text('model_provider').$type<ModelProvider>(),
+  modelId: text('model_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_messages_thread').on(table.threadId, table.createdAt),

@@ -257,6 +257,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     source: 'web',
                     client,
                     toolCalls: event.toolCalls,
+                    provenance: event.provenance,
                   });
                   break;
                 }
@@ -279,6 +280,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     rawPayload: event.rawPayload ?? null,
                     // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
                     toolCalls: toolCallsOrNull(event.toolCalls),
+                    // Per-turn model provenance (issue #99); NULL, never '', when absent.
+                    modelProvider: event.provenance?.provider ?? null,
+                    modelId: event.provenance?.modelId ?? null,
                   });
                 }
                 safeClose();
@@ -294,6 +298,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
                   source: 'web',
                   client,
                   toolCalls: event.toolCalls,
+                  provenance: event.provenance,
                 });
                 break;
             }

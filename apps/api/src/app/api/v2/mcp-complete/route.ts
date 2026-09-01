@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
-import { toolCallsOrNull, type ContentBlock, type ToolCallRecord } from '@/db/schema/messages';
+import {
+  toolCallsOrNull,
+  type ContentBlock,
+  type ModelProvenance,
+  type ToolCallRecord,
+} from '@/db/schema/messages';
 import { db } from '@/lib/db/index';
 import { getOrCreateSystemUser } from '@/lib/db/users';
 import { createThread, createMessage, persistOrphanToolCalls } from '@/lib/db/threads';
@@ -97,11 +102,13 @@ async function collectFacilitatorResponse(
   text: string;
   usage?: NonNullable<FacilitatorStreamEvent['usage']>;
   toolCalls?: ToolCallRecord[];
+  provenance?: ModelProvenance;
   error?: string;
 }> {
   let fullText = '';
   let usage: FacilitatorStreamEvent['usage'];
   let toolCalls: ToolCallRecord[] | undefined;
+  let provenance: ModelProvenance | undefined;
 
   for await (const event of runFacilitator(messages)) {
     switch (event.type) {
@@ -109,15 +116,22 @@ async function collectFacilitatorResponse(
         fullText += event.data;
         break;
       case 'error':
-        return { text: fullText, usage, toolCalls: event.toolCalls, error: event.data };
+        return {
+          text: fullText,
+          usage,
+          toolCalls: event.toolCalls,
+          provenance: event.provenance,
+          error: event.data,
+        };
       case 'done':
         usage = event.usage;
         toolCalls = event.toolCalls;
+        provenance = event.provenance;
         break;
     }
   }
 
-  return { text: fullText, usage, toolCalls };
+  return { text: fullText, usage, toolCalls, provenance };
 }
 
 /**
@@ -162,6 +176,7 @@ async function handleMcpComplete(
     text: responseText,
     usage,
     toolCalls,
+    provenance,
     error: facilitatorError,
   } = await collectFacilitatorResponse(messages);
 
@@ -174,6 +189,7 @@ async function handleMcpComplete(
       source: 'ai-skill',
       client,
       toolCalls,
+      provenance,
     });
     throw new Error(facilitatorError);
   }
@@ -195,6 +211,7 @@ async function handleMcpComplete(
       source: 'ai-skill',
       client,
       toolCalls,
+      provenance,
     });
     return createErrorResponse('The model returned an empty answer. Please retry.', 502);
   }
@@ -215,6 +232,9 @@ async function handleMcpComplete(
     totalTokens: usage?.totalTokenCount ?? null,
     // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
     toolCalls: toolCallsOrNull(toolCalls),
+    // Per-turn model provenance (issue #99); NULL, never '', when absent.
+    modelProvider: provenance?.provider ?? null,
+    modelId: provenance?.modelId ?? null,
   });
 
   return new NextResponse(fullResponse, {
