@@ -113,7 +113,7 @@ describe('Facilitator system prompt — scripture quotation rule (issue #98)', (
   });
 
   it('requires saying the text could not be verified when retrieval finds nothing usable', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT).toMatch(/could not verify the text and do NOT supply it from memory/i);
+    expect(FACILITATOR_SYSTEM_PROMPT).toMatch(/could not verify the\s+text and do NOT supply it from memory/i);
   });
 
   it('removes the old hedge that let hadith be recited from memory with a disclaimer', () => {
