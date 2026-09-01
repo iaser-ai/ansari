@@ -28,6 +28,21 @@ export interface TraceEntry {
 const GENERIC_TOOL = 'the sources';
 
 /**
+ * Turn a backend tool id into the bare label the trace copy reads inline. The
+ * facilitator's tools are named `search_quran` / `search_hadith` /
+ * `search_mawsuah` / `search_tafsir_encyclopedia`; stripping the `search_`
+ * prefix (and underscores) yields "quran", "hadith", "tafsir encyclopedia" — so
+ * a line reads "Searching hadith for …" rather than "Searching search_hadith …".
+ * An unknown or unprefixed id passes through (underscores flattened); an absent
+ * or empty id falls back to the GENERIC_TOOL path, unchanged.
+ */
+export function displayTool(raw: string | undefined): string {
+  if (!raw) return GENERIC_TOOL;
+  const label = raw.replace(/^search_/, '').replace(/_/g, ' ').trim();
+  return label.length > 0 ? label : GENERIC_TOOL;
+}
+
+/**
  * Fold one stream event into the trace. `tool_call` opens a pending entry;
  * `tool_result` completes the earliest still-pending entry with the result's
  * authoritative tool / query / count (the facilitator searches one tool at a
@@ -40,11 +55,11 @@ export function traceReducer(
   event: ChatStreamEvent,
 ): TraceEntry[] {
   if (event.type === 'tool_call') {
-    return [...entries, { tool: event.name || GENERIC_TOOL, pending: true }];
+    return [...entries, { tool: displayTool(event.name), pending: true }];
   }
   if (event.type === 'tool_result') {
     const completed: TraceEntry = {
-      tool: event.tool || GENERIC_TOOL,
+      tool: displayTool(event.tool),
       query: event.query,
       resultCount: event.resultCount,
       pending: false,

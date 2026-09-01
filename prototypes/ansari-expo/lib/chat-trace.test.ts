@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  displayTool,
   formatTraceLine,
   traceReducer,
   type TraceEntry,
@@ -16,9 +17,35 @@ const result = (
 const reduce = (events: ChatStreamEvent[]): TraceEntry[] =>
   events.reduce(traceReducer, [] as TraceEntry[]);
 
+describe('displayTool — backend tool id → bare inline label', () => {
+  it('strips the search_ prefix from the facilitator tool ids', () => {
+    expect(displayTool('search_quran')).toBe('quran');
+    expect(displayTool('search_hadith')).toBe('hadith');
+    expect(displayTool('search_mawsuah')).toBe('mawsuah');
+  });
+
+  it('flattens underscores in a multi-word id', () => {
+    expect(displayTool('search_tafsir_encyclopedia')).toBe('tafsir encyclopedia');
+  });
+
+  it('passes an unknown / unprefixed tool id through (underscores flattened)', () => {
+    expect(displayTool('search_something_new')).toBe('something new');
+    expect(displayTool('lexicon')).toBe('lexicon');
+  });
+
+  it('falls back to the generic label for an absent or empty id (GENERIC_TOOL path)', () => {
+    expect(displayTool(undefined)).toBe('the sources');
+    expect(displayTool('')).toBe('the sources');
+    expect(displayTool('search_')).toBe('the sources');
+  });
+});
+
 describe('traceReducer', () => {
   it('opens a pending entry on tool_call and completes it on the matching tool_result', () => {
-    const entries = reduce([call('hadith'), result('hadith', 'patience', 12)]);
+    const entries = reduce([
+      call('search_hadith'),
+      result('search_hadith', 'patience', 12),
+    ]);
     expect(entries).toEqual([
       { tool: 'hadith', query: 'patience', resultCount: 12, pending: false },
     ]);
@@ -26,9 +53,9 @@ describe('traceReducer', () => {
 
   it('completes the earliest pending entry (facilitator searches one tool at a time)', () => {
     const entries = reduce([
-      call('hadith'),
-      call('quran'),
-      result('hadith', 'patience', 3),
+      call('search_hadith'),
+      call('search_quran'),
+      result('search_hadith', 'patience', 3),
     ]);
     expect(entries[0]).toEqual({
       tool: 'hadith',
@@ -40,7 +67,7 @@ describe('traceReducer', () => {
   });
 
   it('appends a completed entry when a tool_result has no preceding call', () => {
-    const entries = reduce([result('quran', 'mercy', 5)]);
+    const entries = reduce([result('search_quran', 'mercy', 5)]);
     expect(entries).toEqual([
       { tool: 'quran', query: 'mercy', resultCount: 5, pending: false },
     ]);
