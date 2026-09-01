@@ -1,7 +1,7 @@
 id: '99'
 title: per-turn-model-provenance-pers
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-01T13:39:51.428Z'
-updated_at: '2026-09-01T15:03:20.430Z'
+updated_at: '2026-09-01T15:03:23.088Z'
 pr_history:
   - phase: pr
     pr_number: 102
