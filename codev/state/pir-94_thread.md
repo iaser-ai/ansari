@@ -20,3 +20,13 @@ Investigated both trees. Findings that shaped the plan:
 
 Plan written to `codev/plans/94-promote-the-expo-prototype-to-.md`, committed, at
 plan-approval gate.
+
+## 2026-09-01 — Stand-down
+
+Owner declined project 94 at the plan-approval gate (relayed by architect): the interim
+Nixpacks staging setup serving `prototypes/ansari-expo` is deemed fine as-is; the port is not
+needed. No implementation was started. Plan preserved on branch `builder/pir-94` with a
+stand-down banner (pir-75 precedent). Architect closes issue #94 and handles cleanup.
+
+If this revives, note the plan's corrections to the issue text (no eas.json in the prototype;
+SDK-54 pins for expo-updates/dev-client) and the PR #69 re-apply recommendation still stand.

@@ -1,5 +1,11 @@
 # PIR Plan: Promote the Expo prototype to apps/frontend
 
+> **STOOD DOWN — 2026-09-01.** Owner decision, relayed by the architect at the plan-approval
+> gate: project 94 is declined. The current staging setup (Railway Nixpacks override building
+> `prototypes/ansari-expo` directly) is deemed fine as-is; the port is not needed. No
+> implementation was started — this plan is preserved for the record in case the work revives
+> (pir-75 precedent). Issue #94 closed by the architect.
+
 ## Understanding
 
 Owner decision (supersedes #75): the frontend rolls forward. `prototypes/ansari-expo` — the
