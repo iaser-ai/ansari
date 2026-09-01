@@ -25,3 +25,13 @@ Read issue, inkling-client.ts, config.ts, turbo.json, tests. Shape of the change
 
 Unset-vars behavior is byte-identical by construction (defaults equal old constants); pinned
 by full-body equality assert.
+
+## 2026-09-01 — implement complete, PR open
+
+- All checks green: typecheck, full `pnpm test` (70 files, 671 passed / 3 pre-existing skips),
+  `pnpm build`, api lint 0 errors (7 pre-existing warnings).
+- Diff: ~280 insertions incl. tests/docs; implementation surface itself is tiny. Well within AIR.
+- Skipped CMAP: config-only change, per AIR guidance.
+- PR #91 open against develop (`builder/air-90`), review embedded in PR body per AIR.
+- At the **pr gate** — waiting for human approval. Staging var values (tinker:// LoRA id,
+  INKLING_MAX_TOKENS=16384) are the architect's to set post-merge, per the issue's scope.
