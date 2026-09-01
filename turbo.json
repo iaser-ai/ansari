@@ -113,6 +113,10 @@
     "INKLING_MODEL",
     "INKLING_MAX_TOKENS",
     "INKLING_TIMEOUT_MS",
+    // Primary backend switch (issue #95): also in the Zod schema.
+    "PRIMARY_BACKEND",
+    "INKLING_BASE_URL",
+    "INKLING_API_KEY",
     "KALEMAT_API_KEY",
     "USUL_API_TOKEN",
     "USUL_BASE_URL",

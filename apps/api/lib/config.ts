@@ -73,6 +73,27 @@ const envSchema = z.object({
     .max(600000, 'INKLING_TIMEOUT_MS must be in the 30000-600000 window')
     .default(180000),
 
+  // AI - Primary backend switch (issue #95). EXPERIMENTATION ONLY — NOT a
+  // supported production configuration. PRIMARY_BACKEND=inkling routes every
+  // facilitator primary call through the OpenAI-compatible client instead of
+  // Gemini (benchmark runs through the full pipeline, exported LoRAs, a
+  // Gemini-outage escape hatch). INKLING_BASE_URL points that client at any
+  // OpenAI-compatible /chat/completions endpoint (default: the Tinker prod
+  // URL); INKLING_API_KEY authenticates it, falling back to TINKER_API_KEY.
+  PRIMARY_BACKEND: z.enum(['gemini', 'inkling']).default('gemini'),
+  INKLING_BASE_URL: z
+    .string()
+    .url('INKLING_BASE_URL must be a valid URL (full /chat/completions endpoint)')
+    // The bearer token is sent to this URL — plaintext http would leak it.
+    // Loopback is exempt so a local mock/vLLM server stays usable.
+    .refine(
+      (u) => u.startsWith('https://') || /^http:\/\/(localhost|127\.)/.test(u),
+      'INKLING_BASE_URL must use https (http is allowed only for localhost/127.*)'
+    )
+    .default(
+      'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions'
+    ),
+  INKLING_API_KEY: z.string().min(1, 'INKLING_API_KEY must not be empty when set').optional(),
 
   // Islamic Tools
   KALEMAT_API_KEY: z.string().min(1, 'KALEMAT_API_KEY is required'),
@@ -98,6 +119,18 @@ const envSchema = z.object({
 
   // Optional
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+}).superRefine((env, ctx) => {
+  // Fail fast at first config access, not at first chat request: an inkling
+  // primary with no credential would otherwise serve a server whose every
+  // completion fails.
+  if (env.PRIMARY_BACKEND === 'inkling' && !env.INKLING_API_KEY && !env.TINKER_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PRIMARY_BACKEND'],
+      message:
+        'PRIMARY_BACKEND=inkling requires INKLING_API_KEY (or TINKER_API_KEY as fallback)',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -173,13 +206,23 @@ export const config = {
   get inkling() {
     const env = getEnv();
     return {
-      apiKey: env.TINKER_API_KEY,
+      apiKey: env.INKLING_API_KEY ?? env.TINKER_API_KEY,
+      baseUrl: env.INKLING_BASE_URL,
       model: env.INKLING_MODEL,
       maxTokens: env.INKLING_MAX_TOKENS,
       timeoutMs: env.INKLING_TIMEOUT_MS,
     };
   },
 
+  /**
+   * Which client serves the facilitator's PRIMARY calls (issue #95).
+   * 'gemini' (default) is the supported production configuration; 'inkling'
+   * is an env-gated experimentation switch that routes the whole request
+   * through the OpenAI-compatible client at config.inkling.baseUrl.
+   */
+  get primaryBackend() {
+    return getEnv().PRIMARY_BACKEND;
+  },
 
   get tools() {
     return {

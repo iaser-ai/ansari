@@ -5,7 +5,8 @@
  * the empty-final retry ladder, and the one-shot rescue for terminal Gemini
  * errors. It runs on Tinker infrastructure entirely separate from Vertex, so it
  * can still answer when both Gemini capacity pools are degraded at once (the
- * dual-pool 429/hang waves). It is never used on the primary path.
+ * dual-pool 429/hang waves). It serves the primary path only under the
+ * experimentation-only PRIMARY_BACKEND=inkling switch (issue #95).
  *
  * The stream surface deliberately mirrors streamGemini — GeminiStreamEvent in,
  * GeminiResponse (with a Gemini-format Content rawPayload) out — so the
@@ -40,9 +41,12 @@ import type { GeminiTool } from '../tools/types';
 // INKLING_TIMEOUT_MS so staging can run a fine-tuned LoRA, defaulting to
 // thinkingmachines/Inkling @ 8192 / 180s — the evaluated BATIK configuration.
 // The max_tokens (8192–32768) and timeout (30–600s) windows are enforced at
-// config parse, fail-fast.
-const INKLING_API_URL =
-  'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions';
+// config parse, fail-fast. The endpoint likewise comes from
+// config.inkling.baseUrl (issue #95): default is the Tinker prod URL, and
+// INKLING_BASE_URL points this client at any other OpenAI-compatible
+// /chat/completions endpoint (eval checkpoints on Modal, exported LoRAs) —
+// used both for the fallback rungs and, under PRIMARY_BACKEND=inkling, for
+// the primary path.
 const INKLING_TEMPERATURE = 0;
 
 export interface InklingCallOptions {
@@ -55,17 +59,17 @@ export interface InklingCallOptions {
 let warnedUnconfigured = false;
 
 /**
- * True when Inkling can run. An unset TINKER_API_KEY is the one supported
- * "disabled" state (issues #74/#79): the ladder rung and the terminal-error
- * rescue are both skipped cleanly and the absence is logged once per process,
- * not per request.
+ * True when Inkling can run. An unset key (neither INKLING_API_KEY nor its
+ * TINKER_API_KEY fallback) is the one supported "disabled" state (issues
+ * #74/#79): the ladder rung and the terminal-error rescue are both skipped
+ * cleanly and the absence is logged once per process, not per request.
  */
 export function isInklingConfigured(): boolean {
   const configured = !!config.inkling.apiKey;
   if (!configured && !warnedUnconfigured) {
     warnedUnconfigured = true;
     console.warn(
-      '[inkling] TINKER_API_KEY not set — Inkling fallback rung and error rescue disabled'
+      '[inkling] INKLING_API_KEY/TINKER_API_KEY not set — Inkling fallback rung and error rescue disabled'
     );
   }
   return configured;
@@ -317,9 +321,9 @@ export async function* streamInkling(
   message: string,
   options: InklingCallOptions = {}
 ): AsyncGenerator<GeminiStreamEvent> {
-  const apiKey = config.inkling.apiKey;
+  const { apiKey, baseUrl } = config.inkling;
   if (!apiKey) {
-    throw new Error('[inkling] TINKER_API_KEY is not set — cannot call Inkling');
+    throw new Error('[inkling] INKLING_API_KEY/TINKER_API_KEY is not set — cannot call Inkling');
   }
 
   const body: Record<string, unknown> = {
@@ -347,7 +351,7 @@ export async function* streamInkling(
   );
 
   try {
-    const res = await fetch(INKLING_API_URL, {
+    const res = await fetch(baseUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

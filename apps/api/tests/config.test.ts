@@ -182,3 +182,78 @@ describe('resetEnvCache', () => {
     expect(() => getEnv()).toThrow(/at least 32 characters/);
   });
 });
+
+describe('primary backend switch (issue #95)', () => {
+  beforeEach(() => {
+    // The shared beforeEach resets required vars; also start these from unset.
+    delete process.env.PRIMARY_BACKEND;
+    delete process.env.INKLING_BASE_URL;
+    delete process.env.INKLING_API_KEY;
+    delete process.env.TINKER_API_KEY;
+    resetEnvCache();
+  });
+
+  it('defaults are byte-identical to the pre-switch behavior (gemini primary, Tinker URL)', () => {
+    expect(config.primaryBackend).toBe('gemini');
+    // Pin the default endpoint to the previously hardcoded Tinker URL.
+    expect(config.inkling.baseUrl).toBe(
+      'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions'
+    );
+    expect(config.inkling.apiKey).toBeUndefined();
+  });
+
+  it('rejects an unknown PRIMARY_BACKEND value', () => {
+    process.env.PRIMARY_BACKEND = 'openai';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/Environment validation failed/);
+  });
+
+  it('fails fast when PRIMARY_BACKEND=inkling with no API key at all', () => {
+    process.env.PRIMARY_BACKEND = 'inkling';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/PRIMARY_BACKEND=inkling requires INKLING_API_KEY/);
+  });
+
+  it('accepts PRIMARY_BACKEND=inkling with the TINKER_API_KEY fallback', () => {
+    process.env.PRIMARY_BACKEND = 'inkling';
+    process.env.TINKER_API_KEY = 'tinker-key';
+    resetEnvCache();
+    expect(config.primaryBackend).toBe('inkling');
+    expect(config.inkling.apiKey).toBe('tinker-key');
+  });
+
+  it('INKLING_API_KEY takes precedence over TINKER_API_KEY', () => {
+    process.env.INKLING_API_KEY = 'inkling-key';
+    process.env.TINKER_API_KEY = 'tinker-key';
+    resetEnvCache();
+    expect(config.inkling.apiKey).toBe('inkling-key');
+  });
+
+  it('rejects an empty INKLING_API_KEY (fail loudly, never a silent unset)', () => {
+    process.env.INKLING_API_KEY = '';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/INKLING_API_KEY must not be empty/);
+  });
+
+  it('rejects a non-URL INKLING_BASE_URL and honors a valid override', () => {
+    process.env.INKLING_BASE_URL = 'not a url';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/INKLING_BASE_URL must be a valid URL/);
+
+    process.env.INKLING_BASE_URL = 'https://example--checkpoint.modal.run/v1/chat/completions';
+    resetEnvCache();
+    expect(config.inkling.baseUrl).toBe(
+      'https://example--checkpoint.modal.run/v1/chat/completions'
+    );
+  });
+
+  it('rejects plain-http INKLING_BASE_URL (bearer token would travel in cleartext) but allows loopback', () => {
+    process.env.INKLING_BASE_URL = 'http://example.com/v1/chat/completions';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/INKLING_BASE_URL must use https/);
+
+    process.env.INKLING_BASE_URL = 'http://localhost:8000/v1/chat/completions';
+    resetEnvCache();
+    expect(config.inkling.baseUrl).toBe('http://localhost:8000/v1/chat/completions');
+  });
+});

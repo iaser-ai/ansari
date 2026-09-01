@@ -14,13 +14,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *  - fail-fast on HTTP errors, malformed args, and a missing key.
  */
 
+const DEFAULT_INKLING_URL =
+  'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions';
+
 const h = vi.hoisted(() => ({
   apiKey: 'test-tinker-key' as string | undefined,
-  // Config defaults (issue #90): the real schema defaults these when the
-  // INKLING_MODEL / INKLING_MAX_TOKENS / INKLING_TIMEOUT_MS env vars are unset.
+  // Config defaults (issues #90/#95): the real schema defaults these when the
+  // INKLING_MODEL / INKLING_MAX_TOKENS / INKLING_TIMEOUT_MS / INKLING_BASE_URL
+  // env vars are unset.
   model: 'thinkingmachines/Inkling',
   maxTokens: 8192,
   timeoutMs: 180000,
+  baseUrl:
+    'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions',
 }));
 
 vi.mock('@sentry/nextjs', () => ({
@@ -32,7 +38,13 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('@/lib/config', () => ({
   config: {
     get inkling() {
-      return { apiKey: h.apiKey, model: h.model, maxTokens: h.maxTokens, timeoutMs: h.timeoutMs };
+      return {
+        apiKey: h.apiKey,
+        model: h.model,
+        maxTokens: h.maxTokens,
+        timeoutMs: h.timeoutMs,
+        baseUrl: h.baseUrl,
+      };
     },
   },
 }));
@@ -96,6 +108,7 @@ beforeEach(() => {
   h.model = 'thinkingmachines/Inkling';
   h.maxTokens = 8192;
   h.timeoutMs = 180000;
+  h.baseUrl = DEFAULT_INKLING_URL;
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -186,6 +199,17 @@ describe('streamInkling', () => {
       { role: 'user', content: 'hello' },
     ]);
     expect(body.tools).toBeUndefined();
+  });
+
+  it('sends the request to config.inkling.baseUrl when repointed (issue #95)', async () => {
+    h.baseUrl = 'https://example--gemma-checkpoint.modal.run/v1/chat/completions';
+    fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
+
+    await collect(streamInkling('hello'));
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://example--gemma-checkpoint.modal.run/v1/chat/completions'
+    );
   });
 
   it('uses config-overridden model and max_tokens in the request (issue #90)', async () => {
