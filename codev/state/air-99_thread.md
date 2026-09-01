@@ -36,3 +36,15 @@
 Drizzle lists the new columns in every messages/orphans INSERT: **apply 0008 to
 an environment BEFORE code deploys there.** Staging at merge time (architect),
 prod at promotion.
+
+## 2026-09-01 — pr phase
+
+- PR #102 opened against develop (review in body per AIR).
+- CMAP (--protocol air --type pr --issue 99): gemini=APPROVE (HIGH),
+  codex=APPROVE (HIGH), claude=APPROVE (HIGH). Verdict files in tmp/ (untracked).
+- Claude's substantive non-blocker: v1/chat/completions persists assistant rows
+  with NULL provenance, and my "response model field names the serving id"
+  rationale is false under a #79 rescue (response echoes the REQUESTED id).
+  Filed follow-up #104 rather than widening AIR scope; corrected the PR body's
+  Key Decision and appended a CMAP section.
+- Awaiting pr gate approval.
