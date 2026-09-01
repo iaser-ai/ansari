@@ -36,4 +36,44 @@
   it is unit-testable without React and independent of whether the API emits an error frame.
 - Trace copy logic extracted to a tiny pure helper so the "resultCount:0" wording is unit-tested.
 
-Next: write plan to codev/plans/65-prototypes-ansari-expo-render-.md, commit, porch done, gate.
+Plan committed (9f62392) → plan-approval gate requested (2026-09-01T21:35Z). Architect read it
+in full and forwarded to the human with an APPROVE recommendation via main. Awaiting relayed
+human decision; do NOT run porch approve myself.
+
+### Non-blocking note from architect for IMPLEMENT
+- Synthetic streaming message uses `createdAt: ''`. This relies on #64's `timeAgo('')` guard.
+  Keep a test asserting the synthetic bubble never renders a timestamp artifact. (Verify whether
+  AnswerMessage even surfaces a timestamp — I did not see timeAgo/createdAt usage in it during
+  plan investigation; check the render path incl. any parent/wrapper before asserting.)
+
+Next (after approval): porch approve 65 plan-approval, then implement phase.
+
+## Phase: IMPLEMENT (iteration 1)
+
+Plan APPROVED by human (relayed by architect 2026-09-01T21:40Z). Ran porch approve, merged
+origin/develop (picked up #107 + root `pnpm prototype` script + a README convenience block;
+AnswerMessage/chat[id] untouched — reported to architect), advanced to implement.
+
+Account-switch STATIC review done before building & reported to architect: applySession()
+clears the query cache on every principal transition; AuthGate blocks render during
+loading/redirect. Clean. Live click-through remains a reviewer step (I'm headless) — architect
+will do it at dev-approval; keep the proved-by-me vs proved-by-reviewer split visible in notes.
+
+Implemented (2 commits):
+1. Plumbing: chat-stream sawText + zero-text guard in assertComplete; lib/chat-trace.ts
+   (pure traceReducer/formatTraceLine); useSendMessage onEvent seam; barrel exports.
+2. Render: app/chat/[id].tsx synthetic assistant bubble keyed per-turn (STREAM_KEY_PREFIX),
+   identity reconciliation via keyOverrides on done (no flicker/gap/duplicate — memo suppresses
+   the early-landed server answer while streaming, hand-off effect clears streamingText +
+   sets override atomically). Live trace in ThinkingIndicator until first text frame. Partial
+   kept on error. README rewritten. Tests added.
+
+Verification: typecheck clean; `pnpm test` 89 passed (chat-trace 9, chat-stream 13, streaming 4,
+AnswerMessage 6). No lint script in prototype. Hard constraints: turbo ls = 7 packages; root
+pnpm-lock.yaml untouched; diff entirely under prototypes/ansari-expo + codev docs.
+
+Design note for reviewer: trace is hidden once the first text frame lands (issue rule "keep the
+indicator only until the first text frame"), so tool calls interleaved AFTER text begins don't
+re-show the trace — documented simplification, fine for a prototype.
+
+Next: push, porch done, dev-approval gate, message architect.
