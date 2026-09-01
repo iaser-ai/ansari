@@ -25,3 +25,20 @@ So #95 reduces to:
 6. Tests: config validation, pointable base URL, client-selection pins (default
    byte-identical), full facilitator loop (tool round + final) against a mocked
    OpenAI-compat server via fetch stub with REAL tools module + real inkling client.
+
+## 2026-09-01 — implement done, PR open, CMAP running
+
+Implementation committed (24f1cd7) and porch advanced implement → pr.
+- Full suite: 70 files, 671 passed / 3 pre-existing skips. Typecheck clean,
+  lint adds no new warnings, `pnpm build` green with CI env.
+- Gotcha hit: `config.primaryBackend` at request start made four facilitator
+  suites (budget, t1, degradation, parallel-responses) throw env validation —
+  they ran with the REAL config and no env. Fixed by giving them the same
+  minimal config mock their sibling suites already use.
+- Four-way derivation verified for the 3 new vars (hit counts reported in PR):
+  Zod ✓, no non-test process.env reads ✓, no dynamic reads ✓, docs ✓ + turbo.json.
+- Also fixed a doc gap: TINKER_API_KEY was absent from docs/self-hosting.md's
+  env contract; added a row (lessons-critical: fix doc defects everywhere).
+
+PR #96 open with review-in-body. CMAP (gemini/codex/claude, --protocol air
+--type pr) running in background; will record verdicts and fix real findings.
