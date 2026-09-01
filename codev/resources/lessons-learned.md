@@ -34,6 +34,14 @@ See `codev/reviews/73-persist-tool-use-and-tool-resu.md` for the full context.
 - **Lazy config reads inside error paths need targeted mocks in unit tests.** Two terminal facilitator paths (`isInklingConfigured()`, the degenerate-final `config.gemini.model` summary) read validated config only when reached; in a harness without env they throw *inside the catch*, turning the path under test into a different error. Mock `@/lib/ai/inkling-client` and `@/lib/config` whenever a test drives a terminal error path.
 - **Number migrations after merging, and expect drizzle's prefix to lag.** A concurrent PR took the next journal index mid-project; the fix was merge-then-generate and a manual rename (`0007_*` at idx 6). drizzle-kit names files by index, so the next generate will emit another `0007_` — the successor must be `0008_*`.
 
+## Incremental streaming render — prototype (issue #65)
+
+See `codev/reviews/65-prototypes-ansari-expo-render-.md` for the full context.
+
+- **"It streams" is a transport claim; verify the render separately.** The chat backend emitted SSE token-by-token from day one, yet #63 still showed a blocking spinner because it buffered every frame and painted only on `done`. A streaming wire does not imply a streaming UI — confirm tokens actually appear on screen as they arrive, not just that bytes cross the wire.
+- **Seamless synthetic→persisted hand-off needs a shared, per-turn STABLE list key.** Rendering an in-progress answer as a synthetic message and then swapping it for the refetched persisted one causes a fade/gap/duplicate if the list key changes (the new row mounts and re-animates from opacity 0). Give both the synthetic bubble and the persisted message the *same* key so the row updates in place; make that key unique per turn so successive answers don't collide on it (a single constant key forces the previous holder to remount when the next turn claims it). Distinguish "this turn's answer landed" from "a prior turn's answer is still the last message" by message *count* at send, not by "last message is assistant."
+- **A callback fired before validation can leak a pre-error artifact.** The SSE `consume()` calls `onEvent` *before* it type-checks the frame, so a screen appending `event.content` blindly would paint a malformed value for one frame before the stream throws. Re-check the field in the consumer (`typeof content === 'string'`) even though the core validates it.
+
 ## Monorepo migration & verification discipline (spec 48)
 
 See `codev/reviews/48-standardise-to-apps-packages-m.md` for the full context.
