@@ -1,0 +1,23 @@
+I have completed the review of **Phase 3: Route persistence and frozen-contract regression tests** for Spec and Plan #73 ("Persist tool_use and tool_result").
+
+### Summary of Assessment
+
+1. **Spec & Plan Adherence**:
+   - All three persistence sites (`POST /api/v2/threads/[id]`, `POST /api/v2/threads/[id]/chat`, and `POST /api/v2/mcp-complete`) correctly pass `toolCalls` to `createMessage` (persisting `tool_calls` JSONB or `NULL` when no tools were used).
+   - Error/empty turns correctly call `persistOrphanToolCalls` (writing to the `tool_call_orphans` side table with `reason: 'error'` or `'empty_final'`). In streaming routes, orphan persistence occurs after `safeClose()` so bookkeeping never delays streaming termination.
+   - `collectFacilitatorResponse` in `mcp-complete` captures `event.toolCalls` on error yields without throwing directly inside the streaming collector, ensuring tool records are persisted prior to re-throwing for the 500 error contract.
+
+2. **Contract Protection & Read-Path Projection**:
+   - `findMessagesByThread` and `getThreadWithMessages` explicitly project `messageReadColumns` (excluding `tool_calls`), and `createThreadSnapshot` projects explicit columns `[role, content, createdAt]`.
+   - Structural contract safety is thoroughly regression-tested in `apps/api/tests/thread-get-contract.test.ts`, verifying that single-block assistant content continues to serialize as a bare string and no `tool_calls` / `raw_payload` / tool block keys leak into GET or share snapshot responses.
+
+3. **Test Coverage**:
+   - `apps/api/tests/toolcalls-routes.test.ts` covers happy paths, `NULL` negative cases, `error` orphan writes, `empty_final` orphan writes, history replay isolation across turns, SSE wire format byte-identity, and `mcp-complete` 500 error handling.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 correctly implements route persistence and orphan recording across all endpoints with frozen-contract regression tests and structural projection safety.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

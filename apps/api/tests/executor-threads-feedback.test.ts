@@ -76,6 +76,7 @@ beforeAll(async () => {
       thinking_tokens integer,
       total_tokens integer,
       raw_payload jsonb,
+      tool_calls jsonb,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE feedback (
