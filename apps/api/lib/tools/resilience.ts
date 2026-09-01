@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import type { ToolResult } from './types';
+import type { ToolResult, ToolDegradation } from './types';
 
 /**
  * Shared resilience layer for the Islamic search tools (Spec 43; simplified for
@@ -320,10 +320,20 @@ export function toolLabel(toolName: string): string {
  * consumers (e.g. #49's fail-fast). Every degrade path — timeout, HTTP error,
  * and network error — funnels through here, so the flag covers all of them.
  * Consumers MUST read this flag, never string-match the human-facing content.
+ *
+ * `degradation` (spec 73) carries the failure detail the tools already assemble
+ * for reportDegradedTool — errorClass / attempts / status — onto the result so the
+ * persisted dispatch record stays coherent with #76's retry semantics. Attached
+ * only when at least one field is present; a detail-less degrade stays bare.
  */
-export function unavailableResult(label: string): ToolResult {
+export function unavailableResult(label: string, degradation?: ToolDegradation): ToolResult {
+  const detail: ToolDegradation = {};
+  if (degradation?.errorClass !== undefined) detail.errorClass = degradation.errorClass;
+  if (degradation?.attempts !== undefined) detail.attempts = degradation.attempts;
+  if (degradation?.status !== undefined) detail.status = degradation.status;
   return {
     isDegraded: true,
+    ...(Object.keys(detail).length > 0 ? { degradation: detail } : {}),
     content: `The ${label} is temporarily unavailable. Answer from the other sources and your own knowledge; note that this source could not be consulted.`,
     documents: [
       {

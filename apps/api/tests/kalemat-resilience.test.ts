@@ -99,6 +99,8 @@ describe.each([
     expect(result.documents[0].citations?.enabled).toBe(false);
     // Issue #54: structured marker set on the degrade path.
     expect(result.isDegraded).toBe(true);
+    // Spec 73: HTTP failures carry class + status + the single attempt.
+    expect(result.degradation).toEqual({ errorClass: 'http_5xx', attempts: 1, status: 502 });
   });
 
   it('returns the unified "temporarily unavailable" result immediately on a 4xx (no retry)', async () => {
@@ -128,6 +130,9 @@ describe.each([
     expect(result.documents[0].title).toBe('Source Temporarily Unavailable');
     expect(result.documents[0].citations?.enabled).toBe(false);
     expect(result.isDegraded).toBe(true);
+    // Spec 73: the real ToolFetchError's retry detail rides on the result — this is
+    // what the persisted tool_result record reads (attempts=2 on a retried timeout).
+    expect(result.degradation).toEqual({ errorClass: 'timeout', attempts: 2 });
   });
 
   it('treats an empty 200 result as "no results", NOT "temporarily unavailable"', async () => {

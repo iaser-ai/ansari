@@ -1,0 +1,34 @@
+I'll verify the spec's claims against the actual codebase before judging.Now let me verify the spec's factual claims against the code.I read the spec, issue #73, and verified every code claim against the worktree at `.builders/spir-73`.
+
+**Claims I verified as accurate:** `ContentBlock` declares dead `tool_use`/`tool_result` members (`apps/api/db/schema/messages.ts:7-9`); `formatMessageContent` returns a bare string for single-text-block content (`threads/[id]/route.ts:22-28`); all three persist sites write a single text block and pass `usage`/`rawPayload` through the `done` event; the GET response is an explicit six-field mapping (`route.ts:56-63`); `raw_payload` stores only the final turn; migrations stop at `0004_ancient_mongu.sql`, so `0005` is right. I also checked two surfaces the spec doesn't name — `share/[id]/route.ts` and `createThreadSnapshot` (`lib/db/shares.ts:36-44`) — both map explicitly and are safe today. Structure conforms to the SPIR template; baked decisions are honored.
+
+Four things need fixing before this goes to a human.
+
+**1. The headline metric has an unstated systematic bias.** Turns that end empty or error write *no assistant row at all*: `chat/route.ts:128-135` skips `createMessage` when `fullText` is empty, `mcp-complete` returns 502 without persisting, and a failed synthesis yields `error` (`agent.ts:507-510`). Those are disproportionately the degraded runs this spec exists to count. Yet Desired State claims the mawsuah rate "becomes exactly computable" and Test Scenario 9 freezes the loss without noting it. Either state the denominator honestly ("of turns that produced a persisted assistant message") with expected magnitude, or require capture on those paths.
+
+**2. Assumptions contradict Success Criterion 3.** `processToolCall` returns the tool-limit refusal at `agent.ts:176-190` — *before* minting `toolId` and pushing to `callsWithArgs` at `:195-197`. T1/T2-skipped calls never call `processToolCall` at all (`agent.ts:752-770`). So neither category has a `callsWithArgs` entry or a correlating id, but criterion 3 requires both be recorded and criterion 2 requires ids. The Assumptions section asserts `callsWithArgs` + `ToolResult` "capture everything worth persisting" — false for exactly the two categories the spec mandates. Say ids for skipped/refused calls are minted at the loop level.
+
+**3. `isDegraded` is not in the payload the model receives.** `formatToolResultForGemini` (`agent.ts:305-314`) emits only `{results, summary}`. Criterion 2 bundles "the result content the model actually received" and "the degraded marker" as if one object yields both; the marker must be read off `ToolResult` separately. Relatedly, skipped results (`agent.ts:758-761`) carry no `isDegraded` — so degraded-vs-skipped needs a distinct status field. The spec parks this in Open Questions as "important"; given that separating provider degradation from budget skipping is what makes the number honest, promote it to a success criterion.
+
+**4. Per-call duration doesn't exist today** — there is no timing anywhere in the loop. Fine to add, but state that duration is absent for skipped and limit-refused calls, since they never executed.
+
+Minor: extend the Scenario 1 regression test to the share snapshot path too (second serializing surface, same footgun); and note that `onMessage` currently has no production callers (only `agent.ts` and `facilitator-rawpayload-guard.test.ts`), so Approach 1's conveyance rides on the `done` event in practice.
+
+These are targeted edits to Success Criteria, Assumptions, and Desired State — not a redesign. Approach 1 is the right call.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Well-researched, verifiable spec with the right design, but its headline metric silently excludes failure-correlated turns and its Assumptions contradict its own success criteria on skipped/refused tool calls.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Empty-final/error/502 paths persist no assistant row (`chat/route.ts:128-135`, mcp-complete 502, `agent.ts:507-510`), so tool records from disproportionately-degraded turns are lost — contradicting "the mawsuah degradation rate becomes exactly computable". Scope the denominator explicitly or capture those paths.
+- Assumptions claim `callsWithArgs` covers everything, but tool-limit refusals return before id generation (`agent.ts:176-197`) and T1/T2-skipped calls bypass `processToolCall` entirely (`agent.ts:752-770`) — neither gets a correlating id that Criteria 2 and 3 require.
+- `formatToolResultForGemini` (`agent.ts:305-314`) carries no `isDegraded`, and skipped results never set it; degraded-vs-skipped distinction should be a success criterion, not an Open Question.
+- Per-call duration is new instrumentation with no existing source; spec should state it is absent for skipped/limit-refused calls.
+- Minor: Scenario 1's contract test should also cover the share snapshot surface (`lib/db/shares.ts:36-44`); `onMessage` has no production callers today.The background search finished — it only turned up template copies in *other* repos (`waleedkadous/test`, `waleedkadous/modtrail`), none in this one. That confirms what my structure check already assumed: `spir-73` has no local `codev/protocols/spir/templates/` override, so the authoritative template is the package skeleton at `/opt/homebrew/lib/node_modules/@cluesmith/codev/skeleton/protocols/spir/templates/spec.md`, which is what I checked the headings against.
+
+The spec matches it — Problem Statement, Current State, Desired State, Success Criteria, Constraints, Assumptions, Solution Approaches, Open Questions, Test Scenarios, Risks and Mitigation, References all present and in order (with a third approach added, which is fine). No structural defect.
+
+Verdict stands unchanged: **REQUEST_CHANGES**, on the four substantive points — the undercounted denominator on empty/error paths, the Assumptions-vs-Criteria contradiction about ids for skipped and limit-refused calls, `isDegraded` not being in the model-facing payload, and duration having no existing source.

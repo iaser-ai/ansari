@@ -128,7 +128,7 @@ Use this when the user asks about Quranic verses, ayahs, or wants to know what t
         queryLength: query.length,
         ...meta,
       });
-      return unavailableResult(toolLabel(this.getToolName()));
+      return unavailableResult(toolLabel(this.getToolName()), meta);
     }
   }
 }
