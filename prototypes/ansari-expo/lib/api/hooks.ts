@@ -8,7 +8,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api/http';
-import { streamChat } from '@/lib/api/streaming';
+import { streamChat, type ChatStreamEvent } from '@/lib/api/streaming';
 import { resolveBaseUrl } from '@/lib/api/config';
 import {
   decodeConversation,
@@ -144,8 +144,20 @@ type SendMessageVariables = {
   data: SendMessageRequest;
 };
 
+type SendMessageOptions = MutationHookOptions<MessageExchange, SendMessageVariables> & {
+  /**
+   * Called for every SSE event as it arrives (`text` deltas, `tool_call` /
+   * `tool_result`, `error`, `done`), so the screen can render the answer
+   * incrementally and show a live retrieval trace. This is the progress seam:
+   * the mutation still resolves only on `done` and its `MessageExchange` return
+   * is still ignored by the screen (it re-reads the persisted thread), but the
+   * partial answer no longer waits behind a blocking spinner.
+   */
+  onEvent?: (event: ChatStreamEvent) => void;
+};
+
 export function useSendMessage(
-  options?: MutationHookOptions<MessageExchange, SendMessageVariables>,
+  options?: SendMessageOptions,
 ): UseMutationResult<MessageExchange, Error, SendMessageVariables> {
   return useMutation({
     mutationFn: async ({ conversationId, data }) => {
@@ -153,6 +165,7 @@ export function useSendMessage(
         baseUrl: resolveBaseUrl(),
         threadId: conversationId,
         message: data.content,
+        onEvent: options?.onEvent,
       });
       // The chat screen ignores this return value (it invalidates the detail
       // query and re-reads the persisted thread), but the type contract is

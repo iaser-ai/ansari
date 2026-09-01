@@ -1,0 +1,92 @@
+import type { ChatStreamEvent } from '@/lib/api';
+
+/**
+ * The transient retrieval trace shown while the assistant is still working:
+ * one line per tool call, driven live by the stream's `tool_call` /
+ * `tool_result` events (see the chat screen's `onEvent` wiring).
+ *
+ * It is deliberately transient — shown ONLY while awaiting the answer, never
+ * persisted or replayed on reload — and it is NOT citation UI: it shows what the
+ * answer is being built FROM, not the sources the finished answer cites. Keeping
+ * the reducer and the copy pure lets the honesty rules (`resultCount: 0` reads
+ * "no hadith found", never "0 results") be unit-tested without React Native.
+ */
+
+export interface TraceEntry {
+  /** The tool being queried, e.g. "hadith" / "quran"; a generic stand-in when omitted. */
+  tool: string;
+  /** The search query, once the result arrives. */
+  query?: string;
+  /** How many results the tool returned. */
+  resultCount?: number;
+  /** True between the `tool_call` and its matching `tool_result`. */
+  pending: boolean;
+}
+
+// Used when the backend omits a tool name; phrased so every template still reads
+// naturally ("Searching the sources…", "no results found").
+const GENERIC_TOOL = 'the sources';
+
+/**
+ * Fold one stream event into the trace. `tool_call` opens a pending entry;
+ * `tool_result` completes the earliest still-pending entry with the result's
+ * authoritative tool / query / count (the facilitator searches one tool at a
+ * time, so earliest-pending is the matching call). A `tool_result` with no
+ * preceding call is appended as an already-complete line. Non-tool events pass
+ * through untouched.
+ */
+export function traceReducer(
+  entries: TraceEntry[],
+  event: ChatStreamEvent,
+): TraceEntry[] {
+  if (event.type === 'tool_call') {
+    return [...entries, { tool: event.name || GENERIC_TOOL, pending: true }];
+  }
+  if (event.type === 'tool_result') {
+    const completed: TraceEntry = {
+      tool: event.tool || GENERIC_TOOL,
+      query: event.query,
+      resultCount: event.resultCount,
+      pending: false,
+    };
+    const idx = entries.findIndex((e) => e.pending);
+    if (idx === -1) return [...entries, completed];
+    const next = entries.slice();
+    next[idx] = completed;
+    return next;
+  }
+  return entries;
+}
+
+/**
+ * Render one trace entry as a single line, in the answer's own voice:
+ *  - pending                → `Searching hadith…`
+ *  - completed, count > 0   → `Searching hadith for "patience" — 12 results`
+ *  - completed, count === 0 → `no hadith found` (honest, never "0 results")
+ * Missing query/count degrade to a plain "Searched …" line rather than inventing
+ * detail.
+ */
+export function formatTraceLine(entry: TraceEntry): string {
+  const named = entry.tool !== GENERIC_TOOL;
+  if (entry.pending) {
+    return `Searching ${entry.tool}…`;
+  }
+  if (entry.resultCount === 0) {
+    return named ? `no ${entry.tool} found` : 'no results found';
+  }
+  if (
+    typeof entry.query === 'string' &&
+    entry.query.length > 0 &&
+    typeof entry.resultCount === 'number'
+  ) {
+    return `Searching ${entry.tool} for "${entry.query}" — ${entry.resultCount} ${plural(entry.resultCount)}`;
+  }
+  if (typeof entry.resultCount === 'number') {
+    return `Searched ${entry.tool} — ${entry.resultCount} ${plural(entry.resultCount)}`;
+  }
+  return `Searched ${entry.tool}`;
+}
+
+function plural(n: number): string {
+  return n === 1 ? 'result' : 'results';
+}

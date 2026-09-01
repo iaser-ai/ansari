@@ -24,10 +24,12 @@ export type ChatEventListener = (event: ChatStreamEvent) => void;
 export interface StreamState {
   answer: string;
   done: boolean;
+  /** True once a `text` frame carrying non-empty content has arrived. */
+  sawText: boolean;
 }
 
 export function createStreamState(): StreamState {
-  return { answer: '', done: false };
+  return { answer: '', done: false, sawText: false };
 }
 
 /**
@@ -57,6 +59,7 @@ export function consume(
         throw new ChatStreamError('Malformed text frame: `content` is not a string.');
       }
       state.answer += event.content;
+      if (event.content.length > 0) state.sawText = true;
     } else if (event.type === 'error') {
       const message =
         typeof event.message === 'string' && event.message
@@ -72,12 +75,21 @@ export function consume(
 }
 
 /**
- * Loud failure: a stream that closed without a `done` frame is truncated — its
- * partial text must not be passed off as a complete answer.
+ * Loud failures at stream close:
+ *  - a stream that closed without a `done` frame is truncated — its partial text
+ *    must not be passed off as a complete answer;
+ *  - a stream that reached `done` but never carried any text is an empty answer —
+ *    surfacing it as an error keeps the caller from rendering an empty bubble.
+ *    (apps/api itself sends `{ type: "error" }` for an empty answer, which the
+ *    error-frame path already throws; this is the belt-and-braces guard for a
+ *    `done`-without-error-without-text stream.)
  */
 export function assertComplete(state: StreamState): void {
   if (!state.done) {
     throw new ChatStreamError('Chat stream ended before completion.');
+  }
+  if (!state.sawText) {
+    throw new ChatStreamError('The assistant returned an empty answer.');
   }
 }
 
