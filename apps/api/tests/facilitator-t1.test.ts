@@ -64,7 +64,6 @@ vi.mock('@/lib/config', () => ({
   },
 }));
 
-
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn(() => {
     const script = h.scripts.shift();

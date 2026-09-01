@@ -32,7 +32,6 @@ vi.mock('@/lib/config', () => ({
   },
 }));
 
-
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn(() => {
     const call = h.streamCalls++;

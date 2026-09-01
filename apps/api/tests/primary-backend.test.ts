@@ -40,10 +40,20 @@ vi.mock('@/lib/config', () => ({
       return h.primaryBackend;
     },
     get inkling() {
-      return { apiKey: 'inkling-key', baseUrl: INKLING_URL };
+      return {
+        apiKey: 'inkling-key',
+        baseUrl: INKLING_URL,
+        model: 'thinkingmachines/Inkling',
+        maxTokens: 8192,
+        timeoutMs: 180000,
+      };
     },
-    get gemini() {
-      return { model: 'primary-model', fallbackModel: 'fallback-model' };
+    // Deliberately throwing: an inkling-only deployment has NO Gemini credentials,
+    // so the real getter throws. Nothing in this suite may read it — not the
+    // healthy paths, and (issue #95 / codex finding) not the degenerate-final
+    // retry bookkeeping under inkling-primary either.
+    get gemini(): { model: string; fallbackModel: string } {
+      throw new Error('config.gemini must not be read in this suite');
     },
     get tools() {
       return {
@@ -80,7 +90,7 @@ import { streamGemini } from '../lib/ai/gemini-client';
 import { getGeminiToolDescriptions } from '../lib/tools';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../lib/ai/prompts/facilitator';
 
-type Event = { type: string; data?: string; rawPayload?: unknown };
+type Event = { type: string; data?: string; rawPayload?: unknown; toolCalls?: unknown };
 
 function sse(chunks: object[]): Response {
   const body = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -258,6 +268,44 @@ describe('PRIMARY_BACKEND=inkling (env-gated OpenAI-compatible primary)', () => 
     // reasoning_content never reaches the stream, events, or persistence.
     expect(JSON.stringify(events)).not.toContain('HIDDEN-REASONING');
     expect(JSON.stringify(persisted)).not.toContain('HIDDEN-REASONING');
+
+    // Tool-call persistence (spec 73) works unchanged under inkling-primary:
+    // loop-level records accumulate with correct statuses and paired ids, and
+    // ride both the terminal event and the persisted message.
+    const records = done.toolCalls as Array<Record<string, unknown>>;
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'search_quran',
+      input: { query: 'sabr' },
+    });
+    expect(records[1]).toMatchObject({
+      type: 'tool_result',
+      tool_use_id: records[0].id,
+      status: 'ok',
+    });
+    expect(persisted[0].toolCalls).toEqual(records);
+  });
+
+  it('a degenerate (empty) final retries same-model on inkling — without ever reading config.gemini', async () => {
+    inklingResponses = [
+      // Round 1: a completed stream with zero visible text (Inkling's empty-final shape).
+      () => sse([delta({}, 'stop')]),
+      // Retry: a real answer.
+      () => sse([delta({ content: 'A real answer this time.' }, 'stop')]),
+    ];
+
+    const events = await collect(runFacilitator([userMessage('q')]));
+
+    // Same-model retry happened (two requests to the mock), and it could only
+    // have happened if the degenerate-final bookkeeping avoided config.gemini —
+    // this suite's gemini getter throws (inkling-only deployment shape).
+    expect(inklingRequests).toHaveLength(2);
+    expect(vi.mocked(streamGemini)).not.toHaveBeenCalled();
+    expect(events.at(-1)?.type).toBe('done');
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe(
+      'A real answer this time.'
+    );
   });
 
   it('rescue rung is short-circuited: an inkling failure surfaces loudly after one attempt', async () => {

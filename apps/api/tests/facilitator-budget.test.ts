@@ -81,7 +81,6 @@ vi.mock('@/lib/config', () => ({
   },
 }));
 
-
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn((message: string, options: Record<string, unknown>) => {
     h.calls.push({ message, options });
@@ -94,7 +93,6 @@ vi.mock('@/lib/ai/gemini-client', () => ({
 // Inkling unavailable here: these tests pin the Gemini-only budget behavior; the #79
 // error rescue (which probes isInklingConfigured on pre-deadline failures) stays off.
 vi.mock('@/lib/ai/inkling-client', () => ({
-  INKLING_MODEL: 'thinkingmachines/Inkling',
   isInklingConfigured: () => false,
   streamInkling: vi.fn(() => {
     throw new Error('streamInkling must not be called in these tests');

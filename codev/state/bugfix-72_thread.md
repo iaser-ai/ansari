@@ -117,3 +117,15 @@ CMAP verdicts:
 
 All fixes committed (9972f36, 1fe27e4) and pushed; PR body updated. Full
 suite 646 passed / 3 skipped, typecheck + build green on the merged base.
+
+## 2026-08-30 — merged
+
+PR #76 merged into develop at 10:35Z (merge commit ae14510). Protocol complete.
+
+**Deployment note**: this fix reaches production at the NEXT develop→main
+promotion — it is NOT live yet. The post-deploy measurement plan activates
+then: watch Sentry ANSARI-MULTISAGE-14 for (a) overall degraded-mawsuah
+volume (~33-36/day baseline; expect roughly 85-90% reduction if the
+independent-tail inference holds) and (b) the new `attempts: 2` field in
+degraded events, which counts double-timeouts — i.e. cases where even the
+retry failed — and directly tests the independence assumption.

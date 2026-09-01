@@ -90,7 +90,6 @@ vi.mock('@/lib/config', () => ({
   },
 }));
 
-
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn((message: string, options: { history?: HistoryContent[] }) => {
     // Snapshot the history: the agent mutates the same array across iterations.

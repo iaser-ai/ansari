@@ -9,6 +9,55 @@ export type ContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string }
   | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string };
 
+// Tool dispatch records (spec 73). Persisted in the SEPARATE `tool_calls`
+// column — NEVER in `content` — so no API-serialization path can leak them to
+// the frozen mobile/web contract. Interleaved in dispatch order:
+// tool_use then its tool_result, correlated by loop-minted ids (Gemini
+// supplies none).
+export const TOOL_RESULT_STATUSES = [
+  // The tool executed and returned a normal result.
+  'ok',
+  // The tool executed but could not consult its source (ToolResult.isDegraded).
+  'degraded',
+  // Never executed: a T1 (degraded-count) or T2 (wall-clock) short-circuit
+  // skipped it — see skip_trigger for which.
+  'budget_skipped',
+  // Never executed: the consecutive/total tool-usage limit refused it.
+  'limit_refused',
+  // The model requested a tool that does not exist.
+  'unknown_tool',
+] as const;
+export type ToolResultStatus = (typeof TOOL_RESULT_STATUSES)[number];
+
+export type ToolCallRecord =
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: 'tool_result';
+      tool_use_id: string;
+      /** Full formatToolResultForGemini output — the ground truth of what the model received. */
+      content: Record<string, unknown>;
+      status: ToolResultStatus;
+      /** Wall-clock execution time; null for calls that never executed (skipped/refused). */
+      duration_ms: number | null;
+      /** ToolFetchErrorClass when the degrade carried one (#76); absent otherwise. */
+      error_class?: string;
+      /** Attempts before degrading: 2 on a retried timeout (#76); absent when unknown. */
+      attempts?: number;
+      /** HTTP status of the failed fetch, when the degrade carried one. */
+      http_status?: number;
+      /** Which short-circuit skipped this call; only on budget_skipped records. */
+      skip_trigger?: 'T1' | 'T2';
+    };
+
+/**
+ * Normalize a terminal event's records for the `tool_calls` column: a no-tool
+ * turn must store NULL, never [] — absent AND empty both map to null, so no
+ * persist site can write an empty array by accident.
+ */
+export function toolCallsOrNull(records: ToolCallRecord[] | null | undefined): ToolCallRecord[] | null {
+  return records && records.length > 0 ? records : null;
+}
+
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'cascade' }).notNull(),
@@ -32,6 +81,11 @@ export const messages = pgTable('messages', {
   // are not duplicated here. Nullable: user messages, legacy rows, and
   // guard-rejected payloads legitimately have none.
   rawPayload: jsonb('raw_payload').$type<Content>(),
+  // Tool dispatch records for this assistant turn (spec 73). NULL (never [])
+  // when the turn invoked no tools. Deliberately excluded from the read-path
+  // projections in lib/db/threads.ts / shares.ts: no serializing or replay
+  // path selects it, so the frozen API contract cannot leak it structurally.
+  toolCalls: jsonb('tool_calls').$type<ToolCallRecord[]>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_messages_thread').on(table.threadId, table.createdAt),

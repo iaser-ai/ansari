@@ -5,7 +5,8 @@
  * the empty-final retry ladder, and the one-shot rescue for terminal Gemini
  * errors. It runs on Tinker infrastructure entirely separate from Vertex, so it
  * can still answer when both Gemini capacity pools are degraded at once (the
- * dual-pool 429/hang waves). It is never used on the primary path.
+ * dual-pool 429/hang waves). It serves the primary path only under the
+ * experimentation-only PRIMARY_BACKEND=inkling switch (issue #95).
  *
  * The stream surface deliberately mirrors streamGemini — GeminiStreamEvent in,
  * GeminiResponse (with a Gemini-format Content rawPayload) out — so the
@@ -13,9 +14,11 @@
  * history stays in one format.
  *
  * Load-bearing integration facts (BATIK eval, codev/experiments/batik-benchmarks/inkling/):
- * - max_tokens MUST sit in the 8–16K window: the visible answer lands in
- *   `content` only after a hidden pass streamed as `reasoning_content`; a small
- *   cap yields null content.
+ * - max_tokens MUST sit in the 8192–32768 window (enforced at config parse,
+ *   issue #90): the visible answer lands in `content` only after a hidden pass
+ *   streamed as `reasoning_content`, so max_tokens budgets thinking+answer — a
+ *   small cap yields null content, and a too-tight cap manufactures
+ *   empty-content rescues on heavier-reasoning fine-tunes.
  * - `reasoning_content` arrives separately from `content` and must NEVER reach
  *   the user-visible stream or persisted messages — it is dropped here and is
  *   excluded from both `text` and `rawPayload`.
@@ -33,18 +36,18 @@ import type {
 } from './gemini-client';
 import type { GeminiTool } from '../tools/types';
 
-export const INKLING_MODEL = 'thinkingmachines/Inkling';
-// The endpoint comes from config.inkling.baseUrl (issue #95): default is the
-// Tinker prod URL; INKLING_BASE_URL points this client at any other
-// OpenAI-compatible /chat/completions endpoint (eval checkpoints on Modal,
-// exported LoRAs) — used both for the fallback rungs and, under
-// PRIMARY_BACKEND=inkling, for the primary path.
-// See header: must be 8–16K so the hidden reasoning pass cannot starve the
-// visible answer. Matches the evaluated BATIK configuration.
-const INKLING_MAX_TOKENS = 8192;
+// Model id, max_tokens, and the default timeout come from `config.inkling`
+// (issue #90): env-overridable via INKLING_MODEL / INKLING_MAX_TOKENS /
+// INKLING_TIMEOUT_MS so staging can run a fine-tuned LoRA, defaulting to
+// thinkingmachines/Inkling @ 8192 / 180s — the evaluated BATIK configuration.
+// The max_tokens (8192–32768) and timeout (30–600s) windows are enforced at
+// config parse, fail-fast. The endpoint likewise comes from
+// config.inkling.baseUrl (issue #95): default is the Tinker prod URL, and
+// INKLING_BASE_URL points this client at any other OpenAI-compatible
+// /chat/completions endpoint (eval checkpoints on Modal, exported LoRAs) —
+// used both for the fallback rungs and, under PRIMARY_BACKEND=inkling, for
+// the primary path.
 const INKLING_TEMPERATURE = 0;
-// Backstop when the caller passes no timeoutMs (the facilitator always does).
-const DEFAULT_TIMEOUT_MS = 180_000;
 
 export interface InklingCallOptions {
   systemPrompt?: string;
@@ -324,8 +327,8 @@ export async function* streamInkling(
   }
 
   const body: Record<string, unknown> = {
-    model: INKLING_MODEL,
-    max_tokens: INKLING_MAX_TOKENS,
+    model: config.inkling.model,
+    max_tokens: config.inkling.maxTokens,
     temperature: INKLING_TEMPERATURE,
     stream: true,
     // OpenAI-compat streams omit the final usage chunk unless asked (#77);
@@ -338,7 +341,9 @@ export async function* streamInkling(
   }
 
   const startTime = Date.now();
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // Backstop when the caller passes no timeoutMs (the facilitator always does —
+  // its calls stay bounded by the Spec 49 request budget).
+  const timeoutMs = options.timeoutMs ?? config.inkling.timeoutMs;
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error(`Inkling call timed out after ${timeoutMs / 1000}s`)),

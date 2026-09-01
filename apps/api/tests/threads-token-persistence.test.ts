@@ -61,6 +61,7 @@ const mockFindThreadById = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockFindMessagesByThread = vi.fn();
 vi.mock('@/lib/db/threads', () => ({
+  persistOrphanToolCalls: vi.fn(),
   findThreadById: (...a: unknown[]) => mockFindThreadById(...a),
   createMessage: (...a: unknown[]) => mockCreateMessage(...a),
   findMessagesByThread: (...a: unknown[]) => mockFindMessagesByThread(...a),

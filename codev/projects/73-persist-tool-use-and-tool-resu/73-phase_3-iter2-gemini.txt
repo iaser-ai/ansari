@@ -1,0 +1,26 @@
+# Phase 3 Implementation Review: Persist tool_use and tool_result
+
+## Overview
+I have reviewed the Phase 3 implementation for Spec 73 ("Route persistence and frozen-contract regression tests"). The builder has fully addressed the feedback from Iteration 1 regarding `[]` array vs. `NULL` persistence and Sentry warning capture on orphan persistence failures.
+
+## Key Findings & Verification
+
+1. **Spec Adherence & Edge Cases**:
+   - **`toolCallsOrNull` Normalization**: Created pure helper in `apps/api/db/schema/messages.ts` mapping `undefined` and empty arrays `[]` to `null`. Applied across all three persistence endpoints (`threads/[id]/route.ts`, `threads/[id]/chat/route.ts`, and `mcp-complete/route.ts`).
+   - **Orphan Persistence on Error/Empty Turns**: Turns terminating in `error` or `empty_final` safely persist accumulated tool records to `tool_call_orphans` via `persistOrphanToolCalls`. On streaming routes, orphan persistence occurs post-`safeClose()`, preventing any user-facing stream delays.
+   - **Sentry Signal**: `persistOrphanToolCalls` captures non-PII metadata (`threadId`, `reason`, `recordCount`, `name`, `code`) and logs a warning via `Sentry.captureMessage` if an orphan write fails.
+
+2. **Frozen-Contract Safety**:
+   - Structural projection (`messageReadColumns`) in `lib/db/threads.ts` and `lib/db/shares.ts` explicitly excludes `toolCalls` from GET responses and share snapshots.
+   - Verified via `apps/api/tests/thread-get-contract.test.ts` that single text block assistant messages continue to serialize as bare strings (`typeof === 'string'`) and that no `tool_use`/`tool_result`/`tool_calls`/`rawPayload` keys leak onto the wire.
+
+3. **Test Coverage**:
+   - Integration testing in `apps/api/tests/toolcalls-routes.test.ts` (PGlite) verifies all 3 routes (Web POST, SSE chat, MCP complete) across happy-path tool persistence, `NULL` normalization for no-tool turns, orphan capture on error/empty turns, and history replay isolation.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 correctly implements route persistence and orphan capture across all three endpoints, normalizes zero tool calls to NULL, and validates contract safety with robust regression tests.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

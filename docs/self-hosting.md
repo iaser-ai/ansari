@@ -75,14 +75,18 @@ empty-final retry ladder still applies as same-model retries.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `PRIMARY_BACKEND` | `gemini` | `gemini` \| `inkling`. Validation fails at startup when set to `inkling` without an API key (below) |
-| `INKLING_BASE_URL` | the Tinker prod `/chat/completions` URL | Full URL of any OpenAI-compatible `/chat/completions` endpoint. Also used by the fallback rungs |
+| `PRIMARY_BACKEND` | `gemini` | `gemini` \| `inkling`. Validation fails fast (at first config access) when set to `inkling` without an API key (below) |
+| `INKLING_BASE_URL` | the Tinker prod `/chat/completions` URL | Full URL of any OpenAI-compatible `/chat/completions` endpoint (https required; plain http only for localhost). Also used by the fallback rungs |
 | `INKLING_API_KEY` | unset | Bearer token for `INKLING_BASE_URL`; falls back to `TINKER_API_KEY` when unset |
 
 ### Optional / defaulted
 
 | Variable | Default | Notes |
 |----------|---------|-------|
+| `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex backup (empty-final retry ladder rung + terminal-error rescue). When unset, both are skipped cleanly |
+| `INKLING_MODEL` | `thinkingmachines/Inkling` | Which Inkling model the backup requests — e.g. a fine-tuned LoRA via a `tinker://...` sampler-weights id |
+| `INKLING_MAX_TOKENS` | `8192` | Inkling completion cap (budgets thinking+answer). Must be within 8192–32768: below 8K the hidden reasoning pass starves the visible answer. Out-of-window values fail validation (no clamping) |
+| `INKLING_TIMEOUT_MS` | `180000` | Per-call timeout for Inkling requests: the default when a caller passes no timeout, and a cap on the facilitator's budget-derived Inkling call timeouts (`min(remaining request budget, this value)`) — it can shorten Inkling calls, never lengthen them past the request budget. Must be within 30000–600000; out-of-window values fail validation (no clamping) |
 | `ACCESS_TOKEN_EXPIRY_HOURS` | `2` | JWT access-token lifetime |
 | `REFRESH_TOKEN_EXPIRY_HOURS` | `2160` | Refresh-token lifetime (90 days) |
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |

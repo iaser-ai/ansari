@@ -19,6 +19,12 @@ const DEFAULT_INKLING_URL =
 
 const h = vi.hoisted(() => ({
   apiKey: 'test-tinker-key' as string | undefined,
+  // Config defaults (issues #90/#95): the real schema defaults these when the
+  // INKLING_MODEL / INKLING_MAX_TOKENS / INKLING_TIMEOUT_MS / INKLING_BASE_URL
+  // env vars are unset.
+  model: 'thinkingmachines/Inkling',
+  maxTokens: 8192,
+  timeoutMs: 180000,
   baseUrl:
     'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions',
 }));
@@ -32,16 +38,18 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('@/lib/config', () => ({
   config: {
     get inkling() {
-      return { apiKey: h.apiKey, baseUrl: h.baseUrl };
+      return {
+        apiKey: h.apiKey,
+        model: h.model,
+        maxTokens: h.maxTokens,
+        timeoutMs: h.timeoutMs,
+        baseUrl: h.baseUrl,
+      };
     },
   },
 }));
 
-import {
-  streamInkling,
-  isInklingConfigured,
-  INKLING_MODEL,
-} from '../lib/ai/inkling-client';
+import { streamInkling, isInklingConfigured } from '../lib/ai/inkling-client';
 import type { GeminiStreamEvent } from '../lib/ai/gemini-client';
 
 function sseBody(chunks: object[]): string {
@@ -97,6 +105,9 @@ function doneOf(events: GeminiStreamEvent[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.apiKey = 'test-tinker-key';
+  h.model = 'thinkingmachines/Inkling';
+  h.maxTokens = 8192;
+  h.timeoutMs = 180000;
   h.baseUrl = DEFAULT_INKLING_URL;
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -163,7 +174,7 @@ describe('streamInkling', () => {
     });
   });
 
-  it('sends the right request: endpoint, bearer auth, max_tokens 8–16K, temperature 0, stream', async () => {
+  it('sends the right request: endpoint, bearer auth, in-window max_tokens, temperature 0, stream', async () => {
     fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
 
     await collect(streamInkling('hello', { systemPrompt: 'SYS' }));
@@ -175,11 +186,11 @@ describe('streamInkling', () => {
     );
     expect(init.headers.Authorization).toBe('Bearer test-tinker-key');
     const body = JSON.parse(init.body);
-    expect(body.model).toBe(INKLING_MODEL);
+    expect(body.model).toBe('thinkingmachines/Inkling');
     // Load-bearing (#74): small max_tokens → the hidden reasoning pass starves
-    // the visible answer (null content). Must sit in the 8–16K window.
-    expect(body.max_tokens).toBeGreaterThanOrEqual(8192);
-    expect(body.max_tokens).toBeLessThanOrEqual(16384);
+    // the visible answer (null content). Must sit in the 8192–32768 window; the
+    // config-supplied default is exactly 8192.
+    expect(body.max_tokens).toBe(8192);
     expect(body.temperature).toBe(0);
     expect(body.stream).toBe(true);
     expect(body.stream_options).toEqual({ include_usage: true });
@@ -199,6 +210,64 @@ describe('streamInkling', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       'https://example--gemma-checkpoint.modal.run/v1/chat/completions'
     );
+  });
+
+  it('uses config-overridden model and max_tokens in the request (issue #90)', async () => {
+    h.model = 'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final';
+    h.maxTokens = 32768;
+    fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
+
+    await collect(streamInkling('hello'));
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe(
+      'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final'
+    );
+    expect(body.max_tokens).toBe(32768);
+  });
+
+  it('uses the config timeout as the backstop when the caller passes no timeoutMs (issue #90)', async () => {
+    vi.useFakeTimers();
+    try {
+      h.timeoutMs = 60000;
+      // A fetch that never settles on its own but honors the abort signal —
+      // the only way it can end is the client's own timeout firing.
+      fetchMock.mockImplementation(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+          })
+      );
+
+      const pending = collect(streamInkling('hello'));
+      // The rejection message names the applied timeout — 60s proves the config
+      // value fired, not a hardcoded 180s default.
+      const expectation = expect(pending).rejects.toThrow(/timed out after 60s/);
+      await vi.advanceTimersByTimeAsync(60000);
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an explicit timeoutMs option still overrides the config backstop', async () => {
+    vi.useFakeTimers();
+    try {
+      h.timeoutMs = 60000;
+      fetchMock.mockImplementation(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+          })
+      );
+
+      const pending = collect(streamInkling('hello', { timeoutMs: 5000 }));
+      const expectation = expect(pending).rejects.toThrow(/timed out after 5s/);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never leaks reasoning_content into the stream, text, or rawPayload', async () => {
