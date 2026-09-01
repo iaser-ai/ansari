@@ -1,0 +1,62 @@
+I'll start by reading the diff and the key source files.Verified everything against the actual worktree (not just the diff): typecheck, build, and the full suite all run green here.
+
+## What I verified independently
+
+| Check | Result |
+|---|---|
+| `pnpm api typecheck` | clean |
+| `pnpm api build` | clean |
+| `pnpm api test` | 73 files / 708 passed, 3 skipped (pre-existing) |
+| Branch vs `origin/develop` | 0 behind, 42 ahead — up to date |
+| Review doc | `codev/reviews/73-persist-tool-use-and-tool-resu.md` present, 14.8 KB, spec-compliance checklist + deviations |
+| Commits | `[Spec 73][Phase: …]` + porch `chore(porch)` commits — conforming |
+| Debug code / TODOs | none introduced (the two `console.log` hits are pre-existing lines outside this diff) |
+
+## Correctness spot-checks that hold up
+
+- **Read-path projection is real, not aspirational.** I traced every consumer: `findMessagesByThread` (thread-naming, both POST routes), `getThreadWithMessages` (GET), `createThreadSnapshot` (share). All use explicit projections omitting `tool_calls`. The two full-row lookups (`findMessageById` / `findMessageInOwnedThread`) feed only the feedback ownership check in `v2/feedback/route.ts` — never serialized. `lib/db/stats.ts` uses explicit column lists at both `.from(messages)` sites. The "by construction" claim survives inspection.
+- **`degradation` cannot reach the model.** `formatToolResultForGemini` (agent.ts:375) builds `{results, summary}` explicitly from `documents` + `content`. Adding a field to `ToolResult` cannot leak into a `functionResponse`.
+- **Terminal-yield coverage is complete.** agent.ts has 6 `type: 'error'` yields; 5 carry `collectedToolCalls()`. The sixth (line 436, `'No user message to process'`) fires before the loop with an empty accumulator, and has its own test (`an error before any dispatch carries no toolCalls`). Both `done` yields and both `onMessage` calls carry records.
+- **Migration numbering is consistent, not a mistake.** `meta/0005_snapshot.json` ↔ `0006_feedback_dedupe_upsert.sql` is the existing precedent from PR #88; `meta/0006_snapshot.json` ↔ `0007_tool_calls_persistence.sql` follows it. Journal idx 6 is correct.
+- **Tests are substantive.** `thread-get-contract.test.ts` asserts exact key sets on the *serialized* JSON, `typeof content === 'string'`, byte-identity of GET with an orphan row present, and share-snapshot key sets — through the real handler on pglite with `tool_calls` populated. 60+ new tests across 4 files cover every dispatch path, every terminal yield, and all three persist sites × 5 outcome shapes.
+- **Privacy holds.** `persistOrphanToolCalls` logs and Sentry-reports only `{threadId, reason, recordCount, name, code}` — no raw driver error, no user content. Orphans cascade on thread delete, so deletion semantics are preserved.
+
+## Notes (none blocking)
+
+1. **Deploy ordering is mandatory, not merely preferred.** The PR frames the migration as "additive/nullable — safe ahead of deploy." True, but the converse deserves a louder warning: `toolCallsOrNull()` always returns a value, so the key is always present in the `createMessage` values object, so Drizzle always emits `tool_calls` in the INSERT column list. Deploying *before* the migration would fail **every** assistant-message persist, not just tool-using turns. The PR's step order is correct — I'd just make step 1 explicitly blocking.
+2. **Orphan writes run after `safeClose()` inside the stream's `start()`.** Fine on Railway (long-lived Node process, which is what `arch-critical.md` says you deploy to). Would be at risk on a freeze-after-response serverless runtime. Worth one line of comment recording that assumption.
+3. **`TOOL_KEY_PATTERN` isn't negative-tested.** `lessons-critical.md` says "negative-test every scan against a known-bad line." The exact key-set enumeration is the real guard, so risk is low — but a mistyped regex would pass silently.
+4. **Untracked artifact**: `codev/projects/73-.../73-review-iter1-gemini.txt` is uncommitted while every other consultation artifact is committed. Commit it or confirm it's intentional.
+5. **PR wording**: "all six `error` yields" is really five-plus-one-provably-empty. Cosmetic.
+6. **No index on `messages.tool_calls`.** Fine for offline metric runs; note it if the mawsuah degradation rate ever becomes a live dashboard query.
+
+---
+VERDICT: APPROVE
+SUMMARY: Complete, well-tested tool-call persistence with structurally-enforced API-contract safety; typecheck/build/708 tests verified green locally and branch is current with develop.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None blocking. Advisory: make the migration-before-deploy ordering explicitly blocking in the deploy notes — deploying first would fail every assistant-message INSERT, since `toolCallsOrNull()` always puts `tool_calls` in Drizzle's column list.
+- Advisory: orphan writes occur after `safeClose()` inside the stream body; safe on Railway's long-lived process, worth a comment recording that deployment assumption.
+- Advisory: `TOOL_KEY_PATTERN` in `thread-get-contract.test.ts` is a scan with no known-bad negative test (per `lessons-critical.md`); exact key-set enumeration mitigates it.
+- Advisory: `codev/projects/73-.../73-review-iter1-gemini.txt` is untracked while all sibling consultation artifacts are committed.
+
+PR_SUMMARY: |
+  ## Summary
+  Restores tool-call persistence lost in the Python→TypeScript rewrite. Every tool dispatch the facilitator makes is now durably recorded — on the assistant row's new nullable `messages.tool_calls` jsonb column, or in a new `tool_call_orphans` table when the turn ended in error/empty and produced no assistant row. No byte of any API response changes: the frozen mobile contract is protected structurally, by explicit read-path projections that omit the column rather than by a serializer that remembers to drop it.
+
+  ## Key Changes
+  - **Schema**: `messages.tool_calls` (nullable jsonb) with a fixed status taxonomy (`ok | degraded | budget_skipped | limit_refused | unknown_tool`), plus a separate `tool_call_orphans` table so invisibility to thread GET, share snapshots, history replay, and message counts holds by construction.
+  - **Migration** `0007_tool_calls_persistence` (journal idx 6; PR #88 took idx 5) — additive and nullable, generated by `drizzle-kit generate`.
+  - **Read-path projections**: `findMessagesByThread` / `getThreadWithMessages` / `createThreadSnapshot` now select explicit column lists that omit `tool_calls` (keeping `raw_payload` for replay), which also avoids a ~7 KB/row detoast per turn.
+  - **Facilitator**: a loop-level accumulator records every dispatch path including never-executed ones (T1/T2 budget-skipped with `skip_trigger`, limit-refused, unknown-tool); status is derived from a returned outcome tag plus `isDegraded`, never by string-matching content. Records attach to every terminal event and to `onMessage`.
+  - **Routes**: all three persist sites write `tool_calls` on success (`NULL`, never `[]`) and orphan rows on error / empty-final after the client is closed out. `persistOrphanToolCalls` never throws into the stream, never bumps `threads.updated_at`, and logs only `{name, code}`.
+
+  ## Test Plan
+  - `pnpm api typecheck`, `pnpm api build`, `pnpm api test` — all green (73 files / 708 tests, 3 pre-existing skips).
+  - `thread-get-contract.test.ts` pins the frozen contract on the serialized JSON through the real GET handler on pglite with `tool_calls` populated: exact top-level and per-message key sets, single-text-block content still a bare string, no tool/payload key in the bytes, and GET byte-identical with an orphan row present.
+  - `toolcalls-routes.test.ts` covers all three sites × tool / no-tool / empty-array / error / empty-final, plus SSE wire byte-identity and the mcp-complete 500 and 502 contracts.
+  - `facilitator-toolcalls.test.ts` covers every dispatch path and every terminal yield; degradation detail (`error_class`, `attempts=2` on a retried timeout per #76, `http_status`) is asserted end-to-end from real `ToolFetchError`s in the Usul and Kalemat suites.
+
+  ## Deploy
+  Apply `apps/api/drizzle/0007_tool_calls_persistence.sql` **before** deploying — this ordering is required, not just preferred: the new code always includes `tool_calls` in its INSERT column list, so deploying ahead of the migration would fail every assistant-message write. The migration itself is additive and nullable, so it is safe to apply ahead of the deploy; old code ignores the column. Next migration author: drizzle will emit another `0007_` prefix — name it `0008_*`.

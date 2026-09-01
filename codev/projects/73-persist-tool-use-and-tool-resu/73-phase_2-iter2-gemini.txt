@@ -1,0 +1,26 @@
+Phase 2 (`phase_2`) implementation has been reviewed against the specification (`codev/specs/73-persist-tool-use-and-tool-resu.md`) and plan (`codev/plans/73-persist-tool-use-and-tool-resu.md`), with special focus on the resolution of Iteration 1 findings.
+
+### Assessment Summary
+
+1. **Spec Adherence**:
+   - `runFacilitator` in `apps/api/lib/facilitator/agent.ts` accumulates loop-level `toolCallRecords` covering all dispatch outcomes: executed (`ok`, `degraded`), short-circuited (`budget_skipped` with `skip_trigger` T1/T2), limit-refused (`limit_refused`), and unknown tools (`unknown_tool`).
+   - Every terminal event yield (`done` and `error` across all paths including degenerate final, synthesis error, catch-all, and max iterations) carries `toolCalls: collectedToolCalls()`.
+   - `ToolResult.degradation` fields (`error_class`, `attempts`, `http_status`) flow end-to-end from `ToolFetchError` through `unavailableResult` to the persisted records without leaking into model-facing payloads.
+
+2. **Code Quality**:
+   - `recordToolUse` generates structurally unique IDs within turns via sequence numbers (`tool_<ts>_<seq>_<rand>`).
+   - Outcome classification is strongly typed (`ToolDispatchOutcome`) rather than dependent on content string matching.
+   - Wire-facing streaming events remain unchanged, preventing data leakage across the SSE boundary.
+
+3. **Test Coverage**:
+   - `apps/api/tests/facilitator-toolcalls.test.ts` provides comprehensive unit test coverage across happy paths, multi-round loops, budget short-circuits (T1/T2), limit refusals, unknown tools, degenerate final retries, max iterations, synthesis failures, and catch-all error handling.
+   - `apps/api/tests/usul-retry.test.ts` and `apps/api/tests/kalemat-resilience.test.ts` assert `result.degradation` end-to-end using fake timers and realistic network failure modes (retried timeouts, HTTP 5xx).
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 facilitator tool-record accumulation is fully implemented, adhering to spec and plan with comprehensive unit test coverage.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

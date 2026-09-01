@@ -1,0 +1,40 @@
+I'll review Phase 3 of this implementation. Let me start by reading the key files.Let me read the three route files that Phase 3 modifies.I've reviewed the Phase 3 implementation against the plan and spec. Here's my assessment.
+
+## Verification performed
+
+- Read all three persist sites, `lib/db/threads.ts`, `lib/db/shares.ts`, schema files, migration `0007`, and both new test files from disk.
+- Ran the full suite: **73 files, 708 passed / 3 skipped**. `pnpm typecheck` clean.
+- Traced the facilitator's terminal yields (`agent.ts:584, 598, 784, 997, 1007`) to confirm every `error` path carries `toolCalls` and `return`s — so no route can double-persist (orphan + assistant row) or miss records.
+
+## Iteration-1 issues — confirmed resolved
+
+**Codex's `toolCalls ?? null` → `[]` concern is genuinely fixed.** `toolCallsOrNull()` (`messages.ts:57`) collapses absent AND empty to `null`, and it's applied at all three sites (`threads/[id]/route.ts:281`, `chat/route.ts:166`, `mcp-complete/route.ts:217`). Each site has its own explicit "empty array persists NULL" regression test. Placing the helper in the schema module rather than `lib/db/threads` was the right call — it avoids forcing every existing factory mock of the threads module to grow another export.
+
+**Sentry on orphan-write failure** is in `persistOrphanToolCalls` (`threads.ts:197`) at warning level, logging only `{name, code}` per the no-raw-driver-error lesson.
+
+## Phase 3 acceptance criteria
+
+Every criterion is met and tested:
+
+- **Frozen GET contract** — `thread-get-contract.test.ts` asserts on the *serialized* string (`res.text()`), pins the exact top-level and message key arrays including order, `typeof content === 'string'`, and a negative regex covering `tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms`. It also pins the *unchanged* multi-block array branch — a detail most reviewers would skip, and the one that would catch an over-eager "always return string" simplification.
+- **Orphan invisibility incl. `updated_at`** — the before/after byte-equality assertion (`after).toBe(before)` around a `createToolCallOrphan` call) covers the whole response, not just messages.
+- **Replay unaffected** — asserts turn-2 history is `['user','user']` with key set exactly `['content','rawPayload','role']`.
+- **SSE byte-identity** — heartbeat-stripped exact string comparison plus negative asserts on `tool_use_id`/`duration_ms`.
+- **mcp-complete 500 contract across the throw→return refactor** — pinned by both the pre-existing test (`mcp-complete.test.ts:192`) and a new one. I checked the refactor's edge: an empty-string error message still yields the same 500 body as before.
+
+Structural safety is real, not just tested: `messageReadColumns` omits `tool_calls`, `createThreadSnapshot` projects three fields, and the only remaining whole-row `select()`s (`findMessageById`, `findMessageInOwnedThread`) feed feedback ownership checks that never serialize the row — I verified `feedback/route.ts:44` only tests for existence.
+
+## Non-blocking observations
+
+1. **Streaming routes' outer `catch` doesn't persist records.** If `runFacilitator` *threw* rather than yielding an `error` event, records would be lost. I checked: the loop body is wrapped `try` (641) / `catch` (941) which yields `error` with `collectedToolCalls()`, and everything before the loop precedes any dispatch — so the gap is empty in practice. No change needed.
+2. **Post-`close()` DB work** — already accepted as documentation in the builder's rebuttal. `after()` from `next/server` would make the lifetime guarantee explicit rather than runtime-dependent, but that's a hardening idea for the review doc, not a Phase 3 defect.
+3. The SSE route lacks a site-specific "error turn with no tools writes no orphan" test (web and mcp both have one). Same helper, same short-circuit — cosmetic asymmetry only.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 fully delivers route persistence, orphan capture on all error/empty paths, and structurally-enforced frozen-contract safety; the iteration-1 empty-array defect is fixed at all three sites with per-site regression tests, and the full suite plus typecheck are green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

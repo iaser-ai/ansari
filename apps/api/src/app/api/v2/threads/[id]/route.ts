@@ -2,10 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
-import { findThreadById, updateThread, deleteThread, getThreadWithMessages, createMessage, findMessagesByThread } from '@/lib/db/threads';
+import {
+  findThreadById,
+  updateThread,
+  deleteThread,
+  getThreadWithMessages,
+  createMessage,
+  findMessagesByThread,
+  persistOrphanToolCalls,
+} from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
-import type { ContentBlock } from '@/db/schema/messages';
+import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import {
   startHeartbeat,
@@ -241,6 +249,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     encoder.encode('\n\nError: The model returned an empty answer. Please try again.')
                   );
                   safeClose();
+                  // No assistant row for an empty final — the turn's tool records go to
+                  // the orphan table (spec 73), after the client is closed out.
+                  await persistOrphanToolCalls({
+                    threadId,
+                    reason: 'empty_final',
+                    source: 'web',
+                    client,
+                    toolCalls: event.toolCalls,
+                  });
                   break;
                 }
                 if (fullText) {
@@ -260,6 +277,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     totalTokens: event.usage?.totalTokenCount ?? null,
                     // Final model turn for turn-2+ history replay (issue #70).
                     rawPayload: event.rawPayload ?? null,
+                    // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
+                    toolCalls: toolCallsOrNull(event.toolCalls),
                   });
                 }
                 safeClose();
@@ -268,6 +287,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
               case 'error':
                 safeEnqueue(encoder.encode(`\n\nError: ${event.data}`));
                 safeClose();
+                // Tool records from a failed turn (spec 73) — after the client is closed out.
+                await persistOrphanToolCalls({
+                  threadId,
+                  reason: 'error',
+                  source: 'web',
+                  client,
+                  toolCalls: event.toolCalls,
+                });
                 break;
             }
           }

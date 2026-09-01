@@ -23,6 +23,17 @@ Durable engineering wisdom captured across the project's work. Update it during 
 - **Hand-written test DDL is a schema copy and drifts like one.** Adding a column meant updating five pglite `CREATE TABLE messages` blocks across test files; the real-DB suites failed loudly until they matched — which is exactly the drift-detection a mocked suite would have silently missed.
 - **A live check is only as strong as the shape it exercises.** A pre-fix live Vertex replay check passed for the wrong reason: its single-chunk fixture was the one shape that hides last-chunk-wins truncation. Pick verification fixtures that *can* exhibit the suspected failure mode (here: a multi-chunk streamed turn), or the pass certifies nothing.
 
+## Tool-call persistence (spec 73)
+
+See `codev/reviews/73-persist-tool-use-and-tool-resu.md` for the full context.
+
+- **Make invisibility structural, not a filter.** Records that must never reach an API response (error-turn tool logs) went to a separate table rather than marker rows in `messages`: a table no existing query reads is invisible to thread GET, share snapshots, history replay and message-count stats by construction, whereas marker rows need a filter at every current and future consumer — the quiet-check failure mode. Likewise, project sensitive columns OUT of the read helpers so the contract does not depend on each route's `.map()` discipline.
+- **A green suite after adding an error-path call is unproven until every factory mock carries the export.** Four route tests factory-mocked `@/lib/db/threads` without the new `persistOrphanToolCalls`; vitest throws on the missing export, but the streams' `catch` swallowed it and every assertion still held. Nothing failed — the gap was found by reasoning, not by a red run. Grep `vi.mock('<module>'` the moment a route gains a new import from that module.
+- **Re-grep hand-written test DDL after every develop merge, not once per phase.** The #70 lesson (test DDL drifts like a schema copy) has a timing corollary: a sixth `CREATE TABLE messages` arrived *with* the develop merge (PR #88) after the initial five-file update, and its whole-row select failed with an unknown column. Loud, but only because the merge happened before the suite ran.
+- **Normalize "absent or empty" to one value at the boundary.** `toolCalls ?? null` would have persisted `[]` for an explicitly empty array — legal under the producer's "absent/empty" contract — violating the NULL-when-unused rule. A pure `toolCallsOrNull()` at every persist site (placed in the schema module so no mock needed a new export) closes the class, with a per-site empty-array regression.
+- **Lazy config reads inside error paths need targeted mocks in unit tests.** Two terminal facilitator paths (`isInklingConfigured()`, the degenerate-final `config.gemini.model` summary) read validated config only when reached; in a harness without env they throw *inside the catch*, turning the path under test into a different error. Mock `@/lib/ai/inkling-client` and `@/lib/config` whenever a test drives a terminal error path.
+- **Number migrations after merging, and expect drizzle's prefix to lag.** A concurrent PR took the next journal index mid-project; the fix was merge-then-generate and a manual rename (`0007_*` at idx 6). drizzle-kit names files by index, so the next generate will emit another `0007_` — the successor must be `0008_*`.
+
 ## Monorepo migration & verification discipline (spec 48)
 
 See `codev/reviews/48-standardise-to-apps-packages-m.md` for the full context.
