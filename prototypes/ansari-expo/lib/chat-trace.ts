@@ -44,11 +44,12 @@ export function displayTool(raw: string | undefined): string {
 
 /**
  * Fold one stream event into the trace. `tool_call` opens a pending entry;
- * `tool_result` completes the earliest still-pending entry with the result's
- * authoritative tool / query / count (the facilitator searches one tool at a
- * time, so earliest-pending is the matching call). A `tool_result` with no
- * preceding call is appended as an already-complete line. Non-tool events pass
- * through untouched.
+ * `tool_result` completes the earliest still-pending entry FOR THAT TOOL with the
+ * result's authoritative query / count — matching by tool so that parallel tool
+ * calls resolving out of order land on the right line. If no pending entry has a
+ * matching tool (a call/result name mismatch), it falls back to the earliest
+ * pending entry of any tool so a spinner is never stranded; with nothing pending
+ * it appends an already-complete line. Non-tool events pass through untouched.
  */
 export function traceReducer(
   entries: TraceEntry[],
@@ -58,13 +59,15 @@ export function traceReducer(
     return [...entries, { tool: displayTool(event.name), pending: true }];
   }
   if (event.type === 'tool_result') {
+    const tool = displayTool(event.tool);
     const completed: TraceEntry = {
-      tool: displayTool(event.tool),
+      tool,
       query: event.query,
       resultCount: event.resultCount,
       pending: false,
     };
-    const idx = entries.findIndex((e) => e.pending);
+    let idx = entries.findIndex((e) => e.pending && e.tool === tool);
+    if (idx === -1) idx = entries.findIndex((e) => e.pending);
     if (idx === -1) return [...entries, completed];
     const next = entries.slice();
     next[idx] = completed;

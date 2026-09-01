@@ -16,7 +16,12 @@ export interface StreamChatParams {
   baseUrl: string;
   threadId: string;
   message: string;
-  /** Optional per-event callback (e.g. for a future live-render follow-up). */
+  /**
+   * Per-event callback, fired for every SSE event (`text` deltas, `tool_call` /
+   * `tool_result`, `error`, `done`) as it arrives. This is the progress seam the
+   * chat screen uses to render the answer incrementally and show a live retrieval
+   * trace (see `useSendMessage` / `app/chat/[id].tsx`).
+   */
   onEvent?: (event: ChatStreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -25,11 +30,11 @@ export interface StreamChatParams {
  * Send a chat message and read the SSE stream to completion, reassembling every
  * `text` event into the final answer string.
  *
- * PROTOTYPE LIMITATION — buffer-until-done: this resolves only after the stream
- * closes, so the UI shows a spinner for the whole answer. This is NOT the
- * intended UX; the real app should render tokens incrementally (each `text`
- * event is delivered to `onEvent` as it arrives, ready for that follow-up). A
- * frontend developer must not copy the spinner-until-done behaviour.
+ * Incremental render: every event is delivered to `onEvent` AS IT ARRIVES, so the
+ * chat screen paints each `text` delta immediately instead of waiting for the
+ * stream to close. The returned promise still resolves only on `done` (with the
+ * fully reassembled answer, used for the mutation's return contract) — but the UI
+ * no longer waits on it. See `app/chat/[id].tsx`.
  *
  * Transport: exactly ONE POST is issued. `expo/fetch` returns a streaming
  * `response.body` on native and web, which we read incrementally. If a runtime
@@ -81,9 +86,11 @@ async function runStream(
   const state = createStreamState();
 
   if (!response.body) {
-    // No streaming reader in this runtime. Consume the response WE ALREADY HAVE —
-    // do NOT issue a second request. `.text()` buffers the full SSE payload
-    // (which, given buffer-until-done, is equivalent to reading the stream).
+    // No streaming reader in this runtime (rare — expo/fetch exposes a streaming
+    // body on native and web). Consume the response WE ALREADY HAVE — do NOT
+    // issue a second request. `.text()` buffers the full SSE payload, so on this
+    // fallback path alone the events fire in one burst rather than incrementally;
+    // the happy path above reads the body reader and renders as tokens arrive.
     consume(parser.push(await response.text()), params.onEvent, state);
     assertComplete(state);
     return state.answer;

@@ -66,6 +66,32 @@ describe('traceReducer', () => {
     expect(entries[1]).toEqual({ tool: 'quran', pending: true });
   });
 
+  it('matches by tool so parallel calls resolving out of order land on the right line', () => {
+    // Two calls open, the SECOND tool resolves first — it must complete the
+    // quran entry, leaving hadith pending (not complete the earliest by position).
+    const entries = reduce([
+      call('search_hadith'),
+      call('search_quran'),
+      result('search_quran', 'mercy', 7),
+    ]);
+    expect(entries[0]).toEqual({ tool: 'hadith', pending: true });
+    expect(entries[1]).toEqual({
+      tool: 'quran',
+      query: 'mercy',
+      resultCount: 7,
+      pending: false,
+    });
+  });
+
+  it('falls back to the earliest pending entry when no pending tool matches (name mismatch)', () => {
+    const entries = reduce([call('search_hadith'), result('search_quran', 'mercy', 2)]);
+    // No pending "quran" entry; rather than strand the hadith spinner, the
+    // result completes it with the result's authoritative tool label.
+    expect(entries).toEqual([
+      { tool: 'quran', query: 'mercy', resultCount: 2, pending: false },
+    ]);
+  });
+
   it('appends a completed entry when a tool_result has no preceding call', () => {
     const entries = reduce([result('search_quran', 'mercy', 5)]);
     expect(entries).toEqual([

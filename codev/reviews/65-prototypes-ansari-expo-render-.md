@@ -135,6 +135,32 @@ Nothing rose to the capped hot tier — these are render-layer recipes, not syst
 - **Loud-failure guard placement.** The zero-text guard lives in the React-free core
   (`chat-stream.ts` `assertComplete`) so it holds even if the API omits its `{type:"error"}` frame,
   and is unit-testable without React.
+- **Budget-skipped tool reads as "no results" (backend-shaped).** When the facilitator hits its
+  time budget it emits a `tool_result` with a hardcoded `resultCount: 0` (`agent.ts:921`), so the
+  trace line reads "no hadith found" for a search that was *skipped*, not one that genuinely found
+  nothing. The backend gives no skip signal to distinguish the two, so the trace can't either;
+  flagging it as a known cosmetic limitation of the transient trace, not something this PR can fix
+  client-side.
+- **Per-delta markdown re-parse.** Each `text` frame calls `setStreamingText`, and `AnswerMessage`
+  memoizes its parse per content string, so a growing answer re-parses fully on every delta. Fine
+  for chunk-sized frames; the manual checklist below now asks reviewers to watch for jank on a long
+  answer on a physical iOS device.
+- **`sentAtCount` fallback.** `send()` uses `conversationQuery.data?.messages.length ?? 0`; if the
+  detail query hasn't resolved on a follow-up, the `0` fallback would let any trailing assistant
+  message read as "landed". Narrow, self-correcting on the next data tick, and prototype-acceptable
+  — noted, not changed.
+
+## Consultation (single advisory pass, iter 1)
+
+- **Gemini — APPROVE.** Matches the plan with comprehensive tests and zero scope creep.
+- **Codex — COMMENT.** `traceReducer` matched the earliest pending entry regardless of tool;
+  **addressed** — it now matches by tool (with an earliest-pending fallback) and has an
+  out-of-order test.
+- **Claude — REQUEST_CHANGES (doc-only).** `lib/api/streaming.ts` still carried #63's
+  buffer-until-done "PROTOTYPE LIMITATION" docstring, contradicting the rewritten README and the
+  plan's "fix the doc defect everywhere" requirement; **addressed** — the docstring, the `onEvent`
+  comment, and the fallback comment are rewritten to describe the incremental behaviour. Its
+  non-blocking notes are captured in "Things to Look At" above.
 
 ## How to Test Locally
 
@@ -152,3 +178,5 @@ Nothing rose to the capped hot tier — these are render-layer recipes, not syst
     empty bubble; "Try again" re-sends.
   - Account-switch walk: guest → register a different account → logout → login → no stale threads, no
     protected-screen flash.
+  - On a **long** answer, watch for scroll/typing jank on a physical iOS device (per-delta markdown
+    re-parse) — the earlier checks only confirm tokens appear, not that a long stream stays smooth.
