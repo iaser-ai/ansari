@@ -43,6 +43,35 @@ const envSchema = z.object({
   // Optional: when unset both are skipped cleanly (logged once) and the ladder
   // is the single same-model retry.
   TINKER_API_KEY: z.string().optional(),
+  // Which Inkling model the client requests (issue #90). Overridable per
+  // environment so staging can run a fine-tuned LoRA (a tinker://... sampler-
+  // weights id) while prod stays on base Inkling.
+  INKLING_MODEL: z.string().min(1, 'INKLING_MODEL must not be empty').default('thinkingmachines/Inkling'),
+  // Completion cap for Inkling calls (issue #90). MUST sit in the 8192–32768
+  // window: max_tokens budgets thinking+answer on this reasoning model (see
+  // inkling-client.ts header) — the visible answer follows a hidden reasoning
+  // pass, and a cap below 8192 lets that pass starve the visible content to
+  // null, while the cap must not manufacture empty-content rescues either
+  // (upper bound owner-approved for the staging LoRA at 32768). Out-of-window
+  // values fail here at parse — no clamping.
+  INKLING_MAX_TOKENS: z.coerce
+    .number()
+    .int('INKLING_MAX_TOKENS must be an integer')
+    .min(8192, 'INKLING_MAX_TOKENS must be in the 8192-32768 window (below 8192 the hidden reasoning pass starves visible content)')
+    .max(32768, 'INKLING_MAX_TOKENS must be in the 8192-32768 window')
+    .default(8192),
+  // Per-call timeout backstop for Inkling requests (issue #90): applies when the
+  // caller passes no timeoutMs (the facilitator always does — its calls stay
+  // bounded by the Spec 49 request budget). Measured LoRA throughput (~77 tok/s)
+  // makes generous ceilings necessary; bounds are sanity rails — below 30s a
+  // reasoning-model answer cannot finish, above 600s a hang is indistinguishable
+  // from progress. Out-of-window values fail at parse — no clamping.
+  INKLING_TIMEOUT_MS: z.coerce
+    .number()
+    .int('INKLING_TIMEOUT_MS must be an integer')
+    .min(30000, 'INKLING_TIMEOUT_MS must be in the 30000-600000 window')
+    .max(600000, 'INKLING_TIMEOUT_MS must be in the 30000-600000 window')
+    .default(180000),
 
 
   // Islamic Tools
@@ -142,8 +171,12 @@ export const config = {
   },
 
   get inkling() {
+    const env = getEnv();
     return {
-      apiKey: getEnv().TINKER_API_KEY,
+      apiKey: env.TINKER_API_KEY,
+      model: env.INKLING_MODEL,
+      maxTokens: env.INKLING_MAX_TOKENS,
+      timeoutMs: env.INKLING_TIMEOUT_MS,
     };
   },
 

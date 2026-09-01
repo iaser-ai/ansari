@@ -95,7 +95,6 @@ vi.mock('@/lib/config', () => ({
 vi.mock('@/lib/ai/inkling-client', () => ({
   isInklingConfigured: () => false,
   streamInkling: vi.fn(),
-  INKLING_MODEL: 'inkling-test',
 }));
 
 vi.mock('@/lib/ai/prompts/facilitator', () => ({
