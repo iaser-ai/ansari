@@ -125,6 +125,23 @@ Wrote rebuttal (65-review-iter1-rebuttals.md), porch done -> pr gate PENDING.
 Messaged architect leading with the REQUEST_CHANGES.
 
 ## Phase: PR GATE (pending)
-Holding. main runs integration review; human merges on GitHub. Do NOT run porch approve myself.
-On approval relay: porch approve 65 pr --a-human-explicitly-approved-this, then porch done
---merged 108, then enter verify phase / notify architect complete.
+
+### Integration review (main, PR comment 5501322523) — REQUEST_CHANGES, FIXED (SHA be7788d)
+Blocker: send() didn't require the detail query resolved, and baseline was
+`data?.messages.length ?? 0` — sending in an existing assistant-terminated thread before load set
+baseline 0, so the reconciler mistook the OLD answer for this turn's and cleared streamed text
+(manual-composer path; auto-send safe). This was my first-consult non-blocking sentAtCount note,
+correctly escalated. Root-cause fix (not default change):
+- send() now requires conversationQuery.data; composer disabled (sending || !data) until resolved.
+- sentAtCount is number|null; reconciler refuses landed-answer detection when null.
+- Extracted reconciliation → pure lib/chat-reconcile.ts (reconcileThread).
+- Regression test lib/chat-reconcile.test.ts; PROVEN to fail on pre-fix logic (removed null guard
+  → red), passes with fix.
+NOT mine (per architect): budget-skip trace ambiguity (apps/api issue main is filing);
+per-chunk markdown re-parse (watch item).
+typecheck clean; pnpm test 103 passed. Constraints re-verified (turbo=7, root+prototype lockfiles
+untouched, diff only prototypes/ansari-expo + codev). Messaged architect the SHA.
+
+Holding. Architect re-verifies → main re-reviews → human merges on GitHub. Do NOT run porch
+approve myself. On approval relay: porch approve 65 pr --a-human-explicitly-approved-this, then
+porch done --merged 108, then enter verify phase / notify architect complete.
