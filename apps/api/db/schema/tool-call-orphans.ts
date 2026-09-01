@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 import { threads } from './threads';
-import type { ToolCallRecord } from './messages';
+import type { ModelProvider, ToolCallRecord } from './messages';
 
 /**
  * Tool dispatch records from turns that produced NO assistant message row
@@ -22,6 +22,11 @@ export const toolCallOrphans = pgTable('tool_call_orphans', {
   source: text('source'),
   client: text('client'),
   toolCalls: jsonb('tool_calls').$type<ToolCallRecord[]>().notNull(),
+  // Per-turn model provenance (issue #99) — failed turns deserve it too: a
+  // #79-rescued-then-failed turn is exactly the row that makes "rescued on
+  // Inkling" queryable. NULL (never '') when the terminal event carried none.
+  modelProvider: text('model_provider').$type<ModelProvider>(),
+  modelId: text('model_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_tool_call_orphans_thread').on(table.threadId, table.createdAt),

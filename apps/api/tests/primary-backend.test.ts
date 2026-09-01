@@ -26,6 +26,11 @@ const INKLING_URL = 'https://example--gemma-checkpoint.modal.run/v1/chat/complet
 const h = vi.hoisted(() => ({
   primaryBackend: 'gemini' as 'gemini' | 'inkling',
   geminiCalls: [] as Array<{ message: string; options: Record<string, unknown> }>,
+  // Gemini config for tests whose final turn is SERVED by Gemini — those may
+  // now legitimately read config.gemini.model for the #99 terminal provenance.
+  // null (the default) keeps the getter throwing: the inkling-primary tests
+  // model an inkling-only deployment where any read is a bug.
+  geminiConfig: null as { model: string; fallbackModel: string } | null,
 }));
 
 vi.mock('@sentry/nextjs', () => ({
@@ -48,11 +53,14 @@ vi.mock('@/lib/config', () => ({
         timeoutMs: 180000,
       };
     },
-    // Deliberately throwing: an inkling-only deployment has NO Gemini credentials,
-    // so the real getter throws. Nothing in this suite may read it — not the
-    // healthy paths, and (issue #95 / codex finding) not the degenerate-final
-    // retry bookkeeping under inkling-primary either.
+    // Deliberately throwing by default: an inkling-only deployment has NO Gemini
+    // credentials, so the real getter throws. Nothing on the inkling-primary
+    // path may read it — not the healthy paths, and (issue #95 / codex finding)
+    // not the degenerate-final retry bookkeeping either. Tests whose final turn
+    // runs on Gemini set h.geminiConfig instead (the #99 terminal provenance
+    // reads config.gemini.model on the gemini path only).
     get gemini(): { model: string; fallbackModel: string } {
+      if (h.geminiConfig) return h.geminiConfig;
       throw new Error('config.gemini must not be read in this suite');
     },
     get tools() {
@@ -119,6 +127,7 @@ let inklingRequests: Array<Record<string, unknown>> = [];
 beforeEach(() => {
   vi.clearAllMocks();
   h.primaryBackend = 'gemini';
+  h.geminiConfig = null;
   h.geminiCalls = [];
   inklingResponses = [];
   inklingRequests = [];
@@ -159,6 +168,7 @@ async function collect(gen: AsyncGenerator<Event>): Promise<Event[]> {
 
 describe('PRIMARY_BACKEND=gemini / unset (default — byte-identical behavior)', () => {
   it('selects streamGemini and never contacts the OpenAI-compat endpoint', async () => {
+    h.geminiConfig = { model: 'gemini-3.7-flash', fallbackModel: 'gemini-fallback' };
     const events = await collect(runFacilitator([userMessage('What is sabr?')]));
 
     expect(h.geminiCalls).toHaveLength(1);
@@ -322,6 +332,7 @@ describe('PRIMARY_BACKEND=inkling (env-gated OpenAI-compatible primary)', () => 
   });
 
   it('an explicit caller provider option overrides the env switch', async () => {
+    h.geminiConfig = { model: 'gemini-3.7-flash', fallbackModel: 'gemini-fallback' };
     const events = await collect(
       runFacilitator([userMessage('q')], undefined, { provider: 'gemini' })
     );

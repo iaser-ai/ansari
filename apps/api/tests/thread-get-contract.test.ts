@@ -64,6 +64,9 @@ const RECORDS: ToolCallRecord[] = [
 const TOP_LEVEL_KEYS = ['thread_id', 'thread_name', 'source', 'created_at', 'updated_at', 'messages'];
 const MESSAGE_KEYS = ['id', 'role', 'content', 'agent_name', 'source', 'created_at'];
 const TOOL_KEY_PATTERN = /tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms/;
+// Provenance columns (issue #99) must never serialize either — same structural
+// exclusion (messageReadColumns / share projection), same live-scan discipline.
+const PROVENANCE_KEY_PATTERN = /model_provider|modelProvider|model_id|modelId/;
 
 beforeAll(async () => {
   client = new PGlite();
@@ -99,6 +102,8 @@ beforeAll(async () => {
       total_tokens integer,
       raw_payload jsonb,
       tool_calls jsonb,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE tool_call_orphans (
@@ -108,6 +113,8 @@ beforeAll(async () => {
       source text,
       client text,
       tool_calls jsonb NOT NULL,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE shares (
@@ -143,6 +150,9 @@ async function seedConversation() {
     agentName: 'facilitator',
     rawPayload: { role: 'model', parts: [{ text: 'Sabr is patience.' }] },
     toolCalls: RECORDS,
+    // Populated so the no-serialize assertions below are live (issue #99).
+    modelProvider: 'inkling',
+    modelId: 'tinker://sft-dpo-bf16',
   });
 }
 
@@ -153,6 +163,19 @@ describe('TOOL_KEY_PATTERN is a live scan (negative-tested per lessons-critical)
     }
     // Near-misses that legitimately appear in responses must NOT trip the scan.
     expect(JSON.stringify({ thread_name: 'tools of the trade', agent_name: 'facilitator' })).not.toMatch(TOOL_KEY_PATTERN);
+  });
+});
+
+describe('PROVENANCE_KEY_PATTERN is a live scan (negative-tested per lessons-critical)', () => {
+  it('matches each known-bad key and not a near-miss', () => {
+    for (const bad of ['model_provider', 'modelProvider', 'model_id', 'modelId']) {
+      expect(JSON.stringify({ [bad]: 'gemini' })).toMatch(PROVENANCE_KEY_PATTERN);
+    }
+    // Near-misses: a bare `model`/`id`/`provider` key, or provider VALUES in
+    // ordinary content, must not trip the scan.
+    expect(JSON.stringify({ model: 'x', id: 1, provider: 'y', content: 'the gemini model id' })).not.toMatch(
+      PROVENANCE_KEY_PATTERN
+    );
   });
 });
 
@@ -172,8 +195,9 @@ describe('GET /api/v2/threads/[id] — frozen contract with tool_calls populated
       expect(typeof m.content).toBe('string');
     }
     expect(body.messages[1].content).toBe('Sabr is patience.');
-    // No tool or payload key anywhere in the serialized bytes.
+    // No tool, payload, or provenance key anywhere in the serialized bytes.
     expect(raw).not.toMatch(TOOL_KEY_PATTERN);
+    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
   });
 
   it('a multi-block content still returns the block ARRAY (unchanged branch)', async () => {
@@ -207,12 +231,13 @@ describe('GET /api/v2/threads/[id] — frozen contract with tool_calls populated
 });
 
 describe('share snapshot — second serializing surface', () => {
-  it('serializes no tool or payload keys with tool_calls populated', async () => {
+  it('serializes no tool, payload, or provenance keys with the columns populated', async () => {
     await seedConversation();
     const share = await createThreadSnapshot(THREAD_ID, USER_ID);
     expect(share).toBeDefined();
     const raw = JSON.stringify(share!.content);
     expect(raw).not.toMatch(TOOL_KEY_PATTERN);
+    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
     expect(share!.content.messages.map((m) => Object.keys(m))).toEqual([
       ['role', 'content', 'createdAt'],
       ['role', 'content', 'createdAt'],

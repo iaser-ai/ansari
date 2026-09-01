@@ -136,6 +136,8 @@ beforeAll(async () => {
       total_tokens integer,
       raw_payload jsonb,
       tool_calls jsonb,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE tool_call_orphans (
@@ -145,6 +147,8 @@ beforeAll(async () => {
       source text,
       client text,
       tool_calls jsonb NOT NULL,
+      model_provider text,
+      model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE shares (
