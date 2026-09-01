@@ -21,6 +21,13 @@ pnpm install --ignore-workspace   # see note below — the flag matters
 pnpm start                        # expo start
 ```
 
+Or, from the repo root, use the convenience alias — it runs the `--ignore-workspace`
+install (a fast no-op once `node_modules` is current) and then `expo start` for you:
+
+```bash
+pnpm prototype
+```
+
 Then: **register a new account → you're signed in → ask a question → the answer streams
 in → open History to see the thread → Log out → log in again → the thread is still there.**
 
