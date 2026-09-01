@@ -21,6 +21,9 @@ beforeEach(() => {
   // Start from a clean, known-good baseline.
   delete process.env.ACCESS_TOKEN_EXPIRY_HOURS;
   delete process.env.REFRESH_TOKEN_EXPIRY_HOURS;
+  delete process.env.INKLING_MODEL;
+  delete process.env.INKLING_MAX_TOKENS;
+  delete process.env.INKLING_TIMEOUT_MS;
   for (const [k, v] of Object.entries(REQUIRED_ENV)) process.env[k] = v;
   resetEnvCache();
 });
@@ -79,6 +82,91 @@ describe('config env validation', () => {
     delete process.env.DATABASE_URL;
     resetEnvCache();
     expect(() => getEnv()).toThrow(/Environment validation failed/);
+  });
+});
+
+// Issue #90: Inkling model id, completion cap, and timeout are env-overridable
+// through config, defaulting to the previously hardcoded values. The max_tokens
+// (8192–32768) and timeout (30000–600000) windows are enforced at parse —
+// out-of-window values fail loudly, no clamping — because a cap below 8K lets
+// Inkling's hidden reasoning pass starve the visible answer (see
+// inkling-client.ts header).
+describe('config.inkling (issue #90)', () => {
+  it('defaults to the previously hardcoded model, max_tokens, and timeout when unset', () => {
+    expect(config.inkling.model).toBe('thinkingmachines/Inkling');
+    expect(config.inkling.maxTokens).toBe(8192);
+    expect(config.inkling.timeoutMs).toBe(180000);
+  });
+
+  it('INKLING_MODEL flows through config (tinker:// LoRA id)', () => {
+    process.env.INKLING_MODEL =
+      'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final';
+    resetEnvCache();
+    expect(config.inkling.model).toBe(
+      'tinker://ac84a01f-1cbb-55b0-80f4-f9f2b6e3df99:train:0/sampler_weights/final'
+    );
+  });
+
+  it('rejects an empty INKLING_MODEL', () => {
+    process.env.INKLING_MODEL = '';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/INKLING_MODEL must not be empty/);
+  });
+
+  it('accepts INKLING_MAX_TOKENS at both window edges', () => {
+    process.env.INKLING_MAX_TOKENS = '32768';
+    resetEnvCache();
+    expect(config.inkling.maxTokens).toBe(32768);
+
+    process.env.INKLING_MAX_TOKENS = '8192';
+    resetEnvCache();
+    expect(config.inkling.maxTokens).toBe(8192);
+  });
+
+  it('rejects INKLING_MAX_TOKENS below the window (8191) — fail fast, no clamping', () => {
+    process.env.INKLING_MAX_TOKENS = '8191';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/8192-32768/);
+  });
+
+  it('rejects INKLING_MAX_TOKENS above the window (32769) — fail fast, no clamping', () => {
+    process.env.INKLING_MAX_TOKENS = '32769';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/8192-32768/);
+  });
+
+  it('rejects a non-integer INKLING_MAX_TOKENS', () => {
+    process.env.INKLING_MAX_TOKENS = '9000.5';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/must be an integer/);
+  });
+
+  it('INKLING_TIMEOUT_MS flows through config, accepted at both window edges', () => {
+    process.env.INKLING_TIMEOUT_MS = '600000';
+    resetEnvCache();
+    expect(config.inkling.timeoutMs).toBe(600000);
+
+    process.env.INKLING_TIMEOUT_MS = '30000';
+    resetEnvCache();
+    expect(config.inkling.timeoutMs).toBe(30000);
+  });
+
+  it('rejects INKLING_TIMEOUT_MS below the window (29999) — fail fast, no clamping', () => {
+    process.env.INKLING_TIMEOUT_MS = '29999';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/30000-600000/);
+  });
+
+  it('rejects INKLING_TIMEOUT_MS above the window (600001) — fail fast, no clamping', () => {
+    process.env.INKLING_TIMEOUT_MS = '600001';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/30000-600000/);
+  });
+
+  it('rejects a non-integer INKLING_TIMEOUT_MS', () => {
+    process.env.INKLING_TIMEOUT_MS = '90000.5';
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/must be an integer/);
   });
 });
 

@@ -16,7 +16,7 @@ import {
   type GeminiStreamEvent,
   type GeminiUsageMetadata,
 } from '../ai/gemini-client';
-import { streamInkling, isInklingConfigured, INKLING_MODEL } from '../ai/inkling-client';
+import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
@@ -566,8 +566,14 @@ export async function* runFacilitator(
         history: synthesisHistory,
         timeoutMs: remainingMs,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling('', synthesisOptions)
+        ? streamInkling('', {
+            ...synthesisOptions,
+            timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
+          })
         : streamGemini('', synthesisOptions);
       for await (const event of stream) {
         if (event.type === 'text') {
@@ -650,8 +656,14 @@ export async function* runFacilitator(
         tools,
         timeoutMs: remainingToSoft,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling(currentQuery, callOptions)
+        ? streamInkling(currentQuery, {
+            ...callOptions,
+            timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
+          })
         : streamGemini(currentQuery, callOptions);
 
       const toolCallsCollected: GeminiToolCall[] = [];
@@ -741,7 +753,7 @@ export async function* runFacilitator(
             iterations,
             toolCallCount: tracker.history.length,
             emptyFinalRetries,
-            model: useInklingRung ? INKLING_MODEL : primaryModel,
+            model: useInklingRung ? config.inkling.model : primaryModel,
           };
           if (RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason) && emptyFinalRetries < maxRetries) {
             emptyFinalRetries++;
@@ -764,7 +776,7 @@ export async function* runFacilitator(
             }
             const retrySummary = {
               ...summary,
-              nextModel: useInklingRung ? INKLING_MODEL : primaryModel,
+              nextModel: useInklingRung ? config.inkling.model : primaryModel,
             };
             console.warn('[facilitator] empty final completion — retrying', retrySummary);
             Sentry.captureMessage('facilitator empty final completion (retrying)', {
