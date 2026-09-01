@@ -96,5 +96,35 @@ BARE labels (not the backend's 'Quran search' TOOL_LABELS, which don't fit "Sear
 and that their message top was truncated — offered to switch wording if they meant the friendly
 labels.
 
-Next: wait for architect to present dev-approval gate / relay human approval. Do NOT run porch
-approve myself.
+dev-approval GRANTED by human (relayed by architect 2026-09-01T22:15Z; architect verified
+displayTool live against staging — "Searching quran for…"). Ran porch approve dev-approval.
+
+## Phase: REVIEW (iteration 1)
+- Wrote codev/reviews/65-prototypes-ansari-expo-render-.md (PR body): summary/problem+fix,
+  files, commits, test results incl. negative + progressive test lists, hard-constraint check
+  outputs, reviewer-vs-builder verification split, trace display-name fix note, things-to-look-at.
+- Arch: no changes (client-only prototype render). Lessons: added COLD section to
+  lessons-learned.md (issue #65: render-vs-transport; synthetic→persisted stable per-turn key;
+  pre-validation onEvent artifact) + synced hot-tier map in lessons-critical.md.
+- Committed (0a9cbc9), pushed. Opened PR #108 --base develop (Fixes #65 present).
+  porch done --pr 108 recorded; porch done 65 → checks passed → 3-way consult tasks.
+- Running consult -m gemini/codex/claude (impl) in background (task b4odkiqoi). Single advisory
+  pass (max_iterations 1); verdicts surface to human at pr gate.
+
+Consults done: Gemini APPROVE, Codex COMMENT, Claude REQUEST_CHANGES.
+- Claude REQUEST_CHANGES (blocking, doc-only, VALID — real miss): lib/api/streaming.ts still had
+  #63's buffer-until-done 'PROTOTYPE LIMITATION' docstring (L19/L28-32/L86) contradicting the new
+  README + plan's 'fix everywhere'. FIXED: rewrote docstring + onEvent comment + fallback comment.
+- Codex COMMENT (VALID): traceReducer matched earliest-pending regardless of tool. FIXED: match by
+  tool w/ earliest-pending fallback; added out-of-order + name-mismatch tests.
+- 3 non-blocking Claude notes captured in review Things-to-Look-At (budget-skipped tool -> 'no X
+  found' w/ no backend skip signal; per-delta re-parse -> added iOS long-answer jank check;
+  sentAtCount ?? 0 fallback).
+Fixes in 0beebf5 (pushed, PR #108 body refreshed). typecheck clean; pnpm test 95 passed.
+Wrote rebuttal (65-review-iter1-rebuttals.md), porch done -> pr gate PENDING.
+Messaged architect leading with the REQUEST_CHANGES.
+
+## Phase: PR GATE (pending)
+Holding. main runs integration review; human merges on GitHub. Do NOT run porch approve myself.
+On approval relay: porch approve 65 pr --a-human-explicitly-approved-this, then porch done
+--merged 108, then enter verify phase / notify architect complete.
