@@ -55,3 +55,13 @@ editing, confirm what revision is actually running — twice in one day.
   not conclusive. If Gemini-primary compliance matters for prod, worth a separate
   spot-check post-merge; the issue's acceptance was defined on the weak Gemma
   primary only.
+
+## 2026-09-01 — STAND-DOWN (owner decision, via architect)
+
+- #98/#101 will NOT ship. Rationale: the fabrication evidence was Gemma-only, and
+  Gemma was a benchmark subject, not an Ansari candidate; the real candidates
+  (Inkling-Small, Gemini) verify scripture reliably without the push.
+- PR #101 closed WITHOUT merging. Branch `builder/air-98` remains pushed on origin
+  as the fortified-prompt artifact for any future weak-model eval — battery-proven
+  (19/19 tool invocation on Gemma sft-dpo), shelved, not discarded.
+- Local eval server (port 3001) stopped. Architect closes the issue and cleans up.
