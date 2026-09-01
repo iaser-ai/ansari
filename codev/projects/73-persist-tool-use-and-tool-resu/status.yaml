@@ -1,7 +1,7 @@
 id: '73'
 title: persist-tool-use-and-tool-resu
 protocol: spir
-phase: verify
+phase: verified
 plan_phases:
   - id: phase_1
     title: Schema, migration 0005, and DB helpers
@@ -34,7 +34,7 @@ iteration: 1
 build_complete: true
 history: []
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-09-01T12:02:38.578Z'
+updated_at: '2026-09-01T12:02:40.423Z'
 pr_history:
   - phase: review
     pr_number: 89
