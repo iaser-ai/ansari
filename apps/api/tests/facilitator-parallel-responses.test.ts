@@ -77,6 +77,20 @@ vi.mock('@sentry/nextjs', () => ({
   addBreadcrumb: vi.fn(),
 }));
 
+// The agent now consults config.primaryBackend at request start (issue #95);
+// these suites run without env vars, so the real config would throw on access.
+vi.mock('@/lib/config', () => ({
+  config: {
+    get primaryBackend() {
+      return 'gemini';
+    },
+    get gemini() {
+      return { model: 'primary-model', fallbackModel: 'fallback-model' };
+    },
+  },
+}));
+
+
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn((message: string, options: { history?: HistoryContent[] }) => {
     // Snapshot the history: the agent mutates the same array across iterations.

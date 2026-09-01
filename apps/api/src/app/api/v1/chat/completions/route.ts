@@ -288,10 +288,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       'model_not_found'
     );
   }
-  const provider = requestedModel === INKLING_MODEL_ID ? ('inkling' as const) : ('gemini' as const);
+  // 'ansari-facilitator-inkling' forces Inkling; the default id follows the
+  // env-gated PRIMARY_BACKEND switch (issue #95) — under PRIMARY_BACKEND=inkling
+  // no request on this server touches Gemini at all.
+  const provider =
+    requestedModel === INKLING_MODEL_ID ? ('inkling' as const) : config.primaryBackend;
   if (provider === 'inkling' && !isInklingConfigured()) {
     return openAIError(
-      `Model '${INKLING_MODEL_ID}' is not configured on this server (TINKER_API_KEY unset).`,
+      `Model '${INKLING_MODEL_ID}' is not configured on this server (INKLING_API_KEY/TINKER_API_KEY unset).`,
       503,
       'server_error',
       'inkling_not_configured'

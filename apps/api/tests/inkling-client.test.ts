@@ -14,7 +14,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *  - fail-fast on HTTP errors, malformed args, and a missing key.
  */
 
-const h = vi.hoisted(() => ({ apiKey: 'test-tinker-key' as string | undefined }));
+const DEFAULT_INKLING_URL =
+  'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions';
+
+const h = vi.hoisted(() => ({
+  apiKey: 'test-tinker-key' as string | undefined,
+  baseUrl:
+    'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions',
+}));
 
 vi.mock('@sentry/nextjs', () => ({
   addBreadcrumb: vi.fn(),
@@ -25,7 +32,7 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('@/lib/config', () => ({
   config: {
     get inkling() {
-      return { apiKey: h.apiKey };
+      return { apiKey: h.apiKey, baseUrl: h.baseUrl };
     },
   },
 }));
@@ -90,6 +97,7 @@ function doneOf(events: GeminiStreamEvent[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.apiKey = 'test-tinker-key';
+  h.baseUrl = DEFAULT_INKLING_URL;
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -180,6 +188,17 @@ describe('streamInkling', () => {
       { role: 'user', content: 'hello' },
     ]);
     expect(body.tools).toBeUndefined();
+  });
+
+  it('sends the request to config.inkling.baseUrl when repointed (issue #95)', async () => {
+    h.baseUrl = 'https://example--gemma-checkpoint.modal.run/v1/chat/completions';
+    fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
+
+    await collect(streamInkling('hello'));
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://example--gemma-checkpoint.modal.run/v1/chat/completions'
+    );
   });
 
   it('never leaks reasoning_content into the stream, text, or rawPayload', async () => {

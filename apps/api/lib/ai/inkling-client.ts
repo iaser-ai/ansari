@@ -34,8 +34,11 @@ import type {
 import type { GeminiTool } from '../tools/types';
 
 export const INKLING_MODEL = 'thinkingmachines/Inkling';
-const INKLING_API_URL =
-  'https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/chat/completions';
+// The endpoint comes from config.inkling.baseUrl (issue #95): default is the
+// Tinker prod URL; INKLING_BASE_URL points this client at any other
+// OpenAI-compatible /chat/completions endpoint (eval checkpoints on Modal,
+// exported LoRAs) — used both for the fallback rungs and, under
+// PRIMARY_BACKEND=inkling, for the primary path.
 // See header: must be 8–16K so the hidden reasoning pass cannot starve the
 // visible answer. Matches the evaluated BATIK configuration.
 const INKLING_MAX_TOKENS = 8192;
@@ -53,17 +56,17 @@ export interface InklingCallOptions {
 let warnedUnconfigured = false;
 
 /**
- * True when Inkling can run. An unset TINKER_API_KEY is the one supported
- * "disabled" state (issues #74/#79): the ladder rung and the terminal-error
- * rescue are both skipped cleanly and the absence is logged once per process,
- * not per request.
+ * True when Inkling can run. An unset key (neither INKLING_API_KEY nor its
+ * TINKER_API_KEY fallback) is the one supported "disabled" state (issues
+ * #74/#79): the ladder rung and the terminal-error rescue are both skipped
+ * cleanly and the absence is logged once per process, not per request.
  */
 export function isInklingConfigured(): boolean {
   const configured = !!config.inkling.apiKey;
   if (!configured && !warnedUnconfigured) {
     warnedUnconfigured = true;
     console.warn(
-      '[inkling] TINKER_API_KEY not set — Inkling fallback rung and error rescue disabled'
+      '[inkling] INKLING_API_KEY/TINKER_API_KEY not set — Inkling fallback rung and error rescue disabled'
     );
   }
   return configured;
@@ -315,9 +318,9 @@ export async function* streamInkling(
   message: string,
   options: InklingCallOptions = {}
 ): AsyncGenerator<GeminiStreamEvent> {
-  const apiKey = config.inkling.apiKey;
+  const { apiKey, baseUrl } = config.inkling;
   if (!apiKey) {
-    throw new Error('[inkling] TINKER_API_KEY is not set — cannot call Inkling');
+    throw new Error('[inkling] INKLING_API_KEY/TINKER_API_KEY is not set — cannot call Inkling');
   }
 
   const body: Record<string, unknown> = {
@@ -343,7 +346,7 @@ export async function* streamInkling(
   );
 
   try {
-    const res = await fetch(INKLING_API_URL, {
+    const res = await fetch(baseUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

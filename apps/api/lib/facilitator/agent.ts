@@ -326,11 +326,13 @@ export async function* runFacilitator(
     /**
      * Model provider for the whole request (issue #74 scope amendment).
      * 'inkling' runs EVERY call of the request — all tool-loop iterations,
-     * continuations, and the synthesis pass — on thinkingmachines/Inkling,
-     * with no Gemini fallback of any kind: if Inkling fails, the request
-     * fails loudly (benchmark integrity for the leaderboard adapter's
-     * 'ansari-facilitator-inkling' model id). Default 'gemini' keeps Gemini
-     * primary with Inkling only as the final empty-final ladder rung.
+     * continuations, and the synthesis pass — on the OpenAI-compatible
+     * Inkling client, with no Gemini fallback of any kind: if Inkling fails,
+     * the request fails loudly (benchmark integrity for the leaderboard
+     * adapter's 'ansari-facilitator-inkling' model id). When omitted, the
+     * env-gated PRIMARY_BACKEND switch decides (issue #95): 'gemini' by
+     * default — Gemini primary with Inkling only as the final empty-final
+     * ladder rung and the #79 rescue.
      */
     provider?: 'gemini' | 'inkling';
   }
@@ -371,10 +373,15 @@ export async function* runFacilitator(
   // by the empty-final ladder's second rung or by the terminal-error rescue below — every
   // later call in the request (tool loop and synthesis alike) stays on Inkling, because
   // either engagement means Gemini has already failed this request and must not be
-  // re-asked. Seeded true when the caller forces provider 'inkling' (leaderboard
-  // adapter): then no Gemini call is ever made and any Inkling failure surfaces loudly
-  // instead of degrading the benchmark.
-  let useInklingRung = options?.provider === 'inkling';
+  // re-asked. Seeded true when the request's provider resolves to 'inkling' — an
+  // explicit caller option (leaderboard adapter) wins, else the env-gated
+  // PRIMARY_BACKEND switch (issue #95, default 'gemini'): then no Gemini call is ever
+  // made and any Inkling failure surfaces loudly instead of degrading the benchmark.
+  // Seeding also inherently short-circuits the #79 terminal-error rescue below (its
+  // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
+  // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
+  // ladder still applies, as same-model (Inkling) retries.
+  let useInklingRung = (options?.provider ?? config.primaryBackend) === 'inkling';
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;

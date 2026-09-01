@@ -58,6 +58,27 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 | `GEMINI_MODEL` | `gemini-3.1-pro-preview` | Primary model |
 | `GEMINI_FALLBACK_MODEL` | `gemini-3.1-pro-preview` | Used only when the primary exhausts retries on transient (e.g. 429 shared-capacity) errors; draws on a separate capacity pool |
 
+### Primary backend switch (⚠️ experimental — NOT a supported production configuration)
+
+`PRIMARY_BACKEND=inkling` routes **every** facilitator primary call through the
+OpenAI-compatible Inkling client instead of Gemini — the whole request (tool loop,
+continuations, synthesis) runs against `INKLING_BASE_URL`, and Gemini is never
+called. This is an experimentation escape hatch for benchmark/eval runs and
+externally hosted checkpoints (e.g. exported LoRAs); do **not** run production
+traffic on it. The default (`gemini`, or the variable unset) is byte-identical to
+the pre-switch behavior.
+
+Under `PRIMARY_BACKEND=inkling`, the terminal-error rescue rung (which rescues a
+failed *Gemini* call on Inkling) is inherently disabled — an Inkling-primary
+failure surfaces loudly instead of being "rescued" by the same backend. The
+empty-final retry ladder still applies as same-model retries.
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `PRIMARY_BACKEND` | `gemini` | `gemini` \| `inkling`. Validation fails at startup when set to `inkling` without an API key (below) |
+| `INKLING_BASE_URL` | the Tinker prod `/chat/completions` URL | Full URL of any OpenAI-compatible `/chat/completions` endpoint. Also used by the fallback rungs |
+| `INKLING_API_KEY` | unset | Bearer token for `INKLING_BASE_URL`; falls back to `TINKER_API_KEY` when unset |
+
 ### Optional / defaulted
 
 | Variable | Default | Notes |
@@ -66,6 +87,7 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 | `REFRESH_TOKEN_EXPIRY_HOURS` | `2160` | Refresh-token lifetime (90 days) |
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |
 | `ADMIN_EMAILS` | empty | Comma-separated addresses that are **reserved** (public registration of them is refused) and **asserted at production boot** to already exist as admins. It does **not** grant admin on its own — admin access is gated on the durable `users.is_admin` DB flag. See the admin-provisioning note below. |
+| `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex fallback rung and terminal-error rescue (issues #74/#79). When unset (and `INKLING_API_KEY` too), both are skipped cleanly |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
