@@ -1,7 +1,7 @@
 id: '73'
 title: persist-tool-use-and-tool-resu
 protocol: spir
-phase: review
+phase: verify
 plan_phases:
   - id: phase_1
     title: Schema, migration 0005, and DB helpers
@@ -29,42 +29,10 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
-history:
-  - iteration: 1
-    plan_phase: phase_2
-    build_output: ''
-    reviews:
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-gemini.txt
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-codex.txt
-      - model: claude
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_2-iter1-claude.txt
-  - iteration: 1
-    plan_phase: phase_3
-    build_output: ''
-    reviews:
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-gemini.txt
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-codex.txt
-      - model: claude
-        verdict: APPROVE
-        file: >-
-          /Users/mwk/Development/iaser/ansari/.builders/spir-73/codev/projects/73-persist-tool-use-and-tool-resu/73-phase_3-iter1-claude.txt
+build_complete: false
+history: []
 started_at: '2026-08-30T06:03:47.655Z'
-updated_at: '2026-09-01T04:09:58.042Z'
+updated_at: '2026-09-01T04:10:11.358Z'
 pr_history:
   - phase: review
     pr_number: 89
