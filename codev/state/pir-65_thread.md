@@ -76,4 +76,25 @@ Design note for reviewer: trace is hidden once the first text frame lands (issue
 indicator only until the first text frame"), so tool calls interleaved AFTER text begins don't
 re-show the trace — documented simplification, fine for a prototype.
 
-Next: push, porch done, dev-approval gate, message architect.
+Pushed (90457b3), porch done → dev-approval gate. Messaged architect with proved-by-me vs
+proved-by-reviewer split.
+
+### dev-approval feedback iteration 1 (architect)
+Architect message arrived TRUNCATED on my end — only saw the tail: "...ed search_ prefix,
+GENERIC_TOOL path unchanged; unit-test the mapping incl. an unknown tool name. Commit, re-run
+tests/tsc, message me the SHA — then I present the gate." Recovered intent by reading the
+backend: facilitator tools are named search_quran / search_hadith / search_mawsuah /
+search_tafsir_encyclopedia (apps/api/lib/tools/resilience.ts TOOL_LABELS; tool_call {name},
+tool_result {tool,query,resultCount}). Without mapping the trace would read "Searching
+search_hadith…".
+
+Implemented displayTool() in lib/chat-trace.ts: strip 'search_' prefix + flatten underscores,
+lowercase → bare inline labels (quran/hadith/mawsuah/tafsir encyclopedia). Unknown/unprefixed
+id passes through; absent/empty keeps GENERIC_TOOL ('the sources'). Unit-tested incl. unknown id.
+SHA 29a6909 pushed. typecheck clean; pnpm test 93 passed (+4). Flagged to architect that I used
+BARE labels (not the backend's 'Quran search' TOOL_LABELS, which don't fit "Searching X for…"),
+and that their message top was truncated — offered to switch wording if they meant the friendly
+labels.
+
+Next: wait for architect to present dev-approval gate / relay human approval. Do NOT run porch
+approve myself.
