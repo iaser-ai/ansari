@@ -65,7 +65,7 @@ API** via `GEMINI_API_KEY`. One of the two must be configured or chat requests f
 | `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex backup (empty-final retry ladder rung + terminal-error rescue). When unset, both are skipped cleanly |
 | `INKLING_MODEL` | `thinkingmachines/Inkling` | Which Inkling model the backup requests — e.g. a fine-tuned LoRA via a `tinker://...` sampler-weights id |
 | `INKLING_MAX_TOKENS` | `8192` | Inkling completion cap (budgets thinking+answer). Must be within 8192–32768: below 8K the hidden reasoning pass starves the visible answer. Out-of-window values fail validation (no clamping) |
-| `INKLING_TIMEOUT_MS` | `180000` | Per-call timeout backstop for Inkling requests when the caller passes none. Must be within 30000–600000; out-of-window values fail validation (no clamping) |
+| `INKLING_TIMEOUT_MS` | `180000` | Per-call timeout for Inkling requests: the default when a caller passes no timeout, and a cap on the facilitator's budget-derived Inkling call timeouts (`min(remaining request budget, this value)`) — it can shorten Inkling calls, never lengthen them past the request budget. Must be within 30000–600000; out-of-window values fail validation (no clamping) |
 | `ACCESS_TOKEN_EXPIRY_HOURS` | `2` | JWT access-token lifetime |
 | `REFRESH_TOKEN_EXPIRY_HOURS` | `2160` | Refresh-token lifetime (90 days) |
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |

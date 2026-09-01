@@ -161,7 +161,7 @@ describe('streamInkling', () => {
     });
   });
 
-  it('sends the right request: endpoint, bearer auth, max_tokens 8–16K, temperature 0, stream', async () => {
+  it('sends the right request: endpoint, bearer auth, in-window max_tokens, temperature 0, stream', async () => {
     fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
 
     await collect(streamInkling('hello', { systemPrompt: 'SYS' }));
@@ -175,7 +175,7 @@ describe('streamInkling', () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe('thinkingmachines/Inkling');
     // Load-bearing (#74): small max_tokens → the hidden reasoning pass starves
-    // the visible answer (null content). Must sit in the 8–16K window; the
+    // the visible answer (null content). Must sit in the 8192–32768 window; the
     // config-supplied default is exactly 8192.
     expect(body.max_tokens).toBe(8192);
     expect(body.temperature).toBe(0);

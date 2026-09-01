@@ -70,3 +70,22 @@ calls untouched; default 180s makes min() a no-op (budget is 120s). Rung tests c
 timeout wins). PR body updated with defaults (120s/25s) and recommended staging values
 (240s/60s → ~120s rescue window after a 60s hang; check the frontend-timeout invariant).
 All green: typecheck, full tests, build. Next: consult round, then gate re-request.
+
+## 2026-09-01 — consult round + develop merge
+
+CMAP (--type pr): gemini=APPROVE, claude=COMMENT (high confidence), codex=REQUEST_CHANGES.
+Actionable findings fixed:
+- Stale "8–16K window" text in inkling-client.test.ts (test name + comment) → 8192–32768.
+- self-hosting.md + .env.example now document that INKLING_TIMEOUT_MS also CAPS facilitator
+  Inkling calls via min(remaining budget, value) — it can shorten, never lengthen. (Codex.)
+- Merged origin/develop (was 47 commits behind; spec 73 rewrote agent.ts around my call
+  sites — merge clean, all four converted sites intact at 575/665/756/779). Removed the dead
+  INKLING_MODEL key from develop's new facilitator-toolcalls.test.ts inkling mock (export no
+  longer exists; harmless there since isInklingConfigured()=false, but misleading).
+- Full re-verification on the merged base: typecheck, tests (74 files, 731 passed / 3
+  pre-existing skips), build, lint (0 errors) — all green.
+Not actioned: codex's LOC concern (540 additions vs ~300 guideline) — source delta is ~50
+lines; growth is tests/docs/state from the owner-approved mid-flight scope update, which the
+architect directed explicitly. Claude's reviewer reached the same conclusion.
+Also repeating claude's operational point: INKLING_TIMEOUT_MS alone changes nothing on
+staging — the rescue-window lengthening comes from the budget knobs.
