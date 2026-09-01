@@ -55,3 +55,11 @@ text), and full unit-testability in the existing Node vitest setup.
   mid-stream partial (unclosed bold, half link) renders without crash.
 - Native (Expo Go) not verifiable headless — flagged as manual check in PR.
   Rendering uses only standard nested-Text patterns, no web-only APIs.
+
+## 2026-09-01 — PR #103 open, at pr gate
+
+PR #103 (builder/air-100 → develop) with the AIR review in the body and the RTL
+screenshot embedded (committed under codev/projects/100-*/). CMAP skipped:
+prototype-only UI, no core logic. porch checks green (pr_exists, e2e_tests).
+Waiting on human pr-gate approval. Remaining manual items noted in PR: native
+(Expo Go) visual glance, and post-merge staging verification.
