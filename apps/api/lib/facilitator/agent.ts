@@ -16,13 +16,15 @@ import {
   type GeminiStreamEvent,
   type GeminiUsageMetadata,
 } from '../ai/gemini-client';
-import { streamInkling, isInklingConfigured, INKLING_MODEL } from '../ai/inkling-client';
+import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import type { ToolResult } from '../tools/types';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
-import type { ContentBlock } from '@/db/schema/messages';
+import type { ContentBlock, ToolCallRecord, ToolResultStatus } from '@/db/schema/messages';
+
+type ToolResultRecord = Extract<ToolCallRecord, { type: 'tool_result' }>;
 
 // Maximum iterations to prevent infinite loops
 const MAX_ITERATIONS = 10;
@@ -135,6 +137,8 @@ export interface Message {
   content: ContentBlock[];
   /** Raw Gemini payload for assistant messages - preserves tool calls and thought signatures */
   rawPayload?: Content | null;
+  /** Tool dispatch records for this assistant turn (spec 73); null when no tools ran. */
+  toolCalls?: ToolCallRecord[] | null;
 }
 
 interface ToolUsageTracker {
@@ -163,37 +167,49 @@ function checkToolLimit(tracker: ToolUsageTracker, currentToolName: string): boo
 }
 
 /**
- * Process a single tool call
+ * How a dispatch resolved (spec 73). Return-typed — the persisted status is derived
+ * from this tag plus ToolResult.isDegraded, never by string-matching `content` (#54).
+ * 'limit_refused' and 'unknown_tool' never execute the tool; 'backstop_error' means
+ * the tool threw and the defense-in-depth catch degraded it.
+ */
+type ToolDispatchOutcome = 'ok' | 'limit_refused' | 'unknown_tool' | 'backstop_error';
+
+/**
+ * Process a single tool call. `toolId` is minted by the loop (spec 73) so the
+ * usage tracker and the persisted tool_use/tool_result pair share one id.
  */
 async function processToolCall(
   toolName: string,
   toolArgs: Record<string, unknown>,
-  tracker: ToolUsageTracker
-): Promise<ToolResult> {
+  tracker: ToolUsageTracker,
+  toolId: string
+): Promise<{ result: ToolResult; outcome: ToolDispatchOutcome }> {
   const toolMap = createToolMap();
 
   // Check if we hit the limit
   if (checkToolLimit(tracker, toolName)) {
     return {
-      content: 'Tool usage limit reached. Please synthesize your answer based on gathered information.',
-      documents: [
-        {
-          type: 'document',
-          source: {
-            type: 'text',
-            media_type: 'text/plain',
-            data: 'Tool usage limit reached.',
+      outcome: 'limit_refused',
+      result: {
+        content: 'Tool usage limit reached. Please synthesize your answer based on gathered information.',
+        documents: [
+          {
+            type: 'document',
+            source: {
+              type: 'text',
+              media_type: 'text/plain',
+              data: 'Tool usage limit reached.',
+            },
+            title: 'Tool Limit Notice',
+            context: 'System',
+            citations: { enabled: false },
           },
-          title: 'Tool Limit Notice',
-          context: 'System',
-          citations: { enabled: false },
-        },
-      ],
+        ],
+      },
     };
   }
 
-  // Track tool usage (generate a simple ID since Gemini doesn't use tool IDs)
-  const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  // Track tool usage
   tracker.history.push(toolName);
   tracker.callsWithArgs.push({ tool: toolName, args: toolArgs, id: toolId });
 
@@ -201,20 +217,23 @@ async function processToolCall(
   const tool = toolMap.get(toolName);
   if (!tool) {
     return {
-      content: `Unknown tool: ${toolName}`,
-      documents: [
-        {
-          type: 'document',
-          source: {
-            type: 'text',
-            media_type: 'text/plain',
-            data: `Unknown tool: ${toolName}`,
+      outcome: 'unknown_tool',
+      result: {
+        content: `Unknown tool: ${toolName}`,
+        documents: [
+          {
+            type: 'document',
+            source: {
+              type: 'text',
+              media_type: 'text/plain',
+              data: `Unknown tool: ${toolName}`,
+            },
+            title: 'Error',
+            context: 'System',
+            citations: { enabled: false },
           },
-          title: 'Error',
-          context: 'System',
-          citations: { enabled: false },
-        },
-      ],
+        ],
+      },
     };
   }
 
@@ -224,7 +243,7 @@ async function processToolCall(
   // unavailable" result rather than letting it crash or hang the facilitator loop.
   const query = toolArgs.query as string;
   try {
-    return await tool.run(query);
+    return { result: await tool.run(query), outcome: 'ok' };
   } catch (error) {
     reportDegradedTool({
       tool: toolName,
@@ -232,8 +251,50 @@ async function processToolCall(
       errorClass: 'network',
       queryLength: typeof query === 'string' ? query.length : 0,
     });
-    return unavailableResult(toolLabel(toolName));
+    return {
+      result: unavailableResult(toolLabel(toolName), { errorClass: 'network' }),
+      outcome: 'backstop_error',
+    };
   }
+}
+
+/**
+ * Build the persisted tool_result record for an executed-or-refused dispatch (spec 73).
+ * Status comes from the outcome tag + the #54 isDegraded marker; duration is null when
+ * the tool never ran (limit-refused / unknown tool). Degradation detail fields are
+ * copied only when present — a degrade without ToolFetchError detail stays bare.
+ */
+function buildToolResultRecord(
+  toolUseId: string,
+  content: Record<string, unknown>,
+  outcome: ToolDispatchOutcome,
+  result: ToolResult,
+  durationMs: number
+): ToolResultRecord {
+  let status: ToolResultStatus;
+  switch (outcome) {
+    case 'limit_refused':
+      status = 'limit_refused';
+      break;
+    case 'unknown_tool':
+      status = 'unknown_tool';
+      break;
+    default:
+      status = result.isDegraded ? 'degraded' : 'ok';
+  }
+  const executed = outcome === 'ok' || outcome === 'backstop_error';
+  const record: ToolResultRecord = {
+    type: 'tool_result',
+    tool_use_id: toolUseId,
+    content,
+    status,
+    duration_ms: executed ? durationMs : null,
+  };
+  const detail = result.degradation;
+  if (detail?.errorClass !== undefined) record.error_class = detail.errorClass;
+  if (detail?.attempts !== undefined) record.attempts = detail.attempts;
+  if (detail?.status !== undefined) record.http_status = detail.status;
+  return record;
 }
 
 export interface FacilitatorStreamEvent {
@@ -249,6 +310,14 @@ export interface FacilitatorStreamEvent {
    * never be persisted — it would 400 every later turn of the thread).
    */
   rawPayload?: Content | null;
+  /**
+   * Set on EVERY terminal event (`done` AND `error`) when the request dispatched at
+   * least one tool (spec 73): the ordered tool_use/tool_result records across all
+   * loop iterations, for the caller to persist. Absent when no tool was dispatched.
+   * Carried on `error` too so a turn that ran (degraded) tools and then failed is
+   * still counted — those are disproportionately the turns the metric exists for.
+   */
+  toolCalls?: ToolCallRecord[];
 }
 
 /**
@@ -326,17 +395,39 @@ export async function* runFacilitator(
     /**
      * Model provider for the whole request (issue #74 scope amendment).
      * 'inkling' runs EVERY call of the request — all tool-loop iterations,
-     * continuations, and the synthesis pass — on thinkingmachines/Inkling,
-     * with no Gemini fallback of any kind: if Inkling fails, the request
-     * fails loudly (benchmark integrity for the leaderboard adapter's
-     * 'ansari-facilitator-inkling' model id). Default 'gemini' keeps Gemini
-     * primary with Inkling only as the final empty-final ladder rung.
+     * continuations, and the synthesis pass — on the OpenAI-compatible
+     * Inkling client, with no Gemini fallback of any kind: if Inkling fails,
+     * the request fails loudly (benchmark integrity for the leaderboard
+     * adapter's 'ansari-facilitator-inkling' model id). When omitted, the
+     * env-gated PRIMARY_BACKEND switch decides (issue #95): 'gemini' by
+     * default — Gemini primary with Inkling only as the final empty-final
+     * ladder rung and the #79 rescue.
      */
     provider?: 'gemini' | 'inkling';
   }
 ): AsyncGenerator<FacilitatorStreamEvent> {
   const tools = getGeminiToolDescriptions();
   const tracker: ToolUsageTracker = { history: [], callsWithArgs: [] };
+
+  // Tool dispatch records for persistence (spec 73), accumulated at the LOOP level —
+  // not inside processToolCall — so budget-skipped and limit-refused calls (which
+  // never reach the tracker) are recorded too. Ids are minted here; Gemini has none.
+  const toolCallRecords: ToolCallRecord[] = [];
+  // Per-request sequence makes id uniqueness structural within a turn; the timestamp
+  // + random tail keep ids distinct across turns of the same thread.
+  let toolIdSeq = 0;
+  const recordToolUse = (name: string, input: Record<string, unknown>): string => {
+    toolIdSeq++;
+    const id = `tool_${Date.now()}_${toolIdSeq}_${Math.random().toString(36).slice(2, 7)}`;
+    toolCallRecords.push({ type: 'tool_use', id, name, input });
+    return id;
+  };
+  const recordToolResult = (record: ToolResultRecord) => {
+    toolCallRecords.push(record);
+  };
+  // Attached to every terminal yield; undefined (→ NULL at persistence) when no tool ran.
+  const collectedToolCalls = (): ToolCallRecord[] | undefined =>
+    toolCallRecords.length > 0 ? toolCallRecords : undefined;
 
   // Build initial history from messages
   let geminiHistory = convertToGeminiHistory(messageHistory);
@@ -371,10 +462,15 @@ export async function* runFacilitator(
   // by the empty-final ladder's second rung or by the terminal-error rescue below — every
   // later call in the request (tool loop and synthesis alike) stays on Inkling, because
   // either engagement means Gemini has already failed this request and must not be
-  // re-asked. Seeded true when the caller forces provider 'inkling' (leaderboard
-  // adapter): then no Gemini call is ever made and any Inkling failure surfaces loudly
-  // instead of degrading the benchmark.
-  let useInklingRung = options?.provider === 'inkling';
+  // re-asked. Seeded true when the request's provider resolves to 'inkling' — an
+  // explicit caller option (leaderboard adapter) wins, else the env-gated
+  // PRIMARY_BACKEND switch (issue #95, default 'gemini'): then no Gemini call is ever
+  // made and any Inkling failure surfaces loudly instead of degrading the benchmark.
+  // Seeding also inherently short-circuits the #79 terminal-error rescue below (its
+  // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
+  // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
+  // ladder still applies, as same-model (Inkling) retries.
+  let useInklingRung = (options?.provider ?? config.primaryBackend) === 'inkling';
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
@@ -477,8 +573,14 @@ export async function* runFacilitator(
         history: synthesisHistory,
         timeoutMs: remainingMs,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling('', synthesisOptions)
+        ? streamInkling('', {
+            ...synthesisOptions,
+            timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
+          })
         : streamGemini('', synthesisOptions);
       for await (const event of stream) {
         if (event.type === 'text') {
@@ -492,7 +594,7 @@ export async function* runFacilitator(
       console.error('Facilitator synthesis error:', error);
       Sentry.captureException(error);
       logShortCircuit('error');
-      yield { type: 'error', data: BUDGET_ERROR_MESSAGE };
+      yield { type: 'error', data: BUDGET_ERROR_MESSAGE, toolCalls: collectedToolCalls() };
       return;
     }
 
@@ -506,7 +608,7 @@ export async function* runFacilitator(
     // shipped as a successful `done`.
     if (!synthResponse || classifyDegenerateFinal(synthText) !== null) {
       logShortCircuit('error');
-      yield { type: 'error', data: BUDGET_ERROR_MESSAGE };
+      yield { type: 'error', data: BUDGET_ERROR_MESSAGE, toolCalls: collectedToolCalls() };
       return;
     }
 
@@ -521,10 +623,17 @@ export async function* runFacilitator(
         role: 'assistant',
         content: [{ type: 'text', text: synthText }],
         rawPayload: persistablePayload,
+        toolCalls: collectedToolCalls() ?? null,
       });
     }
     logShortCircuit('done');
-    yield { type: 'done', data: '', usage: totalUsage, rawPayload: persistablePayload };
+    yield {
+      type: 'done',
+      data: '',
+      usage: totalUsage,
+      rawPayload: persistablePayload,
+      toolCalls: collectedToolCalls(),
+    };
   };
 
   while (iterations < MAX_ITERATIONS) {
@@ -554,8 +663,14 @@ export async function* runFacilitator(
         tools,
         timeoutMs: remainingToSoft,
       };
+      // Layering (issue #90): the budget owns the request deadline,
+      // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
+      // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling(currentQuery, callOptions)
+        ? streamInkling(currentQuery, {
+            ...callOptions,
+            timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
+          })
         : streamGemini(currentQuery, callOptions);
 
       const toolCallsCollected: GeminiToolCall[] = [];
@@ -632,8 +747,11 @@ export async function* runFacilitator(
         if (degenerateKind) {
           const finishReason = response.finishReason ?? 'MISSING';
           // Read lazily — this branch only runs on a degenerate final, so the config
-          // getter is never touched on the healthy path.
-          const primaryModel = config.gemini.model;
+          // getter is never touched on the healthy path. Under inkling-primary (#95)
+          // config.gemini is never read AT ALL: on an inkling-only deployment (no
+          // Gemini credentials) that getter throws, which would break the documented
+          // same-model retry.
+          const currentModel = useInklingRung ? config.inkling.model : config.gemini.model;
           // Rung 2 (#74/#79) runs on Inkling's separate (non-Vertex) infrastructure;
           // without TINKER_API_KEY the ladder is the single same-model retry.
           const inklingAvailable = isInklingConfigured();
@@ -645,7 +763,7 @@ export async function* runFacilitator(
             iterations,
             toolCallCount: tracker.history.length,
             emptyFinalRetries,
-            model: useInklingRung ? INKLING_MODEL : primaryModel,
+            model: currentModel,
           };
           if (RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason) && emptyFinalRetries < maxRetries) {
             emptyFinalRetries++;
@@ -668,7 +786,7 @@ export async function* runFacilitator(
             }
             const retrySummary = {
               ...summary,
-              nextModel: useInklingRung ? INKLING_MODEL : primaryModel,
+              nextModel: useInklingRung ? config.inkling.model : currentModel,
             };
             console.warn('[facilitator] empty final completion — retrying', retrySummary);
             Sentry.captureMessage('facilitator empty final completion (retrying)', {
@@ -685,6 +803,7 @@ export async function* runFacilitator(
           yield {
             type: 'error',
             data: finishReason === 'SAFETY' ? SAFETY_BLOCKED_ERROR_MESSAGE : EMPTY_ANSWER_ERROR_MESSAGE,
+            toolCalls: collectedToolCalls(),
           };
           return;
         }
@@ -705,10 +824,17 @@ export async function* runFacilitator(
             role: 'assistant',
             content: assistantContent,
             rawPayload: persistablePayload, // Preserve for multi-turn conversations
+            toolCalls: collectedToolCalls() ?? null,
           });
         }
 
-        yield { type: 'done', data: '', usage: totalUsage, rawPayload: persistablePayload };
+        yield {
+          type: 'done',
+          data: '',
+          usage: totalUsage,
+          rawPayload: persistablePayload,
+          toolCalls: collectedToolCalls(),
+        };
         return;
       }
 
@@ -760,16 +886,33 @@ export async function* runFacilitator(
             content: 'Skipped: request time budget reached before this tool was called.',
             documents: [],
           };
+          const skippedResponse = formatToolResultForGemini(tc.name, skipped);
+          // Never executed, recorded anyway (spec 73): a skipped call belongs in the
+          // reliability denominator, distinguishable by status + which trigger skipped it.
+          const skippedId = recordToolUse(tc.name, tc.args);
+          recordToolResult({
+            type: 'tool_result',
+            tool_use_id: skippedId,
+            content: skippedResponse,
+            status: 'budget_skipped',
+            duration_ms: null,
+            skip_trigger: shortCircuitTrigger,
+          });
           responseParts.push({
             functionResponse: {
               name: tc.name,
-              response: formatToolResultForGemini(tc.name, skipped),
+              response: skippedResponse,
             },
           });
           continue;
         }
 
-        const result = await processToolCall(tc.name, tc.args, tracker);
+        const toolId = recordToolUse(tc.name, tc.args);
+        const dispatchedAt = Date.now();
+        const { result, outcome } = await processToolCall(tc.name, tc.args, tracker, toolId);
+        const durationMs = Date.now() - dispatchedAt;
+        const geminiResponse = formatToolResultForGemini(tc.name, result);
+        recordToolResult(buildToolResultRecord(toolId, geminiResponse, outcome, result, durationMs));
 
         yield {
           type: 'tool_result',
@@ -783,7 +926,7 @@ export async function* runFacilitator(
         responseParts.push({
           functionResponse: {
             name: tc.name,
-            response: formatToolResultForGemini(tc.name, result),
+            response: geminiResponse,
           },
         });
 
@@ -873,6 +1016,7 @@ export async function* runFacilitator(
       yield {
         type: 'error',
         data: error instanceof Error ? error.message : 'Unknown error',
+        toolCalls: collectedToolCalls(),
       };
       return;
     }
@@ -882,5 +1026,6 @@ export async function* runFacilitator(
   yield {
     type: 'error',
     data: 'Maximum iterations reached',
+    toolCalls: collectedToolCalls(),
   };
 }

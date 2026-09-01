@@ -1,13 +1,51 @@
 import { eq, and, desc } from 'drizzle-orm';
+import * as Sentry from '@sentry/nextjs';
 import { db, type Executor } from './index';
 import {
   threads,
   messages,
+  toolCallOrphans,
   type Thread,
   type NewThread,
   type Message,
   type NewMessage,
+  type ToolCallOrphan,
+  type NewToolCallOrphan,
+  type ToolCallRecord,
 } from '@/db/schema';
+
+/**
+ * Message row as returned by the thread-listing read helpers
+ * (findMessagesByThread / getThreadWithMessages): every column EXCEPT
+ * `tool_calls` (spec 73). The projection is structural contract safety — the
+ * thread GET, share snapshot, and history-replay paths all read through these
+ * helpers and never select the tool records, so the frozen API shape cannot
+ * leak them — and avoids detoasting ~7 KB median of jsonb per assistant row on
+ * every turn's history load just to discard it. The single-message lookups
+ * (findMessageById / findMessageInOwnedThread) still return full rows; they
+ * feed feedback ownership checks, not API serialization. Analytics reads
+ * select from `messages` directly.
+ */
+export type MessageRow = Omit<Message, 'toolCalls'>;
+
+// Explicit projection for the read helpers. Adding a column to the schema does
+// NOT add it here — that is the point; extend deliberately.
+const messageReadColumns = {
+  id: messages.id,
+  threadId: messages.threadId,
+  role: messages.role,
+  content: messages.content,
+  agentName: messages.agentName,
+  source: messages.source,
+  client: messages.client,
+  inputTokens: messages.inputTokens,
+  outputTokens: messages.outputTokens,
+  thinkingTokens: messages.thinkingTokens,
+  totalTokens: messages.totalTokens,
+  // raw_payload stays: turn-2+ history replay needs it (issue #70).
+  rawPayload: messages.rawPayload,
+  createdAt: messages.createdAt,
+};
 
 // Every helper takes a trailing `exec` (issue #20) so callers can compose
 // multi-step writes — including reads that must see uncommitted writes — into
@@ -86,9 +124,9 @@ export async function deleteThread(id: string, userId: string, exec: Executor = 
 
 // Message operations
 
-export async function findMessagesByThread(threadId: string, exec: Executor = db): Promise<Message[]> {
+export async function findMessagesByThread(threadId: string, exec: Executor = db): Promise<MessageRow[]> {
   return exec
-    .select()
+    .select(messageReadColumns)
     .from(messages)
     .where(eq(messages.threadId, threadId))
     .orderBy(messages.createdAt);
@@ -103,6 +141,67 @@ export async function createMessage(data: NewMessage, exec: Executor = db): Prom
 
   const result = await exec.insert(messages).values(data).returning();
   return result[0];
+}
+
+/**
+ * Persist tool dispatch records for a turn that produced NO assistant message
+ * row (spec 73): facilitator error, empty final, or mcp-complete's 502.
+ *
+ * Unlike createMessage, this must NOT touch threads.updatedAt: an orphan write
+ * is bookkeeping for a failed turn, and a bumped updated_at would change the
+ * thread GET response — the write must be invisible in thread metadata too.
+ *
+ * Deployment assumption: the streaming routes call this AFTER safeClose(), i.e.
+ * as post-response work inside the ReadableStream body. That relies on the
+ * long-lived Node runtime (Railway) not tearing the request down on close — the
+ * same assumption the heartbeat teardown in those routes' `finally` already
+ * makes. An edge/serverless runtime that freezes on response end would drop it.
+ */
+export async function createToolCallOrphan(
+  data: NewToolCallOrphan,
+  exec: Executor = db
+): Promise<ToolCallOrphan> {
+  const result = await exec.insert(toolCallOrphans).values(data).returning();
+  return result[0];
+}
+
+/**
+ * Route-facing wrapper for the error/empty-final paths (spec 73): persist the
+ * turn's tool records as an orphan row, or nothing when the turn dispatched no
+ * tools. Never throws — a bookkeeping failure must not mask or delay the
+ * user-facing error already on the wire — and logs only {name, code} (a raw
+ * driver error can embed user content).
+ */
+export async function persistOrphanToolCalls(data: {
+  threadId: string;
+  reason: NewToolCallOrphan['reason'];
+  source: string;
+  client: string | null;
+  toolCalls: ToolCallRecord[] | undefined;
+}): Promise<void> {
+  if (!data.toolCalls || data.toolCalls.length === 0) return;
+  try {
+    await createToolCallOrphan({
+      threadId: data.threadId,
+      reason: data.reason,
+      source: data.source,
+      client: data.client,
+      toolCalls: data.toolCalls,
+    });
+  } catch (error) {
+    const e = error as { name?: string; code?: string };
+    const summary = {
+      threadId: data.threadId,
+      reason: data.reason,
+      recordCount: data.toolCalls.length,
+      name: e?.name,
+      code: e?.code,
+    };
+    console.error('[tool-calls] orphan persist failed', summary);
+    // A lost orphan row is exactly the undercount this column exists to remove —
+    // surface it, at warning level (the user-facing error already fired).
+    Sentry.captureMessage('tool-calls orphan persist failed', { level: 'warning', extra: summary });
+  }
 }
 
 export async function findMessageById(
@@ -152,7 +251,7 @@ export async function getThreadWithMessages(
   threadId: string,
   userId: string,
   exec: Executor = db
-): Promise<{ thread: Thread; messages: Message[] } | undefined> {
+): Promise<{ thread: Thread; messages: MessageRow[] } | undefined> {
   const thread = await findThreadById(threadId, userId, exec);
   if (!thread) return undefined;
 
