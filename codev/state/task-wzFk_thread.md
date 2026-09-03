@@ -42,3 +42,6 @@
   export OK). Not merged into the PR because a third-party patch was not in the mandate.
 - GitHub's dependency-graph compare API 404'd for the branch at first push (not yet
   indexed); `pnpm why -r` per package is the verification of record.
+- Dependency-graph compare works when given commit SHAs instead of branch names:
+  confirms 9 GHSA IDs on removed versions, none on added. Recorded in PR body.
+- Waiting on architect: decode-uri-component option 1 (patch) vs 2 (accept).
