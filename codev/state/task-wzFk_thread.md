@@ -45,3 +45,10 @@
 - Dependency-graph compare works when given commit SHAs instead of branch names:
   confirms 9 GHSA IDs on removed versions, none on added. Recorded in PR body.
 - Waiting on architect: decode-uri-component option 1 (patch) vs 2 (accept).
+
+## 2026-09-03 — architect decision
+- decode-uri-component: ACCEPT-pending-upstream, no patch. Rationale: client-side-only
+  medium DoS via expo-router/query-string (self-inflicted browser hang, no server exposure);
+  a pnpm patch on a transitive is disproportionate. `exp/decode-uri-patch` stays as the
+  ready fallback and is linked from the PR body. Final tally: 9 fixed, 3 accepted.
+- PR body updated; gate now with Waleed.
