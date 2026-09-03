@@ -5,8 +5,8 @@ packages:
 # Single source of truth for toolchain versions shared across packages.
 # Packages reference these as "catalog:" so versions cannot drift.
 catalog:
-  typescript: ~6.0.3
   eslint: ^9.39.5
+  typescript: ~6.0.3
   typescript-eslint: ^8.67.0
 
 # pnpm 10 blocks dependency postinstall scripts unless allowlisted here.
@@ -30,15 +30,6 @@ onlyBuiltDependencies:
 # once that consumer resolves a patched version on its own.
 overrides:
   # next@15.5 declares optionalDependencies.sharp ^0.34.3 — GHSA-f88m-g3jw-g9cj
-  sharp: ^0.35.0
-  # next@15.5 pins postcss 8.4.31 exactly — GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849,
-  # GHSA-fxqj-rqcc-2cmp, GHSA-qx2v-qp2m-jg93
-  postcss: ^8.5.23
-  # @esbuild-kit/core-utils (via drizzle-kit) pins ~0.18.20 (GHSA-67mh-4wv8-2f99);
-  # react-email@5 pins ^0.27 (GHSA-g7r4-m6w7-qqqr)
-  esbuild: ^0.28.1
-  # xcode@3 (via @expo/config-plugins) declares uuid ^7.0.3 — GHSA-w5hq-g745-h8pq
-  uuid: ^11.1.1
   # NOT overridden: decode-uri-component (GHSA-vcc3-ghjq-m6fr). Every patched
   # version (>=0.4.0) is ESM-only, and its sole consumer query-string@7 (via
   # expo-router) is CJS and calls `require('decode-uri-component')(value)`.
@@ -47,3 +38,15 @@ overrides:
   # plist@3 (via xcode) declares ^0.9.10 — GHSA-6gmq-8vp8-gcm6. Range-scoped so
   # @expo/plist's separate, unaffected ^0.8.8 line is left alone (0.8→0.9 is breaking).
   "@xmldom/xmldom@^0.9.0": ^0.9.12
+  decode-uri-component: ^0.5.0
+  # @esbuild-kit/core-utils (via drizzle-kit) pins ~0.18.20 (GHSA-67mh-4wv8-2f99);
+  # react-email@5 pins ^0.27 (GHSA-g7r4-m6w7-qqqr)
+  esbuild: ^0.28.1
+  # next@15.5 pins postcss 8.4.31 exactly — GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849,
+  # GHSA-fxqj-rqcc-2cmp, GHSA-qx2v-qp2m-jg93
+  postcss: ^8.5.23
+  sharp: ^0.35.0
+  # xcode@3 (via @expo/config-plugins) declares uuid ^7.0.3 — GHSA-w5hq-g745-h8pq
+  uuid: ^11.1.1
+patchedDependencies:
+  query-string@7.1.3: patches/query-string@7.1.3.patch
