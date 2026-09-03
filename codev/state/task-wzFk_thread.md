@@ -34,3 +34,11 @@
   --frozen-lockfile` clean, zero peer warnings.
 - Next's "multiple lockfiles" warning during build is the nested worktree seeing the main
   checkout's lockfile — pre-existing, unrelated.
+
+## 2026-09-02 — PR #110 open (base develop)
+- 9/12 alerts fixed. image-size ×2 accepted-pending-upstream. decode-uri-component left
+  for the architect: tested override + 1-line `pnpm patch` of query-string@7.1.3 on side
+  branch `exp/decode-uri-patch` (Node-native and Metro-style parses correct, expo web
+  export OK). Not merged into the PR because a third-party patch was not in the mandate.
+- GitHub's dependency-graph compare API 404'd for the branch at first push (not yet
+  indexed); `pnpm why -r` per package is the verification of record.
