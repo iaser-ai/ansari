@@ -23,7 +23,7 @@
     "@expo/metro-runtime": "~57.0.8",
     "@gorhom/bottom-sheet": "^5.2.14",
     "expo": "~57.0.0",
-    "expo-constants": "~57.0.2",
+    "expo-constants": "~57.0.15",
     "expo-dev-client": "~57.0.10",
     "expo-linking": "~57.0.1",
     "expo-router": "~57.0.2",
