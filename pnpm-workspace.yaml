@@ -5,7 +5,7 @@ packages:
 # Single source of truth for toolchain versions shared across packages.
 # Packages reference these as "catalog:" so versions cannot drift.
 catalog:
-  typescript: ~6.0.3
+  typescript: ~7.0.2
   eslint: ^9.39.5
   typescript-eslint: ^8.67.0
 
