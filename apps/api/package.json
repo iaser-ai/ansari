@@ -57,7 +57,7 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "catalog:",
@@ -65,7 +65,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "postcss": "^8.5.25",
