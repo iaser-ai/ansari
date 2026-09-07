@@ -362,22 +362,6 @@ export default function ChatScreen() {
     [keyOverrides],
   );
 
-  // Hand-off on `done`: once this turn's answer is persisted, remap its
-  // server id to the stream key its synthetic bubble used and clear the
-  // streaming state in the same commit — no duplicate, no gap. The landed
-  // message also inherits the bubble's "already drawn" status (below), so
-  // the in-place swap is not mistaken for new content and re-animated.
-  useEffect(() => {
-    if (streamingText && landedAnswer) {
-      const key = streamKey.current;
-      const id = landedAnswer.id;
-      setKeyOverrides((prev) => (prev[id] === key ? prev : { ...prev, [id]: key }));
-      drawn.current?.add(key);
-      setStreamingText('');
-      setTrace([]);
-    }
-  }, [streamingText, landedAnswer]);
-
   // A row in a virtualized list is unmounted as it scrolls out of the
   // window and mounted again on the way back, so an entrance attached
   // to one replays every time the reader scrolls up through a long
@@ -404,6 +388,24 @@ export default function ChatScreen() {
     }
     for (const message of messages) drawn.current.add(keyFor(message));
   }, [serverMessages, messages, keyFor]);
+
+  // Hand-off on `done`: once this turn's answer is persisted, remap its
+  // server id to the stream key its synthetic bubble used and clear the
+  // streaming state in the same commit — no duplicate, no gap. The landed
+  // message also inherits the bubble's "already drawn" status, so the
+  // in-place swap is not mistaken for new content and re-animated.
+  useEffect(() => {
+    if (streamingText && landedAnswer) {
+      const key = streamKey.current;
+      const id = landedAnswer.id;
+      setKeyOverrides((prev) =>
+        prev[id] === key ? prev : { ...prev, [id]: key },
+      );
+      drawn.current?.add(key);
+      setStreamingText('');
+      setTrace([]);
+    }
+  }, [streamingText, landedAnswer]);
 
   // The thread is waiting on an answer while a follow-up is in flight,
   // or while the question we arrived with has yet to be answered.
