@@ -2,6 +2,11 @@ packages:
   - apps/*
   - packages/*
 
+# Refuse installs on a Node/pnpm outside the `engines` range instead of only
+# warning. Set here (not in .npmrc) because .npmrc's engine-strict stops being
+# enforced on pnpm >=11 — pnpm-workspace.yaml hard-fails on every pnpm version.
+engineStrict: true
+
 # Single source of truth for toolchain versions shared across packages.
 # Packages reference these as "catalog:" so versions cannot drift.
 catalog:

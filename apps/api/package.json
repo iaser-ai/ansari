@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Ansari: the most accurate, most helpful, free, open-source Islamic question-answering application — backend engine.",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "next dev",
