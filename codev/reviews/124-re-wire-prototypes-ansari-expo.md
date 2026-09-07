@@ -53,6 +53,7 @@ redirect. Prototype-side only — no `apps/` or `packages/` changes.
 - `23e79a3` [PIR #124] Order the done hand-off effect after the drawn-set declaration
 - `85093c6` [PIR #124] Thread: implement-phase log
 - `751691d` Merge remote-tracking branch 'origin/develop' into builder/pir-124
+- `cf47a79` [PIR #124] Consultation fixes: composer data-gate, stale env example, logout nav
 
 ## Test Results
 
@@ -108,6 +109,22 @@ Two cold-tier bullets added to `codev/resources/lessons-learned.md`:
 
 ## Things to Look At During PR Review
 
+- **⚠️ Signed-out usability — open product decision (3-way consult, codex + claude
+  REQUEST_CHANGES, HIGH).** The accountless-optional model was approved on the
+  premise that `apps/api` serves anonymous threads. Verified false: every
+  `/api/v2/threads*` route requires a bearer token (hard 401 otherwise), and
+  `loginAsGuest()` (which mints a real throwaway staging account) is wired only
+  to the auth form. So a signed-out user who never opens `/login` 401s on the
+  sidebar list, asking a question, thread load, and send. `AuthGate` itself was
+  built exactly as specified — the premise was wrong. Awaiting Omar's call:
+  **(A)** auto-guest bootstrap in `AuthProvider` (recommended — faithful to the
+  approval; mints one staging account per fresh browser), **(B)** account-first
+  redirect, or **(C)** other. See `124-review-iter1-rebuttals.md`. PIR is
+  single-pass — this will not be AI-re-reviewed; it needs a human sign-off here.
+- **Follow-up question not echoed until refetch** (claude, non-blocking) — a
+  follow-up typed in the thread isn't rendered until the post-`done` refetch, so
+  the streamed answer appears with no question above it. Pre-existing from #121,
+  conspicuous now. Follow-up issue candidate, filed alongside the web-fonts fix.
 - **Streaming hand-off, no flicker** (`app/chat/[id].tsx`) — the one genuinely
   tricky spot. The new screen has its own `drawn`-set mount-animation gate keyed
   by message id; the reconciler hands a synthetic streaming bubble's key to the

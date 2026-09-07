@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core wiring is present, but the selected signed-out flow cannot access the token-protected backend and the chat composer can discard drafts during loading.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- **Signed-out usage is broken.** `AuthGate` permits `signedOut` users into the app (`app/_layout.tsx:250-269`), where the sidebar immediately lists conversations and the home screen creates threads without credentials. However, `apps/api/lib/auth/middleware.ts:19-28` returns 401 when no bearer token exists. Nothing automatically creates a guest session; `loginAsGuest()` is only invoked from the auth form. Consequently the README’s claim that `apps/api` serves anonymous threads (`README.md:34-37`) and the privacy copy saying signed-out conversations remain on-device are inaccurate. Implement an authenticated guest/anonymous bootstrap or revisit the gate, then explicitly test asking a question from a fresh signed-out installation.
+- **The chat composer violates the plan’s loaded-thread guard and can lose user input.** `app/chat/[id].tsx:776-781` disables `ChatInput` only for query errors, not while `conversationQuery.data` is unavailable. `send()` silently returns in that state, while `ChatInput` clears its draft immediately after invoking `onSend` (`components/ChatInput.tsx:339-344`). Disable the composer until conversation data has resolved, as required by the approved plan.
