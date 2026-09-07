@@ -51,3 +51,45 @@ one line, we're in the nav layer.
 
 Plan drafted → `codev/plans/124-re-wire-prototypes-ansari-expo.md`. Committing,
 then `porch done` → plan-approval gate.
+
+## 2026-09-07 — IMPLEMENT phase
+
+Plan APPROVED (Omar). Product call: **accountless-optional** — no forced
+redirect, AuthGate holds only the loading frame, "Log in" is an optional
+add-on from the rail/account corner, signed-in state in the rail colophon.
+
+Implemented in 7 commits (a9a52ba..23e79a3):
+
+1. `a9a52ba` — 11 import sites → `@/lib/api`; `_layout` base URL
+   (`resolveBaseUrl()`), ZodError/4xx no-retry policy, `<AuthProvider>`,
+   `AuthGate` (loading frame only), login/register routes, `AppFrame`
+   rail-gated off auth routes.
+2. `f9f454f` — `components/AuthForm.tsx` + `app/login.tsx` / `register.tsx`
+   in the dark-mode token language (brass mark, serif title, recessed-bed
+   fields, guest + switch links).
+3. `533f31e` — streaming: `useSendMessage` `onEvent` (text deltas +
+   `traceReducer`), `reconcileThread` replaces the inline reconciliation,
+   `landedAnswer` → done hand-off, `keyFor`, `send()` baseline guard,
+   `ThinkingLine` renders the live trace.
+4. `43fc29b` — Sidebar/AccountChrome: "Log in"/"Sign up" open real screens;
+   signed-in name + Log out; privacy copy corrected.
+5. `e18a847` — `@react-navigation/native` `^7.3.18` (clears peer warning).
+6. `0bd7f50` — README "Current state" + related sections rewritten.
+7. `23e79a3` — reorder hand-off effect after `drawn` decl (readability).
+
+**Animation-gating × hand-off fix (architect's flagged risk):** `isNewContent`
+now keys on `keyFor(item)` not `item.id`; the hand-off effect adds the stream
+key to `drawn` synchronously before the re-render, so the persisted answer
+inheriting the synthetic bubble's key never re-animates. Verify manually at
+dev-approval (no flicker on `done`).
+
+**Checks:** prototype `pnpm typecheck` clean, `pnpm test` 218/218 (no new
+tests — the pure reconciler/trace/streaming/auth behavior I depend on is
+already fully covered; the screen-level glue is what the dev-approval gate
+has the human run. No `components/*.test.tsx` infra exists and adding a
+half-mocked render test for trivial glue isn't worth it — noted for review).
+
+**Blocker at the gate:** porch's repo-root `build` check fails on
+`ansari-auth#build` (missing `unrun` module, issue #122, unrelated —
+prototype is outside the workspace/turbo graph). Architect will do a
+documented manual bypass (as for #121) if #122 isn't fixed by gate time.
