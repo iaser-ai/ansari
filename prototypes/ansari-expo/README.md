@@ -1,8 +1,10 @@
 # Ansari Expo prototype
 
-An Expo (SDK 54) mobile/web prototype of the Ansari app, currently on the
+An Expo (SDK 54) mobile/web prototype of the Ansari app, on the
 **Replit-sourced dark-mode design** (dark mode, collapsible sidebar, source
-panel, a motion/layout/radius token system) but **not wired to any backend**.
+panel, a motion/layout/radius token system) and **wired end-to-end to this
+repo's staging backend** (`apps/api`) — auth, real thread history, and
+incremental streaming chat.
 
 It lives in `prototypes/` and is deliberately **outside** the pnpm workspace
 and the Turborepo task graph (`pnpm-workspace.yaml` globs only `apps/*` and
@@ -10,44 +12,37 @@ and the Turborepo task graph (`pnpm-workspace.yaml` globs only `apps/*` and
 wire it into CI — it targets a different toolchain and installs its own
 isolated `node_modules`.
 
-## Current state: design only, not wired (issue #121)
+## Current state: wired to staging (issue #124)
 
 This prototype went through two rounds of independent divergence from a
-common ancestor:
+common ancestor — an earlier pass that wired it to this repo's real backend
+(auth, a hand-built SSE client, an incremental streaming reconciler), and a
+separate Replit-hosted pass that rebuilt the entire UI (dark mode, the
+sidebar, the source panel). Issue #121 took the Replit design as source of
+truth without re-wiring the backend code; **issue #124 reconnected them**.
 
-1. An earlier pass wired it to this repo's real backend — auth
-   (`lib/auth/`), a hand-built SSE client (`lib/api/`), and an incremental
-   streaming reconciler (`lib/chat-reconcile.ts`, `lib/chat-trace.ts`).
-2. A separate Replit-hosted pass rebuilt the entire UI: dark mode, the
-   sidebar, the source panel, and near-total rewrites of every page and most
-   components.
+End to end against `apps/api` (staging by default — see `lib/api/config.ts`):
 
-Issue #121 took the Replit design as source of truth for `app/`,
-`components/`, `constants/`, `hooks/`, and most of `lib/`, **without**
-re-wiring the real-backend code back onto it. So today:
+- Every screen imports the `apps/api` adapter from `@/lib/api` (a drop-in for
+  the vendored `@workspace/api-client-react`: same hook names, same schema
+  types). `app/_layout.tsx` resolves the base URL from
+  `resolveBaseUrl()` (`EXPO_PUBLIC_API_URL`, defaulting to staging).
+- `app/login.tsx` / `app/register.tsx` are back, rebuilt in the dark-mode
+  token language (`components/AuthForm.tsx`). `AuthProvider` is mounted in
+  `_layout.tsx` and registers the bearer-token + 401-refresh bridges for
+  both `custom-fetch` and the SSE path.
+- **Ansari works signed-out** — `apps/api` serves guest and anonymous
+  threads — so there is no forced redirect. "Log in" in the sidebar / the
+  desktop account corner opens the auth screen as an optional add-on;
+  signed-in state (name + Log out) shows in the rail colophon.
+- Chat streams incrementally: `app/chat/[id].tsx` drives
+  `lib/chat-reconcile.ts` / `lib/chat-trace.ts` — a synthetic in-progress
+  bubble renders `text` deltas and a live retrieval trace, then hands off to
+  the persisted message on `done` with no flicker.
 
-- `app/index.tsx` and `app/chat/[id].tsx` call the vendored
-  `@workspace/api-client-react` client directly (`useCreateConversation`,
-  `useListSuggestedQuestions`, `useSendMessage`, `useGetConversation`) —
-  **not** `lib/api/`.
-- `app/_layout.tsx` calls that client's `setBaseUrl()` with
-  `EXPO_PUBLIC_DOMAIN`, a Replit-workspace variable nothing here sets — so
-  those calls resolve against no real host and **the network requests are
-  expected to fail**. This shows up as an error/empty state on screens that
-  fetch data (e.g. the home screen's suggested questions), not a crash.
-- `lib/api/`, `lib/auth/`, `lib/chat-reconcile.ts`, `lib/chat-trace.ts` (and
-  their tests) are still in the tree, untouched, but **nothing imports
-  them** — `app/login.tsx` and `app/register.tsx`, their only callers, were
-  removed along with the components tied to that wiring (`AuthForm`,
-  `HistorySheet`, `CitationSheet`, `WebNavButton`).
-- Registration, login, real thread history, streaming chat, and real
-  citations do **not** work in this build. That's expected, not a bug —
-  don't file it.
-
-**Re-wiring the real backend onto this design is tracked in issue #124.**
-Until then, this prototype is useful for reviewing the design
-itself (open it, look at the screens, toggle dark mode) — not for testing
-against staging.
+The walk to verify: register → ask a question → the answer streams in → open
+a past thread from the sidebar → log out → log back in → the thread is still
+there.
 
 ## Known gaps from the port
 
@@ -75,11 +70,15 @@ and then `expo start` for you:
 pnpm prototype
 ```
 
+`lib/api/config.ts` defaults the API base URL to staging
+(`https://api-staging.askansari.ai`); override with `EXPO_PUBLIC_API_URL` in
+`.env.local` (see `.env.local.example`).
+
 Then: home screen (dark-mode-capable, sidebar, ambient palm-shadow layer) →
-open a chat thread → sidebar collapses/expands (desktop) or opens as a
-drawer (narrow width) → open the source panel from a citation affordance →
-About page. Expect the suggested-questions and send-message network calls to
-fail (see above) — everything else is static UI, not backed by real data.
+ask a question and watch the answer stream in → open a past thread from the
+sidebar → sidebar collapses/expands (desktop) or opens as a drawer (narrow
+width) → open the source panel from a citation → "Log in" (rail or account
+corner) → About page.
 
 > **Why `--ignore-workspace` is required.** This prototype sits inside the
 > repo, which is a pnpm workspace. On `pnpm install`, pnpm walks UP the
@@ -93,21 +92,22 @@ fail (see above) — everything else is static UI, not backed by real data.
 > `node_modules`, any lockfile it writes, and `.expo/` are gitignored — and
 > the root `pnpm-lock.yaml` is never touched.
 
-## The `@workspace/api-client-react` bridge
+## The `@workspace/api-client-react` alias
 
-The new pages import from the bare specifier `@workspace/api-client-react`
-(matching the Replit source, which had it as a real workspace package). This
-prototype instead resolves it to the vendored copy already at
-`vendor/api-client-react/` via a `tsconfig.json` `paths` entry and a matching
-Metro `resolver.extraNodeModules` entry in `metro.config.js` — no new runtime
-dependency, no workspace membership. The vendored client's generated
-hooks/types (`Citation`, `Message`, `SafetySignal`, `useCreateConversation`,
-`useSendMessage`, etc.) already cover everything the new pages need.
+The screens import the `apps/api` adapter from `@/lib/api`. `lib/api/`'s
+barrel is a drop-in for the vendored `@workspace/api-client-react` — the same
+hook names (`useCreateConversation`, `useSendMessage`, …) and the same
+generated types (`Citation`, `Message`, `SafetySignal`), which
+`lib/api/types.ts` re-exports straight from
+`vendor/api-client-react/generated/api.schemas.ts`.
 
-`lib/api/` — the adapter that targets this repo's real `apps/api` — imports
-the same vendored runtime under `@/vendor/api-client-react/...` (the
-pre-existing `@/*` alias). Both import paths resolve to the same files; they
-just aren't connected to each other.
+The bare `@workspace/api-client-react` specifier still resolves — via a
+`tsconfig.json` `paths` entry and a matching Metro `resolver.extraNodeModules`
+entry — but **nothing in `app/` or `components/` imports it any more**.
+`lib/api/` and `lib/auth/` reuse the vendored *runtime* (`custom-fetch.ts`:
+base URL + bearer attach, and the React Native `response.body` workaround)
+under the `@/vendor/...` alias. Removing the bare-specifier alias is a
+separate cleanup.
 
 ## Test runner
 
@@ -118,12 +118,14 @@ vitest's `describe`/`expect`/`it`. `lib/api/`, `lib/auth/`,
 `lib/chat-reconcile.test.ts`, and `lib/chat-trace.test.ts` are untouched and
 still pass — they don't depend on anything this port changed.
 
-## Auth & token storage (kept, disconnected)
+## Auth & token storage
 
-`lib/auth/` (token store, session context, auth API calls) is still in the
-tree for issue #124, but nothing in the current UI mounts it — there's no
-login/register screen to trigger it. See its own code and tests for how
-it's meant to work once reconnected.
+`lib/auth/` (secure token store, session context with refresh-on-401, guest
+login) is mounted by `app/_layout.tsx`'s `<AuthProvider>` and reached through
+`app/login.tsx` / `app/register.tsx` (`components/AuthForm.tsx`). Tokens are
+held in `expo-secure-store` on native and persisted storage on web; a 401
+mid-request triggers one single-flight refresh, and a failed refresh signs
+the device out. See `lib/auth/context.tsx` and its tests.
 
 ## Source + SHA
 
@@ -154,16 +156,17 @@ Not defects — the translation list from this snapshot to the real frontend:
 
 ```
 prototypes/ansari-expo/
-  app/                       Expo Router screens (index, chat/[id], about, _layout)
+  app/                       Expo Router screens (index, chat/[id], about,
+                              login, register, _layout)
   components/                UI components (StyleSheet.create): sidebar, source
-                              panel, chat, chrome, and shared primitives
+                              panel, chat, chrome, auth form, shared primitives
   constants/                 colors (incl. dark mode), motion, radius, layout tokens
   hooks/                     fonts, keyboard, color scheme, sidebar/source-panel state
   lib/                       design helpers (ambientNight, hijri, haptics, toast, ...)
-  lib/api/                   the apps/api adapter — kept, NOT wired into the new UI
-  lib/auth/                  token store, session context, auth API — kept, NOT wired in
-  lib/chat-reconcile.ts,     the PIR #65 streaming reconciler — kept, NOT wired in
-  lib/chat-trace.ts
+  lib/api/                   the apps/api adapter (imported from screens as @/lib/api)
+  lib/auth/                  token store, session context, auth API, guest login
+  lib/chat-reconcile.ts,     the PIR #65 streaming reconciler, wired into
+  lib/chat-trace.ts          app/chat/[id].tsx
   lib/sample-citations.ts    sample citation data (consumed by lib/api/mappers.ts)
   lib/suggested-topics.ts    static suggested-questions list (consumed by lib/api/hooks.ts)
   assets/                    fonts, redrawn icons, ambient-shadow video
