@@ -49,7 +49,12 @@ export function AccountChrome() {
             {accountName}
           </Text>
           <Pressable
-            onPress={() => logout()}
+            onPress={() => {
+              // Leave any account-owned thread before the principal
+              // changes, so it can't refetch into its load-error screen.
+              router.replace('/');
+              void logout();
+            }}
             accessibilityRole="button"
             testID="logout-button"
             style={(state) => [

@@ -693,8 +693,8 @@ export default function ChatScreen() {
                 // The waiting line sits beneath the question that prompted
                 // it, at the foot of the thread. It carries the live
                 // retrieval trace while the model searches; once the answer
-                // itself is streaming, the synthetic bubble in the list
-                // carries it and the line steps aside.
+                // itself begins streaming, the trace is done its job and the
+                // line steps aside for the in-progress answer bubble.
                 ListFooterComponent={
                   awaitingAnswer && !streamingText ? (
                     <ThinkingLine animate={!carriedInWait} trace={trace} />
@@ -777,7 +777,11 @@ export default function ChatScreen() {
                 onSend={(content: string) => send(content)}
                 sending={sendMessage.isPending}
                 placeholder="Ask a follow-up…"
-                disabled={conversationQuery.isError}
+                // Disabled until the detail query resolves: `send()` needs
+                // loaded data to capture the reconciler baseline and bails
+                // without it, and `ChatInput` clears its field on send — so
+                // a follow-up typed during load would be lost silently.
+                disabled={conversationQuery.isError || !conversationQuery.data}
               />
             </Animated.View>
           </KeyboardAvoidingViewCompat>

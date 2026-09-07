@@ -289,6 +289,10 @@ export function Sidebar({
 
   const signOut = async () => {
     onNavigate?.();
+    // Home first: an account-owned thread left mounted would refetch under
+    // the new (signed-out / guest) principal and drop to its load-error
+    // screen. `logout()` clears the query cache, so nothing stale survives.
+    router.replace('/');
     await logout();
   };
 
