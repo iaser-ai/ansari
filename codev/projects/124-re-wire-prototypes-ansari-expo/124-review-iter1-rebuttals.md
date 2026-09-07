@@ -43,23 +43,26 @@ works signed-out; `apps/api` serves anon/guest threads") was premised on
 `apps/api` serving anonymous threads. It does not. The premise was wrong, not
 the implementation of it — `AuthGate` was built exactly as specified.
 
-**Disposition:** this is a decision, not a bug fix. I have escalated to the
-architect with three options:
+**Disposition — RESOLVED (`f00be7d`).** Omar chose **Option A: auto-guest
+bootstrap**.
 
-- **(A) Auto-guest bootstrap** in `AuthProvider` — on `signedOut` with no stored
-  session, silently `loginAsGuest()`. Faithful to "works signed-out / no forced
-  redirect / auth optional"; "Log in" becomes "switch to a named account". ~15
-  lines + a test. Operational cost: one persistent staging account minted per
-  fresh browser (credentials cached on-device and reused). *Recommended.*
-- **(B) Account-first** — `AuthGate` force-redirects `signedOut → /login`.
-  Contradicts the product call.
-- **(C)** something else Omar wants.
+- `AuthProvider` startup: no stored session → `loginAsGuest()` inline, staying
+  `loading` through the round-trip (no screen mounts and 401s in the gap).
+  Offline → `applySession(null)`, the app shows its own load errors.
+- A `status === 'signedOut'` effect (guarded, one attempt per transition)
+  re-provisions the guest after `logout()` from a real account. `clearSession()`
+  keeps the guest credentials, so it logs back into the *same* device guest.
+- `StoredSession.isGuest` added (rides the name blob); context exposes `isGuest`.
+- "Log out" affordance for a guest: **hidden** — a guest logging out only
+  re-guests, so `Sidebar` / `AccountChrome` show the sign-in upsell instead.
+- Test added: `context.test.tsx` — auto-guest on fresh launch; real-session
+  restore skips it. The two cache-clear regressions updated for the new
+  post-logout → guest transition.
+- Privacy copy + README "Current state" / "Auth & token storage" reconciled: the
+  accountless claim is now accurate (auto-guest, not true-anonymous).
 
-Also open under (A): what "Log out" does — land as a fresh guest, or truly
-signed out until the next bootstrap.
-
-The README's "serves guest and anonymous threads" line and the corrected
-privacy copy will be reconciled with whichever option is chosen.
+Operational note carried into the review: every fresh browser/device mints one
+persistent staging account (credentials cached and reused).
 
 ### C2. Composer violates the plan's loaded-thread guard, can lose input — FIXED (`cf47a79`)
 

@@ -93,3 +93,30 @@ half-mocked render test for trivial glue isn't worth it — noted for review).
 `ansari-auth#build` (missing `unrun` module, issue #122, unrelated —
 prototype is outside the workspace/turbo graph). Architect will do a
 documented manual bypass (as for #121) if #122 isn't fixed by gate time.
+
+## 2026-09-08 — Review phase: consultation round 1
+
+dev-approval recorded (build check passed with apps/api/.env.ci loaded in the
+shell — architect's path). PR #127 opened (base develop). 3-way consult:
+gemini SKIPPED (agy not installed), **codex + claude both REQUEST_CHANGES HIGH**.
+
+Findings + disposition:
+- **C1 (blocking, both): signed-out users 401.** Verified: every /api/v2/threads*
+  route requires a bearer token; apps/api has no anonymous path. The
+  accountless-optional approval's premise ("apps/api serves anon threads") was
+  wrong. Escalated → Omar chose **Option A: auto-guest bootstrap** (f00be7d).
+  AuthProvider silently provisions a guest on startup / after logout; isGuest on
+  the context; "Log out" hidden for guests (they'd just re-guest); +2 tests.
+- Composer not gated on loaded data → silently ate a follow-up typed during load
+  (plan-required, both reviewers). Fixed cf47a79.
+- .env.local.example still described the pre-#124 world. Fixed cf47a79.
+- logout() didn't navigate → account thread refetched into load-error. Fixed cf47a79.
+- ListFooterComponent comment nit. Fixed cf47a79.
+- Non-blocking: thread-typed follow-up not echoed until refetch → filed #128.
+
+Also filed #129 (web fonts — public/ shell dropped in #121, standard Expo not
+Replit-specific). Citations = backend #66, not this PR.
+
+Checks: prototype typecheck clean, 220 tests. Rebuttal at
+124-review-iter1-rebuttals.md. Pinging architect for direct re-review, then
+porch done → pr gate for Omar.
