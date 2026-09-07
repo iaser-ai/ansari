@@ -23,7 +23,7 @@ import {
   type TableCell,
 } from '@/lib/markdown';
 import { CitationChip } from '@/components/CitationChip';
-import type { Citation } from '@workspace/api-client-react';
+import type { Citation } from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
 /**

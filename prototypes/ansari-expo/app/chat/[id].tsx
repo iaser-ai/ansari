@@ -77,7 +77,7 @@ import {
   useGetConversation,
   useSendMessage,
   type Message,
-} from '@workspace/api-client-react';
+} from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
 // Key held by the question carried in from the home screen, and then

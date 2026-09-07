@@ -43,7 +43,7 @@ import {
   useDeleteConversation,
   useListConversations,
   type Conversation,
-} from '@workspace/api-client-react';
+} from '@/lib/api';
 import React, { useMemo, useState } from 'react';
 import Animated, {
   useAnimatedStyle,

@@ -6,7 +6,7 @@ import { fonts } from '@/constants/colors';
 import { openExternalLink } from '@/lib/link';
 import { PressableScale } from '@/components/PressableScale';
 import { toSuperscript } from '@/components/CitationChip';
-import type { Citation } from '@workspace/api-client-react';
+import type { Citation } from '@/lib/api';
 
 const SOURCE_LABEL: Record<string, string> = {
   quran: "Qur'an",

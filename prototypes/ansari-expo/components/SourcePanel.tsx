@@ -17,7 +17,7 @@ import { isHovered } from '@/lib/web';
 import { PressableScale } from '@/components/PressableScale';
 import { Sheet } from '@/components/Sheet';
 import { LEAF_SHADOW_REACH, SourceStack } from '@/components/SourceStack';
-import type { Citation } from '@workspace/api-client-react';
+import type { Citation } from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
 /**

@@ -76,7 +76,7 @@ import {
   getListSuggestedQuestionsQueryKey,
   useCreateConversation,
   useListSuggestedQuestions,
-} from '@workspace/api-client-react';
+} from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
 // The ask is a single move, so the thread must not arrive before the

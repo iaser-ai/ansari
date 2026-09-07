@@ -18,7 +18,7 @@ import { openMessageActions } from '@/lib/messageActions';
 import { toast } from '@/lib/toast';
 import { PressableScale } from '@/components/PressableScale';
 import { SafetyCard } from '@/components/SafetyCard';
-import type { Citation, Message } from '@workspace/api-client-react';
+import type { Citation, Message } from '@/lib/api';
 import { AnswerProse } from '@/components/AnswerProse';
 import { toSuperscript } from '@/components/CitationChip';
 import { RADIUS, rounded } from '@/constants/radius';
