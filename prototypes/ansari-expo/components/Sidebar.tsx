@@ -205,7 +205,11 @@ export function Sidebar({
   const activeConversationId = typeof id === 'string' ? id : undefined;
   const activeTitle = typeof q === 'string' ? q : undefined;
   const queryClient = useQueryClient();
-  const { status, session, logout } = useAuth();
+  const { status, session, isGuest, logout } = useAuth();
+  // A guest is signed in to a throwaway account, so the rail offers the
+  // "keep your questions" sign-in upsell, exactly as for a signed-out app —
+  // not a name and a "log out".
+  const hasRealAccount = status === 'signedIn' && !isGuest;
   const [query, setQuery] = useState('');
   // Which row's actions button is showing. Held here rather than read
   // from each row's own press state: the button sits outside the row it
@@ -279,7 +283,7 @@ export function Sidebar({
   const showPrivacy = () =>
     showNotice(
       'Privacy',
-      'Your question is sent to Ansari\u2019s answering service so it can be answered, and your conversations are kept so this list can show them. Signed in, they are tied to your account and follow you across devices; signed out, they stay on this device. None of it is sold or used for advertising. Deleting a conversation removes it.',
+      'Your question is sent to Ansari\u2019s answering service so it can be answered, and your conversations are kept so this list can show them. Until you sign in they sit on an automatic guest account for this device; sign in and they move to your account and follow you across devices. None of it is sold or used for advertising. Deleting a conversation removes it.',
     );
 
   const goToLogin = () => {
@@ -939,7 +943,7 @@ export function Sidebar({
           glass is the surface, and the button underneath is the one
           thing here to press. */}
             <View style={styles.footer}>
-              {status === 'signedIn' ? (
+              {hasRealAccount ? (
                 <>
                   <Text
                     style={[styles.calloutTitle, { color: colors.foreground }]}

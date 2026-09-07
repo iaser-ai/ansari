@@ -26,7 +26,9 @@ import { useAuth } from '@/lib/auth/context';
  */
 export function AccountChrome() {
   const colors = useColors();
-  const { status, session, logout } = useAuth();
+  const { status, session, isGuest, logout } = useAuth();
+  // A guest is on a throwaway account — offer sign-in, not a name + "log out".
+  const hasRealAccount = status === 'signedIn' && !isGuest;
   // The corner belongs to the page, so it travels with it: when the
   // sources panel takes the right edge, these move off that edge on the
   // same frames rather than being buried under it.
@@ -40,7 +42,7 @@ export function AccountChrome() {
 
   return (
     <Animated.View style={[styles.wrap, edge]}>
-      {status === 'signedIn' ? (
+      {hasRealAccount ? (
         <>
           <Text
             style={[styles.linkText, { color: colors.mutedForeground }]}

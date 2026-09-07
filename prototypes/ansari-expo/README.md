@@ -31,18 +31,26 @@ End to end against `apps/api` (staging by default — see `lib/api/config.ts`):
   token language (`components/AuthForm.tsx`). `AuthProvider` is mounted in
   `_layout.tsx` and registers the bearer-token + 401-refresh bridges for
   both `custom-fetch` and the SSE path.
-- **Ansari works signed-out** — `apps/api` serves guest and anonymous
-  threads — so there is no forced redirect. "Log in" in the sidebar / the
-  desktop account corner opens the auth screen as an optional add-on;
-  signed-in state (name + Log out) shows in the rail colophon.
+- **Accountless by default, via an auto-provisioned guest.** `apps/api` has
+  no true-anonymous path — every thread call needs a bearer token — so on
+  first launch (nothing stored) `AuthProvider` silently registers a throwaway
+  guest account and caches its credentials; after logging out of a real
+  account it drops straight back to that guest. The reader never sees an auth
+  screen unless they choose to: "Log in" in the sidebar / the desktop account
+  corner opens it as an optional upgrade, and a real account's name + "Log
+  out" then shows in the rail colophon. (Every fresh browser/device mints one
+  persistent staging account — acceptable for a throwaway prototype; see
+  `lib/auth/guest.ts`.)
 - Chat streams incrementally: `app/chat/[id].tsx` drives
   `lib/chat-reconcile.ts` / `lib/chat-trace.ts` — a synthetic in-progress
   bubble renders `text` deltas and a live retrieval trace, then hands off to
   the persisted message on `done` with no flicker.
 
-The walk to verify: register → ask a question → the answer streams in → open
-a past thread from the sidebar → log out → log back in → the thread is still
-there.
+The walk to verify: open a fresh browser (auto-guest, no auth screen) → ask a
+question → the answer streams in → open a past thread from the sidebar →
+register from "Log in" → the guest's questions are replaced by the new
+account's → log out → back to the guest → log back in → the account's thread
+is there.
 
 ## Known gaps from the port
 
@@ -121,11 +129,15 @@ still pass — they don't depend on anything this port changed.
 ## Auth & token storage
 
 `lib/auth/` (secure token store, session context with refresh-on-401, guest
-login) is mounted by `app/_layout.tsx`'s `<AuthProvider>` and reached through
-`app/login.tsx` / `app/register.tsx` (`components/AuthForm.tsx`). Tokens are
-held in `expo-secure-store` on native and persisted storage on web; a 401
-mid-request triggers one single-flight refresh, and a failed refresh signs
-the device out. See `lib/auth/context.tsx` and its tests.
+login) is mounted by `app/_layout.tsx`'s `<AuthProvider>`. On startup with no
+stored session it auto-provisions a guest (see "Current state" above); the
+login / register screens (`components/AuthForm.tsx`) are an optional upgrade
+to a real account. Tokens are held in `expo-secure-store` on native and
+`localStorage` on web; a 401 mid-request triggers one single-flight refresh,
+and a failed refresh drops back to the device's guest identity. The guest's
+email + password persist across logout (`store.ts`) so a device keeps one
+guest account rather than minting a new staging user each time. See
+`lib/auth/context.tsx` and its tests.
 
 ## Source + SHA
 

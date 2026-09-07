@@ -35,6 +35,8 @@ type AuthStatus = 'loading' | 'signedIn' | 'signedOut';
 interface AuthContextValue {
   status: AuthStatus;
   session: StoredSession | null;
+  /** True while the active session is an auto-provisioned guest (not a real account). */
+  isGuest: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   loginAsGuest: () => Promise<void>;
@@ -116,27 +118,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refresh]);
 
-  // Restore any persisted session on startup.
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const restored = await loadSession();
-      if (!active) return;
-      applySession(restored);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [applySession]);
-
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (
+      email: string,
+      password: string,
+      opts: { guest?: boolean } = {},
+    ) => {
       const result = await loginRequest(email, password);
       const next: StoredSession = {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         firstName: result.firstName,
         lastName: result.lastName,
+        isGuest: opts.guest ?? false,
       };
       await saveSession(next);
       applySession(next);
@@ -145,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const register = useCallback(
-    async (input: RegisterInput) => {
+    async (input: RegisterInput, opts: { guest?: boolean } = {}) => {
       const creds = await registerRequest(input);
       // Register's response carries no names, so keep what the user typed for
       // display.
@@ -154,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshToken: creds.refreshToken,
         firstName: input.firstName ?? '',
         lastName: input.lastName ?? '',
+        isGuest: opts.guest ?? false,
       };
       await saveSession(next);
       applySession(next);
@@ -169,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const stored = await loadGuestCredentials();
     if (stored) {
       try {
-        await login(stored.email, stored.password);
+        await login(stored.email, stored.password, { guest: true });
         return;
       } catch {
         // Stored guest no longer works (e.g. deleted server-side) — fall through
@@ -177,9 +172,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     const creds = generateGuestCredentials();
-    await register(creds);
+    await register(creds, { guest: true });
     await saveGuestCredentials({ email: creds.email, password: creds.password });
   }, [login, register]);
+
+  // Restore any persisted session on startup. With nothing stored, provision a
+  // guest rather than sit tokenless: `apps/api` has NO anonymous path — every
+  // thread call needs a bearer token — so "accountless" means an
+  // auto-provisioned guest (credentials cached and reused; see `lib/auth/guest`).
+  // Stays `loading` through the guest round-trip so no screen mounts and 401s in
+  // the gap.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const restored = await loadSession();
+      if (!active) return;
+      if (restored) {
+        applySession(restored);
+        return;
+      }
+      try {
+        await loginAsGuest();
+      } catch {
+        // Offline at first launch: land signed-out. Screens surface their own
+        // load errors, and the effect below retries on the next transition.
+        if (active) applySession(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [applySession, loginAsGuest]);
+
+  // Never stay tokenless. Any time the app lands signed-out AFTER startup —
+  // principally just after `logout()` from a real account — fall straight back
+  // to the device's guest identity. One attempt per signed-out transition (the
+  // ref guards re-entry; a persistent failure waits for the next transition).
+  const reguesting = useRef(false);
+  useEffect(() => {
+    if (status !== 'signedOut' || reguesting.current) return;
+    reguesting.current = true;
+    void loginAsGuest().finally(() => {
+      reguesting.current = false;
+    });
+  }, [status, loginAsGuest]);
 
   const logout = useCallback(async () => {
     try {
@@ -193,7 +229,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, session, login, register, loginAsGuest, logout }),
+    () => ({
+      status,
+      session,
+      isGuest: session?.isGuest ?? false,
+      login,
+      register,
+      loginAsGuest,
+      logout,
+    }),
     [status, session, login, register, loginAsGuest, logout],
   );
 
