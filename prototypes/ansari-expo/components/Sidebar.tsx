@@ -30,9 +30,9 @@ import {
 import { withAlpha } from '@/lib/color';
 import { tapHaptic } from '@/lib/haptics';
 import { confirmDestructive, showNotice } from '@/lib/notice';
-import { toast } from '@/lib/toast';
 import { isHovered } from '@/lib/web';
 import { landmark } from '@/lib/semantics';
+import { useAuth } from '@/lib/auth/context';
 import { SearchField } from '@/components/SearchField';
 import { Placeholder, PlaceholderLine } from '@/components/Placeholder';
 import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
@@ -205,6 +205,7 @@ export function Sidebar({
   const activeConversationId = typeof id === 'string' ? id : undefined;
   const activeTitle = typeof q === 'string' ? q : undefined;
   const queryClient = useQueryClient();
+  const { status, session, logout } = useAuth();
   const [query, setQuery] = useState('');
   // Which row's actions button is showing. Held here rather than read
   // from each row's own press state: the button sits outside the row it
@@ -278,14 +279,27 @@ export function Sidebar({
   const showPrivacy = () =>
     showNotice(
       'Privacy',
-      'Your question is sent to Ansari\u2019s answering service so it can be answered, and your conversations are kept so this list can show them. There are no accounts yet, so nothing here is tied to your name, and none of it is sold or used for advertising. Deleting a conversation removes it.',
+      'Your question is sent to Ansari\u2019s answering service so it can be answered, and your conversations are kept so this list can show them. Signed in, they are tied to your account and follow you across devices; signed out, they stay on this device. None of it is sold or used for advertising. Deleting a conversation removes it.',
     );
 
-  const showLogin = () =>
-    toast('Sign-in is on the way', {
-      detail:
-        'Ansari works without an account for now. Signing in to keep your conversations across devices is coming.',
-    });
+  const goToLogin = () => {
+    onNavigate?.();
+    router.push('/login');
+  };
+
+  const signOut = async () => {
+    onNavigate?.();
+    await logout();
+  };
+
+  // What the account line shows once there is a session: the name given
+  // at registration, or a plain fallback for a guest / an account with
+  // no name on it.
+  const accountName =
+    [session?.firstName, session?.lastName]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(' ') || 'Signed in';
 
   // Dated the way the material it draws on is dated. Read once per
   // mount: the rail is not open across a turn of the year often enough
@@ -915,47 +929,94 @@ export function Sidebar({
               />
             )}
 
-            {/* The reason to have an account, said where the questions the
-          account would keep are listed. No card around it: the rail's
-          own glass is the surface, and a second box inside it only
-          fences off two lines of type. The button underneath is the
-          one thing here to press. */}
+            {/* Signed out, the reason to have an account, said where the
+          questions the account would keep are listed. Signed in, who
+          you are and the way out. No card around either: the rail's own
+          glass is the surface, and the button underneath is the one
+          thing here to press. */}
             <View style={styles.footer}>
-              <Text style={[styles.calloutTitle, { color: colors.foreground }]}>
-                Keep what you&apos;ve learned
-              </Text>
-              <Text
-                style={[styles.calloutText, { color: colors.mutedForeground }]}
-              >
-                Sign in and your questions stay with you, with their sources
-                attached.
-              </Text>
+              {status === 'signedIn' ? (
+                <>
+                  <Text
+                    style={[styles.calloutTitle, { color: colors.foreground }]}
+                    numberOfLines={1}
+                  >
+                    {accountName}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.calloutText,
+                      { color: colors.mutedForeground },
+                    ]}
+                  >
+                    Your questions follow you across devices.
+                  </Text>
 
-              <PressableScale
-                onPress={() => {
-                  onNavigate?.();
-                  showLogin();
-                }}
-                accessibilityRole="button"
-                testID="sidebar-login-button"
-                style={(state) => [
-                  styles.loginButton,
-                  {
-                    // Same borderless recipe as the new-chat button
-                    // above it, so the rail's two buttons stay one
-                    // material rather than two.
-                    backgroundColor: withAlpha(
-                      colors.foreground,
-                      isHovered(state) ? 0.2 : 0.12,
-                    ),
-                    opacity: state.pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.loginText, { color: colors.foreground }]}>
-                  Log in
-                </Text>
-              </PressableScale>
+                  <PressableScale
+                    onPress={signOut}
+                    accessibilityRole="button"
+                    testID="sidebar-logout-button"
+                    style={(state) => [
+                      styles.loginButton,
+                      {
+                        backgroundColor: withAlpha(
+                          colors.foreground,
+                          isHovered(state) ? 0.2 : 0.12,
+                        ),
+                        opacity: state.pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.loginText, { color: colors.foreground }]}
+                    >
+                      Log out
+                    </Text>
+                  </PressableScale>
+                </>
+              ) : (
+                <>
+                  <Text
+                    style={[styles.calloutTitle, { color: colors.foreground }]}
+                  >
+                    Keep what you&apos;ve learned
+                  </Text>
+                  <Text
+                    style={[
+                      styles.calloutText,
+                      { color: colors.mutedForeground },
+                    ]}
+                  >
+                    Sign in and your questions stay with you, with their
+                    sources attached.
+                  </Text>
+
+                  <PressableScale
+                    onPress={goToLogin}
+                    accessibilityRole="button"
+                    testID="sidebar-login-button"
+                    style={(state) => [
+                      styles.loginButton,
+                      {
+                        // Same borderless recipe as the new-chat button
+                        // above it, so the rail's two buttons stay one
+                        // material rather than two.
+                        backgroundColor: withAlpha(
+                          colors.foreground,
+                          isHovered(state) ? 0.2 : 0.12,
+                        ),
+                        opacity: state.pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.loginText, { color: colors.foreground }]}
+                    >
+                      Log in
+                    </Text>
+                  </PressableScale>
+                </>
+              )}
             </View>
 
             {/* The rail's colophon, sharing its line with the toggle: the
