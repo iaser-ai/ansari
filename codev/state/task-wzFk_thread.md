@@ -52,3 +52,11 @@
   a pnpm patch on a transitive is disproportionate. `exp/decode-uri-patch` stays as the
   ready fallback and is linked from the PR body. Final tally: 9 fixed, 3 accepted.
 - PR body updated; gate now with Waleed.
+
+## 2026-09-09 — gate approved, merging
+- Waleed approved (relayed by architect). develop had moved 210 commits; merged
+  origin/develop. Conflicts: apps/api/package.json (took develop's vitest ^4.1.11, kept the
+  dead npm-style overrides block REMOVED) and pnpm-lock.yaml (took develop's, re-ran
+  `pnpm install` so our overrides re-resolve). Merged lockfile: no vulnerable versions.
+- Full suite on merged tree with CI env, --force: lint 5/5 (0 errors), typecheck 6/6,
+  api tests 763 passed / 3 skipped, auth 8/8, build 4/4.
