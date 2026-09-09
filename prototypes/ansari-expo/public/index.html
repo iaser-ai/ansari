@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!--
+      `viewport-fit=cover` is what makes a phone browser report its
+      safe areas at all: without it `env(safe-area-inset-*)` is zero
+      everywhere and the app has no way to tell a notch from a chin.
+      `lib/insets.ts` reads those values, so this attribute is the
+      other half of that mechanism rather than a nicety.
+
+      No `maximum-scale` and no `user-scalable=no`: pinching is how a
+      reader with low vision reads. The one zoom the app does have to
+      prevent — Safari magnifying the page when a field is tapped — is
+      prevented by giving every field a 16px face, not by taking the
+      gesture away.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+    />
+    <title>%WEB_TITLE%</title>
+
+    <!--
+      Ansari's own document shell, replacing Expo's default template.
+      Expo picks this file up automatically (`public/index.html`) for both
+      the dev server and the static export, and fills in the two
+      placeholders above.
+
+      Everything here exists to make the first frame the browser paints —
+      before a single line of the app's JavaScript has run — already be
+      Ansari's page: the right paper, in the reader's own light or dark
+      tone, with the real reading faces in hand.
+    -->
+
+    <!--
+      The faces that carry a first screen at either width, and only
+      those: the greeting is Literata's reading grade, the composer,
+      chips, rail and account links are Inter, and the menu button is a
+      character in the icon face. Asked for here rather than discovered
+      when React first lays out text, so the browser is already holding
+      them when it paints.
+
+      Nothing else belongs in this list. Every face here is a file the
+      reader waits on before a single word appears — `font-display:
+      block`, deliberately, so the type never swaps under them — so a
+      face that is not on the first screen makes the whole screen later
+      for nothing. Literata's medium was on this list for a wordmark
+      that no longer exists, and cost 50 KB of that wait.
+
+      The rest of the family (the italics, Inter's heavier grades,
+      Literata's display grades and Amiri) belongs to an answer and to
+      its sources; they are declared below and fetched the first time a
+      page actually sets them.
+    -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/Inter_400Regular.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/Inter_500Medium.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/Literata_300Light.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/Feather.woff2"
+      crossorigin
+    />
+
+    <!--
+      The paper, before React exists.
+
+      `color-scheme` tells the browser which room it is in, so the
+      canvas behind the document, the scrollbars and every form widget
+      follow the reader's system setting from the first frame instead of
+      defaulting to white. The two background rules paint Ansari's own
+      paper — stone-200 by day, the `night.page` charcoal after dark;
+      these two values are the light and dark `background` tokens in
+      `constants/colors.ts` and must be kept in step with them.
+
+      The app's `WebManners` effect is still the authority once it is
+      running — it pins the exact scheme rather than following the media
+      query, and paints selection, caret and focus. It simply is no
+      longer the *first* thing to set the colour.
+    -->
+    <meta name="color-scheme" content="light dark" />
+
+    <!--
+      A phone browser does not simply let the page run to the top and
+      bottom of the glass: Safari and Chrome draw their own opaque bands
+      behind the status bar and the address bar, over the top of the
+      page. `theme-color` is the only thing that colours those bands, and
+      without it Safari picks its own warm default — which is exactly the
+      cream strip a reader sees above and below Ansari's grey paper, and
+      reads as the app being cut off rather than running under the
+      chrome.
+
+      Exactly one declaration, and no `media` attribute on it. The pair
+      of media-qualified metas this replaces is the documented way to do
+      it and every other browser follows it, but a phone browser that
+      does not — and iOS Safari's support has been unreliable — has no
+      obligation to fall back to either of them, and answers a set it
+      cannot resolve with its own warm default: the cream bands above
+      and below Ansari's grey paper. One unconditional value cannot be
+      misread. The scheme is applied to it by the two lines below,
+      before the first paint, and `WebManners` writes the same element
+      afterwards — it looks the element up by this id — pinning the
+      colour to the scheme the app has actually settled on, which is not
+      always the one the media query reports.
+    -->
+    <meta id="ansari-theme-color" name="theme-color" content="#e7e5e4" />
+    <script>
+      (function () {
+        try {
+          if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document
+              .getElementById('ansari-theme-color')
+              .setAttribute('content', '#13100e');
+          }
+        } catch (error) {
+          // No `matchMedia`: the light value in the markup stands.
+        }
+      })();
+    </script>
+    <!--
+      Ansari as it appears when it is not on screen: the tab, the
+      bookmark, the tile a reader keeps on a home screen.
+
+      The files are generated by `scripts/build-icons.js`, at the sizes
+      each surface actually asks for and in the treatment each size can
+      carry — the brass mark on palm-shadow paper where there is room
+      for the paper to read, and a brass tile with the mark knocked out
+      in white where there is not. The `.ico` is the second of those
+      and everything else is the first; the script's own comments hold
+      the reasoning and the threshold. Every file is full-bleed: each
+      platform applies its own shape, and iOS in particular rounds the
+      corners itself, so anything left in the corners survives as a
+      notch.
+
+      The `.ico` is declared without a `sizes` attribute because it is
+      not one size: it carries 16, 32 and 48 and the browser picks. The
+      192 beside it is the same picture at a size a high-DPI tab and an
+      Android home screen can use.
+
+      The manifest carries the name, the icons and the paper colour, so
+      an Android reader who installs Ansari gets its name and mark
+      rather than a URL and a screenshot; the two Apple lines are the
+      same promise for iOS, which reads neither the manifest's name nor
+      its display mode. `mobile-web-app-capable` is the standard
+      spelling of the Apple line above it and is here to stop Chrome
+      warning that the other one is deprecated — both are needed.
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Ansari" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!--
+      Ansari as it appears in someone else's chat window.
+
+      The tags themselves are not written here, because the one thing a
+      share card cannot do without is an absolute URL, and this file is
+      the same file in a dev server and in a production export — it has
+      no idea which host it is being served from. `scripts/build.js`
+      replaces the marker below during the export, when the deployment
+      domain is known, and fails the build if it has gone missing.
+
+      The marker is the single injection point for everything a crawler
+      reads: the picture and its dimensions go in now, and the card's
+      title and description are meant to land beside them in the same
+      place rather than in a second mechanism.
+    -->
+    <!-- ansari:share-tags -->
+
+    <style id="ansari-paper">
+      :root {
+        color-scheme: light dark;
+      }
+      html,
+      body {
+        background-color: #e7e5e4;
+      }
+      /*
+        The paper, finished, in the first frame.
+
+        Until React has mounted there is nothing on screen but this
+        fill, and a flat expanse of #e7e5e4 does not read as the app's
+        paper — it reads as a warm beige holding page that is then
+        replaced by the textured stone the app actually paints. That
+        swap is the "layer loading in" a reader reports, and it is not a
+        colour bug: both states are the same hex. What differs is that
+        one of them has the grain on it.
+
+        So the shell lays the same tile the app lays, at the same size,
+        and the mounted app paints its own opaque paper straight over
+        the top — there is no moment where the two are both visible and
+        no double-darkening to compensate for. A background image paints
+        behind the element's content, so this can never sit over #root.
+
+        The 0.2 stone wash stands in for the 0.8 opacity the app gives
+        the tile; a background image cannot carry its own alpha.
+
+        Light only. The tile is a dark speckle that the app *screens*
+        onto the night page to make it light, which a plain background
+        image cannot do — laid flat on charcoal it would darken an
+        already dark page for nothing. Night keeps the flat fill, where
+        the gap is far less visible anyway.
+      */
+      body {
+        background-image:
+          linear-gradient(rgba(231, 229, 228, 0.2), rgba(231, 229, 228, 0.2)),
+          url('/grain.png');
+        background-repeat: repeat;
+        background-size:
+          auto,
+          96px 96px;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background-color: #13100e;
+        }
+        body {
+          background-image: none;
+        }
+      }
+    </style>
+
+    <!--
+      Ansari's type, handed to the browser rather than to the runtime
+      font loader.
+
+      Each family name is exactly the string `constants/colors.ts` names
+      in `fonts` — react-native-web passes it straight through to CSS, so
+      a mismatch here means a silent fallback everywhere.
+
+      The files are subsetted WOFF2 (see `scripts/build-web-fonts.js`):
+      Latin with transliteration diacritics and superior figures for the
+      interface and prose faces, Arabic for Amiri. Together they are
+      about a fifth of the unsubsetted TTFs the native build carries.
+
+      `font-display: block` rather than `swap`, deliberately: a swap is
+      exactly the re-fonting this shell exists to stop. Text waits for
+      its real face; the four faces a first screen needs are preloaded
+      above so that wait is over before there is anything to paint.
+    -->
+    <style id="ansari-type">
+      @font-face {
+        font-family: 'Inter_400Regular';
+        src: url('/fonts/Inter_400Regular.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Inter_500Medium';
+        src: url('/fonts/Inter_500Medium.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Inter_600SemiBold';
+        src: url('/fonts/Inter_600SemiBold.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Inter_700Bold';
+        src: url('/fonts/Inter_700Bold.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_300Light';
+        src: url('/fonts/Literata_300Light.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_300Light_Italic';
+        src: url('/fonts/Literata_300Light_Italic.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_400Regular';
+        src: url('/fonts/Literata_400Regular.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_500Medium';
+        src: url('/fonts/Literata_500Medium.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_500Medium_Italic';
+        src: url('/fonts/Literata_500Medium_Italic.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Literata_600SemiBold';
+        src: url('/fonts/Literata_600SemiBold.woff2') format('woff2');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Amiri_400Regular';
+        src: url('/fonts/Amiri_400Regular.woff2') format('woff2');
+        font-display: block;
+      }
+    </style>
+
+    <!--
+      The icon face, on the same terms.
+
+      An icon here is a character set in the `Feather` family, and
+      `@expo/vector-icons` normally fetches that family itself, as an
+      unconverted TTF, at the moment the first icon mounts — which is
+      only invisible while the whole app waits behind a font gate. With
+      the app painting immediately, the rail's plus, the search glass
+      and the suggestion arrows would paint as missing-glyph boxes and
+      swap to icons a beat later.
+
+      The id below is `expo-font`'s own: it looks for this element
+      before creating one, and skips its runtime injection when a
+      matching face is already declared here. So the rule must be
+      written in that loader's exact format — quoted family, quoted
+      url, no `format()` — and the element must stay writable, because
+      the loader appends to it for any face declared later.
+    -->
+    <style id="expo-generated-fonts">
+      @font-face {
+        font-family: 'Feather';
+        src: url('/fonts/Feather.woff2');
+        font-display: block;
+      }
+    </style>
+
+    <!--
+      The `react-native-web` reset (https://necolas.github.io/react-native-web/docs/setup/#root-element),
+      and the handful of rules that turn the document into a phone
+      application shell rather than a page.
+    -->
+    <style id="expo-reset">
+      /*
+        The app is exactly as tall as the browser is *right now*.
+
+        A static `100%` resolves against the largest viewport the
+        browser can offer — the one it has with its URL bar already
+        collapsed — so on a phone the foot of the app, which is where
+        the composer lives, spends its life hidden behind that bar.
+        `100dvh` is the live measure: it follows the chrome as it grows
+        and shrinks, and the composer stays reachable through both.
+        The `100%` above it is the fallback for browsers that don't
+        know the unit and simply ignore the line.
+      */
+      html,
+      body {
+        height: 100%;
+        height: 100dvh;
+      }
+      /*
+        Nothing outside the app's own scrollers may move. The page is
+        pinned, so a drag on the chrome cannot rubber-band the whole
+        app off its own paper and reveal the canvas behind it, and an
+        overscroll inside the thread or a sheet stops there instead of
+        being handed on to the document.
+      */
+      /*
+        `height` and `top` here are the app's at rest only. While the
+        on-screen keyboard is up, `hooks/useKeyboard.web.ts` overrides
+        both inline, so the app is a shorter app for as long as the
+        keyboard is there. That is not decoration: a browser answers a
+        focused field it would cover by scrolling its own visual
+        viewport, which `position: fixed` cannot see and cannot resist,
+        and an app that has already made the room gives it no reason
+        to. The override lands in one step for the same reason — an
+        eased shell is still its old height at the instant the browser
+        decides whether the field is covered.
+      */
+      body {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        /*
+          A phone browser otherwise inflates text inside a wide block
+          to a size of its own choosing, which quietly breaks every
+          measure the layout is built on.
+        */
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+      /*
+        Every control in the app answers a touch in its own material —
+        a scale, a wash, a lift. The browser's grey rectangle is a
+        second, uninvited answer, drawn over the top of the first.
+      */
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

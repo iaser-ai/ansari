@@ -54,13 +54,12 @@ is there.
 
 ## Known gaps from the port
 
-- **Web fonts.** Native builds load the real Amiri/Inter/Literata faces via
-  `useAppFonts.ts` (`useFonts`). On web, `useAppFonts.web.ts` returns `true`
-  unconditionally — in the Replit source this was safe because
-  `public/index.html` preloaded real `@font-face` declarations for all three
-  families. That `public/` directory wasn't ported (it's Replit's own
-  hosting layer), so **the web build currently falls back to a system font**
-  until a repo-appropriate font-loading strategy is added.
+- **Web icons/manifest.** `public/index.html` links `favicon.ico`,
+  `apple-touch-icon.png`, `icon-192.png`, and `site.webmanifest` (PWA
+  install metadata), none of which are in `public/` — those `<link>`s
+  404 until the icon set is ported from the Replit source. `og-image.png`
+  (social share preview) and `robots.txt` are likewise not yet ported.
+  None of this affects fonts or in-app rendering.
 
 ## Quick start
 
