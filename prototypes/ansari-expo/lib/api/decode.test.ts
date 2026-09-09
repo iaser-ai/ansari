@@ -4,6 +4,7 @@ import {
   decodeConversation,
   decodeConversationDetail,
   decodeConversationList,
+  decodeDeleteResult,
 } from '@/lib/api/decode';
 import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
 
@@ -94,6 +95,86 @@ describe('decodeConversationList — loud failure', () => {
 
   it('filters nothing away — the empty list decodes to an empty list', () => {
     expect(decodeConversationList([])).toEqual([]);
+  });
+});
+
+describe('decodeConversationList — client-side title-only search (issue #64)', () => {
+  // apps/api's GET /threads ignores query params, so the History search box
+  // filters the loaded list here. It matches the raw `thread_name` ONLY,
+  // case-insensitively, and an unnamed thread (null name) must neither match nor
+  // crash. These fixtures share one list so each assertion narrows a real set.
+  const named = (thread_id: string, thread_name: string | null) => ({
+    thread_id,
+    thread_name,
+    source: 'web',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-02T00:00:00.000Z',
+  });
+  const list = [
+    named('t-1', 'Prayer times'),
+    named('t-2', 'How to develop khushu'),
+    named('t-3', null), // unnamed thread → maps to "New conversation"
+  ];
+
+  it('matches thread_name case-insensitively', () => {
+    expect(decodeConversationList(list, 'PRAYER').map((c) => c.id)).toEqual([
+      't-1',
+    ]);
+    expect(decodeConversationList(list, 'khushu').map((c) => c.id)).toEqual([
+      't-2',
+    ]);
+  });
+
+  it('is title-only: a query matching another field (source/id) matches nothing', () => {
+    // "web" is every thread's `source`, and "t-" every thread's id prefix — a
+    // title-only filter must not surface them.
+    expect(decodeConversationList(list, 'web')).toEqual([]);
+    expect(decodeConversationList(list, 't-')).toEqual([]);
+  });
+
+  it('a null thread_name neither matches nor crashes', () => {
+    // The unnamed thread maps to the display title "New conversation"; searching
+    // "new"/"conversation" must NOT surface it (we filter raw name, not title).
+    expect(decodeConversationList(list, 'new')).toEqual([]);
+    expect(decodeConversationList(list, 'conversation')).toEqual([]);
+    // And it is simply absent from an unrelated query — no throw.
+    expect(decodeConversationList(list, 'prayer').map((c) => c.id)).toEqual([
+      't-1',
+    ]);
+  });
+
+  it('an empty or whitespace query returns the whole list (clearing restores)', () => {
+    expect(decodeConversationList(list)).toHaveLength(3);
+    expect(decodeConversationList(list, '')).toHaveLength(3);
+    expect(decodeConversationList(list, '   ')).toHaveLength(3);
+  });
+
+  it('still throws on a bad list shape even with a query (loud failure holds)', () => {
+    expect(() => decodeConversationList([oldConversation], 'prayer')).toThrow(
+      ZodError,
+    );
+  });
+});
+
+describe('decodeDeleteResult — loud failure (issue #64)', () => {
+  it('accepts the real DELETE /threads/{id} `{ message }` shape', () => {
+    expect(() => decodeDeleteResult({ message: 'Thread deleted' })).not.toThrow();
+  });
+
+  it('rejects a response missing `message`', () => {
+    expect(() => decodeDeleteResult({})).toThrow(ZodError);
+  });
+
+  it('rejects a `message` of the wrong type', () => {
+    expect(() => decodeDeleteResult({ message: 204 })).toThrow(ZodError);
+  });
+
+  it('rejects the old Replit Conversation shape (wrong backend)', () => {
+    expect(() => decodeDeleteResult(oldConversation)).toThrow(ZodError);
+  });
+
+  it('rejects a non-object payload (e.g. an HTML error page string)', () => {
+    expect(() => decodeDeleteResult('<html>500</html>')).toThrow(ZodError);
   });
 });
 

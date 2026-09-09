@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
-import type { ContentBlock } from '@/db/schema/messages';
+import {
+  toolCallsOrNull,
+  type ContentBlock,
+  type ModelProvenance,
+  type ToolCallRecord,
+} from '@/db/schema/messages';
 import { db } from '@/lib/db/index';
 import { getOrCreateSystemUser } from '@/lib/db/users';
-import { createThread, createMessage } from '@/lib/db/threads';
+import { createThread, createMessage, persistOrphanToolCalls } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
@@ -86,13 +91,24 @@ function prepareMessages(inputMessages: Array<{ role: 'user' | 'assistant'; cont
 
 /**
  * Run the facilitator and collect the full response text along with the
- * accumulated token usage from the final 'done' event.
+ * accumulated token usage and tool records from the terminal event.
+ *
+ * A facilitator `error` is RETURNED (not thrown) so its tool records survive
+ * to be persisted (spec 73); the caller re-raises it, keeping the 500 contract.
  */
 async function collectFacilitatorResponse(
   messages: Message[]
-): Promise<{ text: string; usage?: NonNullable<FacilitatorStreamEvent['usage']> }> {
+): Promise<{
+  text: string;
+  usage?: NonNullable<FacilitatorStreamEvent['usage']>;
+  toolCalls?: ToolCallRecord[];
+  provenance?: ModelProvenance;
+  error?: string;
+}> {
   let fullText = '';
   let usage: FacilitatorStreamEvent['usage'];
+  let toolCalls: ToolCallRecord[] | undefined;
+  let provenance: ModelProvenance | undefined;
 
   for await (const event of runFacilitator(messages)) {
     switch (event.type) {
@@ -100,14 +116,22 @@ async function collectFacilitatorResponse(
         fullText += event.data;
         break;
       case 'error':
-        throw new Error(event.data);
+        return {
+          text: fullText,
+          usage,
+          toolCalls: event.toolCalls,
+          provenance: event.provenance,
+          error: event.data,
+        };
       case 'done':
         usage = event.usage;
+        toolCalls = event.toolCalls;
+        provenance = event.provenance;
         break;
     }
   }
 
-  return { text: fullText, usage };
+  return { text: fullText, usage, toolCalls, provenance };
 }
 
 /**
@@ -148,17 +172,46 @@ async function handleMcpComplete(
   });
 
   // Run facilitator to completion
-  const { text: responseText, usage } = await collectFacilitatorResponse(messages);
+  const {
+    text: responseText,
+    usage,
+    toolCalls,
+    provenance,
+    error: facilitatorError,
+  } = await collectFacilitatorResponse(messages);
+
+  if (facilitatorError !== undefined) {
+    // Tool records from a failed turn (spec 73), then the same throw as before so
+    // the route's catch still answers 500 with the facilitator's message.
+    await persistOrphanToolCalls({
+      threadId: thread.id,
+      reason: 'error',
+      source: 'ai-skill',
+      client,
+      toolCalls,
+      provenance,
+    });
+    throw new Error(facilitatorError);
+  }
 
   // Backstop (issue #60): never ship an empty 200. If the facilitator completed with no
   // visible text (its own retry exhausted, or any future empty mode), return an explicit
   // 502 so the client's retry logic acts on a real signal instead of receiving a
-  // contentless attribution footer. Nothing persisted, no PII logged.
+  // contentless attribution footer. No assistant row persisted, no PII logged — only
+  // the turn's tool records, to the orphan table (spec 73).
   if (responseText.trim().length === 0) {
     console.error('[ai-skill] mcp-complete: empty facilitator answer', { threadId: thread.id });
     Sentry.captureMessage('mcp-complete empty answer', {
       level: 'error',
       extra: { threadId: thread.id },
+    });
+    await persistOrphanToolCalls({
+      threadId: thread.id,
+      reason: 'empty_final',
+      source: 'ai-skill',
+      client,
+      toolCalls,
+      provenance,
     });
     return createErrorResponse('The model returned an empty answer. Please retry.', 502);
   }
@@ -177,6 +230,11 @@ async function handleMcpComplete(
     outputTokens: usage?.candidatesTokenCount ?? null,
     thinkingTokens: usage?.thoughtsTokenCount ?? null,
     totalTokens: usage?.totalTokenCount ?? null,
+    // Tool dispatch records (spec 73); NULL, never [], when no tool ran.
+    toolCalls: toolCallsOrNull(toolCalls),
+    // Per-turn model provenance (issue #99); NULL, never '', when absent.
+    modelProvider: provenance?.provider ?? null,
+    modelId: provenance?.modelId ?? null,
   });
 
   return new NextResponse(fullResponse, {

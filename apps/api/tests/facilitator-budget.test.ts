@@ -68,6 +68,19 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
+// The agent now consults config.primaryBackend at request start (issue #95);
+// these suites run without env vars, so the real config would throw on access.
+vi.mock('@/lib/config', () => ({
+  config: {
+    get primaryBackend() {
+      return 'gemini';
+    },
+    get gemini() {
+      return { model: 'primary-model', fallbackModel: 'fallback-model' };
+    },
+  },
+}));
+
 vi.mock('@/lib/ai/gemini-client', () => ({
   streamGemini: vi.fn((message: string, options: Record<string, unknown>) => {
     h.calls.push({ message, options });
@@ -80,7 +93,6 @@ vi.mock('@/lib/ai/gemini-client', () => ({
 // Inkling unavailable here: these tests pin the Gemini-only budget behavior; the #79
 // error rescue (which probes isInklingConfigured on pre-deadline failures) stays off.
 vi.mock('@/lib/ai/inkling-client', () => ({
-  INKLING_MODEL: 'thinkingmachines/Inkling',
   isInklingConfigured: () => false,
   streamInkling: vi.fn(() => {
     throw new Error('streamInkling must not be called in these tests');

@@ -1,0 +1,26 @@
+I have completed the review for **Phase 1** (`Schema, migration 0005/0007, and DB helpers`) of the `Persist tool_use and tool_result` plan.
+
+### Summary of Assessment
+
+1. **Spec & Plan Adherence**:
+   - `apps/api/db/schema/messages.ts`: Added nullable `toolCalls: jsonb('tool_calls')` using `$type<ToolCallRecord[]>()` to prevent tool records from being mixed into `content`.
+   - `apps/api/db/schema/tool-call-orphans.ts`: Created the `tool_call_orphans` table for storing tool records from failed/empty turns without polluting `messages` or violating thread GET / history replay contract safety.
+   - `apps/api/drizzle/0007_tool_calls_persistence.sql`: Additive and nullable migration containing `CREATE TABLE tool_call_orphans` and `ALTER TABLE messages ADD COLUMN tool_calls jsonb`.
+   - `apps/api/lib/db/threads.ts`: Implemented `createToolCallOrphan` (which explicitly avoids bumping `threads.updatedAt`). Updated `findMessagesByThread` and `getThreadWithMessages` with explicit column projections (`messageReadColumns`) that structurally omit `toolCalls` while preserving `rawPayload`.
+   - `apps/api/lib/db/shares.ts`: Updated `createThreadSnapshot` to project only `{ role, content, createdAt }`, structurally ensuring tool records and raw payloads are never serialized in snapshots.
+
+2. **Test Coverage & Quality**:
+   - `apps/api/tests/toolcalls-persistence.test.ts`: Added comprehensive real-DB (pglite) round-trip tests covering:
+     - Direct `db.select()` verification of persisted `toolCalls` records.
+     - Negative assertions (`NULL` persisted when no tools used).
+     - Read-path projections (`findMessagesByThread`, `getThreadWithMessages`, `createThreadSnapshot`) verifying `toolCalls` key is omitted.
+     - `createToolCallOrphan` round-trip, `updated_at` preservation, and thread-delete cascading.
+   - Updated hand-written `CREATE TABLE messages` test DDLs across existing test files (`attribution-schema`, `executor-threads-feedback`, etc.) to prevent schema drift.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 implementation (schema, migration, DB helpers, projections, and pglite tests) is complete and adheres strictly to the plan and spec.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

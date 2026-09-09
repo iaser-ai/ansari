@@ -43,8 +43,11 @@ import {
   useGetConversation,
   useSendMessage,
   type Citation,
+  type ConversationDetail,
   type Message,
 } from '@/lib/api';
+import { formatTraceLine, traceReducer, type TraceEntry } from '@/lib/chat-trace';
+import { reconcileThread } from '@/lib/chat-reconcile';
 
 // The desktop reading column: message text lands near 70 characters a
 // line — a book's measure, not a stretched web page.
@@ -55,13 +58,29 @@ const READING_COLUMN = 672;
 // hand-off without remounting.
 const ECHO_ID = '__asked-question';
 
+// Per-turn key prefix for the in-progress assistant answer. The synthetic
+// streaming bubble and the persisted message it hands off to share one key so
+// the row updates in place instead of re-animating; a per-turn suffix keeps
+// successive answers from colliding on the key. (Same identity-reconciliation
+// trick as ECHO_ID, one key per streamed turn.)
+const STREAM_KEY_PREFIX = '__streaming-answer-';
+
 /**
  * The waiting state sits on the paper exactly as the answer will —
  * unboxed, so nothing has to dissolve away when the text arrives. It
  * only fades in (no travel), beneath the question that prompted it.
+ *
+ * While the model searches, it shows the live retrieval trace — one line
+ * per tool call ("Searching hadith for "patience" — 12 results"), falling
+ * back to the plain "Searching the sources…" line before any tool has run.
+ * The trace is transient: it is shown only here, while awaiting the answer,
+ * and is never persisted or replayed on reload. It shows what the answer is
+ * being built FROM; it is not citation UI.
  */
-function ThinkingIndicator() {
+function ThinkingIndicator({ trace }: { trace: TraceEntry[] }) {
   const colors = useColors();
+  const lines =
+    trace.length > 0 ? trace.map(formatTraceLine) : ['Searching the sources…'];
   return (
     <Animated.View
       entering={FadeIn.duration(320)
@@ -70,9 +89,16 @@ function ThinkingIndicator() {
       style={styles.thinking}
     >
       <ActivityIndicator size="small" color={colors.mutedForeground} />
-      <Text style={[styles.thinkingText, { color: colors.mutedForeground }]}>
-        Searching the sources…
-      </Text>
+      <View style={styles.thinkingLines}>
+        {lines.map((line, i) => (
+          <Text
+            key={i}
+            style={[styles.thinkingText, { color: colors.mutedForeground }]}
+          >
+            {line}
+          </Text>
+        ))}
+      </View>
     </Animated.View>
   );
 }
@@ -115,6 +141,22 @@ export default function ChatScreen() {
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const autoSent = useRef(false);
 
+  // The answer as it streams in: appended text and the live retrieval trace,
+  // both reset at the start of each send. `streamKey` is this turn's list key
+  // (see STREAM_KEY_PREFIX); `keyOverrides` remaps a landed server message's id
+  // to the stream key its synthetic bubble used, so the hand-off on `done`
+  // swaps content in place with no remount. `sentAtCount` is the persisted
+  // message count captured at send, used to tell the in-flight turn's answer
+  // apart from a prior turn's when the refetch lands.
+  const [streamingText, setStreamingText] = useState('');
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
+  const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
+  const turnSeq = useRef(0);
+  const streamKey = useRef('');
+  // null = no baseline known yet (nothing sent, or the detail query hadn't
+  // resolved). Distinct from 0 (a loaded, empty thread) — see chat-reconcile.ts.
+  const sentAtCount = useRef<number | null>(null);
+
   // Floating chrome: one uniform frosted bar spans from the physical
   // top edge (behind the status bar) down through the title row, and
   // the transcript visibly blurs beneath it. The back button + title
@@ -146,6 +188,11 @@ export default function ChatScreen() {
   const sendMessage = useSendMessage({
     mutation: {
       onSuccess: () => {
+        // Re-read the persisted thread so the final bubble carries the server's
+        // ids / timestamps / citations. The synthetic streaming bubble stays up
+        // until that answer actually lands (see the hand-off effect below), so
+        // there is no gap between the stream ending and the persisted message
+        // appearing.
         queryClient.invalidateQueries({
           queryKey: getGetConversationQueryKey(conversationId),
         });
@@ -154,12 +201,37 @@ export default function ChatScreen() {
         });
       },
     },
+    // Drive the incremental render: append text deltas, fold tool events into
+    // the retrieval trace. `error` / `done` are handled by react-query's
+    // isError / onSuccess; the partial `streamingText` is deliberately left
+    // intact on error so it stays on screen.
+    onEvent: (event) => {
+      if (event.type === 'text') {
+        // consume() calls onEvent before validating; guard the malformed case
+        // so a non-string content can't append an artifact before it throws.
+        if (typeof event.content === 'string') {
+          setStreamingText((prev) => prev + event.content);
+        }
+      } else if (event.type === 'tool_call' || event.type === 'tool_result') {
+        setTrace((prev) => traceReducer(prev, event));
+      }
+    },
   });
 
   const lastSent = useRef<string | null>(null);
   const send = (content: string) => {
-    if (!conversationId || sendMessage.isPending) return;
+    // Require the detail query to have RESOLVED before sending: the reconciler's
+    // baseline is the persisted message count, and without loaded data we cannot
+    // capture a real one (`?? 0` would look like an empty thread and make a
+    // pre-existing assistant answer read as this turn's, clearing the stream).
+    // The composer is also disabled until then, so this is defence-in-depth.
+    if (!conversationId || !conversationQuery.data || sendMessage.isPending) return;
     lastSent.current = content;
+    turnSeq.current += 1;
+    streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
+    sentAtCount.current = conversationQuery.data.messages.length;
+    setStreamingText('');
+    setTrace([]);
     sendMessage.mutate({ conversationId, data: { content } });
   };
 
@@ -187,30 +259,41 @@ export default function ChatScreen() {
   // so the row is never unmounted and remounted — nothing duplicates,
   // nothing re-animates, nothing jumps.
   const serverMessages = conversationQuery.data?.messages;
-  const messages = useMemo<Message[]>(() => {
-    const server = serverMessages ?? [];
-    if (!q) return server;
-    let matched = false;
-    const reconciled = server.map((m) => {
-      if (!matched && m.role === 'user' && m.content === q) {
-        matched = true;
-        return { ...m, id: ECHO_ID };
-      }
-      return m;
-    });
-    if (matched) return reconciled;
-    return [
-      {
-        id: ECHO_ID,
+
+  // Reconciliation (landed-answer detection, echo identity, synthetic streaming
+  // bubble) is a pure function so its load/stream-timing seams are unit-testable
+  // without React — see lib/chat-reconcile.ts.
+  const { messages, landedAnswer } = useMemo(
+    () =>
+      reconcileThread({
+        serverMessages,
+        q,
         conversationId,
-        role: 'user',
-        content: q,
-        citations: [],
-        createdAt: '',
-      },
-      ...reconciled,
-    ];
-  }, [serverMessages, q, conversationId]);
+        streamingText,
+        streamKey: streamKey.current,
+        sentAtCount: sentAtCount.current,
+      }),
+    // streamKey / sentAtCount are refs, current at each recompute; the reactive
+    // inputs are the ones listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [serverMessages, q, conversationId, streamingText],
+  );
+
+  // Hand-off on `done`: once this turn's answer is persisted, remap its server
+  // id to the stream key its synthetic bubble used (so the list row updates in
+  // place, no remount / re-animation) and clear the streaming state in the same
+  // commit — no duplicate, no gap.
+  useEffect(() => {
+    if (streamingText && landedAnswer) {
+      const key = streamKey.current;
+      const id = landedAnswer.id;
+      setKeyOverrides((prev) => (prev[id] === key ? prev : { ...prev, [id]: key }));
+      setStreamingText('');
+      setTrace([]);
+    }
+  }, [streamingText, landedAnswer]);
+
+  const keyFor = (m: Message) => keyOverrides[m.id] ?? m.id;
 
   const reversed = [...messages].reverse();
 
@@ -270,7 +353,7 @@ export default function ChatScreen() {
           <FlatList
             data={reversed}
             inverted
-            keyExtractor={(m: Message) => m.id}
+            keyExtractor={keyFor}
             scrollEnabled={!!reversed.length || awaitingAnswer}
             contentContainerStyle={[
               styles.messages,
@@ -289,9 +372,13 @@ export default function ChatScreen() {
             showsVerticalScrollIndicator={false}
             // Inverted list: the header renders below index 0, so the
             // waiting state sits beneath the question that prompted it.
+            // The trace indicator shows only until the first text frame — once
+            // the answer is streaming, the synthetic bubble in the list carries
+            // it and the indicator steps aside. On error the partial answer (if
+            // any) stays in the list above this notice.
             ListHeaderComponent={
-              awaitingAnswer ? (
-                <ThinkingIndicator />
+              awaitingAnswer && !streamingText ? (
+                <ThinkingIndicator trace={trace} />
               ) : sendMessage.isError ? (
                 <SendErrorNotice
                   onRetry={() => {
@@ -366,7 +453,9 @@ export default function ChatScreen() {
         >
           <ChatInput
             onSend={send}
-            sending={sendMessage.isPending}
+            // Disabled until the detail query resolves, so a message can't be
+            // sent before a reconciler baseline exists (see send()).
+            sending={sendMessage.isPending || !conversationQuery.data}
             placeholder="Ask a follow-up…"
           />
         </Animated.View>
@@ -486,13 +575,20 @@ const styles = StyleSheet.create({
   // replace these words without a surface dissolving away.
   thinking: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // Top-aligned: the spinner sits with the first trace line while the
+    // lines stack beneath it as more tool calls arrive.
+    alignItems: 'flex-start',
     gap: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
+  thinkingLines: {
+    flexShrink: 1,
+    gap: 4,
+  },
   thinkingText: {
     fontSize: 15,
+    lineHeight: 20,
     fontFamily: fonts.displayItalic,
   },
   sendError: {

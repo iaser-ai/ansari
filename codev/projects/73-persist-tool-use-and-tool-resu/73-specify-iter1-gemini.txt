@@ -1,0 +1,34 @@
+# Specification Review: 73-persist-tool-use-and-tool-resu
+
+## Overview & Context
+This specification addresses the persistence regression where `tool_use` and `tool_result` blocks executed during assistant turns were dropped rather than saved to the database. The feature establishes a dedicated, nullable `tool_calls` `jsonb` column on the `messages` table, enabling per-tool analytics, latency metrics, and failure/degradation tracking (such as `search_mawsuah` degradation rates) without altering the `content` field or breaking existing API response contracts.
+
+---
+
+## Detailed Evaluation
+
+### 1. Structure & Baked Decisions Compliance
+- **Template Alignment**: The specification strictly follows the SPIR specification template, containing all required sections (`Problem Statement`, `Current State`, `Desired State`, `Success Criteria`, `Constraints`, `Assumptions`, `Solution Approaches`, `Open Questions`, `Test Scenarios`, `Risks and Mitigation`, `References`).
+- **Baked Decisions**: The spec fully honors all baked decisions specified by the operator:
+  - Storing both `tool_use` and `tool_result` blocks.
+  - Keeping tool data strictly out of `messages.content` to preserve mobile API contract compatibility (where single-text messages return bare strings).
+  - Utilizing a separate nullable `tool_calls` `jsonb` column via migration `0005` (generated via `drizzle-kit generate`).
+
+### 2. Technical Correctness & Feasibility
+- **Data Model & Conveyance**: Utilizing Facilitator-level accumulation (Approach 1) mirrors the proven pattern used for `usage` and `raw_payload` (PR #71). It ensures a single source of truth across normal tool execution, budget short-circuits (T1/T2), tool limits, and multi-round loops.
+- **API Safety**: Isolating `tool_calls` outside of `content` and explicit route-level key mapping prevents unexpected payload leaks or response shape changes on legacy Expo/mobile clients.
+- **Testing Realism**: The inclusion of `pglite` real-DB round-trip tests and explicit checks against pglite DDL drift (learned from issue #70) ensures high technical quality and avoids test-only false positives.
+
+### 3. Edge Cases & Scope Bounding
+- **Skipped / Short-Circuited Calls**: The spec explicitly requires recording skipped and short-circuited tool calls with a distinct status marker so operational failure rates do not conflate budget cutoffs with provider failures.
+- **Zero-Tool Turns**: The spec mandates writing `NULL` instead of `[]` for assistant turns with no tool calls, keeping database scans efficient and storage footprint minimal.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Comprehensive, technically sound specification that correctly addresses tool persistence without breaking mobile client API contracts.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

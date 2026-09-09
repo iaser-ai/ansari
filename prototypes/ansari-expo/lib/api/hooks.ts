@@ -8,15 +8,15 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api/http';
-import { streamChat } from '@/lib/api/streaming';
+import { streamChat, type ChatStreamEvent } from '@/lib/api/streaming';
 import { resolveBaseUrl } from '@/lib/api/config';
 import {
   decodeConversation,
   decodeConversationDetail,
   decodeConversationList,
+  decodeDeleteResult,
   decodeHealth,
 } from '@/lib/api/decode';
-import { messageResponseSchema } from '@/lib/api/wire-schemas';
 import { SUGGESTED_TOPICS } from '@/lib/suggested-topics';
 import type {
   Conversation,
@@ -67,11 +67,9 @@ async function fetchConversations(
   params?: ListConversationsParams,
 ): Promise<Conversation[]> {
   const raw = await apiFetch<unknown>('/api/v2/threads');
-  const conversations = decodeConversationList(raw);
-  const q = params?.q?.trim().toLowerCase();
-  if (!q) return conversations;
-  // apps/api has no server-side thread search, so filter by title client-side.
-  return conversations.filter((c) => c.title.toLowerCase().includes(q));
+  // apps/api ignores query params, so `decodeConversationList` applies the
+  // client-side title-only search (over raw `thread_name`) after validating.
+  return decodeConversationList(raw, params?.q);
 }
 
 export function useListConversations(
@@ -133,7 +131,7 @@ export function useDeleteConversation(
         `/api/v2/threads/${encodeURIComponent(conversationId)}`,
         { method: 'DELETE' },
       );
-      messageResponseSchema.parse(raw); // { message: string }
+      decodeDeleteResult(raw); // throws on a non-`{ message }` shape
     },
     ...options?.mutation,
   });
@@ -146,8 +144,20 @@ type SendMessageVariables = {
   data: SendMessageRequest;
 };
 
+type SendMessageOptions = MutationHookOptions<MessageExchange, SendMessageVariables> & {
+  /**
+   * Called for every SSE event as it arrives (`text` deltas, `tool_call` /
+   * `tool_result`, `error`, `done`), so the screen can render the answer
+   * incrementally and show a live retrieval trace. This is the progress seam:
+   * the mutation still resolves only on `done` and its `MessageExchange` return
+   * is still ignored by the screen (it re-reads the persisted thread), but the
+   * partial answer no longer waits behind a blocking spinner.
+   */
+  onEvent?: (event: ChatStreamEvent) => void;
+};
+
 export function useSendMessage(
-  options?: MutationHookOptions<MessageExchange, SendMessageVariables>,
+  options?: SendMessageOptions,
 ): UseMutationResult<MessageExchange, Error, SendMessageVariables> {
   return useMutation({
     mutationFn: async ({ conversationId, data }) => {
@@ -155,6 +165,7 @@ export function useSendMessage(
         baseUrl: resolveBaseUrl(),
         threadId: conversationId,
         message: data.content,
+        onEvent: options?.onEvent,
       });
       // The chat screen ignores this return value (it invalidates the detail
       // query and re-reads the persisted thread), but the type contract is

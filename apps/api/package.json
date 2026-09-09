@@ -29,7 +29,7 @@
   "author": "IASER",
   "license": "MIT",
   "dependencies": {
-    "@google/genai": "^1.50.1",
+    "@google/genai": "^2.19.0",
     "@react-email/components": "^1.0.8",
     "@react-email/render": "^2.0.4",
     "@sentry/nextjs": "^10.39.0",
@@ -40,7 +40,7 @@
     "pg": "^8.17.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-email": "^5.2.9",
+    "react-email": "^6.9.3",
     "recharts": "^3.7.0",
     "resend": "^6.9.3",
     "zod": "^4.3.5"
@@ -57,7 +57,7 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "catalog:",
@@ -65,7 +65,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "postcss": "^8.5.25",

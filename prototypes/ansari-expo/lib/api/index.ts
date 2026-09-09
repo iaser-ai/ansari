@@ -30,3 +30,5 @@ export {
 } from '@/vendor/api-client-react/custom-fetch';
 
 export * from '@/lib/api/types';
+
+export { ChatStreamError, type ChatStreamEvent } from '@/lib/api/streaming';

@@ -1,0 +1,25 @@
+I'll review the Phase 2 implementation, focusing on what changed since iteration 1.I reviewed the Phase 2 implementation from disk, focusing on both the accumulation logic and the two gaps raised in iteration 1.
+
+**Verification performed:**
+
+*Iteration-1 concern #1 — `ToolResult.degradation` untested through a real tool:* Now genuinely covered end-to-end. `tests/usul-retry.test.ts:258` and `tests/kalemat-resilience.test.ts:102,133` assert `result.degradation` off a real `ToolFetchError` propagating through each tool's own catch — both files use `describe.each`, so all four tools (`search_quran`, `search_hadith`, `search_mawsuah`, `search_tafsir_encyclopedia`) are exercised, covering the retried-timeout (`attempts: 2`) and single-attempt 5xx (`status: 502`) shapes with real fetch/abort behavior. The wirings at `search-*.ts:131-152` (`unavailableResult(label, meta)`) would now fail loudly if reverted.
+
+*Iteration-1 concern #2 — untested error paths:* `facilitator-toolcalls.test.ts:382` (degenerate-final, ladder exhausted with Inkling stubbed off) and `:395` (ten rounds → "Maximum iterations reached", first 3 `ok`, rest `limit_refused` with `duration_ms: null`) close the gap. I grepped every terminal yield in `agent.ts` — lines 584, 598, 618, 782, 810, 995, 1005 — and all carry `collectedToolCalls()`. Line 436 (`'No user message to process'`) precedes any dispatch, correctly bare, and is pinned by the test at `:410`.
+
+*Iteration-1 concern #3 — id uniqueness:* `recordToolUse` (agent.ts:415) now embeds a per-request sequence. I confirmed `tracker.callsWithArgs` has no other consumers, so the format change is inert.
+
+**Independent checks I made:** `formatToolResultForGemini` (agent.ts:375) maps `{results, summary}` explicitly, so `degradation` structurally cannot reach the model or the SSE wire — pinned by the lossy-event test at `:211`. Loop-level accumulation correctly covers the paths that bypass `processToolCall`: T1/T2 skips at `:870` and limit-refusals via the `outcome` tag rather than string-matching (#54 lesson honored, compiler-enforced). `meta` is `{}` for non-`ToolFetchError` failures, and `unavailableResult` drops empty detail — no `degradation: {}` noise, no PII (never the raw error or URL).
+
+**Suite:** 71 files / 685 passed / 3 pre-existing skips; `tsc --noEmit` clean.
+
+**Minor, non-blocking:** the *degenerate-synthesis* error yield (`agent.ts:598`, `!synthResponse || classifyDegenerateFinal(synthText)`) carries the records but has no dedicated test — its sibling at `:584` (synthesis throw) does. Identical one-liner, negligible risk. Also note the `done` event yields `undefined` when empty while `onMessage` yields `null`; Phase 3 routes must normalize both to SQL NULL, which the plan already specifies.
+
+---
+VERDICT: APPROVE
+SUMMARY: Both iteration-1 gaps are genuinely closed — real-tool degradation is now asserted end-to-end across all four tools, and all six terminal paths carry accumulated records with full suite and typecheck green.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None (blocking)
+- Minor: the degenerate-synthesis error yield (agent.ts:598) is the one terminal path without a dedicated test; its sibling throw-path is covered and the code is identical

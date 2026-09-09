@@ -1,0 +1,41 @@
+### Plan Assessment
+
+#### 1. Alignment with Specification Requirements
+The plan addresses 100% of the specification requirements and honors all baked decisions:
+- **Storage Location**: Persists tool invocation history into a new nullable `messages.tool_calls` `jsonb` column, completely separate from `messages.content`.
+- **Fidelity & Record Taxonomy**: Stores interleaved `tool_use` and `tool_result` blocks capturing correlating IDs (minted at loop level), tool names, input arguments, full `formatToolResultForGemini` content outputs, per-call `duration_ms`, and categorical `status` (`ok`, `degraded`, `budget_skipped`, `limit_refused`, `unknown_tool`).
+- **Error-Turn Persistence & Invisibility**: Persists tool records from turns ending in `error` or empty completions into a dedicated `tool_call_orphans` side table. This guarantees invisibility to thread GET API responses and history replay by construction without modifying existing message query filters.
+- **PR #76 Coherence**: Extends `ToolResult` to propagate `degradation` details (`errorClass`, `attempts`), ensuring retry/degradation metrics stay consistent with PR #76.
+- **Coverage across Persist Sites**: Covers all three API persistence entry points ([route.ts](file:///Users/mwk/Development/iaser/ansari/.builders/spir-73/apps/api/src/app/api/v2/threads/%5Bid%5D/route.ts), [chat/route.ts](file:///Users/mwk/Development/iaser/ansari/.builders/spir-73/apps/api/src/app/api/v2/threads/%5Bid%5D/chat/route.ts), and [mcp-complete/route.ts](file:///Users/mwk/Development/iaser/ansari/.builders/spir-73/apps/api/src/app/api/v2/mcp-complete/route.ts)).
+
+#### 2. Implementation Approach and Architecture
+- Accumulating `toolCallRecords` in the facilitator loop ([agent.ts](file:///Users/mwk/Development/iaser/ansari/.builders/spir-73/apps/api/lib/facilitator/agent.ts)) ensures a single, complete source of truth across normal tool execution, short-circuits (T1/T2 budget cutoffs), limit refusals, and multi-round continuations.
+- Utilizing a dedicated `tool_call_orphans` table for failed or empty turns is structurally superior to using hidden message rows. It prevents contract leaks in thread GET queries, avoids inflating message-based admin metrics, and decouples analytics queries from user-facing conversation history.
+
+#### 3. Task Breakdown and Ordering
+- **Phase 1** establishes the DB schema (`messages.tool_calls` column + `tool_call_orphans` table), migration `0005`, schema types, DB helpers, and real DB (pglite) test updates.
+- **Phase 2** updates tool degradation details, loop-level record accumulation, and terminal event payloads, tested via unit tests with mocked Gemini streams.
+- **Phase 3** wires all route handlers to persist tool records to `messages` or `tool_call_orphans` and adds integration & contract regression tests.
+The dependency ordering is strictly logical and each phase can be completed and tested independently.
+
+#### 4. Risk Identification and Mitigation
+The plan identifies critical failure modes and provides robust mitigations:
+- Prevents DDL drift across tests by updating all `CREATE TABLE messages` pglite blocks in Phase 1.
+- Wraps orphan writes in `try/catch` blocks so database write errors during error turns log diagnostic info without masking the original stream error.
+- Enforces outcome tagging at compile time via typed returns rather than brittle string matching.
+
+#### 5. Testing Strategy
+- **Unit & Schema**: Real DB (pglite) round-trip testing for helper functions and negative testing (`NULL` when unused).
+- **Facilitator Mechanics**: Mocked Gemini stream tests asserting ordered accumulation across happy paths, degraded calls, T1/T2 short-circuits, limit refusals, and multi-round loops.
+- **Frozen Contract Protection**: Byte-level contract regression tests on thread GET and share snapshot APIs asserting that serialized JSON contains no tool keys and `content` remains a bare string for single text block messages.
+
+#### 6. Missing Steps or Considerations
+- None. The plan is complete, well-reasoned, and ready for implementation.
+
+---
+VERDICT: APPROVE
+SUMMARY: Excellent implementation plan that cleanly fulfills all spec requirements, honors baked decisions, and ensures contract invisibility via a dedicated orphan table.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

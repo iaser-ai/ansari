@@ -23,6 +23,25 @@ Durable engineering wisdom captured across the project's work. Update it during 
 - **Hand-written test DDL is a schema copy and drifts like one.** Adding a column meant updating five pglite `CREATE TABLE messages` blocks across test files; the real-DB suites failed loudly until they matched — which is exactly the drift-detection a mocked suite would have silently missed.
 - **A live check is only as strong as the shape it exercises.** A pre-fix live Vertex replay check passed for the wrong reason: its single-chunk fixture was the one shape that hides last-chunk-wins truncation. Pick verification fixtures that *can* exhibit the suspected failure mode (here: a multi-chunk streamed turn), or the pass certifies nothing.
 
+## Tool-call persistence (spec 73)
+
+See `codev/reviews/73-persist-tool-use-and-tool-resu.md` for the full context.
+
+- **Make invisibility structural, not a filter.** Records that must never reach an API response (error-turn tool logs) went to a separate table rather than marker rows in `messages`: a table no existing query reads is invisible to thread GET, share snapshots, history replay and message-count stats by construction, whereas marker rows need a filter at every current and future consumer — the quiet-check failure mode. Likewise, project sensitive columns OUT of the read helpers so the contract does not depend on each route's `.map()` discipline.
+- **A green suite after adding an error-path call is unproven until every factory mock carries the export.** Four route tests factory-mocked `@/lib/db/threads` without the new `persistOrphanToolCalls`; vitest throws on the missing export, but the streams' `catch` swallowed it and every assertion still held. Nothing failed — the gap was found by reasoning, not by a red run. Grep `vi.mock('<module>'` the moment a route gains a new import from that module.
+- **Re-grep hand-written test DDL after every develop merge, not once per phase.** The #70 lesson (test DDL drifts like a schema copy) has a timing corollary: a sixth `CREATE TABLE messages` arrived *with* the develop merge (PR #88) after the initial five-file update, and its whole-row select failed with an unknown column. Loud, but only because the merge happened before the suite ran.
+- **Normalize "absent or empty" to one value at the boundary.** `toolCalls ?? null` would have persisted `[]` for an explicitly empty array — legal under the producer's "absent/empty" contract — violating the NULL-when-unused rule. A pure `toolCallsOrNull()` at every persist site (placed in the schema module so no mock needed a new export) closes the class, with a per-site empty-array regression.
+- **Lazy config reads inside error paths need targeted mocks in unit tests.** Two terminal facilitator paths (`isInklingConfigured()`, the degenerate-final `config.gemini.model` summary) read validated config only when reached; in a harness without env they throw *inside the catch*, turning the path under test into a different error. Mock `@/lib/ai/inkling-client` and `@/lib/config` whenever a test drives a terminal error path.
+- **Number migrations after merging, and expect drizzle's prefix to lag.** A concurrent PR took the next journal index mid-project; the fix was merge-then-generate and a manual rename (`0007_*` at idx 6). drizzle-kit names files by index, so the next generate will emit another `0007_` — the successor must be `0008_*`.
+
+## Incremental streaming render — prototype (issue #65)
+
+See `codev/reviews/65-prototypes-ansari-expo-render-.md` for the full context.
+
+- **"It streams" is a transport claim; verify the render separately.** The chat backend emitted SSE token-by-token from day one, yet #63 still showed a blocking spinner because it buffered every frame and painted only on `done`. A streaming wire does not imply a streaming UI — confirm tokens actually appear on screen as they arrive, not just that bytes cross the wire.
+- **Seamless synthetic→persisted hand-off needs a shared, per-turn STABLE list key.** Rendering an in-progress answer as a synthetic message and then swapping it for the refetched persisted one causes a fade/gap/duplicate if the list key changes (the new row mounts and re-animates from opacity 0). Give both the synthetic bubble and the persisted message the *same* key so the row updates in place; make that key unique per turn so successive answers don't collide on it (a single constant key forces the previous holder to remount when the next turn claims it). Distinguish "this turn's answer landed" from "a prior turn's answer is still the last message" by message *count* at send, not by "last message is assistant."
+- **A callback fired before validation can leak a pre-error artifact.** The SSE `consume()` calls `onEvent` *before* it type-checks the frame, so a screen appending `event.content` blindly would paint a malformed value for one frame before the stream throws. Re-check the field in the consumer (`typeof content === 'string'`) even though the core validates it.
+
 ## Monorepo migration & verification discipline (spec 48)
 
 See `codev/reviews/48-standardise-to-apps-packages-m.md` for the full context.
