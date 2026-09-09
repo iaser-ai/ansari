@@ -71,3 +71,25 @@
   Resulting diff: next + @next/*, js-yaml, qs only.
 - Suite with CI env, --force: lint 5/5 (0 errors), typecheck 6/6, api 763/3 skipped,
   auth 8/8, build 4/4 on Next 15.5.25.
+
+## 2026-09-09 — Part 1: batch of "green" Dependabot bumps (branch builder/task-wzFk-dep-bumps)
+- Off post-#132 develop. One commit per bump so any can be dropped at review.
+- Hidden problems CI could not see (bot CI is web-only lint/typecheck/build):
+  * #114 @better-auth/expo 1.7.3 peer-requires better-auth/@better-auth/core ^1.7.3; repo
+    pinned 1.6.27. Bumped better-auth in packages/auth + apps/auth alongside. drizzle-kit
+    generate in packages/auth: no schema drift. Auth tests 8/8.
+  * #120 reanimated 4.6.0 peer-requires react-native-worklets 0.12.x, but expo-modules-core
+    57.0.10 (and @expo/ui) pin worklets 0.10.1 and peer-accept only ^0.7–^0.10. Bumping
+    worklets leaves TWO native worklets in the tree and an unmet peer either way — broken
+    native build under SDK 57. EXCLUDED; belongs with the SDK upgrade. The variant including
+    it is kept locally as branch builder/task-wzFk-dep-bumps-with-reanimated (commit 556778d).
+  * #119 gesture-handler 3.2.1 (MAJOR): heroui-native 1.0.8 (latest 1.0.9 too) peers
+    ^2.28.0 → unmet. It imports only `Gesture` and `GestureDetector`, both still exported by
+    GH3; @gorhom/bottom-sheet peers >=2.16.1. Kept per architect, flagged.
+  * `expo install --check` reports screens/safe-area/GH deviating from SDK 57's bundled
+    versions (~4.26.0 / ~5.7.0 / ~2.32.0). runtimeVersion policy is `fingerprint`, so an
+    OTA with changed native modules will NOT reach old binaries.
+- Pre-existing peer warning (not mine): @expo/metro-runtime 57.0.15 wants @expo/log-box
+  ^57.0.4, found 57.0.2 — from merged bot PR #113.
+- Suite with CI env, --force: lint 5/5 (0 errors), typecheck 6/6, api 763/3 skipped,
+  auth 8/8, build 4/4. turbo 2.10.12 drove the runs.
