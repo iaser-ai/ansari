@@ -34,3 +34,17 @@
   plan drops the tsconfig exclusion to make "typechecks" real.
 - Dropped from the plan: runbook / RELEASE.md changes, release-doc regex fix, the
   reserved-address skip (behavior change) — the last is ledgered as a known gap instead.
+
+## 2026-09-09 — Implement phase complete, at dev-approval gate
+
+- Ported into `apps/api/scripts/migrate-users/` with `source/` vs `target/` split and
+  `types.ts` as the seam; README + entry-point banner mark it PARTIAL / not verified /
+  not for prod, with the column inventory (0002–0008 → `TODO(port)`) and a test ledger.
+- Script was NEVER executed (hard constraint). Verification = `pnpm lint` (0 errors,
+  7 pre-existing warnings elsewhere), `pnpm typecheck` (now covers `scripts/**`),
+  full vitest (837 pass; 79 in tests/migration, 74 new), gitleaks clean on tree + commits.
+- Surprises: (1) Zod v4 error text is path-based ("Invalid input… path DATABASE_URL"),
+  not the custom min(1) message, when the var is absent — test asserts the path.
+  (2) pglite's drizzle `delete()` does not populate `rowCount`; switched
+  delete-readonly to `.returning({id}).length` (same counts on node-postgres).
+- Behavior-neutral port changes are listed in the README "Port changes" section.
