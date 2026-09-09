@@ -8,30 +8,37 @@
     "scheme": "ansari",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "backgroundColor": "#E7E5E4",
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#E7E5E4",
+      "dark": {
+        "image": "./assets/images/splash-icon-dark.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#13100E"
+      }
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true
+      }
     },
-    "android": {},
+    "android": {
+      "backgroundColor": "#E7E5E4",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundImage": "./assets/images/adaptive-icon-background.png",
+        "backgroundColor": "#E7E5E4"
+      }
+    },
     "web": {
       "favicon": "./assets/images/icon.png",
-      "output": "single"
+      "output": "single",
+      "backgroundColor": "#E7E5E4"
     },
-    "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://replit.com/"
-        }
-      ],
-      "expo-font",
-      "expo-web-browser",
-      "expo-video"
-    ],
+    "plugins": ["expo-router", "expo-font", "expo-web-browser", "expo-video"],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

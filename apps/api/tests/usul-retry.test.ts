@@ -255,6 +255,10 @@ describe.each([
     expect(context.extra.errorClass).toBe('timeout');
     // "Timed out twice" is distinguishable from a single-shot failure.
     expect(context.extra.attempts).toBe(2);
+    // Spec 73: the same detail rides on the ToolResult itself — end-to-end from the
+    // real ToolFetchError through the tool's catch — so the persisted tool_result
+    // record can carry attempts=2 without re-deriving it.
+    expect(result.degradation).toEqual({ errorClass: 'timeout', attempts: 2 });
   });
 
   it('reports the degraded event to Sentry with NON-PII fields only', async () => {

@@ -1,5 +1,13 @@
 # Ansari performance baseline
 
+> **Stale as of the 2026-09 design refresh (issue #121).** Everything below
+> was measured against the pre-refresh UI (old `HeaderBar`, no ambient
+> palm-shadow layer, `reactCompiler` off). The new design reintroduces the
+> palm shadow (`AmbientVideo`, `lib/ambientNight.ts`) and turns
+> `experiments.reactCompiler` on in `app.json` — both contradict claims
+> below. Kept for historical reference; a fresh baseline against the new UI
+> is out of this issue's scope.
+
 Measured 2026-07-23 on the web preview (dev build), React `<Profiler>` around
 the chat screen plus a render counter on `AnswerMessage`, driving the core
 ask → answer flow (`/chat/[id]?q=…` auto-send).

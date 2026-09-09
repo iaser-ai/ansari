@@ -10,9 +10,11 @@ vi.mock('@/lib/db/users', () => ({
   getOrCreateSystemUser: (...args: unknown[]) => mockGetOrCreateSystemUser(...args),
 }));
 
+const mockPersistOrphanToolCalls = vi.fn();
 vi.mock('@/lib/db/threads', () => ({
   createThread: (...args: unknown[]) => mockCreateThread(...args),
   createMessage: (...args: unknown[]) => mockCreateMessage(...args),
+  persistOrphanToolCalls: (...args: unknown[]) => mockPersistOrphanToolCalls(...args),
 }));
 
 // The route wraps pre-facilitator persistence in db.transaction (issue #20);

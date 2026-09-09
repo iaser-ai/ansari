@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
+import { RADIUS, rounded, roundedTop } from '@/constants/radius';
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -78,10 +79,14 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
         <Pressable
           onPress={handleRestart}
+          accessibilityRole="button"
           style={({ pressed }) => [
             styles.button,
             {
               backgroundColor: colors.primary,
+              // A black drop shadow is invisible on charcoal; the tint
+              // comes from the palette so it lands in either mode.
+              shadowColor: colors.shadowTint,
               opacity: pressed ? 0.9 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],
             },
@@ -102,7 +107,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           transparent={true}
           onRequestClose={() => setIsModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalOverlay, { backgroundColor: colors.scrim }]}
+          >
             <View
               style={[
                 styles.modalContainer,
@@ -142,7 +149,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
                 <View
                   style={[
                     styles.errorContainer,
-                    { backgroundColor: colors.card },
+                    { backgroundColor: colors.surface },
                   ]}
                 >
                   <Text
@@ -199,7 +206,7 @@ const styles = StyleSheet.create({
     right: 16,
     width: 44,
     height: 44,
-    borderRadius: 8,
+    ...rounded(RADIUS.sm),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -207,10 +214,9 @@ const styles = StyleSheet.create({
   },
   button: {
     paddingVertical: 16,
-    borderRadius: 8,
+    ...rounded(RADIUS.sm),
     paddingHorizontal: 24,
     minWidth: 200,
-    shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 2,
@@ -226,14 +232,12 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
     width: '100%',
     height: '90%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    ...roundedTop(RADIUS.lg),
   },
   modalHeader: {
     flexDirection: 'row',
@@ -262,7 +266,7 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     width: '100%',
-    borderRadius: 8,
+    ...rounded(RADIUS.sm),
     overflow: 'hidden',
     padding: 16,
   },

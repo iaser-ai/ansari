@@ -69,4 +69,41 @@ describe('reduceChatStream — loud failures', () => {
   it('a stream that IS terminated by done does not throw', () => {
     expect(() => reduceChatStream([text('complete'), done])).not.toThrow();
   });
+
+  it('throws when the stream reaches done but carried NO text (empty answer)', () => {
+    // The zero-text guard: apps/api sends {type:"error"} for an empty answer,
+    // but a done-without-text-without-error stream must still surface as an
+    // error rather than render an empty bubble.
+    expect(() => reduceChatStream([done])).toThrow(/empty answer/);
+  });
+
+  it('treats a done stream whose only text frame is empty as an empty answer', () => {
+    expect(() => reduceChatStream([text(''), done])).toThrow(/empty answer/);
+  });
+
+  it('does NOT throw for an empty answer while tool events arrived, if text follows', () => {
+    const stream = [
+      'data: {"type":"tool_call","name":"hadith"}\n\n',
+      text('found it'),
+      done,
+    ];
+    expect(reduceChatStream(stream)).toBe('found it');
+  });
+});
+
+describe('reduceChatStream — progress channel (incremental render)', () => {
+  it('emits text deltas to onEvent progressively and in order, before done', () => {
+    const seen: string[] = [];
+    let sawTextBeforeDone = true;
+    let doneSeen = false;
+    reduceChatStream([text('Hel'), text('lo, '), text('world.'), done], (e) => {
+      if (e.type === 'done') doneSeen = true;
+      if (e.type === 'text') {
+        if (doneSeen) sawTextBeforeDone = false;
+        seen.push(e.content);
+      }
+    });
+    expect(seen).toEqual(['Hel', 'lo, ', 'world.']);
+    expect(sawTextBeforeDone).toBe(true);
+  });
 });

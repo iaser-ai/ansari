@@ -2,10 +2,11 @@ import colors from '@/constants/colors';
 import { useScheme } from '@/hooks/useScheme';
 
 /**
- * Returns the design tokens for the current color scheme.
+ * Returns the color tokens for the current color scheme.
  *
- * The returned object contains all color tokens for the active palette
- * plus scheme-independent values like `radius`.
+ * Corners are not here: they do not change between modes, so they live
+ * on the `RADIUS` scale in `constants/radius` and are imported
+ * directly by whatever draws them.
  *
  * Falls back to the light palette when no dark key is defined in
  * constants/colors.ts (the scaffold ships light-only by default).
@@ -15,6 +16,5 @@ import { useScheme } from '@/hooks/useScheme';
  */
 export function useColors() {
   const scheme = useScheme();
-  const palette = scheme === 'dark' ? colors.dark : colors.light;
-  return { ...palette, radius: colors.radius };
+  return scheme === 'dark' ? colors.dark : colors.light;
 }

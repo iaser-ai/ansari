@@ -35,27 +35,31 @@ export function HeaderBar({ height }: { height: number }) {
   const dark = useScheme() === 'dark';
 
   if (Platform.OS === 'web') {
-    // Mirrors expo-blur's web output for intensity 100 (blur 20px,
-    // saturate 180%) plus a near-clear neutral base; the warm wash
-    // overlay below does the visible tinting.
+    // The backdrop recipe and the base fill both come from the palette,
+    // because they differ by more than a number between modes: on paper
+    // the glass is brightened a touch and floored in white, on charcoal
+    // it is brightened hard — the only way a bar can read as *above*
+    // a dark page — and floored in the page's own warm black.
     const webGlass = {
-      backdropFilter: 'saturate(180%) blur(20px)',
-      WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-      backgroundColor: dark ? 'rgba(25,25,25,0.50)' : 'rgba(255,255,255,0.30)',
+      backdropFilter: colors.glassFilter,
+      WebkitBackdropFilter: colors.glassFilter,
+      backgroundColor: colors.glassBase,
     } as unknown as ViewStyle;
     return (
       <View
         style={[
           styles.wrap,
           webGlass,
-          { height, borderBottomColor: colors.border },
+          { height, borderBottomColor: dark ? colors.glassRim : colors.border },
         ]}
         pointerEvents="none"
       >
         <View
           style={[
             StyleSheet.absoluteFill,
-            { backgroundColor: withAlpha(colors.background, dark ? 0.4 : 0.42) },
+            {
+              backgroundColor: withAlpha(colors.background, dark ? 0.34 : 0.42),
+            },
           ]}
         />
       </View>
@@ -74,7 +78,15 @@ export function HeaderBar({ height }: { height: number }) {
 
   return (
     <View
-      style={[styles.wrap, { height, borderBottomColor: colors.border }]}
+      style={[
+        styles.wrap,
+        {
+          height,
+          // On charcoal a dark rule under a dark bar is invisible; the
+          // bar seats itself with a moonlit edge instead.
+          borderBottomColor: dark ? colors.glassRim : colors.border,
+        },
+      ]}
       pointerEvents="none"
     >
       <BlurView

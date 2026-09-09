@@ -1,0 +1,41 @@
+I'll verify the plan against the actual codebase before judging it.I read the plan, the spec, and the actual code it targets (`agent.ts`, all three routes, `lib/db/threads.ts`, `lib/db/shares.ts`, `lib/tools/*`, the schema and migration dir, and the pglite test DDL files).
+
+## Verification of the plan's claims
+
+Everything the plan asserts about the codebase checks out:
+
+- **File paths are accurate.** All listed files exist; `drizzle/` ends at `0004_ancient_mongu.sql`, so `0005` is correct.
+- **The pglite DDL hit list is exactly right.** A fresh `CREATE TABLE messages` grep returns precisely the five test files named (`attribution-schema`, `executor-threads-feedback`, `feedback-idor`, `rawpayload-persistence`, `route-persistence-rollback`) plus `0000_baseline.sql`. No sixth file lurking.
+- **The #76 coherence claim is real.** All four search tools already build `{status, attempts, errorClass}` (e.g. `search-mawsuah.ts:121-124`) and hand it only to `reportDegradedTool`, discarding it before `unavailableResult`. Threading it into `ToolResult` is a genuinely small change, and it's safe: `formatToolResultForGemini` (`agent.ts:306-315`) maps `documents`/`content` explicitly, so a new `ToolResult` field can never reach the model.
+- **The terminal-yield enumeration is complete.** I count exactly the yields the plan lists: degenerate-final fail (685), synthesis catch (495) and unusable-synthesis (509), catch-all (873), max-iterations (882), plus both `done` yields (711, 527). The only one not listed is `agent.ts:347` ("No user message to process"), which precedes any dispatch — correctly irrelevant.
+- **The loop-level-minting rationale is correct.** `processToolCall` returns before `tracker.callsWithArgs.push` on limit-refusal (`agent.ts:176-193`), and T1/T2-skipped calls never enter it at all (`agent.ts:754-770`). Accumulating inside `processToolCall` would silently undercount exactly the categories the spec demands.
+
+## Assessment of the error-turn decision
+
+The side-table choice is well argued and I'd make the same call. Invisible marker rows in `messages` would need a filter in `getThreadWithMessages`, `findMessagesByThread` (used for *history replay* in both chat routes), `createThreadSnapshot`, admin stats counts, and `findMessageInOwnedThread` — five current consumers plus every future one, each a quiet-failure site. The orphan table makes invisibility structural. The union-two-tables analytics cost is real but query-side only.
+
+## Issues worth folding in before implementation
+
+**1. Whole-row reads now drag the tool payloads through the hot path.** `findMessagesByThread` (`lib/db/threads.ts:89-95`) does `select()` — every column. Both chat routes call it on *every turn* to rebuild history (`route.ts:164`, `chat/route.ts:66`), and `createThreadSnapshot` (`shares.ts:31-35`) does the same. Today that pulls `raw_payload` needlessly; after this change each assistant row also carries ~7 KB median (up to ~70 KB for a 10-dispatch turn) of detoasted jsonb that is then thrown away by the `.map()`. A long thread turns into hundreds of KB read per request for nothing. The plan never mentions this. The fix is one line per query — explicit column projection in `findMessagesByThread`/`getThreadWithMessages`/`createThreadSnapshot` that omits `tool_calls` — and it has a second payoff: the frozen-contract guarantee stops depending on the routes' `.map()` discipline and becomes *"the column is never selected on any serializing path."* That is strictly stronger than the regression test the spec asks for, and it complements rather than replaces it. Worth adding as a Phase 3 (or Phase 1) deliverable.
+
+**2. mcp-complete's throw→return refactor has no contract acceptance criterion.** `collectFacilitatorResponse` currently `throw`s on an `error` event (`mcp-complete/route.ts:103`), and that throw propagates to the POST/GET catch, producing a **500 with the facilitator's error message** as the body. Converting to return-based control flow (which the plan correctly requires, to stop losing the records) silently rewires that path. The plan pins the 502 empty-answer behavior but says nothing about the facilitator-error 500. Add an explicit criterion: *status code and body for a facilitator `error` on mcp-complete are unchanged.* `mcp-complete.test.ts` exists to extend.
+
+**3. `degradation` will sometimes be absent on a degraded result.** The tools build `meta = {}` when the caught error is not a `ToolFetchError` (`search-quran.ts:121-124`), and the `agent.ts:228-236` backstop knows only `errorClass: 'network'` with no attempts. So `status: 'degraded'` with no `error_class` is a legitimate state. Phase 2's acceptance criterion reads as though `error_class` is always present — make the field optional in both the type and the criterion, or the builder writes a test that can't hold.
+
+**4. T1 and T2 skips collapse into one status.** Both the degraded-threshold short-circuit and the wall-clock backstop write `budget_skipped`. The spec fixes the *category set*, but leaves field names open — recording the trigger (`skip_trigger: 'T1' | 'T2'`) as an extra field costs nothing and preserves the distinction between "we stopped because the provider was down" and "we stopped because we ran out of time," which is squarely the reliability signal this feature exists to produce.
+
+**5. Minor:** state that the orphan write happens *after* `safeClose()` on the streaming error paths, so bookkeeping can't delay the client's error delivery. The plan's risk table covers the failure-masking case but not the latency ordering.
+
+Phase sizing and sequencing are sound — each phase is independently committable (Phase 2 accumulates records that nothing yet persists, which is harmless), dependencies are respected, and the test strategy correctly uses pglite through real helpers rather than mocks, per `lessons-critical.md`.
+
+---
+VERDICT: COMMENT
+SUMMARY: Well-researched plan with accurate file references and a sound error-turn design; five refinements needed, chiefly excluding tool_calls from whole-row reads on the history/serialization paths.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `findMessagesByThread`/`getThreadWithMessages`/`createThreadSnapshot` use `select()` (whole row) and run on every chat turn for history replay; tool_calls will be read and discarded per request. Add explicit column projection — it also makes the frozen-contract guarantee structural rather than convention-based.
+- mcp-complete's `collectFacilitatorResponse` throw→return refactor changes a live error path with no acceptance criterion pinning the existing 500 status/body for facilitator errors.
+- `ToolResult.degradation` will be absent on non-`ToolFetchError` degrades (tools' `meta = {}`; the agent.ts backstop has no attempts) — Phase 2's "carries error_class" criterion needs an optional-field caveat.
+- T1 (degraded threshold) and T2 (wall-clock) skips both map to `budget_skipped`, losing the provider-down vs. out-of-time distinction; an extra `skip_trigger` field is free and preserves it.
+- Orphan-write ordering relative to `safeClose()` on the streaming error paths is unspecified; write after the client is closed out.

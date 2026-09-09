@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The design is feasible, but error-path data loss contradicts the promise of exact tool-call analytics.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `runFacilitator` can execute tools and later emit `error`—for example during final generation or synthesis. Test scenario 9 explicitly requires no assistant row on error, so those executed calls are discarded. This makes the claimed exact denominator and “every tool call” reliability metrics impossible. Either specify durable error-path persistence or narrow the analytics guarantees to successfully completed assistant turns.
+- Resolve the persisted record contract more explicitly: make full `formatToolResultForGemini` output definitive rather than an “Important” open question, and define stable status categories for success, degraded, budget-skipped, limit-refused, and unknown-tool outcomes.
+- Define duration semantics and units, including whether skipped/refused calls use `0`, `NULL`, or elapsed bookkeeping time.
+- Add an explicit persistence integration test for the `/threads/[id]/chat` SSE route; the current scenarios explicitly cover the primary POST and `mcp-complete`, despite requiring all three persist sites.

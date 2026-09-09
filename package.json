@@ -3,13 +3,14 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=22.0.0",
+    "node": ">=22.18.0",
     "pnpm": ">=10"
   },
   "scripts": {
     "api": "pnpm --filter ansari-api",
     "frontend": "pnpm --filter ansari-frontend",
     "auth": "pnpm --filter ansari-auth",
+    "prototype": "cd prototypes/ansari-expo && pnpm install --ignore-workspace && pnpm start",
     "dev": "turbo run dev --ui=tui --filter=!ansari-auth",
     "dev:auth": "pnpm --filter ansari-auth dev",
     "lint": "turbo run lint",

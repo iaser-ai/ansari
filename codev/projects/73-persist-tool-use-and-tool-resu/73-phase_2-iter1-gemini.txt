@@ -1,0 +1,36 @@
+The implementation of **Phase 2: Facilitator tool-record accumulation** has been reviewed against the specification (`codev/specs/73-persist-tool-use-and-tool-resu.md`) and plan (`codev/plans/73-persist-tool-use-and-tool-resu.md`).
+
+---
+
+### Phase 2 Scope & Adherence Assessment
+
+Phase 2 focuses on accumulating ordered `toolCalls` records at the facilitator loop level, enriching degradation telemetry for #76 coherence, and ensuring records are attached to all terminal events (`done` and `error`) as well as `onMessage`.
+
+#### 1. Tool Degradation Metadata (`apps/api/lib/tools/types.ts` & `resilience.ts`)
+- `ToolResult` interface in `types.ts` was extended with an optional `degradation?: ToolDegradation` field containing `errorClass`, `attempts`, and `status`.
+- `unavailableResult` in `resilience.ts` accepts and attaches `degradation` details when present.
+- Search tools (`search-hadith.ts`, `search-mawsuah.ts`, `search-quran.ts`, `search-tafsir.ts`) pass structured failure metadata (`errorClass`, `attempts`, `status`) directly into `unavailableResult`.
+
+#### 2. Loop-Level Accumulator & Outcome Tagging (`apps/api/lib/facilitator/agent.ts`)
+- `processToolCall` returns an outcome tag (`'ok' | 'limit_refused' | 'unknown_tool' | 'backstop_error'`), preventing string matching on human-facing content.
+- `toolCallRecords` is accumulated at the loop level in `runFacilitator`. Correlational `id` values are minted per `tool_use` dispatch.
+- Timing (`duration_ms`) is tracked for executed calls and set to `null` for unexecuted calls.
+- Budget-skipped calls (both T1 fail-fast and T2 soft-deadline cutoffs) are captured directly at the short-circuit site with `status: 'budget_skipped'`, `duration_ms: null`, and `skip_trigger: 'T1' | 'T2'`.
+
+#### 3. Delivery & Event Boundaries (`agent.ts`)
+- Terminal `done` and `error` stream events carry `toolCalls?: ToolCallRecord[]` via `collectedToolCalls()`.
+- `onMessage` calls receive `toolCalls: collectedToolCalls() ?? null`.
+- Wire-facing stream events (`tool_use` and `tool_result`) remain strictly lossy (`{name}` and `{tool, query, resultCount}`), ensuring no internal record data crosses the SSE wire surface.
+
+#### 4. Test Coverage (`apps/api/tests/facilitator-toolcalls.test.ts`)
+- Thorough unit test suite covers happy paths (multi-call / multi-round), #76 retried-timeout degradation details, budget short-circuits (T1/T2), limit refusals, unknown tools, backstop error catches, and terminal `error` event record attachment.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 facilitator tool-record accumulation is fully implemented, adhering to spec and plan with comprehensive unit test coverage.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

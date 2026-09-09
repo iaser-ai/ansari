@@ -5,11 +5,12 @@
  * leaderboard — can drive the real Ansari facilitator (Gemini 3.x +
  * Islamic tools) through a standard OpenAI request/response shape.
  *
- * Two model ids are served (issue #74): 'ansari-facilitator' (Gemini
- * primary, the original pipeline) and 'ansari-facilitator-inkling'
- * (identical pipeline with thinkingmachines/Inkling as primary for the
- * whole request — never silently falling back to Gemini). Unknown ids
- * are rejected with 400.
+ * Two model ids are served (issue #74): 'ansari-facilitator' (the default
+ * pipeline — Gemini primary unless the server runs the experimentation-only
+ * PRIMARY_BACKEND=inkling switch, issue #95) and 'ansari-facilitator-inkling'
+ * (identical pipeline with the Inkling model as primary for the whole
+ * request — never silently falling back to Gemini). Unknown ids are
+ * rejected with 400.
  *
  * What is preserved: the request body matches the public OpenAI Chat
  * Completions schema (model/messages/temperature/max_tokens/seed), and
@@ -288,10 +289,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       'model_not_found'
     );
   }
-  const provider = requestedModel === INKLING_MODEL_ID ? ('inkling' as const) : ('gemini' as const);
+  // 'ansari-facilitator-inkling' forces Inkling; the default id follows the
+  // env-gated PRIMARY_BACKEND switch (issue #95) — under PRIMARY_BACKEND=inkling
+  // no request on this server touches Gemini at all.
+  const provider =
+    requestedModel === INKLING_MODEL_ID ? ('inkling' as const) : config.primaryBackend;
   if (provider === 'inkling' && !isInklingConfigured()) {
     return openAIError(
-      `Model '${INKLING_MODEL_ID}' is not configured on this server (TINKER_API_KEY unset).`,
+      `Model '${INKLING_MODEL_ID}' is not configured on this server (INKLING_API_KEY/TINKER_API_KEY unset).`,
       503,
       'server_error',
       'inkling_not_configured'

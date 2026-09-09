@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 3 is complete except successful routes can persist an empty array instead of the required NULL.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- All three successful persistence sites use `toolCalls ?? null` (`route.ts:281`, `chat/route.ts:166`, `mcp-complete/route.ts:217`). If a terminal event carries `toolCalls: []`—explicitly permitted by Phase 2’s “absent/empty” contract—they write `[]`, violating the requirement that no-tool turns store `NULL`. Normalize by array length and add an empty-array regression case.

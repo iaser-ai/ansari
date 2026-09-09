@@ -1,0 +1,22 @@
+---
+VERDICT: APPROVE
+SUMMARY: Excellent implementation of tool-call persistence with structural contract safety, error-turn side-table capture, and thorough regression tests.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Restores tool-call persistence lost during the Python-to-TypeScript rewrite. Every tool dispatch made by the facilitator is now durably recorded—either on the assistant message row's new nullable `messages.tool_calls` jsonb column or in a dedicated `tool_call_orphans` table for turns ending in errors or empty responses—without modifying `content` or changing any API response bytes.
+
+  ## Key Changes
+  - **Schema & Migration**: Added nullable `messages.tool_calls` jsonb column and created `tool_call_orphans` table alongside Drizzle migration `0007_tool_calls_persistence.sql`.
+  - **Contract Safety & Read Projection**: Updated read helpers (`findMessagesByThread`, `getThreadWithMessages`, `createThreadSnapshot`) to explicitly project out `tool_calls`, preventing both API contract leakage and unneeded JSON detoasting overhead.
+  - **Facilitator Accumulation**: Instrumented loop-level accumulation in `runFacilitator` to track all tool dispatches (`ok`, `degraded`, `budget_skipped`, `limit_refused`, `unknown_tool`), execution duration, and `#76` resilience error metadata across both normal and terminal error yields.
+  - **Route Integration**: Wired web POST, SSE chat, and mcp-complete routes to persist `tool_calls` on completion or log non-blocking orphan records on error/empty turns.
+
+  ## Test Plan
+  - **Contract Integrity**: `thread-get-contract.test.ts` verifies single text blocks still serialize as bare strings and response key-sets remain byte-identical with `tool_calls` or orphan rows present.
+  - **Route & Facilitator Integration**: `toolcalls-routes.test.ts` (18 tests) and `facilitator-toolcalls.test.ts` (19 tests) verify end-to-end tool accumulation, terminal error yields, and mcp-complete contracts.
+  - **DB Helpers**: `toolcalls-persistence.test.ts` tests pglite DB round-trips, NULL normalization, projection rules, thread metadata invariants, and cascade deletion.

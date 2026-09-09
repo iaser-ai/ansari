@@ -1,0 +1,24 @@
+---
+VERDICT: APPROVE
+SUMMARY: Implementation is complete, well-tested, contract-safe, and aligned with Spec 73.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Restores durable tool-call persistence across successful, failed, and empty facilitator turns without changing API response contracts. Tool records are stored on assistant messages or in an isolated orphan table for turns without assistant rows.
+
+  ## Key Changes
+  - Added the nullable `messages.tool_calls` column and `tool_call_orphans` table.
+  - Recorded executed, degraded, skipped, refused, and unknown tool dispatches.
+  - Wired persistence through web, SSE, and MCP completion routes.
+  - Structurally excluded internal tool records from thread reads, replay, and snapshots.
+  - Added comprehensive facilitator, route, database, degradation, and frozen-contract tests.
+
+  ## Test Plan
+  - Run `pnpm --filter ansari-api test`.
+  - Run `pnpm --filter ansari-api typecheck`.
+  - Run `pnpm --filter ansari-api build`.
+  - Apply `apps/api/drizzle/0007_tool_calls_persistence.sql` before deployment.

@@ -50,6 +50,30 @@ export function mapConversationList(threads: WireThread[]): Conversation[] {
 }
 
 /**
+ * Client-side History search. apps/api's `GET /threads` ignores query params, so
+ * the search box filters the already-loaded list here. Matches the raw
+ * `thread_name` ONLY (case-insensitive): the list endpoint returns no message
+ * text, so answer content is impossible to search client-side (documented in the
+ * README so nobody files "search doesn't find message text" as a bug).
+ *
+ * Filtering over the raw `thread_name` — NOT the mapped display title — is
+ * deliberate: an unnamed thread (`thread_name: null`) maps to "New conversation",
+ * and matching that would make every unnamed thread surface for the query "new".
+ * A null/absent name matches nothing here and never throws. An empty/whitespace
+ * query returns the list unchanged (clearing the box restores everything).
+ */
+export function filterThreadsByName(
+  threads: WireThread[],
+  q?: string,
+): WireThread[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return threads;
+  return threads.filter((t) =>
+    (t.thread_name ?? '').toLowerCase().includes(needle),
+  );
+}
+
+/**
  * Flatten a message's `content` (string | ContentBlock[]) to a display string by
  * joining the text of every `text` block. Non-text blocks (tool_use/result,
  * document) are not rendered by this UI and are dropped. A bare string passes

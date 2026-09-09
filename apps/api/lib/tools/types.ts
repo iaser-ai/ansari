@@ -3,6 +3,9 @@
  */
 
 import { Type, type Tool, type FunctionDeclaration } from '@google/genai';
+// Type-only: resilience.ts type-imports ToolResult from here, so this cycle is
+// erased at runtime and introduces no circular module dependency.
+import type { ToolFetchErrorClass } from './resilience';
 
 // Re-export Gemini types for convenience
 // SchemaType kept as a backwards-compatible alias for Type (renamed in @google/genai migration).
@@ -51,6 +54,20 @@ export interface ToolResult {
    * a normal result (including a successful search that found nothing).
    */
   isDegraded?: boolean;
+  /**
+   * Why/how the tool degraded (spec 73), for the persisted dispatch record.
+   * Present only alongside `isDegraded`, and every field is optional: a
+   * non-ToolFetchError failure carries nothing, the facilitator's backstop
+   * knows only an error class. `attempts` is 2 on a retried timeout (#76).
+   * Never reaches the model — formatToolResultForGemini maps fields explicitly.
+   */
+  degradation?: ToolDegradation;
+}
+
+export interface ToolDegradation {
+  errorClass?: ToolFetchErrorClass;
+  attempts?: number;
+  status?: number;
 }
 
 /**

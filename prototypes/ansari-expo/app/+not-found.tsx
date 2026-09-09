@@ -14,7 +14,7 @@ export default function NotFoundScreen() {
         </Text>
 
         <Link href="/" style={styles.link}>
-          <Text style={[styles.linkText, { color: colors.primary }]}>
+          <Text style={[styles.linkText, { color: colors.link }]}>
             Go to home screen!
           </Text>
         </Link>
@@ -38,7 +38,10 @@ const styles = StyleSheet.create({
     marginTop: 15,
     paddingVertical: 15,
   },
+  // Underlined, because the colour no longer marks it: emphasis ink and
+  // a rule beneath it are how a printed page says "this is a link".
   linkText: {
     fontSize: 14,
+    textDecorationLine: 'underline',
   },
 });

@@ -36,10 +36,36 @@ function streamingResponse(text: string) {
   };
 }
 
+/** A streaming response that yields the given chunks in order, one per read(). */
+function chunkedResponse(chunks: string[]) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  return {
+    status: 200,
+    ok: true,
+    body: {
+      getReader: () => ({
+        read: async () =>
+          i < chunks.length
+            ? { done: false, value: encoder.encode(chunks[i++]) }
+            : { done: true, value: undefined },
+        releaseLock: () => {},
+      }),
+    },
+    text: async () => {
+      throw new Error('text() must not be called when a body reader exists');
+    },
+  };
+}
+
 /** A response with NO streaming body — the runtime the old XHR fallback served. */
 function bufferedResponse(text: string) {
   return { status: 200, ok: true, body: undefined, text: async () => text };
 }
+
+const textFrame = (s: string) =>
+  `data: ${JSON.stringify({ type: 'text', content: s })}\n\n`;
+const DONE = 'data: {"type":"done"}\n\n';
 
 const mockFetch = expoFetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -86,5 +112,46 @@ describe('streamChat — exactly one request per send (no double-POST)', () => {
     // the model) — via expo/fetch OR the old XHR fallback.
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(xhrConstructed).toBe(0);
+  });
+});
+
+describe('streamChat — incremental progress + empty-answer guard', () => {
+  it('delivers text deltas via onEvent progressively as chunks arrive, then the full answer', async () => {
+    // A text frame split across two reads, a heartbeat between frames, and the
+    // terminating done in its own chunk — the reader must reassemble across the
+    // split and emit each text delta in order.
+    const first = textFrame('Hello, ');
+    const mid = Math.floor(first.length / 2);
+    mockFetch.mockResolvedValueOnce(
+      chunkedResponse([
+        first.slice(0, mid),
+        first.slice(mid),
+        ': ping\n\n',
+        textFrame('world.'),
+        DONE,
+      ]),
+    );
+
+    const deltas: string[] = [];
+    const answer = await streamChat({
+      baseUrl: 'https://x',
+      threadId: 't',
+      message: 'hi',
+      onEvent: (e) => {
+        if (e.type === 'text') deltas.push(e.content);
+      },
+    });
+
+    expect(deltas).toEqual(['Hello, ', 'world.']);
+    expect(answer).toBe('Hello, world.');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a stream that reaches done with zero text frames (empty answer)', async () => {
+    mockFetch.mockResolvedValueOnce(chunkedResponse([DONE]));
+    await expect(
+      streamChat({ baseUrl: 'https://x', threadId: 't', message: 'hi' }),
+    ).rejects.toThrow(/empty answer/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
