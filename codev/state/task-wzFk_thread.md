@@ -93,3 +93,21 @@
   ^57.0.4, found 57.0.2 — from merged bot PR #113.
 - Suite with CI env, --force: lint 5/5 (0 errors), typecheck 6/6, api 763/3 skipped,
   auth 8/8, build 4/4. turbo 2.10.12 drove the runs.
+
+## 2026-09-09 — vitest alert 29 + Part 2 pre-assessment (no code written)
+- Alert #29 (vitest) will NOT auto-close: its manifest is prototypes/ansari-expo/package.json
+  (`vitest ^3.2.4`), which is outside the pnpm workspace and has no lockfile. Dependabot
+  flags the manifest range. Fix is a one-line spec bump there, or dismiss as unused.
+- Part 2 — all three bot PRs fail on UPSTREAM support, not on our code:
+  * #112 react-native 0.87.1: @expo/cli 57 requires `react-native/rn-get-polyfills`, which
+    RN 0.87 no longer exports. Expo stable is SDK 57 (RN 0.86); SDK 58 exists only as canary.
+    RN 0.87 == Expo SDK 58 upgrade. Not doable on stable today.
+  * #115 eslint 10: eslint-plugin-react 7.37.5 (latest) peers eslint ≤^9.7 and calls the
+    removed `context.getFilename` → crashes under 10 via eslint-config-expo; eslint-config-next
+    15.5.x peers eslint ^9 and its @rushstack/eslint-patch refuses eslint 10 ("Failed to
+    patch ESLint"). Needs upstream releases (plugin-react, config-next for Next 15).
+  * #82 typescript 7.0.2: typescript-eslint 8.70.0 (latest) peers typescript `<6.1.0`;
+    nothing supports TS 7 yet. Catalog-pinned across every package. Blocked upstream.
+- Architect decisions: vitest spec bump in prototypes/ansari-expo/package.json goes on #133
+  (prototype is live-serving, not unused). Part 2: close #112 #115 #82 as blocked-upstream
+  with re-open triggers; nothing attempted.
