@@ -60,3 +60,14 @@
   `pnpm install` so our overrides re-resolve). Merged lockfile: no vulnerable versions.
 - Full suite on merged tree with CI env, --force: lint 5/5 (0 errors), typecheck 6/6,
   api tests 763 passed / 3 skipped, auth 8/8, build 4/4.
+
+## 2026-09-09 — follow-up: Next RCE + js-yaml + qs (branch builder/task-wzFk-next-rce)
+- Architect fast-tracked: 7 alerts opened while #110 sat. Branch off post-#110 develop.
+- next ^15.5.22 → ^15.5.24 in apps/api (resolves 15.5.25, latest patch; advisory floor is
+  15.5.24). js-yaml 4.3.2 and qs 6.16.0 needed NO override — every declared range already
+  admitted them; `pnpm update -r <names>` moved unrelated packages (rolldown, metro,
+  browserslist…), so instead I restored the lockfile and deleted only the stale
+  js-yaml@4.3.1 / qs@6.15.3 entries, letting `pnpm install` re-resolve them in range.
+  Resulting diff: next + @next/*, js-yaml, qs only.
+- Suite with CI env, --force: lint 5/5 (0 errors), typecheck 6/6, api 763/3 skipped,
+  auth 8/8, build 4/4 on Next 15.5.25.
