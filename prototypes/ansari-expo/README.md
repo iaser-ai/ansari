@@ -52,15 +52,6 @@ register from "Log in" → the guest's questions are replaced by the new
 account's → log out → back to the guest → log back in → the account's thread
 is there.
 
-## Known gaps from the port
-
-- **Web icons/manifest.** `public/index.html` links `favicon.ico`,
-  `apple-touch-icon.png`, `icon-192.png`, and `site.webmanifest` (PWA
-  install metadata), none of which are in `public/` — those `<link>`s
-  404 until the icon set is ported from the Replit source. `og-image.png`
-  (social share preview) and `robots.txt` are likewise not yet ported.
-  None of this affects fonts or in-app rendering.
-
 ## Quick start
 
 ```bash
