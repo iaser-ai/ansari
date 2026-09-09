@@ -52,16 +52,6 @@ register from "Log in" → the guest's questions are replaced by the new
 account's → log out → back to the guest → log back in → the account's thread
 is there.
 
-## Known gaps from the port
-
-- **Web fonts.** Native builds load the real Amiri/Inter/Literata faces via
-  `useAppFonts.ts` (`useFonts`). On web, `useAppFonts.web.ts` returns `true`
-  unconditionally — in the Replit source this was safe because
-  `public/index.html` preloaded real `@font-face` declarations for all three
-  families. That `public/` directory wasn't ported (it's Replit's own
-  hosting layer), so **the web build currently falls back to a system font**
-  until a repo-appropriate font-loading strategy is added.
-
 ## Quick start
 
 ```bash
