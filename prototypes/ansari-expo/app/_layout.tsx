@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { ZodError } from 'zod';
 import {
   DarkTheme,
   DefaultTheme,
@@ -29,15 +30,38 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import * as NavigationBar from 'expo-navigation-bar';
 import { StatusBar } from 'expo-status-bar';
-import { setBaseUrl } from '@workspace/api-client-react';
+import { ApiError, setBaseUrl } from '@/lib/api';
+import { resolveBaseUrl } from '@/lib/api/config';
+import { AuthProvider, useAuth } from '@/lib/auth/context';
 import { SELF_INKED_FOCUS } from '@/lib/semantics';
 
-// Expo bundles run outside the web proxy; the API client needs an absolute URL.
-setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+// Expo bundles run outside any web proxy; the API client needs an absolute URL.
+// Defaults to the deployed staging backend; override with EXPO_PUBLIC_API_URL.
+setBaseUrl(resolveBaseUrl());
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
-const queryClient = new QueryClient();
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        // A shape mismatch (ZodError) or a 4xx will not fix itself, and a shape
+        // mismatch MUST surface as an error state (the loud-failure gate) rather
+        // than being retried into a spinner. Retry only transient failures.
+        if (error instanceof ZodError) return false;
+        if (
+          error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500
+        ) {
+          return false;
+        }
+        return failureCount < 2;
+      },
+    },
+  },
+});
 
 /**
  * Web-only page manners, kept in step with the color scheme: the
@@ -183,8 +207,15 @@ function AppFrame({ children }: { children: React.ReactNode }) {
   // is already wearing the thread's surface and the cut changes only
   // what is written on it.
   const leaving = useAskExit();
+  // Login and register draw a centred form onto the shared paper — no
+  // rail, no account cluster, and no grain competing with the fields.
+  const authRoute =
+    path.startsWith('/login') || path.startsWith('/register');
   const reading =
-    leaving || path.startsWith('/chat') || path.startsWith('/about');
+    leaving ||
+    authRoute ||
+    path.startsWith('/chat') ||
+    path.startsWith('/about');
 
   return (
     <PaperBackground
@@ -210,11 +241,34 @@ function AppFrame({ children }: { children: React.ReactNode }) {
       {/* One rail, two ways of standing. A desktop keeps it beside the
           page; a phone has no width to give it, so the same component
           arrives over the page and leaves again. */}
-      {desktop ? <Sidebar /> : <SidebarDrawer />}
-      {desktop && <AccountChrome />}
+      {!authRoute && (desktop ? <Sidebar /> : <SidebarDrawer />)}
+      {!authRoute && desktop && <AccountChrome />}
     </PaperBackground>
   );
 }
+
+/**
+ * Holds the first frame while the persisted session is still being
+ * restored, so no screen (and none of its data queries) mounts before
+ * the transport knows whether it has a token. Ansari works signed-out —
+ * `apps/api` serves guest and anonymous threads — so there is no forced
+ * redirect: signing in is an optional add-on reached from the rail.
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { status } = useAuth();
+  const colors = useColors();
+
+  if (status === 'loading') {
+    return (
+      <View style={[styles.authGate, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function RootLayoutNav() {
   const dark = useScheme() === 'dark';
 
@@ -238,6 +292,8 @@ function RootLayoutNav() {
         <Stack.Screen name="index" />
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="about" />
+        <Stack.Screen name="login" />
+        <Stack.Screen name="register" />
       </Stack>
     </ThemeProvider>
   );
@@ -264,24 +320,32 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView>
-            <KeyboardProvider>
-              <WebManners />
-              <NativeChrome />
-              <AppFrame>
-                <RootLayoutNav />
-              </AppFrame>
-              {/* Mounted once, over every screen and every piece of
-                  floating chrome: a notice belongs to the app, not to
-                  the page that happened to raise it. */}
-              <ToastStack />
-              {/* Likewise the menu a held message raises: the press
-                  comes from a row inside a virtualized thread, and a
-                  sheet per message would be a modal in every row for
-                  the sake of the one being held. */}
-              <MessageActionSheet />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          {/* Owns the tokens and registers the transport bridges (bearer
+              attach + 401 refresh) for both `custom-fetch` and the SSE
+              path. Inside the query client because a principal change
+              clears its cache. */}
+          <AuthProvider>
+            <GestureHandlerRootView>
+              <KeyboardProvider>
+                <WebManners />
+                <NativeChrome />
+                <AuthGate>
+                  <AppFrame>
+                    <RootLayoutNav />
+                  </AppFrame>
+                </AuthGate>
+                {/* Mounted once, over every screen and every piece of
+                    floating chrome: a notice belongs to the app, not to
+                    the page that happened to raise it. */}
+                <ToastStack />
+                {/* Likewise the menu a held message raises: the press
+                    comes from a row inside a virtualized thread, and a
+                    sheet per message would be a modal in every row for
+                    the sake of the one being held. */}
+                <MessageActionSheet />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </AuthProvider>
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
@@ -309,3 +373,11 @@ function transparentNavigationTheme(dark: boolean): Theme {
   const base = dark ? DarkTheme : DefaultTheme;
   return { ...base, colors: { ...base.colors, background: 'transparent' } };
 }
+
+const styles = StyleSheet.create({
+  authGate: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

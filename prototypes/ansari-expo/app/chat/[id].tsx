@@ -77,13 +77,21 @@ import {
   useGetConversation,
   useSendMessage,
   type Message,
-} from '@workspace/api-client-react';
+} from '@/lib/api';
+import { reconcileThread } from '@/lib/chat-reconcile';
+import { traceReducer, type TraceEntry } from '@/lib/chat-trace';
 import { RADIUS, rounded } from '@/constants/radius';
 
 // Key held by the question carried in from the home screen, and then
 // by the server's copy of it once it arrives, so the row survives the
 // hand-off without remounting.
 const ECHO_ID = '__asked-question';
+
+// Per-turn list key for the in-progress assistant answer. The synthetic
+// streaming bubble and the persisted message it hands off to share one key,
+// so the row updates in place instead of re-animating; the turn suffix keeps
+// successive answers from colliding. (Same identity trick as ECHO_ID.)
+const STREAM_KEY_PREFIX = '__streaming-answer-';
 
 /**
  * The measures the first lines of an answer are held open at while a
@@ -169,6 +177,20 @@ export default function ChatScreen() {
   const [failedQuestion, setFailedQuestion] = useState<string | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const autoSent = useRef(false);
+
+  // The answer as it streams in: appended text and the live retrieval trace,
+  // both reset at the start of each send. `streamKey` is this turn's list key
+  // (see STREAM_KEY_PREFIX); `keyOverrides` remaps a landed server message's id
+  // to that key so the `done` hand-off swaps content in place with no remount.
+  // `sentAtCount` is the persisted message count captured at send — `null`
+  // (no baseline) is deliberately distinct from `0` (a loaded, empty thread);
+  // see lib/chat-reconcile.ts.
+  const [streamingText, setStreamingText] = useState('');
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
+  const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
+  const turnSeq = useRef(0);
+  const streamKey = useRef('');
+  const sentAtCount = useRef<number | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   // A scroll to the foot of the thread, asked for before the content
   // that justifies it has been laid out, and spent once it has.
@@ -233,6 +255,9 @@ export default function ChatScreen() {
   const sendMessage = useSendMessage({
     mutation: {
       onSuccess: () => {
+        // The persisted answer is re-read from the detail query; the
+        // synthetic streaming bubble stays up until it actually lands
+        // (see the hand-off effect), so there is no gap at `done`.
         setFailedQuestion(null);
         queryClient.invalidateQueries({
           queryKey: getGetConversationQueryKey(conversationId),
@@ -242,8 +267,23 @@ export default function ChatScreen() {
         });
       },
       onError: (_error, variables) => {
+        // A network error or a `type:"error"` SSE frame. The partial
+        // `streamingText` is deliberately left on screen — the synthetic
+        // bubble carries it above the failure notice.
         setFailedQuestion(variables.data.content);
       },
+    },
+    // Drive the incremental render: append `text` deltas, fold tool events
+    // into the retrieval trace. `consume()` fires onEvent before validating,
+    // so guard the non-string case before it throws.
+    onEvent: (event) => {
+      if (event.type === 'text') {
+        if (typeof event.content === 'string') {
+          setStreamingText((prev) => prev + event.content);
+        }
+      } else if (event.type === 'tool_call' || event.type === 'tool_result') {
+        setTrace((prev) => traceReducer(prev, event));
+      }
     },
   });
 
@@ -256,8 +296,20 @@ export default function ChatScreen() {
   // the time the carried-in question is sent it has already been drawn,
   // so the thread is not empty. Only the caller knows.
   const send = (content: string, opening = false) => {
-    if (!conversationId || sendMessage.isPending) return;
+    // Require the detail query to have RESOLVED: the reconciler's baseline
+    // is the persisted message count at send, and without loaded data we
+    // cannot capture a real one (`?? 0` would read an unloaded thread as
+    // empty and make a pre-existing answer look like this turn's). The
+    // composer is disabled until then too — this is defence in depth.
+    if (!conversationId || !conversationQuery.data || sendMessage.isPending) {
+      return;
+    }
     setFailedQuestion(null);
+    turnSeq.current += 1;
+    streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
+    sentAtCount.current = conversationQuery.data.messages.length;
+    setStreamingText('');
+    setTrace([]);
     sendMessage.mutate({ conversationId, data: { content } });
     // Scrolling now would race the waiting line's own layout. The
     // request is parked and spent when the list reports its new size.
@@ -279,39 +331,36 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, conversationQuery.data]);
 
-  // Arriving from the home screen the question is already in hand, so
-  // it goes on the paper at once — no spinner standing in for it while
-  // the conversation loads and the auto-send round trip runs.
-  //
-  // Reconciliation is by identity, not by removal: when the server's
-  // copy of that same question comes back it inherits the echo's key,
-  // so the row is never unmounted and remounted — nothing duplicates,
-  // nothing re-animates, nothing jumps.
+  // Arriving from the home screen the question is already in hand, so it
+  // goes on the paper at once — no spinner standing in for it. The pure
+  // reconciler (lib/chat-reconcile.ts) does the identity reconciliation of
+  // the carried-in question (ECHO_ID), the synthetic in-progress answer
+  // bubble while text streams, and the landed-answer detection that drives
+  // the `done` hand-off.
   const serverMessages = conversationQuery.data?.messages;
-  const messages = useMemo<Message[]>(() => {
-    const server = serverMessages ?? [];
-    if (!q) return server;
-    let matched = false;
-    const reconciled = server.map((m) => {
-      if (!matched && m.role === 'user' && m.content === q) {
-        matched = true;
-        return { ...m, id: ECHO_ID };
-      }
-      return m;
-    });
-    if (matched) return reconciled;
-    return [
-      {
-        id: ECHO_ID,
+  const { messages, landedAnswer } = useMemo(
+    () =>
+      reconcileThread({
+        serverMessages,
+        q,
         conversationId,
-        role: 'user',
-        content: q,
-        citations: [],
-        createdAt: '',
-      },
-      ...reconciled,
-    ];
-  }, [serverMessages, q, conversationId]);
+        streamingText,
+        streamKey: streamKey.current,
+        sentAtCount: sentAtCount.current,
+      }),
+    // streamKey / sentAtCount are refs, current at each recompute; the
+    // reactive inputs are the ones listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [serverMessages, q, conversationId, streamingText],
+  );
+
+  // The row's stable list identity. On the `done` hand-off the landed
+  // server message inherits the synthetic bubble's key, so the FlatList
+  // row updates in place instead of remounting.
+  const keyFor = useCallback(
+    (m: Message) => keyOverrides[m.id] ?? m.id,
+    [keyOverrides],
+  );
 
   // A row in a virtualized list is unmounted as it scrolls out of the
   // window and mounted again on the way back, so an entrance attached
@@ -321,22 +370,42 @@ export default function ChatScreen() {
   // Only genuinely new content animates. Everything the thread was
   // already holding when it first loaded is history and is simply
   // there; everything drawn since is recorded on the commit that drew
-  // it, so it can only ever animate once. The record is a ref, because
-  // reading it decides what animates and writing it must not itself
-  // cause a render.
+  // it, so it can only ever animate once. The record is keyed by list
+  // identity (`keyFor`), not raw message id, so the streaming hand-off
+  // — where a persisted id takes on the synthetic bubble's key — does
+  // not read as a fresh row. The record is a ref, because reading it
+  // decides what animates and writing it must not itself cause a render.
   const drawn = useRef<Set<string> | null>(null);
-  const isNewContent = (messageId: string) =>
-    drawn.current !== null && !drawn.current.has(messageId);
+  const isNewContent = (key: string) =>
+    drawn.current !== null && !drawn.current.has(key);
   useEffect(() => {
     // Nothing counts as history until the conversation has actually
     // loaded — otherwise the whole thread arrives "new" a beat later.
     if (!serverMessages) return;
     if (drawn.current === null) {
-      drawn.current = new Set(messages.map((m) => m.id));
+      drawn.current = new Set(messages.map(keyFor));
       return;
     }
-    for (const message of messages) drawn.current.add(message.id);
-  }, [serverMessages, messages]);
+    for (const message of messages) drawn.current.add(keyFor(message));
+  }, [serverMessages, messages, keyFor]);
+
+  // Hand-off on `done`: once this turn's answer is persisted, remap its
+  // server id to the stream key its synthetic bubble used and clear the
+  // streaming state in the same commit — no duplicate, no gap. The landed
+  // message also inherits the bubble's "already drawn" status, so the
+  // in-place swap is not mistaken for new content and re-animated.
+  useEffect(() => {
+    if (streamingText && landedAnswer) {
+      const key = streamKey.current;
+      const id = landedAnswer.id;
+      setKeyOverrides((prev) =>
+        prev[id] === key ? prev : { ...prev, [id]: key },
+      );
+      drawn.current?.add(key);
+      setStreamingText('');
+      setTrace([]);
+    }
+  }, [streamingText, landedAnswer]);
 
   // The thread is waiting on an answer while a follow-up is in flight,
   // or while the question we arrived with has yet to be answered.
@@ -574,7 +643,7 @@ export default function ChatScreen() {
               <FlatList
                 ref={listRef}
                 data={messages}
-                keyExtractor={(m: Message) => m.id}
+                keyExtractor={keyFor}
                 scrollEnabled={!!messages.length || awaitingAnswer}
                 contentContainerStyle={[
                   styles.messages,
@@ -622,10 +691,13 @@ export default function ChatScreen() {
                   }
                 }}
                 // The waiting line sits beneath the question that prompted
-                // it, at the foot of the thread.
+                // it, at the foot of the thread. It carries the live
+                // retrieval trace while the model searches; once the answer
+                // itself begins streaming, the trace is done its job and the
+                // line steps aside for the in-progress answer bubble.
                 ListFooterComponent={
-                  awaitingAnswer ? (
-                    <ThinkingLine animate={!carriedInWait} />
+                  awaitingAnswer && !streamingText ? (
+                    <ThinkingLine animate={!carriedInWait} trace={trace} />
                   ) : failedQuestion ? (
                     <SendFailure
                       question={failedQuestion}
@@ -640,7 +712,9 @@ export default function ChatScreen() {
                   // animate. A follow-up typed here, and every answer, is
                   // new: it rises into place, once.
                   <Animated.View
-                    entering={isNewContent(item.id) ? TURN_ENTER : undefined}
+                    entering={
+                      isNewContent(keyFor(item)) ? TURN_ENTER : undefined
+                    }
                   >
                     {item.role === 'user' ? (
                       <ThreadQuestion text={item.content} />
@@ -703,7 +777,11 @@ export default function ChatScreen() {
                 onSend={(content: string) => send(content)}
                 sending={sendMessage.isPending}
                 placeholder="Ask a follow-up…"
-                disabled={conversationQuery.isError}
+                // Disabled until the detail query resolves: `send()` needs
+                // loaded data to capture the reconciler baseline and bails
+                // without it, and `ChatInput` clears its field on send — so
+                // a follow-up typed during load would be lost silently.
+                disabled={conversationQuery.isError || !conversationQuery.data}
               />
             </Animated.View>
           </KeyboardAvoidingViewCompat>

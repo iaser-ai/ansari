@@ -68,6 +68,13 @@ export interface StoredSession {
   refreshToken: string;
   firstName: string;
   lastName: string;
+  /**
+   * True for an auto-provisioned guest session (see `context.tsx` /
+   * `lib/auth/guest`). The UI shows the "sign in" upsell rather than a
+   * "log out" affordance for a guest. Absent in blobs written before this
+   * field existed → treated as `false` (a real account).
+   */
+  isGuest: boolean;
 }
 
 export async function loadSession(): Promise<StoredSession | null> {
@@ -79,16 +86,22 @@ export async function loadSession(): Promise<StoredSession | null> {
   if (!accessToken || !refreshToken) return null;
   let firstName = '';
   let lastName = '';
+  let isGuest = false;
   if (nameRaw) {
     try {
-      const parsed = JSON.parse(nameRaw) as { firstName?: string; lastName?: string };
+      const parsed = JSON.parse(nameRaw) as {
+        firstName?: string;
+        lastName?: string;
+        isGuest?: boolean;
+      };
       firstName = parsed.firstName ?? '';
       lastName = parsed.lastName ?? '';
+      isGuest = parsed.isGuest ?? false;
     } catch {
       // corrupt name blob is non-fatal
     }
   }
-  return { accessToken, refreshToken, firstName, lastName };
+  return { accessToken, refreshToken, firstName, lastName, isGuest };
 }
 
 export async function saveSession(session: StoredSession): Promise<void> {
@@ -97,7 +110,11 @@ export async function saveSession(session: StoredSession): Promise<void> {
     setItem(REFRESH_KEY, session.refreshToken),
     setItem(
       NAME_KEY,
-      JSON.stringify({ firstName: session.firstName, lastName: session.lastName }),
+      JSON.stringify({
+        firstName: session.firstName,
+        lastName: session.lastName,
+        isGuest: session.isGuest,
+      }),
     ),
   ]);
 }

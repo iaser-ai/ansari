@@ -20,7 +20,7 @@ import { useColors } from '@/hooks/useColors';
 import { withAlpha } from '@/lib/color';
 import { ANCHOR_HOLD, DURATION, EASE_OUT } from '@/constants/motion';
 import { SourceFolio } from '@/components/SourceFolio';
-import type { Citation } from '@workspace/api-client-react';
+import type { Citation } from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
 /**
