@@ -110,6 +110,7 @@ empty-final retry ladder still applies as same-model retries.
 | `SENTRY_DSN` | `sentry.*.config.ts` | Optional. Sentry is disabled when unset (and always disabled under test). No user content is ever sent to Sentry |
 | `RAILWAY_ENVIRONMENT` | `sentry.server.config.ts` | Auto-injected by Railway; used as the Sentry environment tag. Falls back to `NODE_ENV`; never set manually |
 | `SENTRY_AUTH_TOKEN` | build-time only | Optional — source-map uploads during `next build`. The build succeeds without it |
+| `MONGO_URL`, `MONGO_DB_NAME` | `scripts/migrate-users/` only | Never read by the app. Used only by the legacy-migration script, which is a **partial port — not verified, not for production** (see `apps/api/scripts/migrate-users/README.md`). Self-hosters should leave these unset |
 
 ### Provisioning admins
 

@@ -143,6 +143,12 @@
     // invisible to a static process.env.X grep.
     "FACILITATOR_REQUEST_BUDGET_MS",
     "FACILITATOR_SYNTHESIS_RESERVE_MS",
+    // Legacy migration script only (issue #131, apps/api/scripts/migrate-users/):
+    // STATIC process.env reads in source/mongo-reader.ts and index.ts (derivation
+    // step 2). Deliberately NOT in the Zod schema — the script validates its own env.
+    // Declared here so strict env mode passes them to a `pnpm migrate-users` task at all.
+    "MONGO_URL",
+    "MONGO_DB_NAME",
     "EXPO_PUBLIC_*",
     "EXPO_NO_TELEMETRY",
     "PORT"
