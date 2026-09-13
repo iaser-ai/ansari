@@ -12,7 +12,7 @@ engineStrict: true
 catalog:
   typescript: ~6.0.3
   eslint: ^9.39.5
-  typescript-eslint: ^8.67.0
+  typescript-eslint: ^8.70.0
 
 # pnpm 10 blocks dependency postinstall scripts unless allowlisted here.
 # These all ran their scripts under npm and need them: native addons
