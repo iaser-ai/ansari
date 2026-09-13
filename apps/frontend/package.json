@@ -31,7 +31,7 @@
     "expo-status-bar": "~57.0.0",
     "expo-updates": "~57.0.21",
     "heroui-native": "^1.0.8",
-    "react": "19.2.3",
+    "react": "19.3.0",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
     "react-native-gesture-handler": "~2.32.0",
@@ -49,7 +49,7 @@
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
-    "@types/react": "~19.2.15",
+    "@types/react": "~19.3.0",
     "eslint": "catalog:",
     "eslint-config-expo": "^57.0.0",
     "prettier": "^3.8.3",
