@@ -27,7 +27,7 @@
     "@ansari/tsconfig": "workspace:*",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
-    "@types/node": "^25.0.10",
+    "@types/node": "^26.5.1",
     "eslint": "catalog:",
     "tsdown": "^0.22.14",
     "tsx": "^4.21.0",
