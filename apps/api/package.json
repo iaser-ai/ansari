@@ -32,7 +32,7 @@
     "@google/genai": "^2.19.0",
     "@react-email/components": "^1.0.8",
     "@react-email/render": "^2.0.4",
-    "@sentry/nextjs": "^10.39.0",
+    "@sentry/nextjs": "^10.74.0",
     "bcrypt": "^6.0.0",
     "drizzle-orm": "^0.45.2",
     "jsonwebtoken": "^9.0.3",
