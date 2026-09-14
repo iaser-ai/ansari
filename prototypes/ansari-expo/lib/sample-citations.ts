@@ -19,6 +19,36 @@ import type { Citation } from '@/lib/api/types';
  * real citation is worse than none — do not add entries unless every field is
  * verified against a primary source.
  */
+/**
+ * FIXED SAMPLE ANSWER — paired with SAMPLE_CITATIONS above.
+ *
+ * `AnswerMessage`'s citation UI is two parts working together: small
+ * superscript `[N]` markers inline in the prose, and the footnote pill
+ * block at the foot of the answer, both opening the same illuminated-folio
+ * citation sheet (see `AnswerMessage.tsx`'s own doc comment). apps/api's
+ * real answer text carries no `[N]` marker syntax — it doesn't emit inline
+ * citation markers at all (real ones arrive with issue #66) — so pairing
+ * SAMPLE_CITATIONS with the real streamed text left the footnote pills with
+ * nothing in the prose pointing to them (issue #145).
+ *
+ * This rewritten answer embeds literal `[1]`, `[2]`, `[3]` at the sentence
+ * each sample citation actually supports (in `SAMPLE_CITATIONS` order:
+ * establishing prayer for remembrance, humble submission during prayer, the
+ * five daily prayers as a cleansing), and REPLACES the real answer text on
+ * that one gated message only — same "illustrative, not real API output"
+ * caveat as `SAMPLE_CITATIONS`. Every other message keeps its real content.
+ */
+export const SAMPLE_ANSWER_CONTENT =
+  "Khushu' — presence of heart in prayer — grows less from a single " +
+  'technique than from steady attention to what prayer actually is. Start ' +
+  'with the words: slow down enough to notice what you are reciting, since ' +
+  'prayer is established for the remembrance of God [1]. Let that ' +
+  'remembrance turn into humility, the quiet submission that marks a ' +
+  "believer at prayer, so the body's stillness reflects the heart's [2]. " +
+  'Keep at it across all five prayers, even when a session feels dry — ' +
+  'offered with sincerity, they wash away what came before, the way ' +
+  'washing in a river leaves no trace of dirt behind [3].';
+
 export const SAMPLE_CITATIONS: Citation[] = [
   {
     id: 'sample-quran-20-14',
