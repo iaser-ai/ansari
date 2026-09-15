@@ -1,0 +1,21 @@
+id: '145'
+title: prototypes-ansari-expo-sample-
+protocol: air
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+    requested_at: '2026-09-14T11:49:22.770Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-09-14T11:41:14.602Z'
+updated_at: '2026-09-14T11:49:22.771Z'
+pr_history:
+  - phase: pr
+    pr_number: 146
+    branch: builder/air-145
+    created_at: '2026-09-14T11:48:52.351Z'
+pr_ready_for_human: true
