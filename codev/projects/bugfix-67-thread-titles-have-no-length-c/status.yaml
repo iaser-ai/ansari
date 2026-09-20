@@ -1,7 +1,7 @@
 id: bugfix-67
 title: thread-titles-have-no-length-c
 protocol: bugfix
-phase: investigate
+phase: fix
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-20T17:17:49.877Z'
-updated_at: '2026-09-20T17:17:49.877Z'
+updated_at: '2026-09-20T17:18:55.192Z'
