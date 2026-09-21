@@ -20,11 +20,17 @@ read as authoritative here and they are not.
 
 ## Deviations from the upstream snapshot
 
-Verified byte-identical to `ad72bc60d9a3` except:
+Verified byte-identical at import to `ad72bc60d9a3` except:
 
 - `package.json` `name` is `ansari-frontend-web-legacy`, not the upstream `ansari-chat-app`.
   Both tracks used the same name; keeping them distinct avoids re-arming a
   duplicate-name collision if this tree is ever globbed back into the workspace.
+- `package-lock.json`: the root `name` fields follow the rename (2 lines), from a
+  local install after import. No resolution changes.
+- `yarn.lock`: re-resolved by that install. Upstream's lockfile was stale against
+  its own `package.json` (no entries for `@playwright/test@^1.63.0` or
+  `serve@^14.2.6`); it now matches, with transitive bumps to `ajv`, `minimatch`
+  and `serve-handler`.
 - Removed: `.github/`, `codev/`, `.claude/`, `.architect-role.md`, `.codev/`.
 - `.vscode/` (3 files) is ignored by the root `.gitignore` and is absent here.
 

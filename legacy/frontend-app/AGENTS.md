@@ -20,11 +20,13 @@ read as authoritative here and they are not.
 
 ## Deviations from the upstream snapshot
 
-Verified byte-identical to `528698b3a87b` except:
+Verified byte-identical at import to `528698b3a87b` except:
 
 - `package.json` `name` is `ansari-frontend-app-legacy`, not the upstream `ansari-chat-app`.
   Both tracks used the same name; keeping them distinct avoids re-arming a
   duplicate-name collision if this tree is ever globbed back into the workspace.
+- `package-lock.json`: the root `name` fields follow the rename (2 lines), from a
+  local `npm install` after import. No resolution changes.
 - Removed: `.github/`, `codev/`, `.claude/`, `.architect-role.md`, `af-config.json`.
 - `.vscode/` (3 files) is ignored by the root `.gitignore` and is absent here.
 
