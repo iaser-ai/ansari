@@ -28,7 +28,7 @@
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
     "@electric-sql/pglite": "^0.5.3",
-    "@types/node": "^25.0.10",
+    "@types/node": "^26.6.1",
     "@types/pg": "^8.16.0",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
