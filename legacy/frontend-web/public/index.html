@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <link rel="icon" href="/logo-512_x_512.png" />
+    <meta name="theme-color" content="#F2F2F2" />
+    <meta name="description" content="Islamic Chat System" />
+
+    <title>Ansari Chat</title>
+
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+
+    <style>
+      html {
+        overscroll-behavior: none;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Inter';
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        height: 100%;
+      }
+
+      code {
+        font-family: 'Inter' font-semibold;
+      }
+
+      /** Update Scrollbar UI */
+      ::-webkit-scrollbar {
+        height: 1rem;
+        width: 0.3rem;
+      }
+
+      ::-webkit-scrollbar:horizontal {
+        height: 0.5rem;
+        width: 1rem;
+      }
+
+      ::-webkit-scrollbar-track {
+        background-color: transparent;
+        border-radius: 5px;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        --tw-border-opacity: 1;
+        background-color: rgba(217, 217, 227, 0.8);
+        /* background-color: rgba(83, 82, 82, 0.5); */
+
+        border-color: rgba(255, 255, 255, var(--tw-border-opacity));
+        border-radius: 5px;
+        border-width: 1px;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        --tw-bg-opacity: 1;
+        background-color: rgba(83, 82, 82, var(--tw-bg-opacity));
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>
