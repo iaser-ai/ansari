@@ -35,12 +35,42 @@ release** with a written runbook.
 from the legacy auth migration script (coordinate with Waleed: location, idempotency helpers, and review
 gate before Phase 2).
 
+**PR #148 review (Amr, 2026-09-18)** — folded into this revision:
+
+- **`apps/api` auth:** Better Auth **bearer plugin** (`Authorization: Bearer` session token), not shared
+  session cookies between `apps/auth` and `apps/api`.
+- **`revokeSessionsOnPasswordReset: true`** in `createAuth()` (opt-in in better-auth@1.6.27).
+- **Cutover step 1:** take **`apps/api` fully offline** for the DB window; `MAINTENANCE_MODE` / app-check
+  alone does not stop requests.
+- **Phase 0 migration:** admin plugin columns on `users` / `session` named explicitly.
+
+## How `apps/api` authenticates after cutover
+
+`apps/auth` and `apps/api` are separate hosts. Session cookies set by `apps/auth` are host-only (no
+shared cookie domain in today's `packages/auth` config), so **`apps/api` does not receive the BA session
+cookie**. Native clients are not a browser cookie jar either.
+
+**Decision:** enable Better Auth's **bearer plugin** in `packages/auth` (alongside `expo()`). Flow:
+
+1. Client signs in via `apps/auth` (`/api/auth/*`).
+2. Sign-in response exposes the session token in **`set-auth-token`** (and CORS must expose that header).
+3. Client stores the token (SecureStore on native; web: chosen storage — document in client PR).
+4. Every `apps/api` request sends **`Authorization: Bearer <token>`**.
+5. Bearer before-hook verifies the token and injects it as the session cookie for Better Auth internals;
+   **`auth.api.getSession({ headers })`** in `apps/api` is the validation path (session row lookup, same
+   cost class as today's `findToken` → `users` join).
+
+**Env (Phase 1 convergence):** `apps/api` needs the **same `BETTER_AUTH_SECRET`** as `apps/auth` (HMAC
+verify) and the shared **`DATABASE_URL`** it already uses for user-owned data.
+
 ## Success Metrics
 
 - [ ] All specification success criteria met (single cutover, data migration, FK repoint, `users_legacy`
   retention/drop trigger, credential story, env convergence).
 - [ ] Phase 0 exit criteria green (UUID round-trip, one bcrypt user login, timestamps documented,
   `(user_id, provider_id)` uniqueness + idempotent backfill).
+- [ ] `revokeSessionsOnPasswordReset: true` configured; test fails if removed.
+- [ ] Bearer plugin enabled; `apps/api` can resolve a session from `Authorization: Bearer` in dev/staging.
 - [ ] Staging rehearsal of the full cutover window (steps 1–8 from spec) with row-count / PK-set audits.
 - [ ] Production cutover: zero dual-run period; all users re-authenticate via Better Auth with existing
   passwords (no mass reset).
@@ -72,7 +102,7 @@ option in the cutover SQL and in `docs/self-hosting.md`.
 {
   "phases": [
     {"id": "phase_0", "title": "Spike, UUID schema, #59 scaffold disposition"},
-    {"id": "phase_1", "title": "Prepare: verifier, admin plugin, CORS, clients, account unique, env design"},
+    {"id": "phase_1", "title": "Prepare: bearer middleware, admin tooling, CORS, clients, env convergence"},
     {"id": "phase_2", "title": "Staging backfill: idempotent SQL migration framework"},
     {"id": "phase_3", "title": "Production cutover window (single deploy)"},
     {"id": "phase_4", "title": "Decommission JWT, drop users_legacy when triggered, arch-critical"},
@@ -105,9 +135,16 @@ data movement. Remove the text-id #59 scaffold tables in favor of UUID `users` (
   - `advanced.database.generateId = "uuid"`.
   - `user` model → table name **`users`** via Better Auth `modelName` (avoid SQL reserved `user`).
   - `additionalFields`: `system_key`, `source`, `registered_via` (`input: false` where server-owned).
-  - Admin plugin configured (roles storage per Better Auth admin plugin docs).
+  - **`plugins`:** `expo()` and **`bearer()`** (session token via `Authorization: Bearer` for `apps/api`).
+  - **`emailAndPassword`:** permanent dual verify (below) plus **`revokeSessionsOnPasswordReset: true`**
+    (not default in better-auth@1.6.27 — without it, password reset leaves old sessions alive vs today).
+  - **Admin plugin** enabled; schema must include plugin columns **before cutover step 8**:
+    - On **`users`:** `role`, `banned`, `ban_reason`, `ban_expires` (names per generated admin schema for
+      1.6.27 — verify in `drizzle-kit generate` output, do not hand-wave).
+    - On **`session`:** `impersonated_by` (admin impersonation).
 - [ ] **Regenerate Drizzle schema** in `packages/auth/src/schema.ts`: UUID PK/FKs on `users`,
-  `session`, `account`, `verification`; **unique constraint on `account (user_id, provider_id)`**.
+  `session`, `account`, `verification`; **unique constraint on `account (user_id, provider_id)`**; admin
+  columns above present in the Phase 0 migration SQL.
 - [ ] **New migration** (human-reviewed, never `db:push`):
   - `DROP TABLE IF EXISTS` #59 tables (`user`, `session`, `account`, `verification`) with safe ordering.
   - `CREATE` UUID-shaped Better Auth tables (empty `users` alongside legacy `public.users` until cutover).
@@ -138,6 +175,8 @@ data movement. Remove the text-id #59 scaffold tables in favor of UUID `users` (
   login.
 - **Unit:** password verify dispatches on hash prefix; bcrypt truncation edge case from spec 4 suite
   reused or mirrored.
+- **Integration:** password reset with an existing session → sessions revoked when
+  `revokeSessionsOnPasswordReset` is true; **test must fail** if the flag is removed.
 
 ### Rollback Strategy
 
@@ -158,13 +197,17 @@ Revert Phase 0 commits; re-apply #59 migration only in dev if needed. Legacy `ap
 
 ### Objectives
 
-Make the codebase **ready for cutover** without switching production traffic: middleware design,
-client paths, CORS, env contract, and admin tooling — still on JWT in production until Phase 3.
+Make the codebase **ready for cutover** without switching production traffic: bearer session validation
+on `apps/api`, client token flow, CORS (including exposed auth headers), env contract, and admin tooling
+— still on JWT in production until Phase 3.
 
 ### Deliverables
 
+- [ ] **`apps/api` middleware:** import `@ansari/auth`, call **`auth.api.getSession({ headers })`** on
+  protected routes; require **`Authorization: Bearer`** (from bearer plugin). Feature-flag or dev-only
+  path until Phase 3; remove JWT `findToken` path in the Phase 3 deploy.
 - [ ] **Admin plugin** fully wired in `packages/auth`; design **`scripts/grant-admin.ts` replacement**
-  (e.g. `scripts/assign-ba-admin.ts`) that sets admin plugin roles by email — **does not** touch
+  (e.g. `scripts/assign-ba-admin.ts`) that sets admin plugin **`role`** by email — **does not** touch
   `is_admin`.
 - [ ] **Replacement startup assert** (design + implement behind feature flag or dual-read until Phase 3):
   - New `assertConfiguredBaAdminsExist()` (or equivalent) resolves `ADMIN_EMAILS` and checks Better Auth
@@ -175,18 +218,20 @@ client paths, CORS, env contract, and admin tooling — still on JWT in producti
   `packages/auth` `trustedOrigins` for **web** origins. Document `trustedOrigins` limitation for custom
   schemes (PR #61) — no vacuous origin tests.
 - [ ] **Client inventory + updates:**
-  - `prototypes/ansari-expo/lib/auth/api.ts` → Better Auth client / session cookies against `apps/auth`
-    (or agreed proxy).
+  - `prototypes/ansari-expo`: sign-in via `apps/auth`; read **`set-auth-token`**; store token; send
+    **`Authorization: Bearer`** on `apps/api` calls (existing bearer wiring in `lib/api/` can be
+    repointed from JWT access tokens to BA session token).
   - List any other `v2/users/*` callers (grep); same-release updates or documented exceptions.
-- [ ] **Env convergence design:** single contract for `BETTER_AUTH_*`, session secret, `DATABASE_URL` for
-  auth stack; timeline to remove `JWT_*` at Phase 4. Optional early shared module imported by both
-  packages (read-only contract in Phase 1).
-- [ ] **`apps/api` auth middleware spike (feature-flagged):** validate Better Auth session on a dev
-  branch path without removing JWT routes yet.
+- [ ] **Env convergence (implement, not design-only):** `apps/api` production env includes
+  **`BETTER_AUTH_SECRET`** (same value as `apps/auth`) plus existing `DATABASE_URL`; document in
+  `.env.example`. Timeline to remove `JWT_*` at Phase 4.
+- [ ] **CORS on `apps/auth`:** expose **`set-auth-token`** to browser clients that need it
+  (`Access-Control-Expose-Headers` — bearer plugin adds this for sign-in; verify for your origins).
 
 ### Acceptance Criteria
 
-- [ ] Staging/dev: Expo (or primary client) can complete login against `apps/auth` with UUID schema.
+- [ ] Staging/dev: client completes login against `apps/auth`, then a bearer-authenticated `apps/api`
+  call succeeds via `getSession`.
 - [ ] New admin assignment script works against BA admin plugin in dev.
 - [ ] CORS preflight with credentials succeeds for allowed origins only.
 
@@ -271,8 +316,24 @@ Better Auth only; invalidate all JWT sessions.
 
 **Window steps** (align with spec; numbering matches spec where possible)
 
-1. **Quiesce auth traffic** — enable maintenance mode / stop auth-serving replicas (mechanism:
-   deploy gate, load balancer rule, or brief read-only — document chosen tool).
+1. **Take `apps/api` fully offline** for the whole window (steps 2–9). Renaming `users` breaks every
+   query against `public.users`, not only auth — e.g. `getSystemUserId()` / `system_key` on
+   `/api/v1/chat/completions` and `/api/v2/mcp-complete`, admin stats in `lib/db/stats.ts`. Partial
+   uptime → 500s and corrupts rollback (snapshot restore from before step 2 drops writes accepted while
+   the API was still live).
+
+   **`MAINTENANCE_MODE` is not sufficient:** `/api/v2/app-check` only **reports** maintenance to clients;
+   it does not reject traffic (`apps/api/src/app/api/v2/app-check/route.ts`).
+
+   **Runbook must name the real mechanism** (chosen and tested in rehearsal before prod). Examples only —
+   pick what matches your hosting:
+
+   - Stop or scale **`apps/api` to zero** (e.g. Railway service pause / remove from deploy).
+   - Remove **`apps/api` from the load balancer** or disable public ingress until step 9 completes.
+   - Any equivalent that guarantees **no HTTP handlers run** against the DB during steps 2–8.
+
+   Record the chosen steps in `docs/better-auth-cutover.md` (or self-hosting) when ops confirms.
+
 2. **`ALTER TABLE users RENAME TO users_legacy`** — FKs on `threads`, `preferences`, `feedback`,
    **`tokens`** now reference `users_legacy.id` (still valid).
 3. **Create empty Better Auth `users`** (+ `session`, `account`, `verification` if not already present from
@@ -287,10 +348,12 @@ Better Auth only; invalidate all JWT sessions.
 8. **Assign Better Auth admin roles** for every `ADMIN_EMAILS` entry **before** `apps/api` boots with new
    code — use Phase 1 assignment script. This satisfies admin boot assert ordering (replacement assert
    runs at step 9 deploy).
-9. **Deploy** application code:
-   - `apps/api` uses Better Auth sessions only; JWT routes removed or return 410; Drizzle `users` model
-     matches BA shape; **no Drizzle model for `users_legacy`**.
-   - Auth traffic to **`apps/auth`** (`/api/auth/*`).
+9. **Bring `apps/api` back** with application code:
+   - Protected routes use **`auth.api.getSession({ headers })`** with **`Authorization: Bearer`**; JWT
+     routes removed or return 410; Drizzle `users` model matches BA shape; **no Drizzle model for
+     `users_legacy`**; remove `tokens` callers in `lib/db/users.ts`.
+   - Sign-in / sign-up traffic to **`apps/auth`** (`/api/auth/*`); API traffic sends bearer token from
+     step 2 of the client flow.
    - Enable **replacement** admin startup assert; remove `is_admin` checks from request path.
 10. **Invalidate** legacy sessions (implicit once JWT validation removed and `tokens` dropped).
 11. **Smoke tests:** login as migrated user, admin route, system account by `system_key`, thread ownership.
@@ -306,7 +369,7 @@ Better Auth only; invalidate all JWT sessions.
 |------|--------|
 | Wrong | Deploy `apps/api` that drops `is_admin` while `assertConfiguredAdminsExist` still checks `is_admin` |
 | Wrong | Deploy new assert before BA admin roles exist |
-| **Required** | Step 8 assigns BA admin roles → Step 9 deploys code with new assert + BA session middleware |
+| **Required** | Step 8 assigns BA admin roles → Step 9 deploys code with new assert + bearer `getSession` middleware |
 
 Implement **`assertConfiguredBaAdminsExist`** (name TBD) in the same deploy that removes `is_admin`
 from the schema/code path.
@@ -374,11 +437,12 @@ governance docs.
 ### Objectives
 
 Mount Better Auth on `apps/api` via `toNextJsHandler`; retire separate `apps/auth` service when ops
-accept single deploy unit.
+accept single deploy unit. **`apps/api` can still validate via bearer** even if login is colocated;
+cookie-only cross-service auth is not required.
 
 ### Deliverables
 
-- [ ] Spike: `/api/auth/*` on `apps/api` behind same cookie domain strategy.
+- [ ] Spike: `/api/auth/*` on `apps/api` (handler mount + CORS/exposed headers for `set-auth-token`).
 - [ ] Cutover doc for DNS / reverse proxy if service count changes.
 - [ ] Decommission `apps/auth` deployment.
 
@@ -393,9 +457,9 @@ accept single deploy unit.
 
 | Client / surface | Legacy today | Required before Phase 3 |
 |------------------|--------------|-------------------------|
-| `prototypes/ansari-expo` | `/api/v2/users/*` | BA client → `apps/auth` `/api/auth/*`, session cookies |
-| `apps/frontend` (if applicable) | verify grep | Same |
-| Admin UI (`apps/api/src/app/admin/**`) | JWT/session | BA session or shared cookie strategy |
+| `prototypes/ansari-expo` | `/api/v2/users/*` + JWT bearer on API | Sign-in via `apps/auth`; store **`set-auth-token`**; **`Authorization: Bearer`** on `apps/api` |
+| `apps/frontend` (if applicable) | verify grep | Same pattern unless a different client stack is agreed |
+| Admin UI (`apps/api/src/app/admin/**`) | JWT bearer | Bearer session token after BA sign-in |
 
 Document any **explicit exceptions** (unsupported clients deprecated at cutover).
 
@@ -452,6 +516,9 @@ Document any **explicit exceptions** (unsupported clients deprecated at cutover)
 | FK repoint error | 2, 3 | Rehearsal + audits |
 | Clients on JWT | 1, 3 | Checklist + same release |
 | Duplicate accounts | 0, 2 | Unique constraint + ON CONFLICT |
+| Partial API uptime during rename | 3 | Full `apps/api` offline step 1; not MAINTENANCE_MODE alone |
+| Password reset leaves sessions | 0 | `revokeSessionsOnPasswordReset: true` + test |
+| Cookie assumed across hosts | 1, 3 | Bearer plugin + documented client flow |
 
 ## Approval
 
@@ -464,6 +531,7 @@ Document any **explicit exceptions** (unsupported clients deprecated at cutover)
 | Date | Change | Reason | Author |
 |------|--------|--------|--------|
 | 2026-09-17 | Initial plan | Implement HOW for spec #60 / PR #134 | — |
+| 2026-09-21 | PR #148 review | Bearer auth for apps/api, revokeSessionsOnPasswordReset, full API downtime, admin columns in Phase 0 | — |
 
 ## Notes
 
