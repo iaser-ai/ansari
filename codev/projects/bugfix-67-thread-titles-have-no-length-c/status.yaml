@@ -1,0 +1,21 @@
+id: bugfix-67
+title: thread-titles-have-no-length-c
+protocol: bugfix
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    approved_at: '2026-09-20T17:31:56.396Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-09-20T17:17:49.877Z'
+updated_at: '2026-09-20T17:31:56.397Z'
+pr_history:
+  - phase: pr
+    pr_number: 149
+    branch: builder/bugfix-67
+    created_at: '2026-09-20T17:22:19.444Z'
+pr_ready_for_human: false
