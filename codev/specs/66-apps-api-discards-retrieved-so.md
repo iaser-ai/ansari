@@ -81,13 +81,18 @@ is the step that connects them.
       synthesis path), in dispatch order, with exact duplicates (same title and text) persisted
       once.
 - [ ] `GET /api/v2/threads/{id}` returns them as `documents` on the owning assistant message.
+- [ ] Share snapshots created after the change record each message's documents.
+      `GET /api/v2/share/{id}` returns them as `documents`. Older snapshots omit the key.
+- [ ] Documents live in a new nullable `messages.documents` column. `messages.content` is
+      unchanged. The migration is generated, reviewed and left for a human to apply (never
+      `db:push`).
 - [ ] **Additive:** for every message, `content` is identical to what the pre-change code
       returns for the same row, including the bare-string form. A thread without documents gets
       a response byte-identical to today's (no `documents` key anywhere).
 - [ ] A no-tool answer persists and returns no documents.
 - [ ] **Negative-tested:** the persisted-documents assertion and the returned-documents
       assertion are each shown to **fail** when documents are dropped (persist site omits them;
-      GET omits them), and to pass again once restored. The review records this.
+      GET omits them; share omits them), and to pass again once restored. The review records this.
 - [ ] The persisted documents are covered by a real-DB (pglite) test, not only mocks.
 - [ ] Documents never appear in Gemini history on a later turn (raw-payload path and
       text-only fallback path), in `raw_payload`, or in `tool_calls`.
@@ -172,38 +177,50 @@ Gemini-formatted results.
 
 - **Rejected by the issue.** Citations would disappear on reload.
 
-**Recommendation: Approach 2.** The issue asks to "use the existing `document` ContentBlock
+**Recommendation: Approach 2 (confirmed by the architect).** The issue asks to "use the existing `document` ContentBlock
 type" and to "confirm" that no migration is needed. The finding: no migration is needed only
 under Approach 1, and Approach 1 breaks the frozen contract unless every `content` reader
 filters. A one-column additive migration buys structural safety. It also keeps the architect's
 constraint: documents stay on the assistant's own row and out of `raw_payload` and the
-tool-call machinery. **This departs from the issue's no-migration expectation, so it is
-flagged for the architect at spec-approval.** If the architect prefers Approach 1, the success
-criteria above still apply unchanged, and the plan adds a filter and regression test for every
-`content` reader.
+tool-call machinery. This departs from the issue's no-migration expectation. The architect
+accepted the departure on 2026-09-22.
 
 ## Open Questions
 
-**Critical**
-- Approach 2 (migration, structural) vs Approach 1 (no migration, filter at every reader).
-  Recommended: 2. Needs the architect's decision at spec-approval.
-
-**Important**
-- **Share endpoint.** Should `GET /api/v2/share/{id}` also carry `documents` (snapshot taken
-  at share time)? Recommended: yes. It is the same formatter plus one more snapshot field, and
-  a shared answer without its sources is the inconsistency the issue warns about. Existing
-  snapshots have none and omit the key. If declined, share stays exactly as today.
-- **Persist sites.** In scope: the two user-facing chat paths, `POST /api/v2/threads/{id}` and
-  `POST /api/v2/threads/{id}/chat`. Recommended out of scope: `mcp-complete` and
-  `v1/chat/completions`. They write system-account threads (`ai-skill`, `leaderboard`) that no
-  UI reads through thread GET. Including them would only add storage.
-- **Empty-array vs omitted key.** Recommended: omit `documents` when there are none. That
-  keeps no-retrieval responses byte-identical. Clients treat the key as optional.
+**Resolved by the architect (2026-09-22)**
+- **Storage: Approach 2.** A sibling nullable `documents` jsonb column, not
+  `messages.content`. This departs from the issue's "no migration" expectation, and the
+  departure is accepted.
+- **Share endpoint: included.** `GET /api/v2/share/{id}` also carries `documents`. The share
+  snapshot records them at share time. Snapshots taken before the change have none and omit
+  the key. Share `content` stays exactly as today.
+- **Persist sites.** In scope: `POST /api/v2/threads/{id}` and `POST /api/v2/threads/{id}/chat`.
+  Out of scope: `mcp-complete` and `v1/chat/completions`, which write system-account threads
+  that no UI reads.
+- **Empty vs omitted.** `documents` is omitted when there are none. It is stored as NULL,
+  never `[]`.
 
 **Nice-to-know**
 - Whether to cap documents per message, or truncate `source.data`, for very long mawsuah or
   tafsir entries. Not proposed. The CitationSheet needs the full text, and the size is bounded
   by the tools' own result limits.
+
+## Migration (human-applied)
+
+The new column is a schema change and follows the `arch-critical.md` DB rule:
+
+1. The builder generates the migration with `drizzle-kit generate`, which produces one additive
+   `ALTER TABLE messages ADD COLUMN documents jsonb` (nullable, no default, no backfill). The
+   migration is numbered after merging `develop` (spec-73 lesson on journal-index collisions).
+2. The generated SQL is reviewed in the PR. It must contain nothing beyond that one additive
+   column.
+3. **A human applies it at deploy.** The builder never runs `db:push` and never applies it to
+   any shared database.
+4. Deploy order: **migration → deploy.** The new code writes the column, so deploying before
+   the migration would fail every assistant insert. The old code ignores the column, so
+   applying the migration first is safe.
+5. Rollback: the old code keeps working with the column present. Dropping the column is
+   optional and loses only citation data.
 
 ## Test Scenarios
 
@@ -225,13 +242,15 @@ criteria above still apply unchanged, and the plan adds a filter and regression 
    contains no document text. `raw_payload` and `tool_calls` are unchanged from before.
 8. **Error and empty turns.** No assistant row is written (as today), so no documents are
    written. Orphan tool records behave exactly as in spec 73.
-9. **Legacy rows.** Rows written before the change read back with no `documents` key.
-10. **Negative tests.** With the persist site's documents deliberately dropped, scenario 1's
+9. **Share.** A share snapshot of a thread with documents returns them on the share GET, with
+   `content` unchanged. A pre-change snapshot returns no `documents` key.
+10. **Legacy rows.** Rows written before the change read back with no `documents` key.
+11. **Negative tests.** With the persist site's documents deliberately dropped, scenario 1's
     persistence assertion fails. With the GET mapping deliberately dropped, its response
     assertion fails. Both pass once restored.
-11. **Answer text unchanged.** The streamed text and the persisted text block are identical
+12. **Answer text unchanged.** The streamed text and the persisted text block are identical
     to before for the same model output. `formatToolResultForGemini` is unchanged.
-12. **Mock hygiene.** Every `vi.mock` factory of a module that gains an export used by a route
+13. **Mock hygiene.** Every `vi.mock` factory of a module that gains an export used by a route
     carries that export (lessons-critical).
 
 ## Risks and Mitigation

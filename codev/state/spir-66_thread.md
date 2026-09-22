@@ -11,3 +11,6 @@
   architect for spec-approval.
 - Citable = `citations.enabled === true` (excludes no-results/unavailable/limit/unknown notices).
 - Note: doc text is already in `tool_calls` (spec 73) but that column must never be served.
+- 2026-09-22 architect decisions: (1) separate `documents` column confirmed, (2) share GET includes
+  documents, (3) mcp-complete / v1 completions out of scope. Migration write-up added to spec
+  (generate → review SQL → human applies; never db:push; migration before deploy).
