@@ -6,7 +6,8 @@ import {
   decodeConversationList,
   decodeDeleteResult,
 } from '@/lib/api/decode';
-import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { SAMPLE_ANSWER_CONTENT, SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { parseAnswer } from '@/lib/markdown';
 
 /**
  * THE LOUD-FAILURE GATE (see issue #63).
@@ -250,6 +251,19 @@ describe('sample citations — khushu-gated placement', () => {
     expect(user?.citations).toEqual([]);
   });
 
+  it('rewrites the assistant answer content with inline [1]/[2]/[3] markers matching SAMPLE_CITATIONS (issue #145)', () => {
+    const detail = decodeConversationDetail(khushuThread);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(SAMPLE_ANSWER_CONTENT);
+    // Not just present in the string — parseable as the footnote markers
+    // `AnswerProse`/`lib/markdown.ts` look for, one per sample citation.
+    const markers = parseAnswer(assistant!.content)
+      .flatMap((block) => (block.type === 'paragraph' ? block.spans : []))
+      .filter((span) => span.type === 'footnote')
+      .map((span) => (span as { marker: number }).marker);
+    expect(markers).toEqual(SAMPLE_CITATIONS.map((c) => c.marker));
+  });
+
   it('attaches to ONLY the first assistant answer, not follow-ups', () => {
     const detail = decodeConversationDetail({
       ...khushuThread,
@@ -263,6 +277,10 @@ describe('sample citations — khushu-gated placement', () => {
     const answers = detail.messages.filter((m) => m.role === 'assistant');
     expect(answers[0].citations).toEqual(SAMPLE_CITATIONS); // supported answer
     expect(answers[1].citations).toEqual([]); // unrelated follow-up
+    // Only the supported answer's content is rewritten with markers; the
+    // unrelated follow-up keeps its real text untouched.
+    expect(answers[0].content).toBe(SAMPLE_ANSWER_CONTENT);
+    expect(answers[1].content).toBe('Zakat is 2.5%…');
   });
 
   it('attaches nothing when the thread is not about khushu', () => {
@@ -274,5 +292,8 @@ describe('sample citations — khushu-gated placement', () => {
       ],
     });
     for (const m of detail.messages) expect(m.citations).toEqual([]);
+    // Content is real (apps/api) text everywhere else — never overwritten.
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe('Zakat is 2.5%…');
   });
 });
