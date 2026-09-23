@@ -1,0 +1,14 @@
+id: bugfix-175
+title: gitleaks-scans-all-reachable-r
+protocol: bugfix
+phase: investigate
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-09-23T22:03:53.229Z'
+updated_at: '2026-09-23T22:03:53.230Z'
