@@ -30,13 +30,11 @@ export async function createThreadSnapshot(
   // Get all messages — explicit projection of ONLY the snapshot's fields.
   // tool_calls / raw_payload are internal columns that must never enter a
   // serialized snapshot (spec 73): not selecting them makes that structural.
-  // documents (issue #66) are public citable sources and ARE snapshotted.
   const threadMessages = await db
     .select({
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
-      documents: messages.documents,
     })
     .from(messages)
     .where(eq(messages.threadId, threadId))
@@ -49,7 +47,6 @@ export async function createThreadSnapshot(
       role: m.role,
       content: m.content,
       createdAt: m.createdAt?.toISOString() || new Date().toISOString(),
-      ...(m.documents && m.documents.length > 0 ? { documents: m.documents } : {}),
     })),
   };
 
