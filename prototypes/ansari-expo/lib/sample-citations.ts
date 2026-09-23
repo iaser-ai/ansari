@@ -3,16 +3,18 @@ import type { Citation } from '@/lib/api/types';
 /**
  * FIXED SAMPLE CITATIONS — sample data, not real output.
  *
- * `apps/api` carries no citation data, so without this the citation UI
- * (`AnswerMessage` pills, `CitationChip`, `CitationSheet`) never renders and a
- * demo can't show it. This is a hardcoded set so that surface is visible.
+ * Real answers now carry their own sources (`documents`, issue #66 — mapped in
+ * `lib/document-citations.ts`, issue #161). This hardcoded set is kept only as a
+ * FALLBACK DEMO, for an environment where the answer has no documents (an
+ * apps/api without #66, or a turn that ran no tool), so the citation UI
+ * (`AnswerMessage` pills, `CitationChip`, the source sheet) can still be shown.
  *
  * These are NOT derived from the answer they appear beneath — they are a fixed
  * set chosen to support the question "How can I develop khushu' in my prayer?".
  * They are attached ONLY to the FIRST assistant answer of a thread about khushu'
- * (the one answer these sources support); follow-ups carry none. They become
- * REAL, answer-derived citations when issue #66 ships; until then, treat them as
- * illustrative only. Do not read them as evidence the API returned.
+ * (the one answer these sources support), and only when that answer has no real
+ * documents; follow-ups carry none. Treat them as illustrative only. Do not read
+ * them as evidence the API returned.
  *
  * Accuracy: every reference, Arabic text, and translation below is real and
  * verified (Qur'an 20:14 / 23:1-2; Sahih al-Bukhari 528 via sunnah.com). A wrong
@@ -25,11 +27,10 @@ import type { Citation } from '@/lib/api/types';
  * `AnswerMessage`'s citation UI is two parts working together: small
  * superscript `[N]` markers inline in the prose, and the footnote pill
  * block at the foot of the answer, both opening the same illuminated-folio
- * citation sheet (see `AnswerMessage.tsx`'s own doc comment). apps/api's
- * real answer text carries no `[N]` marker syntax — it doesn't emit inline
- * citation markers at all (real ones arrive with issue #66) — so pairing
- * SAMPLE_CITATIONS with the real streamed text left the footnote pills with
- * nothing in the prose pointing to them (issue #145).
+ * citation sheet (see `AnswerMessage.tsx`'s own doc comment). The model's own
+ * `[N]` markers in a real answer refer to ITS sources, not these, so pairing
+ * SAMPLE_CITATIONS with the real text left the footnote pills with nothing
+ * in the prose pointing to them (issue #145).
  *
  * This rewritten answer embeds literal `[1]`, `[2]`, `[3]` at the sentence
  * each sample citation actually supports (in `SAMPLE_CITATIONS` order:

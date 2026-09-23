@@ -169,7 +169,8 @@ prototypes/ansari-expo/
   lib/auth/                  token store, session context, auth API, guest login
   lib/chat-reconcile.ts,     the PIR #65 streaming reconciler, wired into
   lib/chat-trace.ts          app/chat/[id].tsx
-  lib/sample-citations.ts    sample citation data (consumed by lib/api/mappers.ts)
+  lib/document-citations.ts  apps/api `documents` (#66) → Citation[], resolving the model's [N] markers
+  lib/sample-citations.ts    khushu' fallback demo citations (consumed by lib/api/mappers.ts)
   lib/suggested-topics.ts    static suggested-questions list (consumed by lib/api/hooks.ts)
   assets/                    fonts, redrawn icons, ambient-shadow video
   vendor/api-client-react/   the imported orval client's runtime (custom-fetch.ts is reused)
