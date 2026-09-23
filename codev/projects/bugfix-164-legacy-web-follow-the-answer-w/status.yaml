@@ -1,7 +1,7 @@
 id: bugfix-164
 title: legacy-web-follow-the-answer-w
 protocol: bugfix
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-23T21:39:01.492Z'
-updated_at: '2026-09-23T23:59:52.314Z'
+updated_at: '2026-09-23T23:59:54.643Z'
 pr_history:
   - phase: pr
     pr_number: 174
