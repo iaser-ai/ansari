@@ -10,7 +10,7 @@
  * and anything unexpected fails closed for that record without failing the
  * request.
  */
-import { and, asc, eq, isNotNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, type Executor } from './index';
 import { messages, type DocumentContentBlock } from '@/db/schema/messages';
 import type { DocumentBlock } from '../tools/types';
@@ -129,34 +129,49 @@ export function deriveCitableDocuments(toolCalls: unknown): {
   return { documents, rejected };
 }
 
+/** One assistant message's citable documents, positioned in its thread. */
+export interface MessageDocuments {
+  messageId: string;
+  /**
+   * Zero-based position of the message in the thread, in the same `created_at`
+   * order thread GET (findMessagesByThread) and share snapshots use — the join
+   * key clients use to attach documents to messages. Messages are append-only
+   * (never deleted or reordered), so the index is stable.
+   */
+  messageIndex: number;
+  documents: DocumentContentBlock[];
+}
+
 /**
- * Citable documents for every assistant message in a thread, keyed by message
- * id; messages with none are absent (never an empty list).
+ * Citable documents for a thread's assistant messages, in thread order.
+ * Messages with none are absent (never an empty list).
  *
  * The caller MUST already have authorized `threadId` (owner-scoped thread
  * lookup, or createThreadSnapshot's ownership check) — this helper performs no
- * authorization. Selects only id + tool_calls, and neither the raw rows nor
- * the reject reasons leave this function. A malformed record is reported by
- * message id and reason codes only, never its content.
+ * authorization. One ordered query over the thread yields both the index and
+ * the records, so the index cannot drift from the order it describes. Neither
+ * the raw rows nor the reject reasons leave this function; a malformed record
+ * is reported by message id and reason codes only, never its content.
  */
 export async function findCitableDocumentsByThread(
   threadId: string,
   exec: Executor = db
-): Promise<Map<string, DocumentContentBlock[]>> {
+): Promise<MessageDocuments[]> {
   const rows = await exec
-    .select({ id: messages.id, toolCalls: messages.toolCalls })
+    .select({ id: messages.id, role: messages.role, toolCalls: messages.toolCalls })
     .from(messages)
-    .where(and(eq(messages.threadId, threadId), eq(messages.role, 'assistant'), isNotNull(messages.toolCalls)))
-    .orderBy(asc(messages.createdAt));
+    .where(eq(messages.threadId, threadId))
+    .orderBy(messages.createdAt);
 
-  const byMessage = new Map<string, DocumentContentBlock[]>();
-  for (const row of rows) {
+  const out: MessageDocuments[] = [];
+  rows.forEach((row, messageIndex) => {
+    if (row.role !== 'assistant' || row.toolCalls === null) return;
     const { documents, rejected } = deriveCitableDocuments(row.toolCalls);
     const reasons = [...new Set(rejected)].filter((r) => r !== LEGACY);
     if (reasons.length > 0) {
       console.warn('[citable-documents] tool records skipped', { messageId: row.id, reasons });
     }
-    if (documents.length > 0) byMessage.set(row.id, documents);
-  }
-  return byMessage;
+    if (documents.length > 0) out.push({ messageId: row.id, messageIndex, documents });
+  });
+  return out;
 }

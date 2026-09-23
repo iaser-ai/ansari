@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from './index';
 import { shares, threads, messages, type Share, type NewShare, type ThreadSnapshot } from '@/db/schema';
+import { findCitableDocumentsByThread } from './citable-documents';
 
 export async function createShare(data: NewShare): Promise<Share> {
   const result = await db.insert(shares).values(data).returning();
@@ -32,6 +33,8 @@ export async function createThreadSnapshot(
   // serialized snapshot (spec 73): not selecting them makes that structural.
   const threadMessages = await db
     .select({
+      // Lookup key for the citable documents only — never written to the snapshot.
+      id: messages.id,
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
@@ -40,14 +43,25 @@ export async function createThreadSnapshot(
     .where(eq(messages.threadId, threadId))
     .orderBy(messages.createdAt);
 
+  // Citable sources are derived once, now, and copied into the snapshot
+  // (spec 168), so the public share endpoints never read tool_calls. Only the
+  // derived blocks come back from the helper — never the raw records.
+  const documentsByMessage = new Map(
+    (await findCitableDocumentsByThread(threadId)).map((e) => [e.messageId, e.documents])
+  );
+
   // Create snapshot
   const snapshot: ThreadSnapshot = {
     threadName: thread[0].name,
-    messages: threadMessages.map((m) => ({
-      role: m.role,
-      content: m.content,
-      createdAt: m.createdAt?.toISOString() || new Date().toISOString(),
-    })),
+    messages: threadMessages.map((m) => {
+      const documents = documentsByMessage.get(m.id);
+      return {
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt?.toISOString() || new Date().toISOString(),
+        ...(documents ? { documents } : {}),
+      };
+    }),
   };
 
   // Store share

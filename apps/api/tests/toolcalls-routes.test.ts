@@ -305,6 +305,33 @@ describe('POST /api/v2/threads/[id] (web)', () => {
   });
 });
 
+describe('history replay never carries citable documents (spec 168)', () => {
+  it('turn 2 history contains no document text and no documents/tool keys, though turn 1 derived documents', async () => {
+    const SENTINEL = 'SENTINEL-VERSE-TEXT';
+    const CITABLE: ToolCallRecord[] = [
+      { type: 'tool_use', id: 'tool_9_1_zzzzz', name: 'search_quran', input: { query: 'q' } },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool_9_1_zzzzz',
+        content: { results: [{ title: 'Quran 2:153', context: 'Retrieved from the Holy Quran', content: SENTINEL }], summary: 's' },
+        status: 'ok',
+        duration_ms: 1,
+        citations: [{ enabled: true }],
+      },
+    ];
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', CITABLE)());
+    await readAll(await threadPost(webReq('first'), ctx));
+
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Second.', undefined)());
+    await readAll(await threadPost(webReq('second'), ctx));
+
+    const history = mockRunFacilitator.mock.calls[1][0] as Array<Record<string, unknown>>;
+    expect(history.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    for (const m of history) expect(Object.keys(m).sort()).toEqual(['content', 'rawPayload', 'role']);
+    expect(JSON.stringify(history)).not.toContain(SENTINEL);
+  });
+});
+
 describe('POST /api/v2/threads/[id]/chat (SSE)', () => {
   it('a tool-using turn persists tool_calls; the SSE wire output is byte-identical to the pre-change format', async () => {
     mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Hello', RECORDS)());

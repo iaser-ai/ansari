@@ -30,3 +30,11 @@
 - Caught a vacuous check: tsconfig excludes tests/**, so expectTypeOf in tests is never type-checked. I removed the type-level test rather than keep a check that could not fail. The declared return type (checked in lib/) plus a runtime key test cover it. Worth a lessons entry.
 - Negative tests: N1 citability check removed → 7 failed; N2 length check removed → 1 failed; N3 source type widened → tsc error. All 36 passed after restore.
 - Suite 832 passed / 3 skipped; build OK; lint 0 errors (7 pre-existing warnings).
+
+## implement: phase_3 (documents endpoints + snapshot documents)
+- Helper reworked: findCitableDocumentsByThread now returns MessageDocuments[] {messageId, messageIndex, documents}. It uses ONE query over the thread (id, role, tool_calls ordered by created_at, the same order findMessagesByThread uses), so the index is taken from the same result set as the ordering it describes. Phase 2's DB tests were updated to match.
+- New routes: GET /api/v2/threads/[id]/documents (auth + owner-scoped findThreadById, 404 identical to thread GET) and GET /api/v2/share/[id]/documents (public, snapshot-only). Their catch blocks log {name, code} only. Thread GET and share GET files are UNTOUCHED, and the Phase 1 byte fixtures still pass.
+- createThreadSnapshot selects message id (lookup only) and stores documents on snapshot messages when non-empty. ThreadSnapshot type gains optional documents.
+- A source scan on the public share route (no citable-documents or threads import, no tool_calls mention) caught my own comment that named tool_calls. Reworded.
+- Negative tests: N1 derivation off → 11 failed; N2 off-by-one index → 7; N3 share GET spreads snapshot documents → 2 (incl. byte fixture); N4 no owner scope → 1. All 33 passed after restore.
+- Suite 853 passed / 3 skipped; tsc clean; lint 0 errors (7 pre-existing warnings); next build lists both routes.

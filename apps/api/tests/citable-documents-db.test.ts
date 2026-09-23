@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } 
 /**
  * findCitableDocumentsByThread (spec 168) against real pglite: selects only a
  * thread's assistant rows with tool_calls, derives inside, returns a
- * messageId → documents map with no empty entries, and reports malformed
+ * ordered list of { messageId, messageIndex, documents } with no empty entries, and reports malformed
  * records by id + reason codes only.
  */
 
@@ -138,7 +138,7 @@ const msg = (id: string, role: 'user' | 'assistant', s: number, toolCalls?: unkn
 const ID = (n: number) => `44444444-0000-0000-0000-00000000000${n}`;
 
 describe('findCitableDocumentsByThread (real pglite)', () => {
-  it('returns a messageId → documents map for citable answers only; no empty entries', async () => {
+  it('returns thread-ordered entries for citable answers only, indexed by thread position; no empty entries', async () => {
     await msg(ID(1), 'user', 1);
     await msg(ID(2), 'assistant', 2, records([V1, NO_RESULTS], [{ enabled: true }, { enabled: false }]));
     await msg(ID(3), 'user', 3);
@@ -150,11 +150,11 @@ describe('findCitableDocumentsByThread (real pglite)', () => {
     await msg(ID(9), 'user', 9);
     await msg('44444444-0000-0000-0000-000000000010', 'assistant', 10, records([H1], [{ enabled: true }]));
 
-    const map = await findCitableDocumentsByThread(THREAD_ID);
-    expect([...map.keys()]).toEqual([ID(2), '44444444-0000-0000-0000-000000000010']);
-    expect(map.get(ID(2))).toEqual([doc(V1)]);
-    expect(map.get('44444444-0000-0000-0000-000000000010')).toEqual([doc(H1)]);
-    for (const docs of map.values()) expect(docs.length).toBeGreaterThan(0);
+    const entries = await findCitableDocumentsByThread(THREAD_ID);
+    expect(entries).toEqual([
+      { messageId: ID(2), messageIndex: 1, documents: [doc(V1)] },
+      { messageId: '44444444-0000-0000-0000-000000000010', messageIndex: 9, documents: [doc(H1)] },
+    ]);
     // Legacy rows are expected, not warned about.
     expect(warn).not.toHaveBeenCalled();
   });
@@ -164,7 +164,7 @@ describe('findCitableDocumentsByThread (real pglite)', () => {
     await msg(ID(2), 'assistant', 2, records([V1], [{ enabled: true }]), OTHER_THREAD_ID);
     await createToolCallOrphan({ threadId: THREAD_ID, reason: 'error', toolCalls: records([H1], [{ enabled: true }]) });
 
-    expect((await findCitableDocumentsByThread(THREAD_ID)).size).toBe(0);
+    expect(await findCitableDocumentsByThread(THREAD_ID)).toEqual([]);
   });
 
   it('a malformed record fails closed without throwing; siblings still derive; the warning carries id + reasons only', async () => {
@@ -177,10 +177,10 @@ describe('findCitableDocumentsByThread (real pglite)', () => {
     await msg(ID(3), 'assistant', 3, { not: 'an array', text: SENTINEL });
     await msg(ID(4), 'assistant', 4, records([H1], [{ enabled: true }]));
 
-    const map = await findCitableDocumentsByThread(THREAD_ID);
-    expect(map.get(ID(2))).toEqual([doc(V1)]);
-    expect(map.has(ID(3))).toBe(false);
-    expect(map.get(ID(4))).toEqual([doc(H1)]);
+    expect(await findCitableDocumentsByThread(THREAD_ID)).toEqual([
+      { messageId: ID(2), messageIndex: 0, documents: [doc(V1)] },
+      { messageId: ID(4), messageIndex: 2, documents: [doc(H1)] },
+    ]);
 
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn.mock.calls).toEqual([
@@ -201,7 +201,7 @@ describe('findCitableDocumentsByThread (real pglite)', () => {
     expect(warn.mock.calls).toEqual([['[citable-documents] tool records skipped', { messageId: ID(2), reasons: ['bad_content'] }]]);
   });
 
-  it('an empty thread returns an empty map', async () => {
-    expect((await findCitableDocumentsByThread(THREAD_ID)).size).toBe(0);
+  it('an empty thread returns []', async () => {
+    expect(await findCitableDocumentsByThread(THREAD_ID)).toEqual([]);
   });
 });
