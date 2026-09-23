@@ -20,7 +20,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
 fake_aws_key() {
-  printf 'AKIA%s' "$(LC_ALL=C tr -dc 'A-Z2-7' </dev/urandom | head -c 16)"
+  # Bounded read (no `tr </dev/urandom | head`, which SIGPIPEs tr).
+  printf 'AKIA%s' "$(head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Z2-7' | cut -c1-16)"
 }
 
 commit_file() { # <file> <content> <message>
