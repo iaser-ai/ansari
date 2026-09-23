@@ -87,7 +87,10 @@ type MockOptions = {
  * Installs a stateful fake backend: a long thread that gains a question/answer pair when a message is posted.
  * Returns a cleanup function.
  */
-async function mockBackend(page: Page, { threadLatencyMs = 0, streamed = false }: MockOptions = {}): Promise<() => void> {
+async function mockBackend(
+  page: Page,
+  { threadLatencyMs = 0, streamed = false }: MockOptions = {},
+): Promise<() => void> {
   unmockedCalls.length = 0
   const messages: ApiMessage[] = Array.from({ length: 30 }, (_, i) => ({
     id: uuid(i),
@@ -292,7 +295,9 @@ test('a reader at the bottom follows a streamed answer to its end', async ({ pag
     expect(probe.maxGap, 'the newest text fell below the fold while streaming').toBeLessThanOrEqual(AT_BOTTOM_PX * 2)
     await expect(page.getByText(STREAM_END)).toBeInViewport()
     await page.waitForTimeout(OBSERVATION_WINDOW_MS)
-    expect(await gapToBottom(page), 'the view drifted off the bottom after the stream').toBeLessThanOrEqual(AT_BOTTOM_PX)
+    expect(await gapToBottom(page), 'the view drifted off the bottom after the stream').toBeLessThanOrEqual(
+      AT_BOTTOM_PX,
+    )
     await expect(page.getByTestId('scroll-to-bottom-button')).toBeHidden()
   } finally {
     cleanup()

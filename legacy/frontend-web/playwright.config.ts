@@ -19,7 +19,7 @@ export default defineConfig({
     baseURL: BASE_URL,
     locale: 'en-US',
     trace: 'retain-on-failure',
-    // E2E_VIDEO=1 records every test (used to produce review videos; see e2e/videos/, gitignored).
+    // E2E_VIDEO=1 records every test into test-results/; copy review videos to e2e/videos/ (gitignored).
     video: process.env.E2E_VIDEO ? 'on' : 'off',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],

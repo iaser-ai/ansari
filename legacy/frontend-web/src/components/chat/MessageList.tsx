@@ -50,6 +50,8 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     // cleared only when the reader scrolls up. Off until then, so opening a thread does not move the reader.
     const followRef = useRef(false)
     const lastScrollTopRef = useRef(0)
+    // Native only: the ScrollView's own height, to tell whether new content left the reader above the bottom.
+    const viewportHeightRef = useRef(0)
     const [isAtBottom, setIsAtBottom] = useState(true)
     const sideMenuWidth = useSelector((state: RootState) => state.sideMenu.width)
     const { isSmallScreen, contentWidth } = useScreenInfo(sideMenuWidth)
@@ -104,6 +106,8 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     // Sending is the reader's own action, so bring the new question and the thinking indicator into view.
     useEffect(() => {
       if (isSending) scrollToEnd()
+      // scrollToEnd is recreated every render and only reads refs; this must run on isSending changes alone.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isSending])
 
     if (isLoading && !isSending) {
@@ -152,20 +156,26 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
           onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>
             updateScrollPosition(contentOffset.y, contentSize.height - contentOffset.y - layoutMeasurement.height)
           }
-          onContentSizeChange={() => {
+          onLayout={({ nativeEvent }) => {
+            viewportHeightRef.current = nativeEvent.layout.height
+          }}
+          onContentSizeChange={(_contentWidth: number, contentHeight: number) => {
             // Keep the newest text (a streaming answer, then its reaction row) in view unless the reader scrolled up.
             if (followRef.current) {
               scrollToEnd()
               return
             }
-            if (Platform.OS === 'web') {
-              const scroller = getWebScroller()
-              if (scroller) {
-                updateScrollPosition(
-                  scroller.scrollTop,
-                  scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
-                )
-              }
+            if (Platform.OS !== 'web') {
+              const scrollTop = lastScrollTopRef.current
+              updateScrollPosition(scrollTop, contentHeight - scrollTop - viewportHeightRef.current)
+              return
+            }
+            const scroller = getWebScroller()
+            if (scroller) {
+              updateScrollPosition(
+                scroller.scrollTop,
+                scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+              )
             }
           }}
         >
