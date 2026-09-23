@@ -1,7 +1,7 @@
 id: '168'
 title: serve-citable-documents-derive
 protocol: spir
-phase: specify
+phase: plan
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -16,7 +16,7 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-09-23T22:09:57.559Z'
-updated_at: '2026-09-23T22:52:31.222Z'
+updated_at: '2026-09-23T22:52:36.819Z'
