@@ -294,6 +294,16 @@ describe('turns without documents', () => {
     expect('documents' in terminal).toBe(false);
   });
 
+  it('T1 synthesis done with nothing citable → no documents key', async () => {
+    h.behavior = { search_quran: 'degrade', search_hadith: 'degrade' };
+    h.scripts = [toolRound(['search_quran', 'search_hadith']), textRound('Best-effort synthesis.')];
+
+    const { terminal } = await terminalOf();
+    expect(terminal.type).toBe('done');
+    expect(terminal.toolCalls).toBeDefined();
+    expect('documents' in terminal).toBe(false);
+  });
+
   it('an error terminal event carries no documents even after a successful retrieval', async () => {
     h.scripts = [toolRound(['search_quran']), throwingRound('vertex exploded')];
 
