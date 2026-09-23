@@ -1,0 +1,10 @@
+---
+VERDICT: COMMENT
+SUMMARY: Gemini lane skipped — agy CLI not found (install: https://antigravity.google/cli/install.sh)
+CONFIDENCE: LOW
+---
+
+The Gemini (Antigravity `agy`) reviewer was skipped: agy CLI not found (install: https://antigravity.google/cli/install.sh).
+This is a non-blocking skip; the remaining reviewers still apply. To enable the
+Gemini lane, install the CLI (https://antigravity.google/cli/install.sh) and run
+`agy` once to sign in.

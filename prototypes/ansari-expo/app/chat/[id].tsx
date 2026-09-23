@@ -70,7 +70,7 @@ import {
 import { GlassCircleButton } from '@/components/GlassCircleButton';
 import { KeyboardAvoidingViewCompat } from '@/components/KeyboardAvoidingViewCompat';
 import { PressableScale } from '@/components/PressableScale';
-import { ThinkingLine } from '@/components/ThinkingLine';
+import { GeneratingMark, ThinkingLine } from '@/components/ThinkingLine';
 import {
   getGetConversationQueryKey,
   getListConversationsQueryKey,
@@ -80,6 +80,7 @@ import {
 } from '@/lib/api';
 import { reconcileThread } from '@/lib/chat-reconcile';
 import { traceReducer, type TraceEntry } from '@/lib/chat-trace';
+import { stripStreamingCitations } from '@/lib/citations';
 import { RADIUS, rounded } from '@/constants/radius';
 
 // Key held by the question carried in from the home screen, and then
@@ -186,6 +187,12 @@ export default function ChatScreen() {
   // (no baseline) is deliberately distinct from `0` (a loaded, empty thread);
   // see lib/chat-reconcile.ts.
   const [streamingText, setStreamingText] = useState('');
+  // The answer exactly as the model has written it so far. What is shown
+  // (`streamingText`) is cleaned of unbacked citation text, and that cleaning
+  // is always redone over the whole raw text — never over the already-cleaned
+  // text, which has lost the context a "Citations:" heading cut depends on.
+  // Reset wherever `streamingText` is.
+  const rawStreamText = useRef('');
   const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
   const turnSeq = useRef(0);
@@ -279,7 +286,10 @@ export default function ChatScreen() {
     onEvent: (event) => {
       if (event.type === 'text') {
         if (typeof event.content === 'string') {
-          setStreamingText((prev) => prev + event.content);
+          // The streaming bubble has no citations to back its markers, so it
+          // is shown the way its persisted answer will be (lib/api/mappers).
+          rawStreamText.current += event.content;
+          setStreamingText(stripStreamingCitations(rawStreamText.current));
         }
       } else if (event.type === 'tool_call' || event.type === 'tool_result') {
         setTrace((prev) => traceReducer(prev, event));
@@ -308,6 +318,7 @@ export default function ChatScreen() {
     turnSeq.current += 1;
     streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
     sentAtCount.current = conversationQuery.data.messages.length;
+    rawStreamText.current = '';
     setStreamingText('');
     setTrace([]);
     sendMessage.mutate({ conversationId, data: { content } });
@@ -402,6 +413,7 @@ export default function ChatScreen() {
         prev[id] === key ? prev : { ...prev, [id]: key },
       );
       drawn.current?.add(key);
+      rawStreamText.current = '';
       setStreamingText('');
       setTrace([]);
     }
@@ -694,10 +706,17 @@ export default function ChatScreen() {
                 // it, at the foot of the thread. It carries the live
                 // retrieval trace while the model searches; once the answer
                 // itself begins streaming, the trace is done its job and the
-                // line steps aside for the in-progress answer bubble.
+                // line steps aside for the in-progress answer bubble — with
+                // the mark alone beneath it for as long as the answer is
+                // still being written. The mark goes in the hand-off commit
+                // that clears `streamingText`, the same one that gives the
+                // answer back its Copy and Share, so the foot of the thread
+                // changes once rather than twice. A failure takes its place.
                 ListFooterComponent={
                   awaitingAnswer && !streamingText ? (
                     <ThinkingLine animate={!carriedInWait} trace={trace} />
+                  ) : streamingText && !failedQuestion ? (
+                    <GeneratingMark />
                   ) : failedQuestion ? (
                     <SendFailure
                       question={failedQuestion}
@@ -722,6 +741,9 @@ export default function ChatScreen() {
                       <AnswerMessage
                         message={item}
                         onSourcesOpen={openSources}
+                        generating={
+                          !!streamingText && item.id === streamKey.current
+                        }
                       />
                     )}
                   </Animated.View>
