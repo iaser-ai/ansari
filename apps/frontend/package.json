@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~57.0.8",
+    "@expo/metro-runtime": "~57.0.15",
     "@gorhom/bottom-sheet": "^5.2.14",
     "expo": "~57.0.0",
     "expo-constants": "~57.0.15",
