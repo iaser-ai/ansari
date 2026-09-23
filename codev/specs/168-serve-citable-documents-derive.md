@@ -92,6 +92,14 @@ pays the storage cost.
       order, duplicates are removed, and the first occurrence wins.
 - [ ] Share GET returns `documents` on the same messages for snapshots created after this change
       (see Solution Approaches → Share snapshots for the chosen timing).
+- [ ] **Thread GET and share GET return the same `documents` field.** Both use the same key
+      name, the same element shape, the same rules (present only when non-empty, last key,
+      `context` omitted when absent), and one derivation helper. For any assistant message, the
+      `documents` value in a share created after this change deep-equals the `documents` value
+      thread GET returns for the same message. A test on pglite, through the real handlers,
+      asserts that equality for a thread mixing citable, notice-only and no-tool messages. Only
+      the surrounding message objects differ, as they already do today: thread GET has `id`,
+      `agent_name` and `source`; share GET does not.
 - [ ] Notices are **never** returned as documents: "No Results" from each of the four tools,
       "temporarily unavailable" (degraded and backstop), tool limit, unknown tool, and budget
       skip. A zero-result search that records `status: 'ok'` is included. A test covers this and
