@@ -66,8 +66,7 @@ marker is **resolved**:
    the same numbers, so the reader never sees gaps (e.g. `[1] [3]`) left by stripped markers.
 5. Retrieved documents that no marker cites are **still listed** after the cited ones, as
    pills `k+1…n` with no inline marker. They are real sources the model was given, and the
-   issue asks for the answer's actual sources. *(Alternative the reviewer may prefer: show
-   only the cited sources. It is one line either way.)*
+   issue asks for the answer's actual sources. *(Confirmed at plan review: keep all sources.)*
 6. The trailing "Citations:" section is always removed from the displayed text, because the
    pills replace it.
 7. **Fallback:** if nothing resolves (no Citations list, or the model ignored the format),
