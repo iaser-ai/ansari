@@ -2,7 +2,7 @@ import { ScrollToBottomIcon } from '@/components/svg'
 import { useScreenInfo } from '@/hooks'
 import { Message, RootState, Thread, UserRole } from '@/store'
 import { Helpers } from '@/utils'
-import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native'
 import { useSelector } from 'react-redux'
 import MessageBubble, { MessageBubbleProps } from './MessageBubble'
@@ -24,6 +24,9 @@ interface MessageListProps {
   isLoading: boolean
   isSending: boolean
   scrollToBottomEnabled?: boolean
+  // Follow new content while the reader is at the bottom and offer the jump-to-latest button. Only the live
+  // chat opts in; share views stay static.
+  followEnabled?: boolean
   reactionsEnabled?: boolean
   width?: string | number
   isShare?: boolean
@@ -42,7 +45,16 @@ export interface MessageListRef {
 
 const MessageList = forwardRef<MessageListRef, MessageListProps>(
   (
-    { isLoading, activeThread, isSending, reactionsEnabled = true, scrollToBottomEnabled = true, width, isShare },
+    {
+      isLoading,
+      activeThread,
+      isSending,
+      reactionsEnabled = true,
+      scrollToBottomEnabled = true,
+      followEnabled = false,
+      width,
+      isShare,
+    },
     ref,
   ) => {
     const scrollViewRef = useRef<ScrollView>(null)
@@ -70,14 +82,18 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
       return node
     }
 
-    const scrollToEnd = (animated = false): void => {
-      followRef.current = true
-      setIsAtBottom(true)
+    const scrollListToEnd = (animated: boolean): void => {
       if (Platform.OS !== 'web') {
         scrollViewRef.current?.scrollToEnd({ animated })
         return
       }
       getWebScroller()?.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: animated ? 'smooth' : 'auto' })
+    }
+
+    const scrollToEnd = (animated = false): void => {
+      followRef.current = true
+      setIsAtBottom(true)
+      scrollListToEnd(animated)
     }
 
     const updateScrollPosition = useCallback((scrollTop: number, distanceToBottom: number): void => {
@@ -90,9 +106,13 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
       setIsAtBottom(atBottom)
     }, [])
 
+    // Scrolls only; whether to keep following is left to the reader's resulting position, so a call made while
+    // the thread is still empty or loading does not drag the reader down once it arrives.
+    useImperativeHandle(ref, () => ({ scrollToBottom: () => scrollListToEnd(false) }))
+
     // Scroll events do not bubble, so listen in the capture phase for the ancestor that scrolls on web.
     useEffect(() => {
-      if (Platform.OS !== 'web') return
+      if (!followEnabled || Platform.OS !== 'web') return
       const onScroll = (event: Event): void => {
         const target = event.target
         const list: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
@@ -101,14 +121,14 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
       }
       document.addEventListener('scroll', onScroll, true)
       return () => document.removeEventListener('scroll', onScroll, true)
-    }, [updateScrollPosition])
+    }, [followEnabled, updateScrollPosition])
 
     // Sending is the reader's own action, so bring the new question and the thinking indicator into view.
     useEffect(() => {
-      if (isSending) scrollToEnd()
+      if (followEnabled && isSending) scrollToEnd()
       // scrollToEnd is recreated every render and only reads refs; this must run on isSending changes alone.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isSending])
+    }, [followEnabled, isSending])
 
     if (isLoading && !isSending) {
       return (
@@ -117,26 +137,31 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
         </View>
       )
     }
-    // Scroll to Bottom Button component
+    // Scroll to Bottom Button component: a white circle centred just above the composer.
     const ScrollToBottomButton = () => (
-      // The page itself scrolls on web, so pin the button to the viewport there.
-      <View className={`${Platform.OS === 'web' ? 'fixed bottom-[120px]' : 'absolute bottom-[25px]'} right-[24px]`}>
+      // On web the page scrolls and the composer scrolls with it, so a zero-height sticky anchor keeps the
+      // button just above the composer, or at the bottom of the viewport while the composer is out of view.
+      <View
+        className={`${Platform.OS === 'web' ? 'sticky h-0' : 'absolute'} bottom-0 left-0 right-0 items-center z-[100]`}
+      >
         <Pressable
           testID='scroll-to-bottom-button'
+          accessibilityRole='button'
           accessibilityLabel='Scroll to bottom'
-          className='rounded-[15px] p-[10px]'
+          className='absolute bottom-[12px] w-[40px] h-[40px] rounded-full items-center justify-center'
           style={{
-            backgroundColor: theme.sendIconColor,
+            backgroundColor: '#ffffff',
+            borderWidth: 1,
+            borderColor: 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000000',
+            shadowOpacity: 0.15,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 3,
           }}
           onPress={() => scrollToEnd(true)}
         >
-          <ScrollToBottomIcon
-            name='Scroll to Bottom'
-            width={24}
-            height={24}
-            fill={theme.iconFill}
-            hoverFill={theme.hoverColor}
-          />
+          <ScrollToBottomIcon width={20} height={20} fill='#1f1f1f' />
         </Pressable>
       </View>
     )
@@ -153,19 +178,26 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
           testID='message-list-scroll'
           className={`mb-${isSmallScreen ? '1' : '2'}`}
           scrollEventThrottle={100}
-          onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>
-            updateScrollPosition(contentOffset.y, contentSize.height - contentOffset.y - layoutMeasurement.height)
+          // On web the ScrollView itself never scrolls; the capture listener above tracks the real scroller.
+          onScroll={
+            followEnabled && Platform.OS !== 'web'
+              ? ({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>
+                  updateScrollPosition(contentOffset.y, contentSize.height - contentOffset.y - layoutMeasurement.height)
+              : undefined
           }
           onLayout={({ nativeEvent }) => {
             viewportHeightRef.current = nativeEvent.layout.height
           }}
           onContentSizeChange={(_contentWidth: number, contentHeight: number) => {
+            if (!followEnabled) return
             // Keep the newest text (a streaming answer, then its reaction row) in view unless the reader scrolled up.
             if (followRef.current) {
               scrollToEnd()
               return
             }
             if (Platform.OS !== 'web') {
+              // Content that does not fill the view yet (a thread still loading) says nothing about the reader.
+              if (contentHeight <= viewportHeightRef.current) return
               const scrollTop = lastScrollTopRef.current
               updateScrollPosition(scrollTop, contentHeight - scrollTop - viewportHeightRef.current)
               return
@@ -207,7 +239,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
             </View>
           )}
         </ScrollView>
-        {!isAtBottom && scrollToBottomEnabled && <ScrollToBottomButton />}
+        {followEnabled && !isAtBottom && scrollToBottomEnabled && <ScrollToBottomButton />}
       </View>
     )
   },

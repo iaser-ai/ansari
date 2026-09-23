@@ -63,11 +63,15 @@ async function startStreamServer(answer: string, beforeEnd: () => void): Promise
   const chunks = Array.from({ length: STREAM_CHUNKS }, (_, i) => answer.slice(i * size, (i + 1) * size)).filter(Boolean)
   const server = createServer(async (req, res) => {
     req.resume()
+    // A client that aborts mid-stream must not surface as an unhandled error in the Playwright worker.
+    res.on('error', () => {})
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
     for (const chunk of chunks) {
+      if (res.writableEnded || res.destroyed) return
       res.write(chunk)
       await sleep(STREAM_CHUNK_MS)
     }
+    if (res.writableEnded || res.destroyed) return
     beforeEnd()
     res.end()
   })
@@ -248,7 +252,8 @@ async function startStreamProbe(page: Page): Promise<void> {
       const height = scroller.scrollHeight
       if (probe.heights[probe.heights.length - 1] !== height) probe.heights.push(height)
       probe.maxGap = Math.max(probe.maxGap, height - scroller.scrollTop - scroller.clientHeight)
-      if (document.body.innerText.includes(streamEnd)) probe.done = true
+      // textContent, not innerText: innerText forces a layout on every frame of the stream.
+      if (document.body.textContent?.includes(streamEnd)) probe.done = true
       else requestAnimationFrame(sample)
     }
     requestAnimationFrame(sample)
@@ -259,6 +264,22 @@ const gapToBottom = (page: Page): Promise<number> =>
   page.evaluate(() => {
     const s = (window as any).__scroller as HTMLElement
     return s.scrollHeight - s.scrollTop - s.clientHeight
+  })
+
+/**
+ * Where the jump button sits: its horizontal offset from the chat column's centre, and the gaps from its
+ * bottom edge to the composer's top and to the viewport's bottom (negative when the composer is out of view).
+ */
+const jumpButtonPlacement = (page: Page): Promise<{ offCentre: number; aboveComposer: number; aboveFold: number }> =>
+  page.evaluate(() => {
+    const button = document.querySelector('[data-testid="scroll-to-bottom-button"]')!.getBoundingClientRect()
+    const list = document.querySelector('[data-testid="message-list-scroll"]')!.getBoundingClientRect()
+    const composer = document.querySelector('textarea')!.getBoundingClientRect()
+    return {
+      offCentre: button.left + button.width / 2 - (list.left + list.width / 2),
+      aboveComposer: composer.top - button.bottom,
+      aboveFold: window.innerHeight - button.bottom,
+    }
   })
 
 async function openLongThread(page: Page): Promise<void> {
@@ -319,6 +340,12 @@ test('a reader who scrolls up mid-stream is not moved, and the jump button bring
       return s.scrollTop
     })
     await expect(page.getByTestId('scroll-to-bottom-button')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Scroll to bottom' })).toBeInViewport()
+    // Centred over the chat and floating just above the bottom edge while the composer is scrolled out of view.
+    const parkedPlacement = await jumpButtonPlacement(page)
+    expect(Math.abs(parkedPlacement.offCentre), 'the jump button is not centred over the chat').toBeLessThanOrEqual(2)
+    expect(parkedPlacement.aboveFold).toBeGreaterThan(0)
+    expect(parkedPlacement.aboveFold).toBeLessThanOrEqual(40)
     const heightBefore = await page.evaluate(() => (window as any).__scroller.scrollHeight)
     await page.waitForTimeout(1500)
     const held = await page.evaluate(() => {
@@ -327,6 +354,17 @@ test('a reader who scrolls up mid-stream is not moved, and the jump button bring
     })
     expect(held.height, 'the stream stopped growing while the reader was scrolled up').toBeGreaterThan(heightBefore)
     expect(Math.abs(held.scrollTop - parked), 'the scrolled-up reader was moved').toBeLessThanOrEqual(1)
+
+    // Scrolled up only a little, the composer is in view and the button floats just above it.
+    await page.evaluate(() => {
+      const s = (window as any).__scroller as HTMLElement
+      s.scrollTop = s.scrollHeight - s.clientHeight - 120
+    })
+    await expect(page.getByTestId('scroll-to-bottom-button')).toBeVisible()
+    const nearPlacement = await jumpButtonPlacement(page)
+    expect(Math.abs(nearPlacement.offCentre)).toBeLessThanOrEqual(2)
+    expect(nearPlacement.aboveComposer, 'the jump button overlaps the composer').toBeGreaterThan(0)
+    expect(nearPlacement.aboveComposer, 'the jump button is not just above the composer').toBeLessThanOrEqual(60)
 
     // One tap returns them to the bottom and following re-engages for the rest of the stream.
     await page.getByTestId('scroll-to-bottom-button').click()
@@ -339,4 +377,26 @@ test('a reader who scrolls up mid-stream is not moved, and the jump button bring
   } finally {
     cleanup()
   }
+})
+
+test('opening a long thread lands at the top with the jump button visible', async ({ page }) => {
+  await mockBackend(page)
+  await openLongThread(page)
+  const position = await page.evaluate(() => {
+    let scroller = document.querySelector('[data-testid="message-list-scroll"]') as HTMLElement
+    while (
+      scroller.parentElement &&
+      !(/auto|scroll/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight + 1)
+    ) {
+      scroller = scroller.parentElement
+    }
+    return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight }
+  })
+  expect(position.scrollHeight - position.clientHeight, 'the thread must be long enough to scroll').toBeGreaterThan(
+    1000,
+  )
+  expect(position.scrollTop, 'opening a thread moved the reader').toBe(0)
+  await expect(page.getByRole('button', { name: 'Scroll to bottom' })).toBeInViewport()
+  const placement = await jumpButtonPlacement(page)
+  expect(Math.abs(placement.offCentre)).toBeLessThanOrEqual(2)
 })

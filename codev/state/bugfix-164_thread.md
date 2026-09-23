@@ -37,3 +37,16 @@
   content growth), an eslint-disable note on the deliberate deps, and the wrong video-dir comment.
 - Gotcha: the first `consult` run failed with "Multiple projects found". Pass `--issue 164 --project-id bugfix-164`.
 - Videos are in legacy/frontend-web/e2e/videos/ (gitignored). Paths went to the architect.
+
+## Design change + integration review (2026-09-23)
+- Button is now a white circle with a plain down arrow, centred above the composer. On web the composer
+  scrolls with the page (while scrolled up, the textarea sat at y=1443 in a 720 px viewport), so
+  `position: fixed` could not sit "above the composer". A zero-height `sticky` anchor placed after the
+  ScrollView does: it sits right above the composer when that is in view, and sticks to the viewport
+  bottom when it is not. Native uses `absolute`.
+- The integration review's 8 items are all done. Trap: wiring `MessageListRef.scrollToBottom` let
+  ChatContainer's mount call turn following on, so opening a thread jumped to the bottom. The
+  imperative call now only scrolls; the follow flag comes from the reader's resulting position.
+  Native also ignores content that doesn't fill the view yet.
+- `followEnabled` defaults to false; only ChatContainer opts in. Share views get neither the capture
+  listener nor the button.
