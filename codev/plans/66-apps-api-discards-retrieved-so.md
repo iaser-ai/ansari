@@ -74,7 +74,10 @@ and the `tool_calls` records stay exactly as they are.
   `collected(): DocumentContentBlock[] | undefined`:
   - keeps only `doc.citations?.enabled === true` (fail closed: a missing flag is not citable);
   - dedupes on `title` + `context` + `source.data`, keeping the first occurrence at its
-    original position;
+    original position. The key is a collision-safe tuple,
+    `JSON.stringify([title, context ?? null, source.data])`, never a separator-joined string,
+    since all three are free text. A missing `context` and `context: undefined` are the same
+    key;
   - projects to exactly `{ type: 'document', source: { type, media_type, data }, title,
     context? }`, dropping `citations` and any other field. `context` is included only when
     it is present;
@@ -85,8 +88,10 @@ and the `tool_calls` records stay exactly as they are.
   - One collector per `runFacilitator` call, next to `toolCallRecords`. The loop calls
     `add(result.documents)` right after `processToolCall` returns, for every executed dispatch.
     Budget-skipped calls have no documents and are not fed in.
-  - Both `done` yields (the normal path and `runSynthesis`) set `documents: collected()`.
-    `error` yields do not.
+  - Both `done` yields (the normal path and `runSynthesis`) add documents with a
+    **conditional spread**, `...(docs ? { documents: docs } : {})` where
+    `docs = collected()`. The key is then genuinely absent when empty, not present as
+    `undefined`. `error` yields do not carry documents.
   - `formatToolResultForGemini`, `buildToolResultRecord`, the `tool_result` frame, `onMessage`
     and all prompts are **unchanged**. `onMessage` is not used by either in-scope route, so it
     is out of scope.
@@ -107,13 +112,14 @@ and the `tool_calls` records stay exactly as they are.
       documents.
 - [ ] Exact duplicates (same title, context and data) across rounds appear once, at the first
       position. A near-duplicate that differs in any one of the three fields is kept.
-- [ ] A no-tool turn's `done` has no `documents` key (`'documents' in event === false`).
+- [ ] A no-tool turn's `done` has no `documents` key (`'documents' in event === false`, which
+      holds because of the conditional spread).
 - [ ] Each element has exactly the keys `type`, `source`, `title` and, when present,
       `context`. There is no `citations` key.
 - [ ] `formatToolResultForGemini` output, the `tool_calls` records and the `tool_result` frame
       data are identical to before for the same tool results. This is asserted against the
       existing facilitator test expectations, which must pass unmodified.
-- [ ] `pnpm --filter api` test, typecheck and lint are green.
+- [ ] `pnpm --filter ansari-api test`, `typecheck` and `lint` are green (the package is `ansari-api`; `--filter api` matches nothing).
 
 #### Test Plan
 
@@ -153,7 +159,10 @@ user-facing chat routes. NULL is stored when there are none. Replay stays isolat
   `db:push`, and never applied to any shared DB.**
 - `apps/api/lib/db/threads.ts`: `MessageRow`'s `Omit<…>` adds `'documents'`, and
   `messageReadColumns` stays as it is. The replay helper structurally cannot return documents.
-  The comment is updated.
+  The projection comment is updated to name `documents` alongside `toolCalls`. That includes
+  the note that the full-row lookups (`findMessageById` / `findMessageInOwnedThread`, bare
+  `select()`) now also return `documents`. They feed feedback ownership checks and are never
+  serialized, which has been checked in the feedback route.
 - `apps/api/src/app/api/v2/threads/[id]/route.ts` and `…/[id]/chat/route.ts`: the `done`
   branch's `createMessage` gains `documents: documentsOrNull(event.documents)`. Nothing else in
   the routes changes. The empty-final and error branches still write no assistant row.
@@ -190,7 +199,7 @@ user-facing chat routes. NULL is stored when there are none. Replay stays isolat
 - [ ] **Negative test:** with `documents:` deleted from a route's `createMessage` call, the
       persistence assertion fails. Restored, it passes. The review records both runs.
 - [ ] The migration SQL has been reviewed: one additive nullable column and nothing else.
-- [ ] `pnpm --filter api` test, typecheck and lint are green.
+- [ ] `pnpm --filter ansari-api test`, `typecheck` and `lint` are green (the package is `ansari-api`; `--filter api` matches nothing).
 
 #### Test Plan
 
@@ -229,10 +238,18 @@ message's `content` and every document-less response stay byte-identical to toda
   non-empty. The explicit projection still excludes `tool_calls` and `raw_payload`.
 - `apps/api/src/app/api/v2/share/[id]/route.ts`: the same conditional spread when mapping
   snapshot messages. Old snapshots have no key, so they emit none.
-- **Client check** (spec assumption): confirm that `apps/frontend`'s thread and share response
-  parsing and the prototype's zod schemas tolerate an unknown key. Record the file paths and
-  findings in the review. If a strict parser turns up, stop and `afx send architect`. The mobile
-  app is not in this repo, so that confirmation goes to the architect in the PR description.
+- **Client check** (spec assumption). The real consumers of these endpoints are in the repo
+  after the phase-2 `develop` merge:
+  - `prototypes/ansari-expo`: already non-strict by design (`wire-schemas.ts:14`,
+    "intentionally NOT `.strict()`"). Cite it.
+  - `legacy/frontend-web` and `legacy/frontend-app` (the production web and mobile clients,
+    imported in 73173ae): grep their thread-GET and share parsing, and confirm they tolerate an
+    unknown key.
+  - `apps/frontend` does not call these endpoints yet (no hits for `threads`, `share` or
+    `thread_name`). Note that it is not affected.
+
+  Record the file paths and findings in the review. If a strict parser turns up, stop and
+  `afx send architect`.
 
 #### Deliverables
 
@@ -255,12 +272,19 @@ message's `content` and every document-less response stay byte-identical to toda
       `documents` key.
 - [ ] The existing contract scans still pass: `TOOL_KEY_PATTERN` and `PROVENANCE_KEY_PATTERN`
       find nothing, and `raw_payload`/`tool_calls` are never serialized.
+- [ ] **The existing exact-key assertions in `tests/thread-get-contract.test.ts` stay
+      unmodified**: `Object.keys(m)).toEqual(MESSAGE_KEYS)` (~L194) and the snapshot key list
+      `['role','content','createdAt']` (~L241). They are the frozen-contract guard for
+      `tool_calls`, `raw_payload` and provenance, and they are also the byte-identity proof for
+      document-less rows. They must never be loosened to `arrayContaining`. Document-bearing
+      cases get their own pinned lists, `[...MESSAGE_KEYS, 'documents']` and
+      `['role','content','createdAt','documents']`, which pins key order too.
 - [ ] Returned strings equal the persisted strings exactly. No escaping or transformation is
       applied. This is asserted with a source text containing `<`, `&` and quotes.
 - [ ] **Negative tests:** with the thread-GET spread removed, the returned-documents assertion
       fails. With the snapshot projection's `documents` removed, the share assertion fails.
       Each passes once restored. The review records the runs.
-- [ ] `pnpm --filter api` test, typecheck and lint are green. The full suite is green.
+- [ ] `pnpm --filter ansari-api test`, `typecheck` and `lint` are green (the package is `ansari-api`; `--filter api` matches nothing). The full suite is green.
 
 #### Test Plan
 
@@ -271,7 +295,7 @@ message's `content` and every document-less response stay byte-identical to toda
 - **Projection**: extend `toolcalls-persistence.test.ts` or the phase-2 file. It checks that
   `getThreadWithMessages` returns `documents` while `findMessagesByThread` still does not.
 - **Negative tests** by hand, as described above.
-- **Manual**: run `pnpm --filter api test` in full and `pnpm -w typecheck lint`.
+- **Manual**: run `pnpm --filter ansari-api test`, `typecheck` and `lint` in full.
 
 ## Risks and Mitigation
 
@@ -286,6 +310,9 @@ message's `content` and every document-less response stay byte-identical to toda
 | Deploying before the migration fails every assistant insert | Low | High | PR description and review state the order: migration → deploy. |
 
 ## Documentation Updates
+
+These land in the **Phase 3 commit**, since that is when the documented behavior is complete.
+Lessons are added in the review phase.
 
 - `codev/resources/arch.md`, "Gemini facilitator & message history": describe the
   `messages.documents` column (citable sources only, NULL never `[]`, excluded from the replay
