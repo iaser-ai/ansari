@@ -102,6 +102,13 @@ pays the storage cost.
 - [ ] Rows persisted before this change, which lack the per-entry metadata, yield no documents
       (fail closed). A record whose metadata does not align with its results yields none from
       that record.
+- [ ] Malformed stored data fails closed **per record**, and never fails the request. Examples:
+      `tool_calls` is not an array; `content` or `results` is missing or not the expected type; a
+      result entry is missing a string `title` or `content`; `context` is present but not a
+      string; a `result_meta` element has a non-boolean `citable` or non-string typing fields.
+      The affected record contributes no documents. Well-formed records in the same message and
+      thread still derive. Thread GET and share creation return their normal response, never a
+      500. Malformed data is logged only by `{messageId, reason}`, never with record content.
 - [ ] Raw `ToolCallRecord`s cannot reach a serializer. The derivation helper's return type
       contains only derived document blocks, and `messageReadColumns` / `MessageRow` still
       exclude `tool_calls`.
@@ -114,7 +121,10 @@ pays the storage cost.
       read back through the real thread GET and share GET handlers.
 - [ ] `arch-critical.md` is updated to the owner-ruled wording: read helpers may load
       `tool_calls` for derivation, no API response may serialize the raw records, and
-      `raw_payload` stays fully projected out. `arch.md` is updated to match.
+      `raw_payload` is never serialized. `raw_payload` stays in `messageReadColumns` because
+      history replay needs it, and the derivation helper never selects it. The ruling's phrase
+      "fully projected out" means out of every API response and out of derivation, not out of
+      the replay read. `arch.md` is updated to match.
 
 ## Constraints
 
@@ -159,9 +169,12 @@ pays the storage cost.
   alignment reliable at write time.
 - Every tool today emits `source.type: 'text'` and `media_type: 'text/plain'`. The TS type pins
   both as literals.
-- Assistant messages from `v2/mcp-complete` and `v1/chat/completions` persist through the same
-  facilitator records. Anything visible on thread GET that has tool records gets documents by
-  the same rule.
+- The routes that persist `tool_calls` on assistant messages are `v2/threads/{id}` POST,
+  `v2/threads/{id}/chat` and `v2/mcp-complete`. All three write the facilitator's records
+  verbatim, so they gain `result_meta` without changes to the routes. **`v1/chat/completions` is
+  out of scope.** It drops `event.toolCalls` and stores no `tool_calls` on the messages it
+  creates, so those messages derive no documents, which fails closed. This spec does not change
+  that route's persistence.
 - #161 treats `documents` as optional and non-strict, as #66's prototype-side check found.
 - #165 (the column revert) is merged. `develop` has no `messages.documents` column and no
   collector.
@@ -239,9 +252,9 @@ live `tool_calls`.
   public output could change whenever the derivation code changes, so it is no longer truly a
   snapshot.
 
-**Recommendation: C1.** The #66 duplication concern was mainly the per-message column, which
-this spec removes. Keeping the public endpoint away from raw records is the stronger safety
-property. **This needs explicit confirmation at spec approval** (see Open Questions).
+**Decision: C1.** The #66 duplication concern was mainly the per-message column, which this
+spec removes. Keeping the public endpoint away from raw records is the stronger safety property.
+Spec approval ratifies this choice (see Open Questions).
 
 ### D. Historical rows and orphans
 
@@ -261,11 +274,13 @@ one place so #109 can reuse it.
 **Critical (block progress):**
 - None open. The invariant question is resolved by the owner ruling.
 
-**Important (shape design, to be confirmed at spec approval):**
-1. **Share snapshot timing: C1 (copy at creation) or C2 (derive at read)?** Recommended: C1.
-2. **Persisted shape: A1 (per-entry `{citable, source_type, media_type}`) or A2 (record-level
-   flag)?** Recommended: A1.
-3. **Historical rows: fail closed?** Recommended: yes.
+**Important (shape design): decided.** This spec's design is **A1 + B1 + C1 + fail closed**, and
+the rest of the spec is written against it. Approving the spec approves these choices. If the
+approver prefers an alternative (for example C2), the spec is revised before the plan is written;
+the plan does not re-decide.
+1. Share snapshot timing: **C1**, copy at creation.
+2. Persisted shape: **A1**, per-entry `{citable, source_type, media_type}`.
+3. Historical rows: **fail closed**.
 
 **Nice-to-know:**
 - The real per-thread read cost on staging-sized threads. The plan will measure it against the
@@ -291,6 +306,10 @@ one place so #109 can reuse it.
    `undefined`.
 6. **Historical row:** a `tool_calls` record without `result_meta` yields no key. A misaligned
    `result_meta` length yields nothing from that record.
+6a. **Malformed jsonb (pglite, real handler):** each malformed shape from Success Criteria is
+    stored beside one well-formed citable record. Thread GET returns 200 with only the
+    well-formed record's documents, and share creation succeeds. A v1-created message (no
+    `tool_calls`) returns no key.
 7. **Byte-identity:** a thread with no citable retrieval serializes identically to a fixture
    captured from the unmodified route.
 8. **Gemini payload frozen:** `formatToolResultForGemini` output and the `functionResponse` parts
@@ -316,6 +335,7 @@ one place so #109 can reuse it.
 | A notice is served as a citable source for an Islamic answer | Low (after fix) | High | Fail closed on `citable !== true`. A test fails under a status-based filter. Historical rows are excluded. |
 | The contract breaks for released mobile builds | Low | High | Key is omitted when empty. Byte-identity fixture. `content` path untouched. Existing contract tests stay unmodified. |
 | Raw records leak into a response | Low | High | Dedicated helper whose return type holds only derived blocks. `MessageRow` unchanged. Extended key scan. |
+| Malformed or hand-edited jsonb causes a 500 on thread GET or share creation | Low | Medium | Per-record shape validation fails closed. A pglite test covers each malformed shape. |
 | `result_meta` misaligns with `results` (future change to `formatToolResultForGemini`) | Low | Medium | Both are built from the same `documents` array at one site. Derivation drops a record whose lengths differ. |
 | Thread GET latency or memory from detoasting `tool_calls` | Medium | Low–Medium | Owner accepted about 7 KB/row. The plan measures it and the PR reports it if materially worse. |
 | A future tool emits a non-text media type | Low | Medium | The pair is persisted per entry, never synthesized for new rows. |
