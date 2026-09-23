@@ -59,11 +59,15 @@ changes.
   row. Add an exported `DocumentContentBlock` type
   (`Extract<ContentBlock, { type: 'document' }>`) for later phases.
 - `apps/api/lib/facilitator/agent.ts`:
-  - `buildToolResultRecord` sets `citations` from `result.documents.map(d => ({ enabled:
-    d.citations?.enabled === true }))`. It covers executed, degraded, backstop, limit-refused and
-    unknown-tool calls.
+  - `buildToolResultRecord` sets `citations` by calling `citabilityOf(result)`. It covers
+    executed, degraded, backstop, limit-refused and unknown-tool calls.
   - The inline budget-skip record sets `citations: []`, because its `results` is `[]`.
   - `formatToolResultForGemini` is **not** touched.
+- `apps/api/lib/tools/types.ts`: add and export `citabilityOf(result: ToolResult): Array<{
+  enabled: boolean }>`, which returns `result.documents.map(d => ({ enabled: d.citations?.enabled
+  === true }))`. This is the **single computation point** for per-result citability, as the spec
+  requires for #109. The facilitator's record builder calls it now, and the SSE `tool_result`
+  frame can call it later without redefining the rule. This spec does not change the SSE frame.
 - `apps/api/tests/facilitator-toolcalls.test.ts`: update the existing exact-record expectations
   to include `citations`, as a deliberate change the commit message records. Add new cases.
 - `apps/api/tests/facilitator-citability.test.ts` (new): notice-kind and payload-freeze
@@ -76,6 +80,8 @@ changes.
 #### Deliverables
 
 - [ ] `ToolCallRecord` `tool_result` type carries optional `citations`.
+- [ ] `citabilityOf` is exported from `lib/tools/types.ts` and is the only place the
+      `enabled === true` rule is written on the write side.
 - [ ] Both record-building sites populate it. Alignment holds by construction: both arrays are
       mapped from the same `result.documents`.
 - [ ] Tests (below).
@@ -122,7 +128,12 @@ deduplicated and ordered, never throws on malformed data, and never lets a raw r
 
 - `apps/api/lib/db/citable-documents.ts` (new). It is the only module that selects `tool_calls`
   for serving.
-  - `deriveCitableDocuments(toolCalls: unknown): DocumentContentBlock[]` is pure. Its input is
+  - `deriveCitableDocuments(toolCalls: unknown): { documents: DocumentContentBlock[]; rejected:
+    RejectReason[] }` is pure and never logs. `RejectReason` is a closed string-literal union,
+    for example `'not_array' | 'bad_content' | 'bad_results' | 'bad_entry' | 'no_citations' |
+    'bad_citations' | 'length_mismatch'`. It carries **only** these enum values, one per
+    rejected record, and never record data, indexes into it, or text. `'no_citations'` (a legacy
+    row) is counted but not logged, because it is expected. Its input is
     `unknown` on purpose, because stored jsonb is untrusted. It validates each record's shape
     at runtime and walks `tool_result` records in array (dispatch) order. It keeps result `i`
     only when `citations` is an array of the same length as `results` and
@@ -140,8 +151,10 @@ deduplicated and ordered, never throws on malformed data, and never lets a raw r
     function and returns only message ids with non-empty lists. It does not export the raw rows,
     their type, or any other function that returns them. Its doc comment states that callers
     must already have authorized `threadId`.
-  - Malformed-record reporting: one `console.warn` per affected message, with
-    `{ messageId, reason }` only, never record content. `reason` is a fixed enum string.
+  - Malformed-record reporting: the DB wrapper emits one `console.warn` per affected message
+    with `{ messageId, reasons }`, where `reasons` is the de-duplicated non-legacy `rejected`
+    list. It never includes record content. The wrapper returns only the documents map, so
+    `rejected` does not leave the module either.
 - `apps/api/tests/citable-documents.test.ts` (new): pure-function unit tests.
 - `apps/api/tests/citable-documents-db.test.ts` (new): the DB helper on pglite.
 
@@ -167,6 +180,10 @@ deduplicated and ordered, never throws on malformed data, and never lets a raw r
       output.
 - [ ] The DB helper returns a map keyed by message id with no empty entries, ignores user rows
       and NULL `tool_calls`, and ignores `tool_call_orphans`.
+- [ ] `rejected` reports the right enum value for each malformed shape. A test asserts that the
+      warn call's argument contains only `messageId` and `reasons`, with no record text (the
+      test seeds a sentinel string into the malformed record and checks it is absent from the
+      logged arguments).
 - [ ] Type-level test: `DocumentContentBlock` output has no `citations`, `status` or other
       record keys.
 - [ ] Tests, typecheck and lint pass.
@@ -287,10 +304,25 @@ against the spec's bound.
 #### Deliverables
 
 - [ ] Docs and comments updated, with no stale copy left.
-- [ ] Read-cost numbers recorded. Staging: a read-only `pg_column_size(tool_calls)` median and
-      p95 over recent assistant rows, if the architect provides read access. Otherwise a
-      synthetic fixture built from real tool output shapes, stated as such. Thread-GET handler
-      latency is measured before and after on a 50-message pglite fixture.
+- [ ] Read-cost numbers recorded. **Storage:** a read-only `pg_column_size(tool_calls)` median
+      and p95 over recent assistant rows, if the architect provides staging read access.
+      Otherwise the same statistics over the synthetic fixture below, labelled as synthetic.
+- [ ] **Latency method.** The script `apps/api/scripts/bench-thread-get.ts` is committed so the
+      numbers can be reproduced. It is not part of the test suite.
+  - *Fixture:* a pglite thread of 50 messages (25 user, 25 assistant). Every assistant row
+    carries Phase 1-shaped `tool_calls`: 1–3 tool rounds and 5–10 results per call across the
+    four tools. The results use realistic Arabic and English text lengths, sized so the median
+    `tool_calls` is about 7 KB and matches the spec's accepted figure. This is asserted by the
+    script before timing, so an empty or trivial derivation path cannot be measured by
+    accident. About a third of the rows include a notice or a legacy (no `citations`) record.
+  - *Baseline:* the pre-change thread-GET handler, defined as the GET logic at the Phase 2
+    commit, which has no derivation call. It is run in the same process on the same fixture.
+    The script imports a frozen copy of the pre-change GET mapping, kept in the script, beside
+    the real post-change handler.
+  - *Sampling:* 20 warm-up requests per variant, then 200 measured requests alternated between
+    variants to cancel drift. Report median and p95 for each variant and the ratio.
+  - The script also asserts that the post-change variant actually returned `documents` on the
+    expected messages, which proves the derivation path ran.
 
 #### Acceptance Criteria
 
@@ -315,6 +347,7 @@ against the spec's bound.
 | The byte-identity fixture is captured after the change and pins the wrong bytes | Low | High | Captured in Phase 1, before any serving code exists. |
 | Key scans pass vacuously | Medium | Medium | Documents-bearing seed in the scan, plus negative tests of the pattern. |
 | Malformed legacy jsonb causes a 500 | Low | Medium | Runtime validation with `unknown` input. Phase 2 and 3 tests cover each shape. |
+| The benchmark measures a trivial path | Medium | Medium | The script asserts the fixture's median `tool_calls` size (~7 KB) and that `documents` were actually returned before it reports any timing. |
 | No staging access for the cost measurement | Medium | Low | Synthetic fallback, stated in the PR. The architect is asked for read access in Phase 4. |
 | The Gemini payload drifts | Low | High | `formatToolResultForGemini` untouched. The payload-freeze test is negative-tested. |
 

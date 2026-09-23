@@ -13,3 +13,4 @@
 ## plan
 - Spec approved by owner (porch gate recorded). Owner also asked for, and got, a thread/share documents parity criterion (fd20f5d).
 - Plan: 4 phases. (1) persist citations[] on tool_result records and capture byte-identity fixtures pre-change. (2) derivation module lib/db/citable-documents.ts, pure + DB helper. (3) serve on thread GET + C1 snapshots + share GET. (4) arch-critical/arch.md/in-code comments + read-cost report.
+- Plan consult iter1: Gemini APPROVE; Codex REQUEST_CHANGES (single citability point for #109 -> citabilityOf in lib/tools/types.ts; benchmark method; malformed-reason plumbing) — all accepted.
