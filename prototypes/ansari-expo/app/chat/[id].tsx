@@ -80,7 +80,7 @@ import {
 } from '@/lib/api';
 import { reconcileThread } from '@/lib/chat-reconcile';
 import { traceReducer, type TraceEntry } from '@/lib/chat-trace';
-import { stripUnbackedCitations } from '@/lib/citations';
+import { stripStreamingCitations } from '@/lib/citations';
 import { RADIUS, rounded } from '@/constants/radius';
 
 // Key held by the question carried in from the home screen, and then
@@ -289,7 +289,7 @@ export default function ChatScreen() {
           // The streaming bubble has no citations to back its markers, so it
           // is shown the way its persisted answer will be (lib/api/mappers).
           rawStreamText.current += event.content;
-          setStreamingText(stripUnbackedCitations(rawStreamText.current));
+          setStreamingText(stripStreamingCitations(rawStreamText.current));
         }
       } else if (event.type === 'tool_call' || event.type === 'tool_result') {
         setTrace((prev) => traceReducer(prev, event));

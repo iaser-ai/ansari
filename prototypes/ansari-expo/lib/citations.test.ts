@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { stripUnbackedCitations } from '@/lib/citations';
+import {
+  stripStreamingCitations,
+  stripUnbackedCitations,
+} from '@/lib/citations';
 
 const PROSE = 'Slow down enough to notice what you are reciting.';
 
@@ -44,5 +47,50 @@ describe('stripUnbackedCitations', () => {
   it('leaves bracket near-misses alone', () => {
     const content = 'See [a], [] and [1a] and array[i].';
     expect(stripUnbackedCitations(content)).toBe(content);
+  });
+});
+
+const ANSWER =
+  'Zakat is due on wealth held a lunar year above the nisab [1]. ' +
+  'The rate is 2.5% [2][3].\n\n- Gold: 85g\n- Silver: 595g\n\n' +
+  "**Citations:**\n\n[1] Qur'an 9:60\n[2] Bukhari 1447\n[3] Abi Dawud 1573\n";
+
+/** Replays the thread's onEvent path: display = clean(whole raw so far). */
+function frames(text: string, size: number) {
+  const shown: string[] = [];
+  for (let end = size; end < text.length + size; end += size) {
+    shown.push(stripStreamingCitations(text.slice(0, end)));
+  }
+  return shown;
+}
+
+describe('stripStreamingCitations', () => {
+  it.each([1, 3, 7, 16])(
+    'never shows a half-written marker or heading (chunks of %i)',
+    (size) => {
+      for (const frame of frames(ANSWER, size)) {
+        expect(frame).not.toMatch(/\[\d*\]?$|\[\d+\]|\bcit\w*:?\**$/i);
+      }
+    },
+  );
+
+  it.each([1, 3, 7, 16])(
+    'ends exactly where the persisted answer does (chunks of %i)',
+    (size) => {
+      expect(frames(ANSWER, size).at(-1)).toBe(
+        stripUnbackedCitations(ANSWER),
+      );
+    },
+  );
+
+  it('holds back an unfinished tail, and shows it once it proves to be prose', () => {
+    expect(stripStreamingCitations('above the nisab [1')).toBe(
+      'above the nisab',
+    );
+    expect(stripStreamingCitations('595g\n\n**Citat')).toBe('595g');
+    expect(stripStreamingCitations('595g\n\nCit')).toBe('595g');
+    expect(stripStreamingCitations('595g\n\nCiting the hadith')).toBe(
+      '595g\n\nCiting the hadith',
+    );
   });
 });

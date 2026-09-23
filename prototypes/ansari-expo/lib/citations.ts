@@ -29,3 +29,25 @@ export function stripUnbackedCitations(content: string): string {
     match === null ? content : content.slice(0, match.index).trimEnd();
   return body.replace(MARKER, '');
 }
+
+/**
+ * The stream's unfinished tail, held back until it is known.
+ *
+ * Mid-stream, the text can end halfway through a marker (`…nisab [1`) or a
+ * heading (`**Citat`). Neither matches yet, so each would flash on screen for
+ * a frame before the next chunk completes it and it is stripped. The tail is
+ * withheld instead: a trailing `[`/`[N` with no close, or a last line that so
+ * far reads as the start of a "Citations" heading. Anything that turns out to
+ * be ordinary prose is shown a chunk later. Streaming only — a persisted
+ * answer is complete, with no tail to wait on.
+ */
+const PENDING_MARKER = / ?\[\d*$/;
+const PENDING_HEADING =
+  /(^|\n)[ \t]*(?:#{1,6}[ \t]*)?[*_]{0,2}[ \t]*(?:c(?:i(?:t(?:a(?:t(?:i(?:o(?:n(?:s)?)?)?)?)?)?)?)?)?[ \t]*:?[ \t]*[*_]{0,2}[ \t]*:?$/i;
+
+export function stripStreamingCitations(raw: string): string {
+  return stripUnbackedCitations(raw)
+    .replace(PENDING_MARKER, '')
+    .replace(PENDING_HEADING, '$1')
+    .trimEnd();
+}
