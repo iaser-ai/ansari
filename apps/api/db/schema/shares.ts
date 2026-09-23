@@ -1,6 +1,6 @@
 import { pgTable, uuid, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { threads } from './threads';
-import type { Message } from './messages';
+import type { Message, DocumentContentBlock } from './messages';
 
 export type ThreadSnapshot = {
   threadName: string | null;
@@ -8,6 +8,9 @@ export type ThreadSnapshot = {
     role: string;
     content: Message['content'];
     createdAt: string;
+    // Citable sources (issue #66); set only when non-empty. Snapshots taken
+    // before the column existed have no key.
+    documents?: DocumentContentBlock[];
   }>;
 };
 

@@ -9,6 +9,9 @@ export type ContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string }
   | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string };
 
+/** A retrieved source document persisted with an assistant turn (issue #66). */
+export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
+
 // Tool dispatch records (spec 73). Persisted in the SEPARATE `tool_calls`
 // column — NEVER in `content` — so no API-serialization path can leak them to
 // the frozen mobile/web contract. Interleaved in dispatch order:
@@ -56,6 +59,17 @@ export type ToolCallRecord =
  */
 export function toolCallsOrNull(records: ToolCallRecord[] | null | undefined): ToolCallRecord[] | null {
   return records && records.length > 0 ? records : null;
+}
+
+/**
+ * Normalize a terminal event's citable documents for the `documents` column
+ * (issue #66): an answer with nothing citable stores NULL, never [] — absent
+ * AND empty both map to null, mirroring toolCallsOrNull.
+ */
+export function documentsOrNull(
+  docs: DocumentContentBlock[] | null | undefined
+): DocumentContentBlock[] | null {
+  return docs && docs.length > 0 ? docs : null;
 }
 
 /** Serving backends a turn can be produced by (issue #99). */
@@ -112,6 +126,12 @@ export const messages = pgTable('messages', {
   // frozen API contract cannot serialize it structurally.
   modelProvider: text('model_provider').$type<ModelProvider>(),
   modelId: text('model_id'),
+  // Citable source documents retrieved for this assistant turn (issue #66),
+  // in first-retrieval order. NULL (never []) when the answer used no
+  // citation-enabled retrieval. Kept out of `content` so existing clients see
+  // an unchanged message shape, and excluded from messageReadColumns so the
+  // history-replay path can never feed document text back to the model.
+  documents: jsonb('documents').$type<DocumentContentBlock[]>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_messages_thread').on(table.threadId, table.createdAt),

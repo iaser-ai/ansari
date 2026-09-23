@@ -34,6 +34,16 @@ See `codev/reviews/73-persist-tool-use-and-tool-resu.md` for the full context.
 - **Lazy config reads inside error paths need targeted mocks in unit tests.** Two terminal facilitator paths (`isInklingConfigured()`, the degenerate-final `config.gemini.model` summary) read validated config only when reached; in a harness without env they throw *inside the catch*, turning the path under test into a different error. Mock `@/lib/ai/inkling-client` and `@/lib/config` whenever a test drives a terminal error path.
 - **Number migrations after merging, and expect drizzle's prefix to lag.** A concurrent PR took the next journal index mid-project; the fix was merge-then-generate and a manual rename (`0007_*` at idx 6). drizzle-kit names files by index, so the next generate will emit another `0007_` — the successor must be `0008_*`.
 
+## Citable documents (issue #66)
+
+See `codev/reviews/66-apps-api-discards-retrieved-so.md` for the full context.
+
+- **Check an issue's proposed storage shape against the read contract before accepting "no migration needed".** The issue proposed storing retrieved documents as `document` blocks in `messages.content`, because the type already existed. Doing that would have turned every retrieval answer's bare-string `content` into an array on thread GET and share, which breaks the frozen mobile contract. An additive nullable column plus a conditional sibling key cost one `ALTER TABLE` and kept every existing response byte-identical.
+- **"Absent" and "present as `undefined`" are different contracts.** `{ documents: collected() }` with `collected()` returning `undefined` still makes `'documents' in event` true, and some serializers and deep-equal checks treat the two differently. When key absence is the contract, use a conditional spread (`...(docs ? { documents: docs } : {})`) and assert `Object.keys`, not the value.
+- **Capture byte-identity fixtures from the unmodified code, not from memory.** To prove "additive", run a deterministic seed through the pre-change HEAD handler (swapped in temporarily) and paste the output as a literal fixture. A fixture written by hand against the new code only proves the new code agrees with itself.
+- **Give each read path its own projection.** Thread view uses `threadViewColumns = {...messageReadColumns, documents}` and replay/naming keep `messageReadColumns`, so replay cannot load document text by construction. Negative-test the boundary: adding the column to the shared projection must fail a test.
+- **Migration prefix drift persists.** `0009_documents.sql` was hand-renamed from drizzle's `0008_*`. The next generate emits `0009_*`, so rename it to `0010_*`.
+
 ## Incremental streaming render — prototype (issue #65)
 
 See `codev/reviews/65-prototypes-ansari-expo-render-.md` for the full context.

@@ -22,8 +22,10 @@ import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import type { ToolResult } from '../tools/types';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
+import { createCitableDocumentCollector } from './citable-documents';
 import type {
   ContentBlock,
+  DocumentContentBlock,
   ModelProvenance,
   ToolCallRecord,
   ToolResultStatus,
@@ -333,6 +335,12 @@ export interface FacilitatorStreamEvent {
    * persist sites map absence to NULL.
    */
   provenance?: ModelProvenance;
+  /**
+   * Set on `done` only (issue #66): the turn's citable retrieved documents, in
+   * dispatch order and deduplicated, for the caller to persist. Absent when the
+   * turn has no citable documents. Never on `error`, and never streamed in a frame.
+   */
+  documents?: DocumentContentBlock[];
 }
 
 /**
@@ -443,6 +451,12 @@ export async function* runFacilitator(
   // Attached to every terminal yield; undefined (→ NULL at persistence) when no tool ran.
   const collectedToolCalls = (): ToolCallRecord[] | undefined =>
     toolCallRecords.length > 0 ? toolCallRecords : undefined;
+  // Citable documents from executed dispatches (issue #66), attached to `done` only.
+  const citableDocuments = createCitableDocumentCollector();
+  const documentsField = (): { documents?: DocumentContentBlock[] } => {
+    const docs = citableDocuments.collected();
+    return docs ? { documents: docs } : {};
+  };
 
   // Build initial history from messages
   let geminiHistory = convertToGeminiHistory(messageHistory);
@@ -669,6 +683,7 @@ export async function* runFacilitator(
       rawPayload: persistablePayload,
       toolCalls: collectedToolCalls(),
       provenance: currentProvenance(),
+      ...documentsField(),
     };
   };
 
@@ -872,6 +887,7 @@ export async function* runFacilitator(
           rawPayload: persistablePayload,
           toolCalls: collectedToolCalls(),
           provenance: currentProvenance(),
+          ...documentsField(),
         };
         return;
       }
@@ -949,6 +965,7 @@ export async function* runFacilitator(
         const dispatchedAt = Date.now();
         const { result, outcome } = await processToolCall(tc.name, tc.args, tracker, toolId);
         const durationMs = Date.now() - dispatchedAt;
+        citableDocuments.add(result.documents);
         const geminiResponse = formatToolResultForGemini(tc.name, result);
         recordToolResult(buildToolResultRecord(toolId, geminiResponse, outcome, result, durationMs));
 
