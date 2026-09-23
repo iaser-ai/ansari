@@ -100,7 +100,6 @@ beforeAll(async () => {
       tool_calls jsonb,
       model_provider text,
       model_id text,
-      documents jsonb,
       created_at timestamp with time zone DEFAULT now()
     );
   `);

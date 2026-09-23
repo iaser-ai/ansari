@@ -14,23 +14,21 @@ import {
   type ToolCallRecord,
   type ModelProvenance,
 } from '@/db/schema';
-import type { DocumentContentBlock } from '@/db/schema/messages';
 
 /**
  * Message row as returned by the thread-listing read helpers
  * (findMessagesByThread / getThreadWithMessages): every column EXCEPT
- * `tool_calls` (spec 73), the `model_provider`/`model_id` provenance pair
- * (issue #99), and the citable `documents` (issue #66; getThreadWithMessages
- * alone adds it back — see ThreadViewMessageRow). The projection is structural
- * contract safety — the thread GET, share snapshot, and history-replay paths
- * never select the tool records, so the frozen API shape cannot leak them — and
- * avoids detoasting ~7 KB median of jsonb per assistant row on every turn's
- * history load just to discard it. The single-message lookups
- * (findMessageById / findMessageInOwnedThread) still return full rows —
- * `documents` included; they feed feedback ownership checks, not API
- * serialization. Analytics reads select from `messages` directly.
+ * `tool_calls` (spec 73) and the `model_provider`/`model_id` provenance pair
+ * (issue #99). The projection is structural contract safety — the
+ * thread GET, share snapshot, and history-replay paths all read through these
+ * helpers and never select the tool records, so the frozen API shape cannot
+ * leak them — and avoids detoasting ~7 KB median of jsonb per assistant row on
+ * every turn's history load just to discard it. The single-message lookups
+ * (findMessageById / findMessageInOwnedThread) still return full rows; they
+ * feed feedback ownership checks, not API serialization. Analytics reads
+ * select from `messages` directly.
  */
-export type MessageRow = Omit<Message, 'toolCalls' | 'modelProvider' | 'modelId' | 'documents'>;
+export type MessageRow = Omit<Message, 'toolCalls' | 'modelProvider' | 'modelId'>;
 
 // Explicit projection for the read helpers. Adding a column to the schema does
 // NOT add it here — that is the point; extend deliberately.
@@ -49,20 +47,6 @@ const messageReadColumns = {
   // raw_payload stays: turn-2+ history replay needs it (issue #70).
   rawPayload: messages.rawPayload,
   createdAt: messages.createdAt,
-};
-
-/**
- * Message row as returned to the thread GET view (issue #66): the read
- * projection plus the citable `documents`, which the route emits as an additive
- * sibling key. Deliberately a SEPARATE projection — history replay and thread
- * naming read through findMessagesByThread / messageReadColumns and must never
- * load document text (it would be fed back to the model on turn 2+).
- */
-export type ThreadViewMessageRow = MessageRow & { documents: DocumentContentBlock[] | null };
-
-const threadViewColumns = {
-  ...messageReadColumns,
-  documents: messages.documents,
 };
 
 // Every helper takes a trailing `exec` (issue #20) so callers can compose
@@ -269,19 +253,15 @@ export async function findMessageInOwnedThread(
   return result[0]?.message;
 }
 
-// Get thread with all messages (thread GET view — includes citable documents).
+// Get thread with all messages
 export async function getThreadWithMessages(
   threadId: string,
   userId: string,
   exec: Executor = db
-): Promise<{ thread: Thread; messages: ThreadViewMessageRow[] } | undefined> {
+): Promise<{ thread: Thread; messages: MessageRow[] } | undefined> {
   const thread = await findThreadById(threadId, userId, exec);
   if (!thread) return undefined;
 
-  const threadMessages = await exec
-    .select(threadViewColumns)
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+  const threadMessages = await findMessagesByThread(threadId, exec);
   return { thread, messages: threadMessages };
 }
