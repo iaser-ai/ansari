@@ -2,6 +2,17 @@
 
 Fixes #128
 
+> **Rebased on `develop` 2026-09-23** (through PR #159 / issue #158, citable
+> documents on the assistant message, and PR #162 / spec 66). Clean merge, no
+> conflicts. `lib/chat-reconcile.ts` is untouched by that work — it is
+> facilitator/message-schema, unrelated to the reconciler. `app/chat/[id].tsx`
+> did change (PR #159): it gained `rawStreamText` (the raw model text,
+> cleaned via `stripStreamingCitations` into `streamingText`) and a
+> `GeneratingMark` footer state. Neither touches the input construction this
+> plan modifies; they only shift line numbers and add one sibling ref to
+> reset alongside `streamingText`/`trace`, called out below. Approach is
+> otherwise unchanged from the version reviewed so far.
+
 ## Understanding
 
 In `prototypes/ansari-expo`, a follow-up question **typed into an open thread**
@@ -17,16 +28,17 @@ question, keyed `ECHO_ID` and reconciled against the server copy by
 `content === q` (`chat-reconcile.ts:75-100`).
 
 A thread-typed follow-up takes a different path. `send()` in
-`app/chat/[id].tsx:298-317` calls `sendMessage.mutate(...)` and sets
-`streamingText` / `trace` state, but **never records the follow-up text
-anywhere the reconciler can see it**. So `reconcileThread` renders:
+`app/chat/[id].tsx:308-328` calls `sendMessage.mutate(...)` and resets
+`rawStreamText` / `streamingText` / `trace` state, but **never records the
+follow-up text anywhere the reconciler can see it**. So `reconcileThread`
+renders:
 
 1. the server messages (the pre-send thread, ending in the prior answer),
 2. the synthetic streaming answer bubble (`chat-reconcile.ts:106-119`),
 
 and nothing in between. The follow-up user message only appears when
 `useGetConversation` refetches after `sendMessage`'s `onSuccess`
-(`app/chat/[id].tsx:257-268`) — by which point the answer has been streaming
+(`app/chat/[id].tsx:264-275`) — by which point the answer has been streaming
 against an empty slot.
 
 This is pre-existing from #121; #124 re-enabled incremental streaming, which
@@ -81,24 +93,30 @@ same way it knows about `q`, and applies the same identity trick.
   `followUpKey = useRef('')`.
 - Add `const FOLLOWUP_KEY_PREFIX = '__followup-question-'` next to
   `STREAM_KEY_PREFIX`.
-- In `send(content, opening)` — **after** the early-return guard:
+- In `send(content, opening)` — **after** the early-return guard, alongside the
+  existing `rawStreamText.current = ''` / `setStreamingText('')` / `setTrace([])`
+  resets (`app/chat/[id].tsx:317-323`):
   - `followUpKey.current = `${FOLLOWUP_KEY_PREFIX}${turnSeq.current}``
   - `setPendingFollowUp(opening ? '' : content)` — the carried-in question is
     still handled by `ECHO_ID`; only thread-typed follow-ups need this.
-- Pass `pendingFollowUp` and `followUpKey.current` into `reconcileThread(...)`;
-  add `pendingFollowUp` to the `useMemo` dep array (`followUpKey` stays a ref,
-  like `streamKey`).
+- Pass `pendingFollowUp` and `followUpKey.current` into `reconcileThread(...)`
+  (`app/chat/[id].tsx:352-366`); add `pendingFollowUp` to the `useMemo` dep
+  array (`followUpKey` stays a ref, like `streamKey`).
 - Destructure `landedFollowUp` from the result.
-- In the `done` hand-off effect (`app/chat/[id].tsx:397-408`): when
+- In the `done` hand-off effect (`app/chat/[id].tsx:408-420`): when
   `streamingText && landedAnswer`, also — guarded on its own truthiness —
   remap `landedFollowUp.id → followUpKey.current` in `keyOverrides`, add that
   key to `drawn.current`, and `setPendingFollowUp('')`. This is the exact
-  parallel of the existing `landedAnswer` handling.
+  parallel of the existing `landedAnswer` handling, and sits next to the
+  effect's existing `rawStreamText.current = ''` reset.
 - The synthetic follow-up row is genuinely new content, so it animates in once
   via `TURN_ENTER` (`isNewContent(keyFor(item))`), which is already the desired
   behaviour for a follow-up typed in the thread — and `carriedInWait`
-  (`app/chat/[id].tsx:465`) stays `false` because `lastMessage.id` is now the
-  follow-up key, not `ECHO_ID`, so `ThinkingLine` animates as it should.
+  (`app/chat/[id].tsx:477`) stays `false` because `lastMessage.id` is now the
+  follow-up key, not `ECHO_ID`, so `ThinkingLine` animates as it should. (The
+  newer `GeneratingMark` footer and `AnswerMessage`'s `generating` prop key off
+  `streamKey.current` / `streamingText`, not the message list, so they are
+  unaffected by the follow-up row's presence.)
 
 ### Why this approach
 
