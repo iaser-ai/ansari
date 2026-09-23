@@ -3,7 +3,9 @@
 ## Summary
 
 The sources behind an answer (Qur'an, hadith, tafsir, mawsuah) are now served by deriving them
-from the tool records spec 73 already stores, instead of keeping a second copy. The work
+from the tool records spec 73 already stores. For threads, nothing is stored twice. Share
+snapshots DO copy each message's documents at creation (C1, owner-confirmed), so shared threads
+carry a second copy in `shares.content`. The work
 landed in four phases:
 
 1. Persist each tool's own `citations.enabled` beside every stored tool result.
@@ -30,7 +32,7 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
 - [x] Legacy rows (no `citations`) and misaligned records yield nothing (Phase 2)
 - [x] Malformed jsonb fails closed per record and never fails the request. 11 malformed shapes are covered. Logging is `{messageId, reasons}` only, proven with a sentinel string (Phases 2–3)
 - [x] The derivation helper is reached only after authorization: the owner-scoped `findThreadById`, or `createThreadSnapshot`'s ownership check (Phase 3)
-- [x] Read cost measured against a concrete bound (Phase 4). Storage: staging median 5.6 KB, inside the 14 KB bound. **Latency: `/documents` median ~4.9–5.0 ms vs thread GET ~0.9–1.0 ms, about 5×, which trips the 2× bound.** Flagged to the architect before the PR as the spec requires, and the owner's decision is pending (see Follow-up Items)
+- [x] Read cost measured against a concrete bound (Phase 4). Storage: staging median 5.6 KB, inside the 14 KB bound. **Latency: `/documents` median ~4.9–5.0 ms vs thread GET ~0.9–1.0 ms, about 5×, which trips the 2× bound.** Flagged to the architect before the PR as the spec requires, and the owner's decision is pending (see Follow-up Items). Side effect found in the integration review: `findShareById` selects the whole `shares.content` jsonb, so public share GET now also detoasts the snapshot's copied documents and discards them. Share GET's bytes on the wire are unchanged, but its read cost grows with the documents of shared threads.
 - [x] Raw `ToolCallRecord`s cannot reach a serializer. Only derived blocks leave `lib/db/citable-documents.ts`, `MessageRow` and `messageReadColumns` are unchanged, and a key scan covers every body (Phases 2–3)
 - [x] History replay loads neither `tool_calls` nor documents. A turn-2 test checks that no document text reaches the facilitator (Phase 3)
 - [x] Negative-tested: every drop site fails its tests when broken and passes when restored. Counts are under Lessons Learned (all phases)
@@ -191,4 +193,5 @@ No tests were skipped. Two pre-existing tests were load-sensitive and have been 
 - **#109**: the SSE `tool_result` frame can reuse `citabilityOf()` to stop reporting notices as results.
 - **Citations during streaming** (SSE `done` frame): not in scope, and sources are only available after the answer completes.
 - **`v1/chat/completions`** drops `tool_calls`, so its messages never derive documents. That is fine today, and worth knowing if that route's threads ever surface to users.
+- **Share GET reads documents it discards**: `findShareById` selects the whole snapshot. A projection that skips `messages[].documents` (or a share-GET-specific select) would remove the extra detoast, if shared threads grow large.
 - **Long production threads**: staging threads have 1–3 answers. Re-measure `/documents` latency if production threads prove much longer.
