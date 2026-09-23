@@ -35,26 +35,48 @@ Documents reach the UI only through the thread GET. The streamed answer does not
 refetch lands. The persisted message will carry the citations, so no streaming changes are
 needed.
 
-### One point that differs from the issue text, for the reviewer to decide
+### Inline markers: kept, resolved through the model's own "Citations:" list
 
 The issue says #66 adds no inline `[N]` markers. That is true of #66 itself. However, the
 existing facilitator prompt **already tells the model** to write `[1]`, `[2]` inline and a
-trailing `**Citations**:` list (`apps/api/lib/ai/prompts/facilitator.ts:116-133`). Real answers
-therefore arrive with model-numbered markers. That numbering is the model's own, in the order it
-chose to cite, and it has **no reliable relationship to the `documents` array order**, which is
-tool-dispatch order after dedup. If we kept those markers and gave the pills document-order
-numbers, a superscript `[2]` could open a source the sentence never used. The project rule is
-that a wrong real citation is worse than none (`lib/sample-citations.ts` header).
+trailing `**Citations**:` list (`apps/api/lib/ai/prompts/facilitator.ts:116-133`), with each
+entry giving "its number, title, and bilingual content". Hadith entries must also carry the
+`(LK id …)` token verbatim. Real answers therefore arrive with model-numbered markers **and a
+key that says what each number means**. No prompt change is needed, so the Islamic-content
+prompt rule is not triggered.
 
-**Proposal:** an answer with real documents gets the footnote-pill list from its documents, **and
-still has the model's inline markers and trailing "Citations:" list stripped**. The markers
-can't be trusted to point at the right pill, and the list duplicates the pills. This follows
-the issue's stated outcome ("footnote-pill list … but **no inline superscript markers**").
-It departs from the literal bullet "`stripUnbackedCitations`: only strip when documents are
-absent". Under this proposal the strip keeps its name and behavior but runs on every real
-assistant answer. The only answer that keeps its markers is the khushu' sample, whose markers
-are hand-matched. If the reviewer would rather keep the model's markers, the change is one
-condition in the mapper, but the plan recommends against it.
+The model's numbering has **no fixed relationship to `documents` array order**, which is
+tool-dispatch order after dedup. So we can't just pair `[2]` with `documents[1]`. Instead each
+marker is **resolved**:
+
+1. Parse the trailing "Citations:" section into entries `N → entry text`.
+2. Match each entry to exactly one document, strongest key first:
+   - **hadith**: the `LK id` token in the entry equals the document's `lk_id` (exact).
+   - **quran**: the `S:A` (or `S:A-B`) reference in the entry equals the one in the document
+     title `Quran S:A`.
+   - **tafsir / mawsuah**: same work, plus the same `Volume V` and `Page P`.
+   - **fallback**: normalized title equality (case/punctuation-insensitive,
+     `Qur'an`≡`Quran`).
+   An entry that matches zero documents, or more than one, is **unresolved**.
+3. Resolved markers stay inline and open that document's source sheet. **Unresolved markers
+   are stripped**, one by one, so a superscript never opens a source the model didn't name.
+   The project rule is that a wrong real citation is worse than none (`lib/sample-citations.ts`
+   header).
+4. Markers are **renumbered 1..k in order of first appearance** in the prose, and the pills use
+   the same numbers, so the reader never sees gaps (e.g. `[1] [3]`) left by stripped markers.
+5. Retrieved documents that no marker cites are **still listed** after the cited ones, as
+   pills `k+1…n` with no inline marker. They are real sources the model was given, and the
+   issue asks for the answer's actual sources. *(Alternative the reviewer may prefer: show
+   only the cited sources. It is one line either way.)*
+6. The trailing "Citations:" section is always removed from the displayed text, because the
+   pills replace it.
+7. **Fallback:** if nothing resolves (no Citations list, or the model ignored the format),
+   behave as a document-only answer: strip every marker and list all documents as pills in
+   document order.
+
+This keeps the model's inline references wherever we can prove what they point at. It still
+never links a marker by guesswork. `stripUnbackedCitations` still covers answers with no
+`documents`, unchanged from #158/#160.
 
 ## Proposed Change
 
@@ -69,8 +91,12 @@ condition in the mapper, but the plan recommends against it.
 
 2. **Document → Citation mapper** (new `lib/document-citations.ts`, pure and RN-free so it can
    be unit-tested)
-   - `documentsToCitations(docs, messageId): Citation[]`. Markers are `1..n` in array order, and
-     `id` is `${messageId}-doc-${marker}`.
+   - `documentToCitation(doc): Omit<Citation, 'id' | 'marker'>`: the per-document field
+     mapping below.
+   - `resolveCitations(content, docs, messageId): { content: string; citations: Citation[] }`:
+     the marker-resolution algorithm above (parse the Citations list, match, strip unresolved
+     markers, renumber, append uncited documents, drop the list, fall back). `id` is
+     `${messageId}-doc-${documentIndex}`, so it stays stable across renumbering.
    - Classification comes from `context`, falling back to the `title` prefix:
      - **quran** → `sourceType: 'quran'`, `reference: "Qur'an 2:255"` (from the title),
        `sourceTitle: "Qur'an"`, `arabicText: data.ar`, `translationText: data.en`,
@@ -90,15 +116,16 @@ condition in the mapper, but the plan recommends against it.
    - Pure functions only. Nothing is fabricated: every field comes from the document itself.
 
 3. **Mapper** (`lib/api/mappers.ts`)
-   - `mapMessage`: an assistant message with `documents?.length` gets
-     `citations: documentsToCitations(...)`. Everything else gets `[]` as before.
+   - `mapMessage`: an assistant message with `documents?.length` gets its `content` and
+     `citations` from `resolveCitations(...)`. Everything else gets `[]` as before.
    - Khushu' sample gate: it now applies only when that first assistant answer has **no real
      documents**, and is kept as the fallback demo the issue allows. A real answer is never
      overwritten by sample text or sample sources. (If the reviewer prefers, we delete
      `sample-citations.ts` entirely. That is simple to do, but no demo would remain on an
      environment without #66.)
-   - Strip step: strip every assistant answer except the khushu' sample, per the decision
-     above. The condition changes from `citations.length === 0` to "not the sample".
+   - Strip step: unchanged. `stripUnbackedCitations` runs when `citations.length === 0`, which
+     is now exactly "no real documents and not the sample". Answers with documents have
+     already had their markers resolved and their list removed by `resolveCitations`.
    - Rewrite the header comment. `citations` is no longer "apps/api never carries". It now
      comes from `documents` (#66), with the sample kept as a fallback.
 
@@ -113,13 +140,14 @@ condition in the mapper, but the plan recommends against it.
 
 - `prototypes/ansari-expo/lib/api/wire-schemas.ts:33-59`: `documentBlockSchema`, optional
   `documents` on `wireMessageSchema`
-- `prototypes/ansari-expo/lib/document-citations.ts`: new, `documentsToCitations`
+- `prototypes/ansari-expo/lib/document-citations.ts`: new, `documentToCitation` +
+  `resolveCitations`, reusing the `CITATIONS_SECTION` regex exported from `lib/citations.ts`
 - `prototypes/ansari-expo/lib/document-citations.test.ts`: new
 - `prototypes/ansari-expo/lib/api/mappers.ts:15-37, 105-170`: attach real citations, narrow the
   sample gate, adjust the strip condition, update comments
 - `prototypes/ansari-expo/lib/api/decode.test.ts:219-345`: new real-documents cases; khushu'
   cases updated where their premise changes
-- `prototypes/ansari-expo/lib/citations.ts:1-13`, `lib/sample-citations.ts:3-39`,
+- `prototypes/ansari-expo/lib/citations.ts:1-24`: export the section regex; doc comment, `lib/sample-citations.ts:3-39`,
   `prototypes/ansari-expo/README.md`: doc comments
 - `codev/resources/arch.md`: prototype chat display section
 
@@ -138,21 +166,43 @@ The API, the shared UI components (`AnswerMessage`, `CitationChip`, `SourceFolio
 - **Risk: many documents.** One turn can retrieve 10+ sources, which means 10+ pills. We accept
   this for the prototype: it is real data, and hiding sources would misrepresent what the answer
   was built on. The count is noted in the review.
-- **Alternative: keep the model's `[N]` markers and map them to documents by position.**
-  Rejected (see Understanding): the numbering doesn't match, so markers would open wrong sources.
-- **Alternative: match the model's "Citations:" list entries to documents by title.** Rejected
-  for this issue. It is fragile (the model paraphrases titles) and is really the prompt/marker
-  problem the issue explicitly sends to a separate, sign-off-gated issue.
+- **Risk: the model paraphrases or mangles a Citations entry.** Then that entry doesn't
+  resolve, and its marker is stripped rather than mislinked. The degraded case is the
+  document-only pill list, never a wrong link. The strong keys (LK id, surah:ayah, volume/page)
+  are ones the prompt tells the model to copy verbatim. I will spot-check resolution rates on
+  a handful of real answers at dev-approval and report them.
+- **Risk: the streamed bubble shows no markers (the stream strips them), then the persisted
+  answer shows them after the refetch swap.** That makes the swap visible in a small way. We
+  accept it: the stream has no documents to resolve against.
+- **Alternative: map markers to documents by position.** Rejected: the model's numbering
+  doesn't follow document order, so markers would open wrong sources.
+- **Alternative: build citations from the model's Citations list text alone, ignoring
+  `documents`.** Rejected: that shows what the model *says* a source contains rather than the
+  retrieved text itself.
+- **Alternative: strip all markers and show pills only** (the previous draft of this plan).
+  Rejected at plan review: we want inline references kept where they can be trusted.
 
 ## Test Plan
 
-- **Unit (`document-citations.test.ts`):** one fixture per tool (quran, hadith, tafsir,
-  mawsuah) builds the expected `Citation`. Also covered: marker order 1..n; hadith `LK id`
-  removed from the reference; Quran URL set only for a parseable `S:A` title; malformed
-  JSON → raw-text fallback; unknown context → scholarly fallback.
+- **Unit (`document-citations.test.ts`):**
+  - Field mapping: one fixture per tool (quran, hadith, tafsir, mawsuah) builds the expected
+    `Citation`. Also covered: hadith `LK id` removed from the reference; Quran URL set only for
+    a parseable `S:A` title; malformed JSON → raw-text fallback; unknown context → scholarly
+    fallback.
+  - Resolution:
+    - The model's `[1]` names `documents[2]` by LK id, and the marker opens `documents[2]`.
+    - Model numbering that is out of document order is resolved correctly.
+    - An unresolved entry strips only its own marker.
+    - An ambiguous match (two candidates) is unresolved.
+    - Renumbering leaves no gaps, and inline markers match pill numbers.
+    - Uncited documents are appended after the cited ones.
+    - The Citations section is removed.
+    - No Citations list → fallback (all markers stripped, document-order pills).
+    - The same marker used twice resolves to the same pill.
+  - Negative check: a deliberately wrong LK id in the entry must NOT link.
 - **Unit (`decode.test.ts`):**
-  - An assistant message with `documents` decodes to non-empty `citations` whose `content` has
-    no `[N]` and no "Citations:" block.
+  - An assistant message with `documents` and a matching Citations list decodes with inline
+    markers kept, `citations` numbered to match, and no "Citations:" block.
   - A message without `documents` is unchanged from #158/#160: stripped, `citations: []`.
   - A khushu' thread whose first answer HAS documents gets the real citations and keeps its
     real text, not the sample.
@@ -163,8 +213,9 @@ The API, the shared UI components (`AnswerMessage`, `CitationChip`, `SourceFolio
 - **Manual (dev-approval):** run the prototype against an apps/api that includes #66.
   - Ask a question that triggers search, e.g. "What does the Qur'an say about patience?". After
     the stream completes and the refetch lands, the answer shows footnote pills for the real
-    sources. Tapping one opens SourcePanel/SourceFolio with Arabic + English, and the Qur'an
-    link opens quran.com. No stray `[N]` or "Citations:" appears in the prose.
+    sources and inline superscripts. Tapping a superscript opens the source that its sentence
+    cites. I will check this against the model's original Citations text in the raw API
+    response. The Qur'an link opens quran.com. No "Citations:" list appears in the prose.
   - Ask something that uses no tool (e.g. "hello"): no pills, text stripped as before.
   - Open an old thread from before #66: no pills, no errors.
   - Check a shared thread view if it uses the same decoder.
