@@ -8,6 +8,9 @@
 #   pull_request -> origin/<base>..HEAD  (the PR's own commits, plus the merge commit)
 #   push         -> HEAD                 (full history of the pushed branch only)
 #
+# Known gap (pre-existing, unchanged): gitleaks' `git log -p` shows no diff for
+# merge commits, so text introduced only in a conflict resolution is not scanned.
+#
 # Exit: 0 clean, 1 leaks found (gitleaks), 2 scan could not be scoped.
 # Env: GITHUB_EVENT_NAME (set by Actions), BASE_REF (github.base_ref, PRs only),
 #      GITLEAKS_CONFIG (default .gitleaks.toml).
