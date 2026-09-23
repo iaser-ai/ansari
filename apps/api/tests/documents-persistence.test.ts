@@ -7,7 +7,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
  *  - a turn with nothing citable stores SQL NULL, never '[]'::jsonb — both the
  *    absent and the empty case, via documentsOrNull;
  *  - the history-replay helper (findMessagesByThread) projects documents OUT,
- *    so document text can never be fed back to the model on turn 2+.
+ *    so document text can never be fed back to the model on turn 2+, while the
+ *    thread-view helper (getThreadWithMessages) selects them for thread GET.
  */
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
@@ -24,7 +25,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
 import { messages } from '@/db/schema';
 import { documentsOrNull, type DocumentContentBlock } from '@/db/schema/messages';
-import { createMessage, findMessagesByThread } from '@/lib/db/threads';
+import { createMessage, findMessagesByThread, getThreadWithMessages } from '@/lib/db/threads';
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -187,5 +188,28 @@ describe('history-replay projection excludes documents', () => {
       expect(serialized).not.toContain(doc.source.data);
     }
     expect(rows[0].rawPayload).toEqual({ role: 'model', parts: [{ text: 'answer' }] });
+  });
+});
+
+describe('thread-view projection includes documents', () => {
+  it('getThreadWithMessages returns documents while findMessagesByThread still does not', async () => {
+    await createMessage({ threadId: THREAD_ID, role: 'user', content: [{ type: 'text', text: 'question' }] });
+    await createMessage({
+      threadId: THREAD_ID,
+      role: 'assistant',
+      content: [{ type: 'text', text: 'answer' }],
+      documents: DOCUMENTS,
+    });
+
+    const view = await getThreadWithMessages(THREAD_ID, USER_ID);
+    expect(view?.messages.map((m) => m.documents)).toEqual([null, DOCUMENTS]);
+    // No other internal column rides along with the view projection.
+    expect(Object.keys(view!.messages[1])).not.toContain('toolCalls');
+    expect(Object.keys(view!.messages[1])).not.toContain('modelProvider');
+
+    const replay = await findMessagesByThread(THREAD_ID);
+    for (const m of replay) {
+      expect(Object.keys(m)).not.toContain('documents');
+    }
   });
 });

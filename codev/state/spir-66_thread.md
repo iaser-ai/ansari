@@ -58,3 +58,19 @@
   `shares` DDL in documents-persistence; wire-identity test strips each route's own heartbeat sentinel.
   Heads-up for the next migration: the next `drizzle-kit generate` will emit `0009_*` again (journal idx 9) —
   rename it to `0010_*`.
+
+## Phase 3 — thread GET + share return documents (2026-09-23)
+- `getThreadWithMessages` now uses a separate `threadViewColumns` (= messageReadColumns + documents);
+  `findMessagesByThread` (replay, naming) unchanged. Thread GET + share GET spread `documents` only when
+  non-empty; `createThreadSnapshot` snapshots it under the same rule.
+- Byte-identity proof: deterministic SQL seed (user, no-tool, legacy NULL, hand-inserted `[]`) → fixture
+  captured by running the seed through the UNMODIFIED HEAD route (swapped in temporarily), pasted as a literal.
+- Existing exact-key asserts in thread-get-contract untouched; new pinned lists for doc-bearing cases.
+- Negative tests: drop thread-GET spread → 2 fail; drop snapshot projection `documents` → 1 fail; drop
+  share-GET spread → 1 fail; make key unconditional → 4 fail (incl. original bare-string test + fixture). All restored green.
+- Client check: prototypes/ansari-expo wire-schemas non-strict by design; legacy/frontend-{web,app}
+  ChatService.getThread/getSharedThread pass `data.messages` through unvalidated, addMessage sends only
+  the new message; apps/frontend has 0 hits. No strict parser.
+- Docs: arch.md new "Citable documents" paragraph + fixed stale snapshot-projection/migration-number
+  claims in the spec-73 paragraph; arch-critical frozen-contract fact extended in place.
+- Suite 813 passed / 3 skipped; typecheck clean; lint 0 errors.

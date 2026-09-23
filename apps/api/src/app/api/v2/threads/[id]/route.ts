@@ -68,6 +68,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
         agent_name: m.agentName,
         source: m.source,
         created_at: m.createdAt?.toISOString(),
+        // Citable sources (issue #66): an additive sibling key, present ONLY when
+        // non-empty, so document-less messages serialize byte-identically.
+        ...(m.documents && m.documents.length > 0 ? { documents: m.documents } : {}),
       })),
     });
   } catch (error) {
