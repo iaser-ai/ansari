@@ -11,27 +11,23 @@ import type {
 } from '@/lib/api/types';
 import { SAMPLE_ANSWER_CONTENT, SAMPLE_CITATIONS } from '@/lib/sample-citations';
 import { stripUnbackedCitations } from '@/lib/citations';
+import { resolveCitations } from '@/lib/document-citations';
 
 /**
  * Map apps/api wire shapes onto the UI types.
  *
+ * CITATIONS come from the answer's real `documents` (issue #66): see
+ * `lib/document-citations.ts`, which also keeps each of the model's inline `[N]`
+ * markers it can tie to one of those documents and drops the rest. An answer
+ * with no documents gets `[]`, and its citation-shaped text is stripped. One
+ * fallback demo remains: the FIRST assistant answer of a thread about khushu',
+ * when it has no real documents, gets the FIXED SAMPLE set and answer text from
+ * `lib/sample-citations.ts` (illustrative, not API output). A real answer is
+ * never overwritten by the sample.
+ *
  * FIELDS apps/api NEVER CARRIES — filled with documented constants, NOT silent
  * defaults hiding a shape mismatch:
  *   - `preview`, `messageCount`  → apps/api's thread summary has neither.
- *   - `citations`                → apps/api returns no structured citations. To
- *                                  keep the citation UI demonstrable, the FIRST
- *                                  assistant answer of a thread about khushu' gets
- *                                  a FIXED SAMPLE set (see `lib/sample-citations.ts`)
- *                                  — the one answer those sources actually support;
- *                                  follow-ups and every other message get `[]`.
- *                                  That same message's `content` is replaced with
- *                                  `SAMPLE_ANSWER_CONTENT`, which embeds the
- *                                  matching inline `[1]`/`[2]`/`[3]` markers —
- *                                  apps/api's real text carries none, and the
- *                                  footnote pills need something in the prose
- *                                  pointing to them (issue #145). These samples
- *                                  are not answer-derived — real, marker-bearing
- *                                  citations arrive with issue #66.
  *   - `safety`                   → apps/api emits no safety signal, so `null`
  *                                  forever. SafetyCard renders nothing.
  * These are the exact "empty by design" fields called out in the issue/README.
@@ -109,12 +105,17 @@ export function mapMessage(
 ): Message | null {
   const role = mapRole(msg.role);
   if (!role) return null;
+  const text = flattenContent(msg.content);
+  const { content, citations } =
+    role === 'assistant' && msg.documents && msg.documents.length > 0
+      ? resolveCitations(text, msg.documents, msg.id)
+      : { content: text, citations: [] };
   return {
     id: msg.id,
     conversationId,
     role,
-    content: flattenContent(msg.content),
-    citations: [], // empty by design — apps/api returns no citations
+    content,
+    citations,
     safety: null, // null by design — apps/api emits no safety signal
     createdAt: msg.created_at ?? '',
   };
@@ -123,8 +124,9 @@ export function mapMessage(
 /**
  * A thread counts as "about khushu'" when its first user message mentions it
  * (khushu' / khushoo / khushū). Only then do we attach the sample citations, and
- * only to the FIRST assistant answer — the one those sources support. Follow-ups
- * on unrelated topics must not inherit unrelated Islamic source attributions.
+ * only to the FIRST assistant answer — the one those sources support, and only
+ * when it has no real documents of its own. Follow-ups on unrelated topics must
+ * not inherit unrelated Islamic source attributions.
  */
 function isKhushuThread(messages: Message[]): boolean {
   const firstUser = messages.find((m) => m.role === 'user');
@@ -139,23 +141,18 @@ export function mapConversationDetail(
   const mapped = detail.messages
     .map((m) => mapMessage(m, id))
     .filter((m): m is Message => m !== null);
-  let citationsAttached = false;
-  const withSamples = isKhushuThread(mapped)
-    ? mapped.map((m) => {
-        if (m.role === 'assistant' && !citationsAttached) {
-          citationsAttached = true;
-          return {
-            ...m,
-            content: SAMPLE_ANSWER_CONTENT,
-            citations: SAMPLE_CITATIONS,
-          };
-        }
-        return m;
-      })
-    : mapped;
+  const firstAnswer = mapped.find((m) => m.role === 'assistant');
+  const withSamples =
+    isKhushuThread(mapped) && firstAnswer && firstAnswer.citations.length === 0
+      ? mapped.map((m) =>
+          m === firstAnswer
+            ? { ...m, content: SAMPLE_ANSWER_CONTENT, citations: SAMPLE_CITATIONS }
+            : m,
+        )
+      : mapped;
   // An answer with nothing behind its markers is shown without them (see
-  // lib/citations.ts). The khushu' sample carries its citations, so it keeps
-  // its `[N]`s — they open real sources.
+  // lib/citations.ts). Answers with real documents were already resolved in
+  // mapMessage, and the khushu' sample keeps its hand-matched `[N]`s.
   const messages = withSamples.map((m) =>
     m.role === 'assistant' && m.citations.length === 0
       ? { ...m, content: stripUnbackedCitations(m.content) }

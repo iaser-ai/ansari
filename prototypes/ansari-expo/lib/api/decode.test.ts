@@ -12,8 +12,8 @@ import { parseAnswer } from '@/lib/markdown';
 /**
  * THE LOUD-FAILURE GATE (see issue #63).
  *
- * apps/api returns no citations and no safety signal, so a correct empty app and
- * a broken app look identical on screen. The only defence is proving the adapter
+ * apps/api returns no safety signal (and citations only when a tool ran), so a
+ * correct empty app and a broken app can look identical on screen. The only defence is proving the adapter
  * THROWS when the response shape is wrong. These fixtures are the prototype's
  * ORIGINAL Replit "Ansari 4" shapes (`{ id, title, preview }`, `MessageExchange`,
  * …); feeding them to the decoders must throw, exactly as it would at runtime if
@@ -342,5 +342,93 @@ describe('unbacked citations — hidden where no sources back them', () => {
     expect(answers[1].content).toBe('Lengthen it.');
     // The reader's own words are never rewritten.
     expect(detail.messages[2].content).toBe('And in sujud [1]?');
+  });
+});
+
+describe('real documents (issue #66) — citations from the API', () => {
+  const thread = (messages: unknown[]) =>
+    decodeConversationDetail({ ...realThread, messages });
+
+  const verse = {
+    type: 'document',
+    source: {
+      type: 'text',
+      media_type: 'text/plain',
+      data: JSON.stringify({
+        ar: 'وَأَقِمِ ٱلصَّلَوٰةَ لِذِكْرِىٓ',
+        en: 'And establish prayer for My remembrance.',
+      }),
+    },
+    title: 'Quran 20:14',
+    context: 'Retrieved from the Holy Quran',
+  };
+
+  const answerWithDocuments = {
+    id: 'a',
+    role: 'assistant',
+    content:
+      'Establish prayer for remembrance [1]. Something unsourced [2].\n\n' +
+      "**Citations**:\n[1] Qur'an 20:14\n[2] Sahih Muslim 979",
+    documents: [verse],
+  };
+
+  it('keeps resolved markers inline, drops the rest, and attaches the real sources', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: 'Why do we pray?' },
+      answerWithDocuments,
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant')!;
+    expect(assistant.content).toBe(
+      'Establish prayer for remembrance [1]. Something unsourced.',
+    );
+    expect(assistant.citations).toHaveLength(1);
+    expect(assistant.citations[0]).toMatchObject({
+      marker: 1,
+      reference: "Qur'an 20:14",
+      url: 'https://quran.com/20/14',
+    });
+    // The kept marker parses as a footnote the answer UI can open.
+    const footnotes = parseAnswer(assistant.content)
+      .flatMap((block) => (block.type === 'paragraph' ? block.spans : []))
+      .filter((span) => span.type === 'footnote');
+    expect(footnotes).toHaveLength(1);
+  });
+
+  it('leaves an answer without documents exactly as #158/#160 did', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: 'Why do we pray?' },
+      { ...answerWithDocuments, documents: undefined },
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant')!;
+    expect(assistant.citations).toEqual([]);
+    expect(assistant.content).toBe(
+      'Establish prayer for remembrance. Something unsourced.',
+    );
+  });
+
+  it('never attaches documents to a user message', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: 'Why [1]?', documents: [verse] },
+    ]);
+    expect(detail.messages[0]!.citations).toEqual([]);
+    expect(detail.messages[0]!.content).toBe('Why [1]?');
+  });
+
+  it('gives a khushu thread its real sources, not the sample, when it has documents', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: "How can I develop khushu' in my prayer?" },
+      answerWithDocuments,
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant')!;
+    expect(assistant.content).not.toBe(SAMPLE_ANSWER_CONTENT);
+    expect(assistant.citations).not.toEqual(SAMPLE_CITATIONS);
+    expect(assistant.citations[0]!.reference).toBe("Qur'an 20:14");
+  });
+
+  it('rejects a documents array with a malformed entry', () => {
+    const { title: _dropped, ...noTitle } = verse;
+    expect(() =>
+      thread([{ ...answerWithDocuments, documents: [noTitle] }]),
+    ).toThrow(ZodError);
   });
 });
