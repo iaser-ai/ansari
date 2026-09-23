@@ -9,7 +9,8 @@ import type {
   Message,
   MessageRole,
 } from '@/lib/api/types';
-import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { SAMPLE_ANSWER_CONTENT, SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { stripUnbackedCitations } from '@/lib/citations';
 
 /**
  * Map apps/api wire shapes onto the UI types.
@@ -23,7 +24,13 @@ import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
  *                                  a FIXED SAMPLE set (see `lib/sample-citations.ts`)
  *                                  — the one answer those sources actually support;
  *                                  follow-ups and every other message get `[]`.
- *                                  These samples are not answer-derived — real
+ *                                  That same message's `content` is replaced with
+ *                                  `SAMPLE_ANSWER_CONTENT`, which embeds the
+ *                                  matching inline `[1]`/`[2]`/`[3]` markers —
+ *                                  apps/api's real text carries none, and the
+ *                                  footnote pills need something in the prose
+ *                                  pointing to them (issue #145). These samples
+ *                                  are not answer-derived — real, marker-bearing
  *                                  citations arrive with issue #66.
  *   - `safety`                   → apps/api emits no safety signal, so `null`
  *                                  forever. SafetyCard renders nothing.
@@ -133,15 +140,27 @@ export function mapConversationDetail(
     .map((m) => mapMessage(m, id))
     .filter((m): m is Message => m !== null);
   let citationsAttached = false;
-  const messages = isKhushuThread(mapped)
+  const withSamples = isKhushuThread(mapped)
     ? mapped.map((m) => {
         if (m.role === 'assistant' && !citationsAttached) {
           citationsAttached = true;
-          return { ...m, citations: SAMPLE_CITATIONS };
+          return {
+            ...m,
+            content: SAMPLE_ANSWER_CONTENT,
+            citations: SAMPLE_CITATIONS,
+          };
         }
         return m;
       })
     : mapped;
+  // An answer with nothing behind its markers is shown without them (see
+  // lib/citations.ts). The khushu' sample carries its citations, so it keeps
+  // its `[N]`s — they open real sources.
+  const messages = withSamples.map((m) =>
+    m.role === 'assistant' && m.citations.length === 0
+      ? { ...m, content: stripUnbackedCitations(m.content) }
+      : m,
+  );
   return {
     id,
     title: detail.thread_name?.trim() || UNTITLED,

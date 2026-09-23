@@ -1,0 +1,41 @@
+# Archived snapshot — not built, not in the pnpm workspace
+
+Snapshot of [`ansari-project/ansari-frontend`](https://github.com/ansari-project/ansari-frontend)
+at `develop` @ `528698b3a87b`. Stack: Expo 55.0.15 / React 19.2.4 / RN 0.83.4.
+
+Reference material for the merge of the two frontend tracks (`develop` and
+`multisage`), which diverged at `7f73947` in March 2025 and were never merged
+back. **Nothing in this directory is built by turbo or resolved by pnpm.**
+`pnpm-workspace.yaml` globs `apps/*` and `packages/*`; `legacy/*` matches
+neither, which is the only thing keeping this tree out of the build. Do not
+move it under `apps/` without reading issue #150 first.
+
+## Agent instructions for this repository live at the root
+
+Read `/CLAUDE.md` and `/codev/` at the repository root, **not** anything in
+this directory. The nested `codev/`, `.claude/`, `.architect-role.md` and CI workflows that
+shipped with this snapshot were removed, and the original `CLAUDE.md` /
+`AGENTS.md` replaced by this file, precisely because they would otherwise be
+read as authoritative here and they are not.
+
+## Deviations from the upstream snapshot
+
+Verified byte-identical at import to `528698b3a87b` except:
+
+- `package.json` `name` is `ansari-frontend-app-legacy`, not the upstream `ansari-chat-app`.
+  Both tracks used the same name; keeping them distinct avoids re-arming a
+  duplicate-name collision if this tree is ever globbed back into the workspace.
+- `package-lock.json`: the root `name` fields follow the rename (2 lines), from a
+  local `npm install` after import. No resolution changes.
+- Removed: `.github/`, `codev/`, `.claude/`, `.architect-role.md`, `af-config.json`.
+- `.vscode/` (3 files) is ignored by the root `.gitignore` and is absent here.
+
+`package-lock.json` are kept deliberately: they are the only
+record of this track's intended dependency pins, which the merge will need.
+The `packageManager` pin and any npm-syntax `overrides` are inert outside the
+workspace and were left untouched.
+
+To recover the exact upstream tree:
+```
+git -C <clone-of-ansari-frontend> archive 528698b3a87b | tar -x -C <dest>
+```

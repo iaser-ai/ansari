@@ -51,6 +51,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { RADIUS, rounded } from '@/constants/radius';
+import { ANSARI_MARK_EMBLEM_HEIGHT } from '@/constants/ansariMark';
 
 /**
  * The rail's gutter, the same in both states. Nothing inside it may
@@ -91,7 +92,7 @@ const ICON_COLUMN = SIDEBAR_COLLAPSED_WIDTH - RAIL_PAD * 2;
 const CONTENT_WIDTH = SIDEBAR_WIDTH - RAIL_PAD * 2;
 
 const RAIL_TOP = 22;
-const MARK_HEIGHT = 32;
+const MARK_HEIGHT = ANSARI_MARK_EMBLEM_HEIGHT;
 
 /**
  * The toggle's box, centred on the mark's own centre line so the two

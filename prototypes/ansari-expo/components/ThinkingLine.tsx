@@ -5,6 +5,7 @@ import { AnsariMarkPulse } from '@/components/AnsariMarkPulse';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { DURATION, EASE_OUT } from '@/constants/motion';
+import { ANSARI_MARK_EMBLEM_HEIGHT } from '@/constants/ansariMark';
 import { formatTraceLine, type TraceEntry } from '@/lib/chat-trace';
 
 // A line of status arriving: a small change in place, held back a beat
@@ -72,6 +73,28 @@ export function ThinkingLine({
   );
 }
 
+/**
+ * The answer is still being written: the waiting mark on its own, at
+ * the foot of the growing answer.
+ *
+ * Once the first words arrive the status line has done its job and
+ * steps aside, but the answer is not finished — so the mark stays,
+ * without words, where the next line will appear. It stands alone here
+ * rather than as a character in a line of type, so it takes the mark's
+ * standing size (the sidebar emblem's), not the status line's. It
+ * arrives on the same held-back fade as the line, so an answer that
+ * completes at once never shows it, and it simply goes when the answer
+ * is handed over — a fading footer would leave a gap that then snaps
+ * shut.
+ */
+export function GeneratingMark() {
+  return (
+    <Animated.View entering={WAIT_ENTER} style={styles.generating}>
+      <AnsariMarkPulse height={ANSARI_MARK_EMBLEM_HEIGHT} />
+    </Animated.View>
+  );
+}
+
 /** The status line's own size, so the mark stands as tall as the type. */
 const MARK_HEIGHT = 15;
 
@@ -90,6 +113,10 @@ const styles = StyleSheet.create({
   rowTop: {
     alignItems: 'flex-start',
   },
+  generating: {
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
   lines: {
     flexShrink: 1,
     gap: 4,
@@ -97,6 +124,6 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 15,
     lineHeight: 20,
-    fontFamily: fonts.displayItalic,
+    fontFamily: fonts.proseItalic,
   },
 });
