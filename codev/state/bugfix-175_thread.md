@@ -19,3 +19,10 @@
 - Proved the test fails without the fix: dropping `--log-opts` fails the 2 cross-branch cases. Removing the shallow guard fails the shallow case.
 - Real repo: with 46966b18 still on origin/builder/pir-128, the develop push scan (612 commits) and a bugfix-165 PR scan are both clean.
 - Binary pin and checksum steps untouched. No `.gitleaks.toml` allowlist change.
+
+## PR (2026-09-24)
+- PR #178. CI green. Its own gitleaks run scanned `origin/develop..HEAD` and came back clean, with 46966b18 still on origin/builder/pir-128 (the exact #175 case). All 9 regression cases pass on the runner.
+- CMAP: gemini=APPROVE, codex=APPROVE, claude=APPROVE (HIGH confidence each).
+  Acted on claude's minor note: the header now documents the pre-existing gap that `git log -p` doesn't diff merge commits (conflict-resolution-only text isn't scanned).
+- Also fixed the `tr: write error: Broken pipe` noise from the fake-key generator: bounded urandom read + cut.
+- The planted-credential negative test lives in throwaway repos inside CI. No secret-shaped string was pushed to GitHub.
