@@ -1,4 +1,4 @@
-# Archived snapshot — not built, not in the pnpm workspace
+# Legacy web frontend — deployed to askansari.ai, outside the pnpm workspace
 
 Snapshot of [`ansari-project/ansari-frontend`](https://github.com/ansari-project/ansari-frontend)
 at `multisage` @ `ad72bc60d9a3`. Stack: Expo 52.0.38 / React 18.3.1 / RN 0.76.7.

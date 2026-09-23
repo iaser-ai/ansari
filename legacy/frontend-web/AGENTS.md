@@ -1,4 +1,4 @@
-# Archived snapshot — not built, not in the pnpm workspace
+# Legacy web frontend — deployed to askansari.ai, outside the pnpm workspace
 
 Snapshot of [`ansari-project/ansari-frontend`](https://github.com/ansari-project/ansari-frontend)
 at `multisage` @ `ad72bc60d9a3`. Stack: Expo 52.0.38 / React 18.3.1 / RN 0.76.7.
@@ -38,6 +38,20 @@ Verified byte-identical at import to `ad72bc60d9a3` except:
 record of this track's intended dependency pins, which the merge will need.
 The `packageManager` pin and any npm-syntax `overrides` are inert outside the
 workspace and were left untouched.
+
+## Local fixes on top of the snapshot
+
+askansari.ai now builds from this tree, so it carries fixes that upstream does not have.
+When the two frontend tracks are merged (#150), do NOT resolve these files by taking
+upstream, because that silently reverts the fix:
+
+- #164, follow a streaming answer and the jump-to-latest button:
+  - `src/components/chat/MessageList.tsx`
+  - `src/components/chat/ChatContainer.tsx`
+  - `src/components/svg/ScrollToBottomIcon.tsx`
+  - `e2e/chat-scroll.spec.ts`
+  - `playwright.config.ts`
+  - `.gitignore`
 
 To recover the exact upstream tree:
 ```
