@@ -43,6 +43,11 @@ pays the storage cost.
   `functionResponse`. It is also persisted verbatim as `ToolCallRecord.content` on the
   `tool_result` record, alongside `status`, `duration_ms` and the degradation detail.
   `citations.enabled`, `source.type` and `source.media_type` are not persisted anywhere.
+- **Why the flag was lost.** `DocumentBlock` has the shape of Anthropic's document block, where
+  `citations.enabled` switches on Claude's built-in citations. Gemini has no such feature, so
+  `formatToolResultForGemini` sends only what Gemini uses. Spec 73 then persisted that output
+  as "the ground truth of what the model received", so the dropped flag was never stored.
+  Neither step was a decision about citability. Nothing needed the flag until this spec.
 - **Budget-skipped calls** persist `{ results: [], summary }` with `status: 'budget_skipped'`.
 - **Turns without an assistant row** (error, empty final, mcp-complete 502) persist their records
   to `tool_call_orphans`, not to `messages`.
@@ -74,8 +79,8 @@ pays the storage cost.
 - The Gemini `functionResponse` and `formatToolResultForGemini` output are byte-identical to
   today's. `raw_payload` is unchanged. History replay never sees document text through this
   change.
-- The persisted `tool_result` record carries citability and source typing for each result entry.
-  Derivation reads them structurally and never infers them.
+- The persisted `tool_result` record carries each result entry's own `citations.enabled`, beside
+  the Gemini result, not inside it. Derivation reads that flag and never infers citability.
 - Raw `ToolCallRecord`s never leave a dedicated derivation helper. No route, serializer or
   shared read projection receives them.
 - `arch-critical.md` (and `arch.md`) state the amended read posture accurately.
@@ -99,7 +104,7 @@ pays the storage cost.
       object: after `created_at` on thread GET and share GET, and after `createdAt` in the stored
       `ThreadSnapshot` message. Every other key keeps its current order. The existing exact,
       ordered key assertions in `tests/thread-get-contract.test.ts` stay green without
-      modification. Their `RECORDS` fixture has no `result_meta`, so it is a legacy row that
+      modification. Their `RECORDS` fixture has no `citations`, so it is a legacy row that
       derives nothing. New tests assert the ordered key list `[...MESSAGE_KEYS, 'documents']`
       for messages that have documents.
 - [ ] `formatToolResultForGemini` output and the `functionResponse` sent to Gemini are
@@ -112,7 +117,7 @@ pays the storage cost.
 - [ ] Malformed stored data fails closed **per record**, and never fails the request. Examples:
       `tool_calls` is not an array; `content` or `results` is missing or not the expected type; a
       result entry is missing a string `title` or `content`; `context` is present but not a
-      string; a `result_meta` element has a non-boolean `citable` or non-string typing fields.
+      string; a `citations` element is not an object with a boolean `enabled`.
       The affected record contributes no documents. Well-formed records in the same message and
       thread still derive. Thread GET and share creation return their normal response, never a
       500. Malformed data is logged only by `{messageId, reason}`, never with record content.
@@ -189,16 +194,17 @@ pays the storage cost.
 - `tool_calls` rows are write-once. Nothing updates a message's `tool_calls` after insert.
 - `tool_result` records are built at two sites in the facilitator: `buildToolResultRecord`
   (executed, limit-refused and unknown-tool calls) and the inline budget-skip record. Both must
-  carry `result_meta`. The budget-skip record's is `[]`, because its `results` is `[]`. A
-  record's `result_meta` is present exactly when it was written after this change.
+  carry `citations`. The budget-skip record's is `[]`, because its `results` is `[]`. A
+  record's `citations` is present exactly when it was written after this change.
 - Each `tool_result` record's `content.results` has one entry per `ToolResult.documents` entry,
   in the same order. `formatToolResultForGemini` is a 1:1 `map`, which makes positional
   alignment reliable at write time.
-- Every tool today emits `source.type: 'text'` and `media_type: 'text/plain'`. The TS type pins
-  both as literals.
+- Every tool today emits `source.type: 'text'` and `media_type: 'text/plain'`. The
+  `DocumentBlock` TS type pins both as literals, so a tool cannot emit anything else without
+  widening that type.
 - The routes that persist `tool_calls` on assistant messages are `v2/threads/{id}` POST,
   `v2/threads/{id}/chat` and `v2/mcp-complete`. All three write the facilitator's records
-  verbatim, so they gain `result_meta` without changes to the routes. **`v1/chat/completions` is
+  verbatim, so they gain `citations` without changes to the routes. **`v1/chat/completions` is
   out of scope.** It drops `event.toolCalls` and stores no `tool_calls` on the messages it
   creates, so those messages derive no documents, which fails closed. This spec does not change
   that route's persistence.
@@ -210,30 +216,40 @@ pays the storage cost.
 
 ### A. Where citability is persisted
 
-**A1: Parallel per-entry metadata on the `tool_result` record (recommended).** Add an optional
-sibling field to the persisted `tool_result` record, for example `result_meta`. It is an array
-aligned index-for-index with `content.results`, and each element is `{ citable: boolean,
-source_type, media_type }`. The facilitator builds it from the same `ToolResult.documents` that
-`formatToolResultForGemini` maps.
-- Pros: `content` and the Gemini payload stay untouched. It is structural and per-entry, so a
-  tool that ever mixes hits and notices is handled. It persists `source_type` and `media_type`,
-  so derivation copies instead of synthesizing, and the fidelity caveat goes away for every row
-  that can produce documents. It needs no migration, because it lives in the existing jsonb.
-- Cons: the alignment invariant must hold. Derivation must fail closed when the lengths differ.
-  It adds roughly 60 bytes per result entry.
+**A1: Save the tool's own `citations.enabled`, per result, beside the Gemini result (decided).**
+Add one optional sibling field to the persisted `tool_result` record: `citations`, an array
+aligned index-for-index with `content.results`. Each element is `{ enabled: boolean }`, copied
+from the same `ToolResult.documents[i].citations` that `formatToolResultForGemini` maps, with a
+missing flag saved as `false`. Nothing else is added.
+- Pros: it uses the value each tool already sets, and derivation reads it without inferring
+  anything. `content` and the Gemini payload are untouched. It is per-entry, so a tool that ever
+  mixes hits and notices is handled. **It is not a database change:** there is no new column, no
+  table and no migration. It is one extra key inside the JSON already written to the existing
+  `tool_calls` column, and code that does not know about it ignores it.
+- Cons: the alignment invariant must hold, so derivation fails closed when the lengths differ. It
+  adds about 20 bytes per result entry.
 
 **A2: Record-level `citable` boolean.** One flag per `tool_result`.
-- Pros: smallest change.
-- Cons: it assumes a tool never mixes hits and notices in one result. That is true today but
-  nothing enforces it. It also leaves `source.type`/`media_type` synthesized.
+- Rejected. It assumes a tool never mixes hits and notices in one result. That is true today, but
+  nothing enforces it.
 
 **A3: Store the flag inside `content.results[i]`.**
 - Rejected. It changes the "ground truth of what the model received", and either changes the
   Gemini payload or makes the persisted `content` stop matching it.
 
-**Source typing (fidelity caveat).** A1 persists the pair, so derivation never synthesizes it for
-new rows. Historical rows fail closed, so synthesis is never needed. As belt and braces, the
-facilitator should take the pair from the `DocumentBlock` it is recording, not from constants.
+**A4: Decide at read time from the tool's identity or the document's wording, with nothing
+saved.**
+- Rejected. A zero-result search records `status: 'ok'`, and its entry has the same structure as
+  a real hit from the same tool. So telling them apart means either matching on display text,
+  which `lib/tools/types.ts` forbids and which breaks silently when the wording changes, or
+  changing the tools' zero-result output, which changes the frozen Gemini payload.
+
+**Source typing (fidelity caveat).** `source.type` and `source.media_type` are not saved.
+Derivation fills them in as `'text'` and `'text/plain'`. The guard is compile-time: derivation
+takes those values from the `DocumentBlock['source']` literal types, not from free-standing
+strings. A future tool that emits another media type has to widen `DocumentBlock`, and that
+widening must break the build at the derivation site until someone decides how to serve it. A
+test pins this behaviour.
 
 ### B. Where derivation runs
 
@@ -248,7 +264,7 @@ module. The thread GET route merges the result into its response by message id.
 - Cons: it adds a second query per thread GET (same index, `idx_messages_thread`), and raw jsonb
   is detoasted into Node memory. The owner accepted this cost.
 
-**B2: Derive in SQL** (`jsonb_array_elements` over `tool_calls` joined to `result_meta`,
+**B2: Derive in SQL** (`jsonb_array_elements` over `tool_calls` joined to `citations`,
 filtered on `citable`, and ordered). Only derived rows cross the wire.
 - Pros: raw records never reach Node.
 - Cons: the dedup and first-occurrence ordering logic is hard to read, hard to test, and has to
@@ -285,7 +301,7 @@ Spec approval ratifies this choice (see Open Questions).
 
 ### D. Historical rows and orphans
 
-- **Historical rows: fail closed.** A record without `result_meta` contributes no documents. No
+- **Historical rows: fail closed.** A record without `citations` contributes no documents. No
   heuristic and no string matching. This matches #66, which did not backfill either.
 - **`tool_call_orphans`: no documents.** These turns have no assistant message to attach
   documents to, and the user saw an error. This is acceptable.
@@ -306,7 +322,7 @@ the rest of the spec is written against it. Approving the spec approves these ch
 approver prefers an alternative (for example C2), the spec is revised before the plan is written;
 the plan does not re-decide.
 1. Share snapshot timing: **C1**, copy at creation.
-2. Persisted shape: **A1**, per-entry `{citable, source_type, media_type}`.
+2. Persisted shape: **A1**, per-entry `citations: [{ enabled }]`, beside the Gemini result.
 3. Historical rows: **fail closed**.
 
 **Nice-to-know:**
@@ -329,8 +345,8 @@ the plan does not re-decide.
    kept.
 5. **`context` absent:** the key is omitted from the document, never set to `null` or
    `undefined`.
-6. **Historical row:** a `tool_calls` record without `result_meta` yields no key. A misaligned
-   `result_meta` length yields nothing from that record.
+6. **Historical row:** a `tool_calls` record without `citations` yields no key. A misaligned
+   `citations` length yields nothing from that record.
 6a. **Malformed jsonb (pglite, real handler):** each malformed shape from Success Criteria is
     stored beside one well-formed citable record. Thread GET returns 200 with only the
     well-formed record's documents, and share creation succeeds. A v1-created message (no
@@ -341,9 +357,9 @@ the plan does not re-decide.
    are unchanged for a representative result, and the persisted `content` equals the payload
    sent.
 9. **Structural safety:** the thread GET and share GET responses contain no `tool_calls`,
-   `result_meta`, `raw_payload`, `status` or provenance keys, even with every column populated.
-   The existing contract scan is extended to cover `result_meta`. The seeded fixture used by
-   the scan must include a `result_meta`-bearing record that derives documents, so the scan runs
+   `citations`, `raw_payload`, `status` or provenance keys, even with every column populated.
+   The existing contract scan is extended to cover `citations`. The seeded fixture used by
+   the scan must include a `citations`-bearing record that derives documents, so the scan runs
    against bytes where a leak is possible and does not pass vacuously. The scan pattern is
    itself negative-tested against a known-bad and a known-near-miss line.
 10. **Replay untouched:** `findMessagesByThread` rows carry no `tool_calls` or `documents`, and
@@ -363,9 +379,9 @@ the plan does not re-decide.
 | The contract breaks for released mobile builds | Low | High | Key is omitted when empty. Byte-identity fixture. `content` path untouched. Existing contract tests stay unmodified. |
 | Raw records leak into a response | Low | High | Dedicated helper whose return type holds only derived blocks. `MessageRow` unchanged. Extended key scan. |
 | Malformed or hand-edited jsonb causes a 500 on thread GET or share creation | Low | Medium | Per-record shape validation fails closed. A pglite test covers each malformed shape. |
-| `result_meta` misaligns with `results` (future change to `formatToolResultForGemini`) | Low | Medium | Both are built from the same `documents` array at one site. Derivation drops a record whose lengths differ. |
+| `citations` misaligns with `results` (future change to `formatToolResultForGemini`) | Low | Medium | Both are built from the same `documents` array at one site. Derivation drops a record whose lengths differ. |
 | Thread GET latency or memory from detoasting `tool_calls` | Medium | Low–Medium | Owner accepted about 7 KB/row. The PR measures it and must flag it past the concrete bound (median > 14 KB/row or latency > 2× baseline). |
-| A future tool emits a non-text media type | Low | Medium | The pair is persisted per entry, never synthesized for new rows. |
+| A future tool emits a non-text media type | Low | Medium | Derivation takes `'text'`/`'text/plain'` from the `DocumentBlock` literal types, so widening the type breaks the build at the derivation site. |
 | Document text rendered unsafely by a client, including on public shares | Low | Medium | Plain JSON strings, unchanged from #66's contract. Clients render them as text. |
 | Snapshot duplication grows `shares` | Low | Low | It scales with shares only. Revisit with C2 if shares prove large. |
 
