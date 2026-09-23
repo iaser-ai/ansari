@@ -62,7 +62,7 @@ import type { Content } from '@google/genai';
 import * as schema from '@/db/schema';
 import { messages, type ToolCallRecord } from '@/db/schema';
 import type { DocumentContentBlock } from '@/db/schema/messages';
-import { SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
+import { RAW_TEXT_HEARTBEAT, SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { POST as threadPost } from '../src/app/api/v2/threads/[id]/route';
 import { POST as chatPost } from '../src/app/api/v2/threads/[id]/chat/route';
 
@@ -228,11 +228,11 @@ async function resetThread() {
 }
 
 const ROUTES = [
-  { name: 'POST /api/v2/threads/[id] (web)', post: threadPost, req: webReq },
-  { name: 'POST /api/v2/threads/[id]/chat (SSE)', post: chatPost, req: chatReq },
+  { name: 'POST /api/v2/threads/[id] (web)', post: threadPost, req: webReq, heartbeat: RAW_TEXT_HEARTBEAT },
+  { name: 'POST /api/v2/threads/[id]/chat (SSE)', post: chatPost, req: chatReq, heartbeat: SSE_HEARTBEAT },
 ] as const;
 
-describe.each(ROUTES)('$name', ({ post, req }) => {
+describe.each(ROUTES)('$name', ({ post, req, heartbeat }) => {
   it('a done with documents persists them on the assistant row', async () => {
     mockRunFacilitator.mockImplementation(() => retrievalTurn('Answer.', { documents: DOCUMENTS })());
 
@@ -275,7 +275,7 @@ describe.each(ROUTES)('$name', ({ post, req }) => {
     const bodyWith = await readAll(await post(req('q'), ctx));
     const [withDocs] = await assistantRows();
 
-    expect(bodyWith.split(SSE_HEARTBEAT).join('')).toBe(bodyWithout.split(SSE_HEARTBEAT).join(''));
+    expect(bodyWith.split(heartbeat).join('')).toBe(bodyWithout.split(heartbeat).join(''));
     expect(bodyWith).not.toContain(QURAN_TEXT);
     expect(bodyWith).not.toContain('Quran 2:153');
     expect(withDocs.content).toEqual(without.content);

@@ -97,12 +97,6 @@ beforeAll(async () => {
       model_id text,
       created_at timestamp with time zone DEFAULT now()
     );
-    CREATE TABLE shares (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      thread_id uuid NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-      content jsonb NOT NULL,
-      created_at timestamp with time zone DEFAULT now()
-    );
   `);
   await client.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, [
     USER_ID,

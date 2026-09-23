@@ -54,3 +54,7 @@
   Negative tests: dropping `documents:` from the web route fails 3; from the chat route fails 3; adding `documents`
   to messageReadColumns fails the projection test. All restored green.
 - Full suite 807 passed / 3 skipped; typecheck clean; lint 0 errors (same 7 old warnings).
+- Phase 2 consult: codex APPROVE, claude APPROVE, gemini skipped (agy CLI missing). Applied claude nits: dropped unused
+  `shares` DDL in documents-persistence; wire-identity test strips each route's own heartbeat sentinel.
+  Heads-up for the next migration: the next `drizzle-kit generate` will emit `0009_*` again (journal idx 9) —
+  rename it to `0010_*`.
