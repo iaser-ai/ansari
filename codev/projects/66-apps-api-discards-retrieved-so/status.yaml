@@ -8,11 +8,11 @@ plan_phases:
     status: complete
   - id: phase_2
     title: documents column, migration, and persistence at both chat routes
-    status: in_progress
+    status: complete
   - id: phase_3
     title: Thread GET and share return documents additively
-    status: pending
-current_plan_phase: phase_2
+    status: in_progress
+current_plan_phase: phase_3
 gates:
   spec-approval:
     status: approved
@@ -26,10 +26,10 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-09-22T22:45:03.432Z'
-updated_at: '2026-09-23T06:49:30.374Z'
+updated_at: '2026-09-23T06:56:26.214Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-09-23T00:32:34.653Z'
@@ -40,3 +40,5 @@ context_refreshes:
   - boundary: plan-phase:phase_2
     at: '2026-09-23T06:42:49.417Z'
     acknowledged_at: '2026-09-23T06:43:40.197Z'
+  - boundary: plan-phase:phase_3
+    at: '2026-09-23T06:56:26.213Z'
