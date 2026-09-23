@@ -23,3 +23,10 @@
 - Surprise: no existing test needed updating. The facilitator tests assert on content/status, not whole-record equality, so the plan's expected "update exact-record expectations" did not happen.
 - Negative tests: N1 citabilityOf hard-coded true → 16 failed. N2 citations leaked into the Gemini payload → 1 failed (payload freeze). N3 record builder drops citations → 7 failed. All 53 passed again after restore.
 - Suite 796 passed / 3 skipped (baseline 768/3); typecheck clean; lint 0 errors (7 pre-existing warnings); build OK.
+
+## implement: phase_2 (derivation helper)
+- lib/db/citable-documents.ts. deriveCitableDocuments(unknown) is pure and returns {documents, rejected: RejectReason[]}. It validates each record and fails closed per record (any bad entry drops the whole record). It dedups on JSON [title, context ?? null, text] and keeps the first occurrence. findCitableDocumentsByThread selects only id + tool_calls for assistant rows, and warns {messageId, reasons} with legacy 'no_citations' excluded. Only the map leaves the module.
+- Fidelity guard: TEXT_SOURCE is typed through an ExactLiteral over DocumentBlock['source'] literals. Widening 'text' to 'text' | 'pdf' fails tsc at citable-documents.ts:43 (verified).
+- Caught a vacuous check: tsconfig excludes tests/**, so expectTypeOf in tests is never type-checked. I removed the type-level test rather than keep a check that could not fail. The declared return type (checked in lib/) plus a runtime key test cover it. Worth a lessons entry.
+- Negative tests: N1 citability check removed → 7 failed; N2 length check removed → 1 failed; N3 source type widened → tsc error. All 36 passed after restore.
+- Suite 832 passed / 3 skipped; build OK; lint 0 errors (7 pre-existing warnings).
