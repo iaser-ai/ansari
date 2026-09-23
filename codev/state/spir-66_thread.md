@@ -39,3 +39,18 @@
 - Tests: 9 unit tests + 13 facilitator tests. Negative-tested twice: dropping the `add` call fails 7 tests, and
   dropping the enabled filter fails 8. Both pass again once restored.
 - Full suite 785 passed / 3 skipped; typecheck clean; lint 0 errors (7 warnings were already there, none in touched files).
+
+## Implement — Phase 2 (2026-09-23)
+- Merged origin/develop first (no new migrations landed; next.js bump + legacy/ relocation). `drizzle-kit generate`
+  named the file `0008_*` (it numbers by journal idx, and 0005 is missing on disk) — renamed to `0009_documents.sql`
+  (journal tag fixed), per the spec-73 lesson. SQL is exactly `ALTER TABLE "messages" ADD COLUMN "documents" jsonb;`;
+  the 0007→0008 snapshot diff is that one column. NOT applied anywhere.
+- `messages.documents` jsonb nullable + `documentsOrNull` in the schema module; `MessageRow` omits it, so
+  `messageReadColumns` (replay/GET/share read path) is unchanged. Both chat routes' `done` createMessage now write
+  `documents: documentsOrNull(event.documents)`; nothing else in the routes changed.
+- pglite DDL: 9 real `CREATE TABLE messages` sites updated (model-provenance only mentions it in a comment).
+  No vi.mock factory mocks `@/db/schema*`; routes call no new `@/lib/db/threads` export.
+- Tests: documents-persistence (5, pglite) + documents-routes (16, both routes via describe.each).
+  Negative tests: dropping `documents:` from the web route fails 3; from the chat route fails 3; adding `documents`
+  to messageReadColumns fails the projection test. All restored green.
+- Full suite 807 passed / 3 skipped; typecheck clean; lint 0 errors (same 7 old warnings).
