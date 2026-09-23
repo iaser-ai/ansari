@@ -49,7 +49,7 @@ esac
 # An empty range means the scoping is wrong, not that the PR is clean.
 count="$(git rev-list --count "${range}")"
 if [ "${count}" -eq 0 ]; then
-  echo "gitleaks-scan: range ${range} contains no commits" >&2
+  echo "gitleaks-scan: range ${range} contains no commits (is the head already merged into ${BASE_REF:-the base}?)" >&2
   exit 2
 fi
 

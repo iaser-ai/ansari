@@ -88,8 +88,10 @@ expect error "PR scan without BASE_REF fails loudly" \
   env -u BASE_REF sh -c "cd '${tmp}/ci-clean' && GITHUB_EVENT_NAME=pull_request '${scan}'"
 expect error "PR scan against a missing base fails loudly" \
   sh -c "cd '${tmp}/ci-clean' && GITHUB_EVENT_NAME=pull_request BASE_REF=nope '${scan}'"
-expect error "PR scan over an empty range fails loudly" \
-  sh -c "cd '${tmp}/ci-clean' && git checkout -q --detach origin/develop && GITHUB_EVENT_NAME=pull_request BASE_REF=develop '${scan}'"
+# Own clone: HEAD = base tip, so the PR range is empty.
+git clone -q "${tmp}/origin.git" "${tmp}/ci-empty" 2>/dev/null
+git -C "${tmp}/ci-empty" checkout -q --detach origin/develop
+expect error "PR scan over an empty range fails loudly" pr_scan "${tmp}/ci-empty"
 
 # Push: full history of the pushed branch, but not other branches.
 git clone -q "${tmp}/origin.git" "${tmp}/push-clean" 2>/dev/null
