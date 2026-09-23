@@ -29,3 +29,11 @@
 - Jump button: the existing native-only ScrollToBottomButton, now on web too. It is `fixed` on
   web because the page scrolls, and `absolute` on native.
 - 16/16 e2e passed with `--repeat-each 4`. Jest 45/45. PR #174.
+
+## PR (2026-09-23)
+- CMAP: gemini APPROVE, codex APPROVE, claude COMMENT. All four of claude's points are fixed in the
+  follow-up commit: prettier errors in the spec (`npm run lint` was failing), a native regression
+  (the jump button stayed hidden until the first scroll; the at-bottom state is now recomputed on
+  content growth), an eslint-disable note on the deliberate deps, and the wrong video-dir comment.
+- Gotcha: the first `consult` run failed with "Multiple projects found". Pass `--issue 164 --project-id bugfix-164`.
+- Videos are in legacy/frontend-web/e2e/videos/ (gitignored). Paths went to the architect.
