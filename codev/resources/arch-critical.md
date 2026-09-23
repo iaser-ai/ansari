@@ -22,3 +22,4 @@ STARTER: replace the examples below with YOUR project's facts and arch.md sectio
 - Authentication & Authorization — consult when touching login/register/refresh/logout/reset, tokens, admin/system access, or the JWT config.
 - Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, or the repetition guard.
 - Monorepo layout, build & deploy — consult when changing the workspace layout, `turbo.json`, env vars, Docker builds, CI task wiring, or Railway deploy config.
+- Prototype chat display (prototypes/ansari-expo) — consult when touching how answers render: citation markers/stripping, the streaming bubble, or the hand-off footer.
