@@ -81,3 +81,12 @@ export const ANSARI_MARK_DECORATIVE_PROPS =
         accessibilityElementsHidden: true,
         importantForAccessibility: 'no' as const,
       };
+
+/**
+ * The mark at its full, standing size — the sidebar's emblem at the head
+ * of the rail. Anywhere else the mark stands on its own rather than as a
+ * character in a line of type (the generating mark beneath a streaming
+ * answer), it takes this size, so the one mark is only ever seen alone
+ * at one size.
+ */
+export const ANSARI_MARK_EMBLEM_HEIGHT = 32;

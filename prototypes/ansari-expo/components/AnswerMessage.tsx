@@ -49,9 +49,15 @@ const ANSWER_ACTION_SLOP = { top: 4, bottom: 4, left: 4, right: 4 } as const;
 export function AnswerMessage({
   message,
   onSourcesOpen,
+  generating = false,
 }: {
   message: Message;
   onSourcesOpen: (message: Message, marker: number) => void;
+  /**
+   * The answer is still being written. Copy and Share wait until it is
+   * finished: there is nothing whole yet to copy or pass on.
+   */
+  generating?: boolean;
 }) {
   const colors = useColors();
   const byMarker = useMemo(() => {
@@ -190,52 +196,54 @@ export function AnswerMessage({
           ))}
         </View>
       )}
-      <View style={styles.answerActions}>
-        <PressableScale
-          onPress={() => void copyAnswer()}
-          accessibilityRole="button"
-          accessibilityLabel="Copy answer"
-          // A pill this quiet has to stay this quiet — it sits at the
-          // foot of every answer — so the thumb is given its room
-          // outside the drawn box rather than inside it. 36 drawn,
-          // 44 to hit, and nothing about it looks any different.
-          hitSlop={ANSWER_ACTION_SLOP}
-          style={(state) => [
-            styles.answerAction,
-            {
-              borderColor: colors.border,
-              opacity: state.pressed ? 0.6 : isHovered(state) ? 0.78 : 1,
-            },
-          ]}
-        >
-          <Feather name="copy" size={14} color={colors.mutedForeground} />
-          <Text
-            style={[styles.answerActionText, { color: colors.mutedForeground }]}
+      {!generating && (
+        <View style={styles.answerActions}>
+          <PressableScale
+            onPress={() => void copyAnswer()}
+            accessibilityRole="button"
+            accessibilityLabel="Copy answer"
+            // A pill this quiet has to stay this quiet — it sits at the
+            // foot of every answer — so the thumb is given its room
+            // outside the drawn box rather than inside it. 36 drawn,
+            // 44 to hit, and nothing about it looks any different.
+            hitSlop={ANSWER_ACTION_SLOP}
+            style={(state) => [
+              styles.answerAction,
+              {
+                borderColor: colors.border,
+                opacity: state.pressed ? 0.6 : isHovered(state) ? 0.78 : 1,
+              },
+            ]}
           >
-            Copy
-          </Text>
-        </PressableScale>
-        <PressableScale
-          onPress={() => void shareAnswer()}
-          accessibilityRole="button"
-          accessibilityLabel="Share answer"
-          hitSlop={ANSWER_ACTION_SLOP}
-          style={(state) => [
-            styles.answerAction,
-            {
-              borderColor: colors.border,
-              opacity: state.pressed ? 0.6 : isHovered(state) ? 0.78 : 1,
-            },
-          ]}
-        >
-          <Feather name="share-2" size={14} color={colors.mutedForeground} />
-          <Text
-            style={[styles.answerActionText, { color: colors.mutedForeground }]}
+            <Feather name="copy" size={14} color={colors.mutedForeground} />
+            <Text
+              style={[styles.answerActionText, { color: colors.mutedForeground }]}
+            >
+              Copy
+            </Text>
+          </PressableScale>
+          <PressableScale
+            onPress={() => void shareAnswer()}
+            accessibilityRole="button"
+            accessibilityLabel="Share answer"
+            hitSlop={ANSWER_ACTION_SLOP}
+            style={(state) => [
+              styles.answerAction,
+              {
+                borderColor: colors.border,
+                opacity: state.pressed ? 0.6 : isHovered(state) ? 0.78 : 1,
+              },
+            ]}
           >
-            Share
-          </Text>
-        </PressableScale>
-      </View>
+            <Feather name="share-2" size={14} color={colors.mutedForeground} />
+            <Text
+              style={[styles.answerActionText, { color: colors.mutedForeground }]}
+            >
+              Share
+            </Text>
+          </PressableScale>
+        </View>
+      )}
     </>
   );
 

@@ -297,3 +297,50 @@ describe('sample citations — khushu-gated placement', () => {
     expect(assistant?.content).toBe('Zakat is 2.5%…');
   });
 });
+
+describe('unbacked citations — hidden where no sources back them', () => {
+  const thread = (messages: unknown[]) =>
+    decodeConversationDetail({ ...realThread, messages });
+
+  it('collapses a non-khushu answer with markers and a Citations: block to just the prose', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: 'How do I calculate zakat?' },
+      {
+        id: 'a',
+        role: 'assistant',
+        content:
+          'Zakat is 2.5% of wealth held for a lunar year [1]. It is due above the nisab [2].\n\n' +
+          "**Citations:**\n[1] Qur'an 9:60\n[2] Sahih Muslim 979",
+      },
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(
+      'Zakat is 2.5% of wealth held for a lunar year. It is due above the nisab.',
+    );
+  });
+
+  it('keeps [1]/[2]/[3] intact on the khushu sample answer, which carries its citations', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: "How can I develop khushu' in my prayer?" },
+      { id: 'a', role: 'assistant', content: 'Model text [1].\n\nCitations:\n[1] x' },
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(SAMPLE_ANSWER_CONTENT);
+    for (const marker of ['[1]', '[2]', '[3]']) {
+      expect(assistant?.content).toContain(marker);
+    }
+  });
+
+  it('strips a khushu follow-up, which carries no citations', () => {
+    const detail = thread([
+      { id: 'u1', role: 'user', content: "How do I develop khushu'?" },
+      { id: 'a1', role: 'assistant', content: 'Understand what you recite…' },
+      { id: 'u2', role: 'user', content: 'And in sujud [1]?' },
+      { id: 'a2', role: 'assistant', content: 'Lengthen it [1].\n\n## Citations\n[1] x' },
+    ]);
+    const answers = detail.messages.filter((m) => m.role === 'assistant');
+    expect(answers[1].content).toBe('Lengthen it.');
+    // The reader's own words are never rewritten.
+    expect(detail.messages[2].content).toBe('And in sujud [1]?');
+  });
+});
