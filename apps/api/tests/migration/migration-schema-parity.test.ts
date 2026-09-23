@@ -109,9 +109,15 @@ describe('migration files', () => {
 });
 
 describe('real read/write paths on a migration-built database', () => {
-  it('work against the migrations deployed on staging/production', async () => {
-    await exerciseMessagePaths(await migrate(DEPLOYED_THROUGH));
-  });
+  it(
+    'work against the migrations deployed on staging/production',
+    async () => {
+      await exerciseMessagePaths(await migrate(DEPLOYED_THROUGH));
+    },
+    // First pglite build of the run (cold WASM + every migration): ~0.7 s
+    // normally, but past vitest's 5 s default under CPU load.
+    20_000
+  );
 
   it('work against the full migration journal', async () => {
     await exerciseMessagePaths(await migrate());
