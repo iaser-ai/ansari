@@ -29,6 +29,9 @@ export const TOOL_RESULT_STATUSES = [
 ] as const;
 export type ToolResultStatus = (typeof TOOL_RESULT_STATUSES)[number];
 
+/** The `document` ContentBlock — the element shape served by the `/documents` endpoints (spec 168). */
+export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
+
 export type ToolCallRecord =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | {
@@ -47,6 +50,14 @@ export type ToolCallRecord =
       http_status?: number;
       /** Which short-circuit skipped this call; only on budget_skipped records. */
       skip_trigger?: 'T1' | 'T2';
+      /**
+       * Per-result citability (spec 168): the tool's own `citations.enabled`,
+       * index-aligned with `content.results` (see `citabilityOf`). A SIBLING of
+       * `content`, never inside it — `content` must stay exactly the Gemini
+       * payload. Absent on records written before spec 168; derivation treats
+       * absent or misaligned as not citable (fail closed).
+       */
+      citations?: Array<{ enabled: boolean }>;
     };
 
 /**

@@ -20,7 +20,7 @@ import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
-import type { ToolResult } from '../tools/types';
+import { citabilityOf, type ToolResult } from '../tools/types';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
 import type {
   ContentBlock,
@@ -294,6 +294,8 @@ function buildToolResultRecord(
     content,
     status,
     duration_ms: executed ? durationMs : null,
+    // Beside `content`, never inside it: `content` is exactly what Gemini received (spec 168).
+    citations: citabilityOf(result),
   };
   const detail = result.degradation;
   if (detail?.errorClass !== undefined) record.error_class = detail.errorClass;
@@ -935,6 +937,8 @@ export async function* runFacilitator(
             status: 'budget_skipped',
             duration_ms: null,
             skip_trigger: shortCircuitTrigger,
+            // No documents were produced, so none are citable (spec 168).
+            citations: citabilityOf(skipped),
           });
           responseParts.push({
             functionResponse: {
