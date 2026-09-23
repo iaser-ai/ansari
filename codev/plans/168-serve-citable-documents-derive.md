@@ -4,8 +4,9 @@
 
 ## Executive Summary
 
-This plan implements the spec's ratified design: **A1 + B1 + C1, historical rows fail closed**.
-The plan does not re-decide any of it.
+This plan implements the spec's ratified design: **A1 + B1 + C1 + F2, historical rows fail
+closed**. F2 is the owner's direction at the plan gate: dedicated `/documents` endpoints, with
+thread GET and share GET untouched. The plan does not re-decide any of it.
 
 - **A1: persist citability.** Every persisted `tool_result` record gains a sibling
   `citations: Array<{ enabled: boolean }>`. The array aligns index-for-index with
@@ -17,14 +18,17 @@ The plan does not re-decide any of it.
   pure function inside its own scope, and returns only `Map<messageId, DocumentContentBlock[]>`.
   Raw records never leave that module.
 - **C1: share snapshots copy at creation.** `createThreadSnapshot` calls the same DB helper and
-  stores each message's non-empty `documents` in the snapshot. Share GET emits the key from the
-  snapshot and never touches `tool_calls`.
-- **Serving.** Thread GET and share GET append `documents` as the **last** message key, only when
-  it is non-empty. `content` and every other key are untouched.
+  stores each message's non-empty `documents` in the snapshot. The public endpoints never touch
+  `tool_calls`.
+- **F2: serving.** There are two new routes. `GET /api/v2/threads/{id}/documents` is
+  authenticated and owner-scoped, and derives live. `GET /api/v2/share/{id}/documents` is public
+  and reads the snapshot. Both return `messages: [{ message_index, documents }]`, and the thread
+  route also adds `message_id`. **Thread GET and share GET are not modified at all.**
 
 The phases are ordered so that each is independently testable and none changes a response
-before the serving phase. Phase 1 (persist the flag) goes first and also pins today's
-serialized responses as fixtures before anything that could move them lands.
+to an existing endpoint at any point. Phase 1 (persist the flag) goes first and pins today's
+thread GET and share GET bytes as fixtures. Those fixtures must stay green through every later
+phase.
 
 ## Phases (Machine Readable)
 
@@ -33,7 +37,7 @@ serialized responses as fixtures before anything that could move them lands.
   "phases": [
     {"id": "phase_1", "title": "Persist per-result citability on tool_result records"},
     {"id": "phase_2", "title": "Citable-document derivation helper"},
-    {"id": "phase_3", "title": "Serve documents on thread GET and share snapshots"},
+    {"id": "phase_3", "title": "Documents endpoints and share-snapshot documents"},
     {"id": "phase_4", "title": "Invariant documentation and read-cost report"}
   ]
 }
@@ -85,8 +89,10 @@ changes.
 - [ ] Both record-building sites populate it. Alignment holds by construction: both arrays are
       mapped from the same `result.documents`.
 - [ ] Tests (below).
-- [ ] Captured pre-change fixtures for thread GET and share GET on a thread with no citable
-      retrieval: user message, no-tool answer, and a legacy `tool_calls` answer.
+- [ ] Captured pre-change fixtures for thread GET and share GET on a thread with a user
+      message, a no-tool answer, a legacy `tool_calls` answer and an answer whose records
+      **will** derive documents. Because F2 leaves both endpoints unchanged, these bytes must
+      never move in any phase.
 
 #### Acceptance Criteria
 
@@ -199,79 +205,95 @@ deduplicated and ordered, never throws on malformed data, and never lets a raw r
 
 ---
 
-### Phase 3: Serve documents on thread GET and share snapshots
+### Phase 3: Documents endpoints and share-snapshot documents
 
 **Dependencies**: Phase 2
 
 #### Objective
 
-Deliver the wire contract. Thread GET and share GET emit an identical `documents` field on
-assistant messages with citable retrieval. Every other response is byte-identical.
+Deliver the F2 contract: two `/documents` endpoints returning identical document fields, with
+share snapshots carrying their documents built in. Thread GET and share GET stay byte-identical.
 
 #### Files to Create / Modify
 
-- `apps/api/src/app/api/v2/threads/[id]/route.ts` (GET only). After the owner-scoped
-  `getThreadWithMessages` succeeds, call `findCitableDocumentsByThread(thread.id)`. In the
-  message map, spread `...(docs ? { documents: docs } : {})` **after** `created_at`. POST is
-  untouched.
+- `apps/api/src/app/api/v2/threads/[id]/documents/route.ts` (new, GET only).
+  `authenticateRequest` comes first, identical to thread GET, so the unauthenticated responses
+  match. Then `findThreadById(id, user.id)`, with 404 `Thread not found` for a missing or foreign
+  thread. Then an **id-and-order-only** message listing (`id`, `created_at` order, no content)
+  to compute `message_index`, followed by `findCitableDocumentsByThread(thread.id)`. It returns
+  `{ thread_id, messages: [{ message_id, message_index, documents }] }` in thread order, and
+  `messages: []` when there are none. `message_index` comes from the same ordering
+  `findMessagesByThread` uses (`created_at`), so it matches thread GET. The listing is added to
+  `lib/db/citable-documents.ts` so that the helper can return entries that already carry
+  `message_index`, keeping the route free of both raw rows and index arithmetic.
+- `apps/api/src/app/api/v2/share/[id]/documents/route.ts` (new, GET only, public).
+  `findShareById`, with 404 `Share not found`. It maps `snapshot.messages` to
+  `{ message_index: i, documents }` for entries whose stored `documents` is a non-empty array,
+  and returns `{ id, messages }`. It never imports the derivation module or reads `messages` or
+  `tool_calls`. A test enforces the no-import rule.
 - `apps/api/lib/db/shares.ts`. In `createThreadSnapshot`, after the ownership check, add
-  `messages.id` to the projection for lookup only (it is not written into the snapshot), call
-  the same helper, and write `documents` as the last key of a snapshot message when it is
-  non-empty.
+  `messages.id` to the projection for lookup only (it is not written into the snapshot), call the
+  derivation helper, and store `documents` on a snapshot message when it is non-empty.
 - `apps/api/db/schema/shares.ts`: `ThreadSnapshot` message gains
   `documents?: DocumentContentBlock[]`.
-- `apps/api/src/app/api/v2/share/[id]/route.ts` (GET): spread `documents` after `created_at`
-  when it is present and non-empty in the snapshot.
-- `apps/api/lib/db/threads.ts`: **no projection change.** `messageReadColumns` and `MessageRow`
-  stay as they are. Only the doc comment is corrected, in Phase 4.
+- `apps/api/src/app/api/v2/threads/[id]/route.ts` and
+  `apps/api/src/app/api/v2/share/[id]/route.ts`: **not modified.** Share GET's existing explicit
+  mapping (`role`, `content`, `created_at`) already keeps snapshot `documents` out of its output.
+  A test pins that.
+- `apps/api/lib/db/threads.ts`: **no projection change.** Only the doc comment is corrected, in
+  Phase 4.
 - `apps/api/tests/thread-get-contract.test.ts`: existing assertions stay unmodified. Add
-  `citations` to `TOOL_KEY_PATTERN` and to its live-scan negative test, which checks known-bad
-  keys and a near-miss. Add a second seeded conversation whose records carry `citations` and
-  derive documents, and run the key scans over it too, so the scan is not vacuous.
-- `apps/api/tests/documents-routes.test.ts` (new): serving, parity and byte-identity, on
-  pglite through the real handlers.
+  `citations` to `TOOL_KEY_PATTERN` and to its negative test, which checks known-bad keys and a
+  near-miss. Add a documents-bearing seed and run the scans over thread GET, share GET, the
+  stored snapshot and both `/documents` responses.
+- `apps/api/tests/documents-endpoints.test.ts` (new): endpoints, auth, parity, `message_index`
+  and byte-identity, on pglite through the real handlers.
 - Every test file that `vi.mock`s `@/lib/db/shares`, `@/lib/db/threads` or the new module is
-  grepped, and each factory is updated for the new import (lessons-critical).
+  grepped, and each factory is updated (lessons-critical).
 
 #### Deliverables
 
-- [ ] Thread GET, snapshot creation and share GET emit `documents` per the contract.
+- [ ] Both `/documents` routes, and snapshot documents.
 - [ ] Tests (below).
 
 #### Acceptance Criteria
 
-- [ ] An assistant message with citable retrieval has key order
-      `[...MESSAGE_KEYS, 'documents']` on thread GET and `['role', 'content', 'created_at',
-      'documents']` on share GET. The snapshot stores `['role', 'content', 'createdAt',
-      'documents']`. `content` is still a bare string.
-- [ ] Notice-only, no-tool, user, legacy-record and v1-style (no `tool_calls`) messages have no
-      `documents` key.
-- [ ] **Byte-identity:** the Phase 1 fixtures still match exactly.
-- [ ] **Parity:** for a thread mixing citable, notice-only and no-tool assistant messages, each
-      message's `documents` in a newly created share deep-equals the thread GET `documents` for
-      the same message.
-- [ ] A pre-change snapshot, meaning a stored `shares.content` without the key, returns no key.
-- [ ] Malformed `tool_calls` on one message: thread GET returns 200 with the well-formed
+- [ ] The thread endpoint returns the spec's shape. Entries are in thread order, only messages
+      with documents appear, and there is `messages: []` when there are none.
+- [ ] The share endpoint returns the spec's shape from the snapshot. A pre-change snapshot
+      returns `messages: []`. A message added to the thread after sharing does not appear.
+- [ ] **Parity:** for a share created after the change, its entries deep-equal the thread
+      endpoint's (`message_index` and `documents`) for a thread mixing citable, notice-only and
+      no-tool messages.
+- [ ] **Join key correct:** `threadGET.messages[e.message_index].id === e.message_id` for every
+      thread entry. For every share entry, `shareGET.messages[e.message_index]` is the same
+      message, compared by role, content and `created_at`.
+- [ ] **Auth:** the thread endpoint returns a missing-token or bad-token response identical to
+      thread GET's, and an identical 404 body for foreign and nonexistent threads. The share
+      endpoint returns 404 for an unknown id.
+- [ ] **Byte-identity:** the Phase 1 thread GET and share GET fixtures still match exactly,
+      including the documents-bearing thread. Share GET output has no `documents` key although
+      the snapshot stores one.
+- [ ] Malformed `tool_calls` on one message: the thread endpoint returns 200 with the well-formed
       messages' documents, and share creation succeeds.
-- [ ] Orphan rows change nothing: the response is byte-identical before and after inserting one.
+- [ ] Orphan rows change nothing on either endpoint.
 - [ ] History replay is untouched: `findMessagesByThread` rows carry no `toolCalls` or
-      `documents`. A POST turn-2 test asserts that the `messageHistory` handed to the facilitator
-      contains no document text.
-- [ ] No `tool_calls`, `citations`, `status`, `raw_payload` or provenance key in any
-      serialized thread GET, share GET or snapshot body, including the documents-bearing seed.
-- [ ] The existing `thread-get-contract.test.ts` assertions pass unmodified. Only additions are
-      made.
+      `documents`. A POST turn-2 test asserts that the facilitator's `messageHistory` contains no
+      document text.
+- [ ] No `tool_calls`, `citations`, `status`, `raw_payload` or provenance key in any serialized
+      body from these endpoints, thread GET, share GET or the stored snapshot.
+- [ ] The share `/documents` route module does not import `lib/db/citable-documents` or
+      `lib/db/threads`, asserted by a source-scan test that is itself negative-tested.
 - [ ] Full test suite, typecheck and lint pass.
 
 #### Test Plan
 
 - **Integration (pglite, real handlers):** all criteria above. Records are persisted through
-  `createMessage` with realistic Phase 1-shaped records built by the real
-  `buildToolResultRecord` path, where practical.
-- **Negative tests:** stub `findCitableDocumentsByThread` to return an empty map and confirm the
-  serving, parity and share tests fail; restore. Remove the non-empty guard and confirm the
-  byte-identity fixture fails; restore. Move the spread before `created_at` and confirm the
-  key-order assertion fails; restore. Record every count for the review.
+  `createMessage` with Phase 1-shaped records.
+- **Negative tests:** stub `findCitableDocumentsByThread` to return nothing and confirm the
+  endpoint, parity and share tests fail; restore. Off-by-one `message_index` and confirm the
+  join-key test fails; restore. Temporarily spread snapshot `documents` into share GET and
+  confirm the byte-identity fixture fails; restore. Record every count for the review.
 
 ---
 
@@ -287,14 +309,16 @@ against the spec's bound.
 #### Files to Create / Modify
 
 - `codev/resources/arch-critical.md`: rewrite the Vertex/tool-history fact to the owner-ruled
-  wording. Read helpers may load `tool_calls` **only inside** the dedicated derivation helper
-  (`lib/db/citable-documents.ts`). No API response may serialize raw tool records. `raw_payload`
-  is never serialized, and it stays in `messageReadColumns` only for replay. The one additive key
-  is `documents`, last and omitted when empty. The hot-tier cap is kept, and wording is tightened
+  wording. `tool_calls` may be loaded for serving **only inside** the dedicated derivation helper
+  (`lib/db/citable-documents.ts`), reached from the thread `/documents` route and share creation.
+  No API response may serialize raw tool records. Thread GET and share GET carry no documents;
+  sources are served only by the `/documents` endpoints. `raw_payload` is never serialized, and
+  it stays in `messageReadColumns` only for replay. The hot-tier cap is kept, and wording is tightened
   rather than adding a line.
 - `codev/resources/arch.md`: update the Tool-call persistence paragraph for the `citations` field
   and the read-path exception. Add a short Citable documents paragraph covering derivation,
-  dedup, fail-closed legacy rows, C1 snapshots and the key position.
+  dedup, fail-closed legacy rows, C1 snapshots, the two `/documents` endpoints and the
+  `message_index` join.
 - In-code comments that repeat the old absolute claim: `db/schema/messages.ts` (the `toolCalls`
   column), `lib/db/threads.ts` (the `MessageRow` and projection doc) and `lib/db/shares.ts`
   (the snapshot projection comment). Grep the repo for other copies (for example "no API
@@ -305,9 +329,10 @@ against the spec's bound.
 
 - [ ] Docs and comments updated, with no stale copy left.
 - [ ] Read-cost numbers recorded. **Storage:** a read-only `pg_column_size(tool_calls)` median
-      and p95 over recent assistant rows, if the architect provides staging read access.
-      Otherwise the same statistics over the synthetic fixture below, labelled as synthetic.
-- [ ] **Latency method.** The script `apps/api/scripts/bench-thread-get.ts` is committed so the
+      and p95 over recent assistant rows on staging. The owner granted access via the backend's
+      `DATABASE_URL`, and the session is forced `default_transaction_read_only=on`. The initial
+      2026-09-24 run gave a median of 5.6 KB and a p95 of 14.1 KB, and it is re-run here.
+- [ ] **Latency method.** The script `apps/api/scripts/bench-documents.ts` is committed so the
       numbers can be reproduced. It is not part of the test suite.
   - *Fixture:* a pglite thread of 50 messages (25 user, 25 assistant). Every assistant row
     carries Phase 1-shaped `tool_calls`: 1–3 tool rounds and 5–10 results per call across the
@@ -315,13 +340,11 @@ against the spec's bound.
     `tool_calls` is about 7 KB and matches the spec's accepted figure. This is asserted by the
     script before timing, so an empty or trivial derivation path cannot be measured by
     accident. About a third of the rows include a notice or a legacy (no `citations`) record.
-  - *Baseline:* the pre-change thread-GET handler, defined as the GET logic at the Phase 2
-    commit, which has no derivation call. It is run in the same process on the same fixture.
-    The script imports a frozen copy of the pre-change GET mapping, kept in the script, beside
-    the real post-change handler.
+  - *Baseline:* the real, unmodified thread GET handler on the same fixture in the same process.
+    It is compared with the real thread `/documents` handler.
   - *Sampling:* 20 warm-up requests per variant, then 200 measured requests alternated between
     variants to cancel drift. Report median and p95 for each variant and the ratio.
-  - The script also asserts that the post-change variant actually returned `documents` on the
+  - The script also asserts that the `/documents` handler actually returned documents on the
     expected messages, which proves the derivation path ran.
 
 #### Acceptance Criteria
@@ -329,8 +352,8 @@ against the spec's bound.
 - [ ] A grep for the old wording returns zero hits. The grep is negative-tested by running it
       against the pre-change text, where it must hit.
 - [ ] `arch-critical.md` stays within its cap (≤10 facts, ≤35 lines).
-- [ ] The cost bound is evaluated. If the median exceeds 14 KB/row, or latency exceeds 2× the
-      baseline, `afx send architect` is sent before the PR is marked ready, and the PR body says
+- [ ] The cost bound is evaluated. If the median exceeds 14 KB/row, or the `/documents` median
+      latency exceeds 2× thread GET's, `afx send architect` is sent before the PR is marked ready, and the PR body says
       so.
 
 #### Test Plan
