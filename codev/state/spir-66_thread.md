@@ -14,3 +14,8 @@
 - 2026-09-22 architect decisions: (1) separate `documents` column confirmed, (2) share GET includes
   documents, (3) mcp-complete / v1 completions out of scope. Migration write-up added to spec
   (generate → review SQL → human applies; never db:push; migration before deploy).
+- 2026-09-23 3-way spec review: gemini lane skipped (agy CLI not installed); codex REQUEST_CHANGES
+  addressed in 7ed5124 (dedupe rule = title+context+source.data, first wins; tool_calls wording;
+  plain-text/untrusted + no new size cap). Claude lane was still running when spec-approval was
+  granted by the human; its output (if any) lands in codev/projects/66-*/66-specify-iter1-claude.txt.
+- spec-approval APPROVED; porch in plan phase.
