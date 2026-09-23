@@ -95,6 +95,13 @@ pays the storage cost.
       messages serializes byte-identically to the pre-change response, which is pinned by a
       fixture.
 - [ ] `content` is unchanged, including the bare-string form.
+- [ ] **Key position is fixed.** When `documents` is present, it is the **last** key of the message
+      object: after `created_at` on thread GET and share GET, and after `createdAt` in the stored
+      `ThreadSnapshot` message. Every other key keeps its current order. The existing exact,
+      ordered key assertions in `tests/thread-get-contract.test.ts` stay green without
+      modification. Their `RECORDS` fixture has no `result_meta`, so it is a legacy row that
+      derives nothing. New tests assert the ordered key list `[...MESSAGE_KEYS, 'documents']`
+      for messages that have documents.
 - [ ] `formatToolResultForGemini` output and the `functionResponse` sent to Gemini are
       byte-identical to today's, pinned by a test. `raw_payload` is unaffected.
 - [ ] No new column and no migration: the flag lives inside the existing `tool_calls` jsonb. The
@@ -109,6 +116,18 @@ pays the storage cost.
       The affected record contributes no documents. Well-formed records in the same message and
       thread still derive. Thread GET and share creation return their normal response, never a
       500. Malformed data is logged only by `{messageId, reason}`, never with record content.
+- [ ] The derivation helper is reached only after the caller has authorized the thread. On
+      thread GET, that means after the owner-scoped `getThreadWithMessages` succeeds. On share
+      creation, it means after `createThreadSnapshot`'s ownership check. The helper performs no
+      authorization of its own and is not exported for use from routes on unverified ids.
+- [ ] **Read cost is measured and reported against a concrete bound.** The PR reports two
+      numbers. (a) The median and p95 `pg_column_size(tool_calls)` for assistant rows on a
+      representative dataset: staging via a read-only query, or, if staging is unavailable, a
+      synthetic fixture built from real tool outputs, stating which. (b) The thread-GET handler
+      latency before and after on a 50-message pglite fixture. The owner's "materially worse"
+      condition trips, and the PR must flag it to the architect before merge, if the median
+      exceeds **14 KB/row** (2× the accepted ~7 KB) or the thread-GET latency increase exceeds
+      **2×** the baseline.
 - [ ] Raw `ToolCallRecord`s cannot reach a serializer. The derivation helper's return type
       contains only derived document blocks, and `messageReadColumns` / `MessageRow` still
       exclude `tool_calls`.
@@ -121,10 +140,14 @@ pays the storage cost.
       read back through the real thread GET and share GET handlers.
 - [ ] `arch-critical.md` is updated to the owner-ruled wording: read helpers may load
       `tool_calls` for derivation, no API response may serialize the raw records, and
-      `raw_payload` is never serialized. `raw_payload` stays in `messageReadColumns` because
-      history replay needs it, and the derivation helper never selects it. The ruling's phrase
-      "fully projected out" means out of every API response and out of derivation, not out of
-      the replay read. `arch.md` is updated to match.
+      `raw_payload` is never serialized in any response. `raw_payload` stays in
+      `messageReadColumns` because history replay needs it, and the derivation helper never
+      selects it. The ruling's phrase "fully projected out" means out of every API response and
+      out of derivation, not out of the replay read. `arch.md` is updated to match. The in-code
+      comments that make the same absolute claim are corrected in the same PR, with no stale copy
+      left behind: `db/schema/messages.ts` (the `toolCalls` column comment), `lib/db/threads.ts`
+      (the `MessageRow` and projection doc) and `lib/db/shares.ts` (the snapshot projection
+      comment).
 
 ## Constraints
 
@@ -164,6 +187,10 @@ pays the storage cost.
 ## Assumptions
 
 - `tool_calls` rows are write-once. Nothing updates a message's `tool_calls` after insert.
+- `tool_result` records are built at two sites in the facilitator: `buildToolResultRecord`
+  (executed, limit-refused and unknown-tool calls) and the inline budget-skip record. Both must
+  carry `result_meta`. The budget-skip record's is `[]`, because its `results` is `[]`. A
+  record's `result_meta` is present exactly when it was written after this change.
 - Each `tool_result` record's `content.results` has one entry per `ToolResult.documents` entry,
   in the same order. `formatToolResultForGemini` is a 1:1 `map`, which makes positional
   alignment reliable at write time.
@@ -283,8 +310,6 @@ the plan does not re-decide.
 3. Historical rows: **fail closed**.
 
 **Nice-to-know:**
-- The real per-thread read cost on staging-sized threads. The plan will measure it against the
-  ~7 KB/row figure and report it.
 - Whether the derivation helper should cap the number of documents per message. Not proposed:
   #66 shipped uncapped.
 
@@ -317,8 +342,10 @@ the plan does not re-decide.
    sent.
 9. **Structural safety:** the thread GET and share GET responses contain no `tool_calls`,
    `result_meta`, `raw_payload`, `status` or provenance keys, even with every column populated.
-   The existing contract scan is extended to cover `result_meta`, and that scan is itself
-   negative-tested.
+   The existing contract scan is extended to cover `result_meta`. The seeded fixture used by
+   the scan must include a `result_meta`-bearing record that derives documents, so the scan runs
+   against bytes where a leak is possible and does not pass vacuously. The scan pattern is
+   itself negative-tested against a known-bad and a known-near-miss line.
 10. **Replay untouched:** `findMessagesByThread` rows carry no `tool_calls` or `documents`, and
     turn-2+ history contains no document text.
 11. **Share:** a snapshot created after the change returns the same documents as thread GET. A
@@ -337,7 +364,7 @@ the plan does not re-decide.
 | Raw records leak into a response | Low | High | Dedicated helper whose return type holds only derived blocks. `MessageRow` unchanged. Extended key scan. |
 | Malformed or hand-edited jsonb causes a 500 on thread GET or share creation | Low | Medium | Per-record shape validation fails closed. A pglite test covers each malformed shape. |
 | `result_meta` misaligns with `results` (future change to `formatToolResultForGemini`) | Low | Medium | Both are built from the same `documents` array at one site. Derivation drops a record whose lengths differ. |
-| Thread GET latency or memory from detoasting `tool_calls` | Medium | Low–Medium | Owner accepted about 7 KB/row. The plan measures it and the PR reports it if materially worse. |
+| Thread GET latency or memory from detoasting `tool_calls` | Medium | Low–Medium | Owner accepted about 7 KB/row. The PR measures it and must flag it past the concrete bound (median > 14 KB/row or latency > 2× baseline). |
 | A future tool emits a non-text media type | Low | Medium | The pair is persisted per entry, never synthesized for new rows. |
 | Document text rendered unsafely by a client, including on public shares | Low | Medium | Plain JSON strings, unchanged from #66's contract. Clients render them as text. |
 | Snapshot duplication grows `shares` | Low | Low | It scales with shares only. Revisit with C2 if shares prove large. |
