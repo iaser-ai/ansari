@@ -1,0 +1,85 @@
+I'll verify this spec against the actual codebase before judging it.I read the actual code rather than relying on the spec's description. Verified claims and findings below.
+
+## What checks out
+
+Every structural claim I tested is accurate:
+
+- `formatToolResultForGemini` (`agent.ts:390`) is a 1:1 map over `result.documents` emitting `{title, context, content}` and **drops `citations.enabled`** — the root cause is real.
+- `search-quran.ts:86-88` emits `{title: 'No Results', citations: {enabled: false}}` structurally identical to a real hit at line 109; `resilience.ts:348` likewise. The "notice served as a citable source" hazard is not hypothetical.
+- `messageReadColumns` (`threads.ts:35-50`) omits `toolCalls`; `MessageRow = Omit<Message, 'toolCalls'|'modelProvider'|'modelId'>`; `createThreadSnapshot` (`shares.ts:33-41`) selects only role/content/createdAt. All as described.
+- `buildToolResultRecord` already receives the full `ToolResult`, so A1's `result_meta` can be built at the same site from the same array — feasible, no migration, `content` untouched.
+- Heading structure matches the template (identical section list to spec 73).
+
+## Issues
+
+**1. Factually wrong assumption about `v1/chat/completions`.** The spec's Assumptions say assistant messages from mcp-complete *and* v1/chat/completions "persist through the same facilitator records." `mcp-complete/route.ts:234` does pass `toolCalls: toolCallsOrNull(toolCalls)`. **`v1/chat/completions/route.ts:371-382` does not persist `toolCalls` at all** — no such field in the `createMessage` call, and `collectResponse` there doesn't thread them. Leaderboard threads will therefore never yield documents. Harmless outcome, wrong premise; correct the sentence so nobody plans or tests against it.
+
+**2. The "existing contract tests stay unmodified" mitigation is false, and it points the builder the wrong way.** `tests/thread-get-contract.test.ts:65,194` asserts `expect(Object.keys(m)).toEqual(MESSAGE_KEYS)` — exact set *and* order. Any message gaining `documents` fails it. Two consequences the spec must address:
+   - **Specify where `documents` sits** in the serialized message object (append last, or immediately after `content`). This is exactly the contract detail the frozen test pins; leaving it unstated invites the builder to *loosen* `MESSAGE_KEYS` (e.g. to a subset check) rather than assert the new exact shape — a direct hit on the paramount constraint.
+   - The seeded `RECORDS` fixture (line 55) has no `result_meta`, so under fail-closed the extended `TOOL_KEY_PATTERN` scan for `result_meta` would pass **vacuously**. Require a `result_meta`-bearing seed so both the key-set assertion and the scan are live — consistent with the negative-test discipline the spec otherwise applies well.
+
+**3. Doc-contradiction scope is too narrow.** Constraint 3 and the criteria name only `arch-critical.md` / `arch.md`. The same absolute wording is in code: `db/schema/messages.ts:102-106` ("no serializing or replay path selects it"), `lib/db/threads.ts:20-31` ("...and avoids detoasting ~7 KB median of jsonb per assistant row"), `lib/db/shares.ts:30-32`. Per your own lessons-critical ("fix a documentation defect everywhere"), add these to the success criteria.
+
+**4. No runtime validation requirement for the jsonb.** `ToolCallRecord.content` is `Record<string, unknown>` — `$type<>` is a compile-time fiction over untyped jsonb. The spec fails closed on `result_meta` length mismatch but says nothing about a malformed `results` (not an array, entry missing `title`/`content`, non-string values). Add a criterion: derivation validates each entry structurally and drops what doesn't validate — never emits `{title: undefined}`.
+
+**5. Two smaller items for the plan.** (a) The budget-skip record is built **inline** at `agent.ts:931`, not via `buildToolResultRecord` — `result_meta` must be handled at two sites (fail-closed makes it safe, but say so). (b) State that the derivation helper is only reachable after the existing ownership check in thread GET, so it can't become an unscoped read path.
+
+I made no changes to the tree.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Design is sound and verified against the code, but one assumption is factually wrong and the frozen-contract mitigation is false in a way that endangers the paramount API-stability constraint.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Assumption that `v1/chat/completions` persists facilitator tool records is wrong — `route.ts:371-382` never writes `toolCalls`.
+- Risk table claims existing contract tests stay unmodified; `thread-get-contract.test.ts:194` asserts an exact, ordered message key set and will fail. Spec must specify `documents`' position in the message object.
+- Extending the key scan to `result_meta` passes vacuously unless the seeded `RECORDS` fixture gains a `result_meta`-bearing record.
+- Doc-correction scope omits the contradicting in-code invariant comments in `db/schema/messages.ts`, `lib/db/threads.ts`, `lib/db/shares.ts`.
+- No requirement to runtime-validate the untyped `tool_calls` jsonb beyond the length-alignment check.
+- Minor: budget-skip record is built inline (second `result_meta` site); helper's authorization scoping unstated.The background template search finished with no results — there's no `protocols/spir/templates/spec.md` on disk in this worktree (it resolves from the installed package skeleton). I already validated the spec's structure against the sibling spec `codev/specs/73-persist-tool-use-and-tool-resu.md`, whose heading list is identical to spec 168's: Problem Statement, Current State, Desired State, Success Criteria, Constraints, Assumptions, Solution Approaches, Open Questions, Test Scenarios, Risks and Mitigation, References.
+
+So structure is not a defect, and my verdict stands unchanged:
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Design is sound and verified against the code, but one assumption is factually wrong and the frozen-contract mitigation is false in a way that endangers the paramount API-stability constraint.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Assumption that `v1/chat/completions` persists facilitator tool records is wrong — `route.ts:371-382` never writes `toolCalls`.
+- Risk table claims existing contract tests stay unmodified; `thread-get-contract.test.ts:194` asserts an exact, ordered message key set and will fail. Spec must specify `documents`' position in the message object.
+- Extending the key scan to `result_meta` passes vacuously unless the seeded `RECORDS` fixture gains a `result_meta`-bearing record.
+- Doc-correction scope omits the contradicting in-code invariant comments in `db/schema/messages.ts`, `lib/db/threads.ts`, `lib/db/shares.ts`.
+- No requirement to runtime-validate the untyped `tool_calls` jsonb beyond the length-alignment check.
+- Minor: budget-skip record is built inline at `agent.ts:931` (second `result_meta` site); helper's authorization scoping unstated.The template search did find copies — and it changes one part of my assessment. Reporting with the uncertainty intact.
+
+**What I found.** Three `spir/templates/spec.md` copies exist on this machine, but **none in this worktree**: two under `/tmp/.../scratchpad/{up_app,up_web}/` (a different worktree of this repo) and one in `repos/amrmelsayed/legacy-codev/codev-skeleton/`. All three agree on a fuller template than spec 168 uses:
+
+> Metadata, Clarifying Questions Asked, Problem Statement, Current State, Desired State, **Stakeholders**, Success Criteria, Constraints (Technical/Business), Assumptions, Solution Approaches, Open Questions, **Performance Requirements**, **Security Considerations**, Test Scenarios (Functional/Non-Functional), **Dependencies**, References, Risks and Mitigation, **Expert Consultation**, Approval, Notes, Amendments
+
+Spec 168 omits ten of these. And its heading list is **byte-identical to spec 73's** — which is the exact failure mode my review brief names: pattern-matching the previous spec in `codev/specs/` instead of the delivered template.
+
+**Why I'm not escalating on it.** I can't verify the authoritative template — `@cluesmith/codev` isn't installed in this worktree, so the version the specify prompt actually inlines is unavailable to me, and the three copies I found are from other repos/worktrees and may be stale. The omissions are also not a wholesale departure: the analytical core (Problem → Current → Desired → Criteria → Constraints → Assumptions → Approaches → Open Questions → Test Scenarios → Risks → References) is all present and in template order. What's missing is mostly process scaffolding (Metadata, Approval, Amendments, Expert Consultation, Notes) that porch may manage outside the doc. **Someone with the installed package should confirm which template is canonical** — if spec 73 set the house convention deliberately, this is a non-issue.
+
+**One substantive gap surfaces regardless of template provenance.** The two omitted headings that genuinely apply here are *Security Considerations* (this change puts retrieved source text on a public, unauthenticated share endpoint and widens a documented no-serialize invariant) and *Performance Requirements* (the ~7 KB/row detoast). The spec does cover both — scattered through the risk table, the C1 rationale, and Constraints #4 — so content isn't missing, only placement. **Except for one thing that is missing:** Constraint 4 says report the cost "if it turns out materially worse," and Open Questions defers measurement to the plan, but **no threshold is given**. There is no number the plan can test against, so "materially worse" is unfalsifiable and the owner's reporting condition can never trip. Add a concrete bound — e.g. p95 thread-GET latency delta, or a per-row detoast ceiling above which the PR must report.
+
+Adding that to the issue list; verdict unchanged.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Design is sound and verified against the code, but one assumption is factually wrong and the frozen-contract mitigation is false in a way that endangers the paramount API-stability constraint.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Assumption that `v1/chat/completions` persists facilitator tool records is wrong — `route.ts:371-382` never writes `toolCalls`.
+- Risk table claims existing contract tests stay unmodified; `thread-get-contract.test.ts:194` asserts an exact, ordered message key set and will fail. Spec must specify `documents`' position in the message object.
+- Extending the key scan to `result_meta` passes vacuously unless the seeded `RECORDS` fixture gains a `result_meta`-bearing record.
+- Doc-correction scope omits the contradicting in-code invariant comments in `db/schema/messages.ts`, `lib/db/threads.ts`, `lib/db/shares.ts`.
+- No requirement to runtime-validate the untyped `tool_calls` jsonb beyond the length-alignment check.
+- Owner's "report if materially worse" cost condition has no numeric threshold, so it is unfalsifiable — set a concrete latency/detoast bound.
+- Unresolved: spec heading list matches spec 73 rather than the fuller `spir/templates/spec.md` found outside this worktree (omits Security Considerations, Performance Requirements, Dependencies, Stakeholders, et al.). Confirm which template is canonical — I could not verify, as `@cluesmith/codev` is not installed here.
+- Minor: budget-skip record is built inline at `agent.ts:931` (second `result_meta` site); helper's authorization scoping unstated.

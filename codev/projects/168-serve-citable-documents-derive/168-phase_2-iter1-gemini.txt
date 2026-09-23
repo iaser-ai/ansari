@@ -1,0 +1,51 @@
+### Phase 2 Review: Citable-document Derivation Helper
+
+I have reviewed the Phase 2 implementation for [codev/plans/168-serve-citable-documents-derive.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/plans/168-serve-citable-documents-derive.md#L110-L162).
+
+---
+
+### Evaluation Against Criteria
+
+#### 1. Spec & Plan Adherence
+- **Dedicated Isolation ([`apps/api/lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts))**: The derivation helper is the sole module reading `messages.tool_calls` for serving. It projects only `id` and `tool_calls`, runs the pure derivation inside its own boundary, and returns only `Map<string, DocumentContentBlock[]>`. Raw `ToolCallRecord`s never escape the module.
+- **Pure Derivation (`deriveCitableDocuments`)**:
+  - Validates `toolCalls` input defensively as `unknown`, gracefully handling non-array and non-object elements without throwing.
+  - Correctly verifies each `tool_result` record and its nested `content.results` and `citations` array.
+  - Implements fail-closed citability: only entries with `citations[i].enabled === true` on aligned arrays are derived.
+  - Preserves dispatch order and removes duplicates on `(title, context, source.data)` keeping the first occurrence.
+  - Correctly omits `context` when `undefined` without emitting `null` or `undefined` keys.
+- **Compile-Time Fidelity Guard**: Uses `ExactLiteral<DocumentBlock['source']['type'], 'text'>` and `ExactLiteral<DocumentBlock['source']['media_type'], 'text/plain'>` to ensure that widening the `DocumentBlock['source']` types will cause a compilation error at `TEXT_SOURCE`.
+- **Database Helper (`findCitableDocumentsByThread`)**:
+  - Restricts selection to `role = 'assistant'` and `tool_calls IS NOT NULL` for the requested thread, ordered by `asc(messages.createdAt)`.
+  - Accepts an optional `exec: Executor = db` parameter for transaction compatibility.
+  - Omits messages with empty document arrays from the returned map.
+  - Emits deduplicated warnings for malformed non-legacy records containing only `{ messageId, reasons }`, completely sanitizing any stored text or payload content. Legacy rows (`no_citations`) are quietly excluded from warnings.
+
+#### 2. Code Quality & Error Handling
+- The runtime type assertions in `isObject` and `readResultRecord` cleanly partition untrusted JSON structures into closed literal error codes (`RejectReason`).
+- Per-record failure isolation ensures that one malformed record in a turn does not fail the entire request or prevent valid sibling records from deriving documents.
+- Documentation comments on `findCitableDocumentsByThread` explicitly state caller authorization requirements.
+
+#### 3. Test Coverage
+- **Pure Function Unit Tests ([`apps/api/tests/citable-documents.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/citable-documents.test.ts))**:
+  - Covers multi-record dispatch ordering, mixed records, budget skips, and all notice kinds (`degraded`, `limit_refused`, `unknown_tool`, `no_results`).
+  - Directly tests status-independence: proves that a zero-result notice with `status: 'ok'` is admitted by a status-based check but rejected by the flag-based derivation.
+  - Covers deduping behavior (same context, different context, and absent vs present context).
+  - Tests each malformed shape individually (`not_array`, `bad_content`, `bad_results`, `bad_entry`, `bad_citations`, `length_mismatch`, `bad_record`), asserting that sibling records still derive.
+  - Verifies that `rejected` contains only enum reasons and no sentinel record text.
+- **Database Integration Tests ([`apps/api/tests/citable-documents-db.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/citable-documents-db.test.ts))**:
+  - Runs against real PGlite instances, validating that user messages, NULL tool calls, other threads, and `tool_call_orphans` are ignored.
+  - Validates logging behavior: warns once per message with deduplicated reasons and confirms sentinel text is never leaked to logs.
+
+---
+
+### Verdict
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 delivers a clean, secure, and fail-closed derivation helper with robust pure and PGlite test coverage matching all spec criteria.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

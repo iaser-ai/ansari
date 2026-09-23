@@ -47,3 +47,7 @@
 - Flaky PRE-EXISTING tests (not 168): migration-schema-parity ("deployed on staging/production") and eslint-env-guard ("flags process.env.JWT_SECRET") hit the 5 s default vitest timeout under CPU load (2 of 4 root runs with a concurrent build, plus 1 plain run right after a build). Parity test is 0.5-0.7 s normally, identical on base c1c198d, so not a regression. I did NOT skip them, because parity is the #165 outage guard. I proposed per-test timeouts to the architect and am awaiting a decision.
 - Final clean run at HEAD 7b8a423 (after the phase_4 commit and the separate timeout-fix commit): turbo test --force → 83 files, 853 passed / 3 skipped (the same 3 skips as baseline); build 4/4 (one 3/4 run was traced to a stray detached background build from my load tests, both writing .next; no stray process was left and two clean rebuilds were 4/4); tsc clean; lint 0 errors (7 pre-existing warnings).
 - Staging storage figure: NOT re-run in Phase 4. The plan said it would be, but the architect ruled (2026-09-24) that the plan-stage measurement stands and no further staging queries are needed. The figure used is the one read-only, aggregates-only session: median 5.6 KB, p95 14.1 KB, n=80.
+
+## review
+- Review written. Lessons routed cold (new section) plus a hot map entry; arch was already routed in phase_4. The consult outputs are committed per the repo convention.
+- PR opens with the latency-bound decision still pending from the owner; the PR body marks it as blocking merge.

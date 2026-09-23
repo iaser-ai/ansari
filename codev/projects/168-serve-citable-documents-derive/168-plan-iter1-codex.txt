@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The architecture is sound, but the plan leaves two specification requirements insufficiently implementable or verifiable.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Citability remains computed inside the private `buildToolResultRecord`; the plan does not provide the reusable single computation point explicitly required for future #109 SSE use.
+- The latency measurement lacks a representative `tool_calls` payload distribution, warm-up/sample method, and a defined way to capture the pre-change baseline. A 50-message fixture could otherwise measure an empty or trivial derivation path.
+- Clarify how the pure derivation function reports malformed-data reasons to the DB wrapper without logging itself or exposing raw records; its stated return type contains only documents, yet the wrapper must emit one reasoned warning per affected message.
