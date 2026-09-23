@@ -31,6 +31,8 @@ export async function createThreadSnapshot(
   // Get all messages — explicit projection of ONLY the snapshot's fields.
   // tool_calls / raw_payload are internal columns that must never enter a
   // serialized snapshot (spec 73): not selecting them makes that structural.
+  // Citable documents come from lib/db/citable-documents.ts below, which
+  // returns derived blocks only (spec 168).
   const threadMessages = await db
     .select({
       // Lookup key for the citable documents only — never written to the snapshot.
