@@ -18,4 +18,10 @@
   apps/api lib/src/db/tests are byte-identical to pre-#162. Full suite green (77 files); probe-column negative control fails all 3 DB checks.
 - PR #173. CMAP: codex=APPROVE, claude=APPROVE, gemini=skipped (agy produced no output). NOTE: `consult` needs `--issue 165` inside a builder, or it errors "Multiple projects found".
 - Claude follow-ups applied: close the PGlite clients; add a "superseded by #165" banner on the #66 review; document the `DEPLOYED_THROUGH` rule in arch-critical.
-  Architect decision surfaced: the guard deliberately red-lights any future migration-adding PR until the constant is bumped. That bump is the deploy-prerequisite flag.
+  Architect decision surfaced: keep DEPLOYED_THROUGH.
+- Architect review (PR comment): the guard fires only when an EXERCISED path names a new column (tool_calls-shaped columns
+  pass silently). A bump is a declaration, not verification: had this test existed at #162, the builder would have bumped it
+  and staging would still have broken. Wording corrected in the test comment and arch-critical. The deploy-time
+  information_schema check is #176. The gitleaks CI failure is a false positive from builder/pir-128 (#175); not worked around here.
+- Negative test (architect's request): re-adding `documents: jsonb('documents')` to the schema without a migration fails 3/5
+  (deployed-state + full-journal with 42703; parity with `['messages.documents']`). After restoring, 5/5 pass.

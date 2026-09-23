@@ -37,10 +37,13 @@ import { createThread, createMessage, getThreadWithMessages, findMessagesByThrea
 import { createThreadSnapshot } from '@/lib/db/shares';
 
 const DRIZZLE_DIR = path.resolve(__dirname, '../../drizzle');
-// Last migration the deployed code may rely on. A PR whose schema needs a newer
-// migration fails the deployed-state test until it advances this constant. That
-// bump is the PR's explicit statement that the migration must be applied on
-// staging AND production BEFORE the code deploys (arch-critical.md deploy order).
+// Last migration the deployed code may rely on. The deployed-state test fails
+// only when a path it EXERCISES names a newer column (every messages INSERT or
+// RETURNING does). A column that no exercised read or write names passes
+// silently, as tool_calls would. Advancing this constant is a DECLARATION that
+// the migration must be applied on staging AND production before the code
+// deploys (arch-critical.md deploy order). It is not evidence that anyone
+// applied it: a bumped constant goes green whether or not the migration ran.
 const DEPLOYED_THROUGH = '0008_model_provenance';
 
 type JournalEntry = { idx: number; tag: string };
