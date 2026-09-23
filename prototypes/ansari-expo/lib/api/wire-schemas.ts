@@ -33,8 +33,9 @@ export const threadListSchema = z.array(threadSchema);
 /**
  * A single Claude-format content block. Text blocks are strictly typed because
  * we render them; other block kinds (tool_use, tool_result, document, and any
- * future type) only need a `type` string — we don't render them, so we tolerate
- * their shape while still rejecting genuinely malformed content (e.g. a number).
+ * future type) only need a `type` string — we don't render them from `content`,
+ * so we tolerate their shape while still rejecting genuinely malformed content
+ * (e.g. a number). Real source documents arrive separately, in `documents`.
  */
 export const contentBlockSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string() }),
@@ -47,6 +48,24 @@ export const messageContentSchema = z.union([
   z.array(contentBlockSchema),
 ]);
 
+/**
+ * A retrieved source document (issue #66) — the `document` ContentBlock
+ * apps/api persists for an answer: `source.data` is the text itself (JSON
+ * `{ar, en, …}` for Qur'an/hadith, a plain passage for the encyclopedias).
+ * Strictly typed, since we render every field of it.
+ */
+export const documentBlockSchema = z.object({
+  type: z.literal('document'),
+  source: z.object({
+    type: z.string(),
+    media_type: z.string(),
+    data: z.string(),
+  }),
+  title: z.string(),
+  context: z.string().optional(),
+});
+export type WireDocument = z.infer<typeof documentBlockSchema>;
+
 export const wireMessageSchema = z.object({
   id: z.string(),
   role: z.string(),
@@ -54,6 +73,10 @@ export const wireMessageSchema = z.object({
   agent_name: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
   created_at: z.string().optional(),
+  // The answer's citable sources (issue #66). apps/api emits the key only when
+  // non-empty, and an older deploy never does — so it is optional. A present
+  // but malformed array still throws.
+  documents: z.array(documentBlockSchema).optional(),
 });
 export type WireMessage = z.infer<typeof wireMessageSchema>;
 
