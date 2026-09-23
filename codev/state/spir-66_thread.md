@@ -74,3 +74,10 @@
 - Docs: arch.md new "Citable documents" paragraph + fixed stale snapshot-projection/migration-number
   claims in the spec-73 paragraph; arch-critical frozen-contract fact extended in place.
 - Suite 813 passed / 3 skipped; typecheck clean; lint 0 errors.
+
+## Review (2026-09-23)
+- Review doc written: codev/reviews/66-apps-api-discards-retrieved-so.md. Suite re-run: 813 passed / 3 skipped,
+  typecheck clean, lint 0 errors.
+- Lessons routed cold (new lessons-learned section "Citable documents (issue #66)") + one hot map entry;
+  hot lesson list is at cap, unchanged. Arch docs were already updated in phase 3.
+- PR opened against develop; awaiting porch 3-way PR consult and the `pr` gate.
