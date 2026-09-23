@@ -56,7 +56,8 @@ is the step that connects them.
 
 - Every assistant answer produced by a user-facing chat path persists the **citable source
   documents** retrieved during that turn. These are the documents with
-  `citations.enabled: true`, in dispatch order, with exact duplicates collapsed. They are
+  `citations.enabled: true`, in dispatch order, with duplicates collapsed (see the definition
+  under Success Criteria). They are
   stored with the existing `document` ContentBlock shape, on the assistant message's own row.
 - `GET /api/v2/threads/{id}` returns them on each assistant message as a new sibling field
   `documents`, next to the existing fields. `content` keeps exactly its current value and form
@@ -78,8 +79,13 @@ is the step that connects them.
 - [ ] Only `citations.enabled: true` documents are persisted. "No results", "temporarily
       unavailable", "tool limit" and "unknown tool" notices are not.
 - [ ] Documents from every tool dispatch in the turn are included (all loop iterations and the
-      synthesis path), in dispatch order, with exact duplicates (same title and text) persisted
-      once.
+      synthesis path), in dispatch order. **Deduplication:** two documents are duplicates when
+      their `title`, `context` and `source.data` are all equal. The first occurrence is kept at
+      its original position and later ones are dropped. `source.type`/`media_type` are constant
+      today and are not compared.
+- [ ] Each persisted document has exactly the fields `type`, `source {type, media_type,
+      data}`, `title` and `context` (when present). The in-process `citations` flag is not
+      persisted or returned; every persisted document is citable by definition.
 - [ ] `GET /api/v2/threads/{id}` returns them as `documents` on the owning assistant message.
 - [ ] Share snapshots created after the change record each message's documents.
       `GET /api/v2/share/{id}` returns them as `documents`. Older snapshots omit the key.
@@ -94,10 +100,16 @@ is the step that connects them.
       assertion are each shown to **fail** when documents are dropped (persist site omits them;
       GET omits them; share omits them), and to pass again once restored. The review records this.
 - [ ] The persisted documents are covered by a real-DB (pglite) test, not only mocks.
-- [ ] Documents never appear in Gemini history on a later turn (raw-payload path and
-      text-only fallback path), in `raw_payload`, or in `tool_calls`.
+- [ ] The new documents store never feeds Gemini history on a later turn (raw-payload path and
+      text-only fallback path) and never adds `document` blocks to `raw_payload`. `raw_payload`
+      and `tool_calls` are written exactly as before this change. `tool_calls` already contains
+      tool-result text through `formatToolResultForGemini` (spec 73), and that stays as it is.
+      The model's own answer text may quote a source as it does today.
 - [ ] Answer text unchanged. No edits under `lib/ai/prompts/`. `formatToolResultForGemini`
       output unchanged.
+- [ ] Returned document fields are plain JSON strings, never HTML or markup the API
+      interprets. Clients must render them as untrusted plain text. The API adds no escaping
+      or transformation that would alter the source text.
 - [ ] Existing suite green (`pnpm` test, typecheck and lint for `apps/api`).
 
 ## Constraints
@@ -200,10 +212,13 @@ accepted the departure on 2026-09-22.
 - **Empty vs omitted.** `documents` is omitted when there are none. It is stored as NULL,
   never `[]`.
 
-**Nice-to-know**
-- Whether to cap documents per message, or truncate `source.data`, for very long mawsuah or
-  tafsir entries. Not proposed. The CitationSheet needs the full text, and the size is bounded
-  by the tools' own result limits.
+**Size bounds (decided in this spec).** There is no new cap or truncation. Document count
+and size are bounded by the existing limits: each tool's own result limit and the
+facilitator's tool-usage limit per turn. The CitationSheet needs the full text. Spec 73's
+~7 KB median per tool result is accepted, and so are its tail sizes (large Usul/mawsuah
+entries). That exposure already applies to `tool_calls`, and here it becomes client-visible,
+including on public shares. The retrieved texts are published Islamic sources, not user data.
+Revisit with a cap if thread-GET or share payloads prove large in practice.
 
 ## Migration (human-applied)
 
@@ -263,6 +278,7 @@ The new column is a schema change and follows the `arch-critical.md` DB rule:
 | Migration not applied before deploy → insert fails on the new column | Low | High | Standard deploy order (migration → deploy), called out in the PR and review. |
 | Tests pass without exercising the path (mock drift, swallowed errors) | Medium | Medium | pglite test for persistence. Negative tests. Grep factory mocks. |
 | Payload growth slows thread GET for long threads | Low | Low | ~7 KB per retrieval answer. Revisit with pagination if it matters. |
+| Provider text rendered unsafely by a client (markup injection), including on public shares | Low | Medium | API returns plain JSON strings, unchanged. Clients must render them as plain text. Stated in the contract. |
 
 ## References
 
