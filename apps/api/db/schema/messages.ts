@@ -9,6 +9,9 @@ export type ContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string }
   | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string };
 
+/** A retrieved source document persisted with an assistant turn (issue #66). */
+export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
+
 // Tool dispatch records (spec 73). Persisted in the SEPARATE `tool_calls`
 // column — NEVER in `content` — so no API-serialization path can leak them to
 // the frozen mobile/web contract. Interleaved in dispatch order:

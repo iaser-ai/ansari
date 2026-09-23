@@ -27,3 +27,15 @@
   existing exact-key contract assertions must stay unmodified; client-parser check targets `legacy/frontend-{web,app}` + prototype, not apps/frontend;
   collision-safe dedupe key `JSON.stringify([title, context ?? null, data])`.
 - Now at plan-approval gate, waiting for human approval.
+- plan-approval APPROVED 2026-09-23 by the human (typed in this builder's terminal).
+
+## Implement — Phase 1 (2026-09-23)
+- New `lib/facilitator/citable-documents.ts` collector (filters on `citations.enabled === true`, fails closed;
+  JSON-tuple dedupe key; projects to the `document` ContentBlock; `undefined` when empty). `DocumentContentBlock`
+  type exported from `db/schema/messages.ts`.
+- `agent.ts`: one collector per request, fed right after `processToolCall` for every executed dispatch; both `done`
+  yields spread `documents` in only when non-empty. `error` yields, the tool_result frame, the Gemini functionResponse,
+  and tool_calls records are unchanged, and the existing facilitator-*.test.ts suites pass with no edits.
+- Tests: 9 unit tests + 13 facilitator tests. Negative-tested twice: dropping the `add` call fails 7 tests, and
+  dropping the enabled filter fails 8. Both pass again once restored.
+- Full suite 785 passed / 3 skipped; typecheck clean; lint 0 errors (7 warnings were already there, none in touched files).
