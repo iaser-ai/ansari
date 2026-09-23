@@ -94,6 +94,13 @@ const ECHO_ID = '__asked-question';
 // successive answers from colliding. (Same identity trick as ECHO_ID.)
 const STREAM_KEY_PREFIX = '__streaming-answer-';
 
+// Per-turn list key for a follow-up typed into the thread (as opposed to the
+// carried-in `q`, which keeps ECHO_ID). Same identity trick, same reason: the
+// synthetic question row and the persisted copy it hands off to share one
+// key, so it renders the instant it's sent instead of waiting for the
+// post-`done` refetch, and never remounts when the refetch lands.
+const FOLLOWUP_KEY_PREFIX = '__followup-question-';
+
 /**
  * The measures the first lines of an answer are held open at while a
  * conversation loads. Six lines is about the height an opening answer
@@ -193,6 +200,12 @@ export default function ChatScreen() {
   // text, which has lost the context a "Citations:" heading cut depends on.
   // Reset wherever `streamingText` is.
   const rawStreamText = useRef('');
+  // A follow-up typed into the thread this turn, held here until the
+  // reconciler can hand it off to the server's persisted copy (see
+  // `landedFollowUp` / FOLLOWUP_KEY_PREFIX). The carried-in `q` never sets
+  // this — it already has ECHO_ID.
+  const [pendingFollowUp, setPendingFollowUp] = useState('');
+  const followUpKey = useRef('');
   const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
   const turnSeq = useRef(0);
@@ -317,10 +330,14 @@ export default function ChatScreen() {
     setFailedQuestion(null);
     turnSeq.current += 1;
     streamKey.current = `${STREAM_KEY_PREFIX}${turnSeq.current}`;
+    followUpKey.current = `${FOLLOWUP_KEY_PREFIX}${turnSeq.current}`;
     sentAtCount.current = conversationQuery.data.messages.length;
     rawStreamText.current = '';
     setStreamingText('');
     setTrace([]);
+    // The carried-in question already renders under ECHO_ID; only a
+    // thread-typed follow-up needs the synthetic echo.
+    setPendingFollowUp(opening ? '' : content);
     sendMessage.mutate({ conversationId, data: { content } });
     // Scrolling now would race the waiting line's own layout. The
     // request is parked and spent when the list reports its new size.
@@ -349,7 +366,7 @@ export default function ChatScreen() {
   // bubble while text streams, and the landed-answer detection that drives
   // the `done` hand-off.
   const serverMessages = conversationQuery.data?.messages;
-  const { messages, landedAnswer } = useMemo(
+  const { messages, landedAnswer, landedFollowUp } = useMemo(
     () =>
       reconcileThread({
         serverMessages,
@@ -358,11 +375,13 @@ export default function ChatScreen() {
         streamingText,
         streamKey: streamKey.current,
         sentAtCount: sentAtCount.current,
+        pendingFollowUp,
+        followUpKey: followUpKey.current,
       }),
-    // streamKey / sentAtCount are refs, current at each recompute; the
-    // reactive inputs are the ones listed.
+    // streamKey / followUpKey / sentAtCount are refs, current at each
+    // recompute; the reactive inputs are the ones listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [serverMessages, q, conversationId, streamingText],
+    [serverMessages, q, conversationId, streamingText, pendingFollowUp],
   );
 
   // The row's stable list identity. On the `done` hand-off the landed
@@ -405,19 +424,31 @@ export default function ChatScreen() {
   // streaming state in the same commit — no duplicate, no gap. The landed
   // message also inherits the bubble's "already drawn" status, so the
   // in-place swap is not mistaken for new content and re-animated.
+  //
+  // The same commit gives a thread-typed follow-up's persisted copy the
+  // exact same durable treatment: without it, clearing `pendingFollowUp`
+  // here would make the row revert to its raw server id and re-animate as
+  // if it had just appeared.
   useEffect(() => {
     if (streamingText && landedAnswer) {
       const key = streamKey.current;
       const id = landedAnswer.id;
-      setKeyOverrides((prev) =>
-        prev[id] === key ? prev : { ...prev, [id]: key },
-      );
+      setKeyOverrides((prev) => {
+        const next = prev[id] === key ? prev : { ...prev, [id]: key };
+        if (!landedFollowUp) return next;
+        const followUpId = landedFollowUp.id;
+        return next[followUpId] === followUpKey.current
+          ? next
+          : { ...next, [followUpId]: followUpKey.current };
+      });
       drawn.current?.add(key);
+      if (landedFollowUp) drawn.current?.add(followUpKey.current);
       rawStreamText.current = '';
       setStreamingText('');
       setTrace([]);
+      setPendingFollowUp('');
     }
-  }, [streamingText, landedAnswer]);
+  }, [streamingText, landedAnswer, landedFollowUp]);
 
   // The thread is waiting on an answer while a follow-up is in flight,
   // or while the question we arrived with has yet to be answered.
