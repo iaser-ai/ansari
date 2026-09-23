@@ -5,14 +5,14 @@ phase: implement
 plan_phases:
   - id: phase_1
     title: Facilitator collects citable documents on the done event
-    status: in_progress
+    status: complete
   - id: phase_2
     title: documents column, migration, and persistence at both chat routes
-    status: pending
+    status: in_progress
   - id: phase_3
     title: Thread GET and share return documents additively
     status: pending
-current_plan_phase: phase_1
+current_plan_phase: phase_2
 gates:
   spec-approval:
     status: approved
@@ -26,10 +26,10 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-09-22T22:45:03.432Z'
-updated_at: '2026-09-23T06:38:09.429Z'
+updated_at: '2026-09-23T06:42:49.417Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-09-23T00:32:34.653Z'
@@ -37,3 +37,5 @@ context_refreshes:
   - boundary: enter:implement
     at: '2026-09-23T06:33:11.777Z'
     acknowledged_at: '2026-09-23T06:34:02.579Z'
+  - boundary: plan-phase:phase_2
+    at: '2026-09-23T06:42:49.417Z'
