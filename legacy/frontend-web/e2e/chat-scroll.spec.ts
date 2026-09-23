@@ -1,12 +1,17 @@
 /* eslint-disable camelcase -- mocked API payloads use the backend's snake_case fields */
 import { expect, Page, Route, test } from '@playwright/test'
+import { createServer } from 'node:http'
+import { AddressInfo } from 'node:net'
 
 /**
- * Regression test for issue #84: after every sent message the chat swapped the
+ * Regression tests for issue #84: after every sent message the chat swapped the
  * message list for a full-screen spinner and remounted it scrolled to the top.
+ * And for issue #164: while an answer streams, a reader at the bottom follows it,
+ * a reader who scrolled up is left alone, and a jump-to-latest button brings them back.
  *
- * Every backend route is intercepted, so the test is deterministic and never
- * touches a real API.
+ * Every backend route is intercepted, so the tests are deterministic and never
+ * touch a real API. route.fulfill() cannot stream, so streamed answers come from a
+ * tiny local HTTP server the POST is redirected to.
  */
 
 const THREAD_ID = '1'
@@ -25,6 +30,19 @@ const ANSWER_LATENCY_MS = 1500
 // The app refetches the thread list right after the answer and again 2s later.
 const OBSERVATION_WINDOW_MS = 3500
 
+// A streamed answer: long enough to overflow the viewport, in small chunks over several seconds.
+const STREAM_END = 'END-OF-STREAMED-ANSWER'
+const STREAM_ANSWER = Array.from(
+  { length: 24 },
+  (_, i) => `Streamed paragraph ${i + 1}. ${'Lorem ipsum dolor sit amet. '.repeat(6)}`,
+)
+  .concat(STREAM_END)
+  .join('\n\n')
+const STREAM_CHUNKS = 60
+const STREAM_CHUNK_MS = 120
+// A reader counts as "at the bottom" within this many pixels of it (the app's threshold is 50).
+const AT_BOTTOM_PX = 50
+
 // API calls the fake backend does not know; checked after every test so a new endpoint fails loudly.
 const unmockedCalls: string[] = []
 
@@ -38,16 +56,53 @@ const json = (route: Route, body: unknown): Promise<void> =>
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
 
 /**
- * Installs a stateful fake backend: a long thread that gains a question/answer pair when a message is posted.
- * threadLatencyMs delays the thread fetch so the opening spinner can be observed.
+ * Serves `answer` as a chunked text/event-stream, calling beforeEnd() just before closing the stream.
  */
-async function mockBackend(page: Page, threadLatencyMs = 0): Promise<void> {
+async function startStreamServer(answer: string, beforeEnd: () => void): Promise<{ url: string; close: () => void }> {
+  const size = Math.ceil(answer.length / STREAM_CHUNKS)
+  const chunks = Array.from({ length: STREAM_CHUNKS }, (_, i) => answer.slice(i * size, (i + 1) * size)).filter(Boolean)
+  const server = createServer(async (req, res) => {
+    req.resume()
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+    for (const chunk of chunks) {
+      res.write(chunk)
+      await sleep(STREAM_CHUNK_MS)
+    }
+    beforeEnd()
+    res.end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, 'localhost', resolve))
+  const { port } = server.address() as AddressInfo
+  return { url: `http://localhost:${port}/stream`, close: () => server.close() }
+}
+
+type MockOptions = {
+  // Delays the thread fetch so the opening spinner can be observed.
+  threadLatencyMs?: number
+  // Streams the answer in chunks instead of returning it in one response.
+  streamed?: boolean
+}
+
+/**
+ * Installs a stateful fake backend: a long thread that gains a question/answer pair when a message is posted.
+ * Returns a cleanup function.
+ */
+async function mockBackend(page: Page, { threadLatencyMs = 0, streamed = false }: MockOptions = {}): Promise<() => void> {
   unmockedCalls.length = 0
   const messages: ApiMessage[] = Array.from({ length: 30 }, (_, i) => ({
     id: uuid(i),
     role: i % 2 === 0 ? 'user' : 'assistant',
     content: `Seed message ${i + 1}. ${'Some earlier conversation text. '.repeat(10)}`,
   }))
+  const answer = streamed ? STREAM_ANSWER : ANSWER
+  // The real backend persists the turn before closing the stream.
+  const persistTurn = (): void => {
+    messages.push(
+      { id: uuid(messages.length), role: 'user', content: QUESTION },
+      { id: uuid(messages.length + 1), role: 'assistant', content: answer },
+    )
+  }
+  const stream = streamed ? await startStreamServer(answer, persistTurn) : null
 
   // Nothing may leave the machine: abort everything that is not the app itself.
   await page.route(
@@ -73,16 +128,14 @@ async function mockBackend(page: Page, threadLatencyMs = 0): Promise<void> {
     }
     if (method === 'POST' && path === `/threads/${THREAD_ID}`) {
       await sleep(ANSWER_LATENCY_MS)
-      // The real backend persists the turn before closing the stream.
-      messages.push(
-        { id: uuid(messages.length), role: 'user', content: QUESTION },
-        { id: uuid(messages.length + 1), role: 'assistant', content: ANSWER },
-      )
+      if (stream) return route.continue({ url: stream.url })
+      persistTurn()
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: ANSWER })
     }
     unmockedCalls.push(`${method} ${path}`)
     return route.fulfill({ status: 501 })
   })
+  return () => stream?.close()
 }
 
 /**
@@ -162,11 +215,123 @@ test('sending a message keeps the message list mounted and its scroll position',
 })
 
 test('opening a thread still shows a spinner until the thread has loaded', async ({ page }) => {
-  await mockBackend(page, 1000)
+  await mockBackend(page, { threadLatencyMs: 1000 })
   await authenticate(page)
 
   await page.goto(`/chat/${THREAD_ID}`)
   await expect(page.getByTestId('message-list-loading')).toBeVisible()
   await expect(page.getByTestId('message-list-scroll').getByText('Seed message 30.')).toBeVisible()
   await expect(page.getByTestId('message-list-loading')).toHaveCount(0)
+})
+
+/**
+ * Starts sampling the real scroller every frame into window.__streamProbe. On web the list grows to its
+ * content height and an ancestor scrolls, so the scroller is whichever ancestor really scrolls.
+ */
+async function startStreamProbe(page: Page): Promise<void> {
+  await page.evaluate((streamEnd) => {
+    let scroller = document.querySelector('[data-testid="message-list-scroll"]') as HTMLElement
+    while (
+      scroller.parentElement &&
+      !(/auto|scroll/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight + 1)
+    ) {
+      scroller = scroller.parentElement
+    }
+    const probe = { heights: [] as number[], maxGap: 0, startHeight: scroller.scrollHeight, done: false }
+    ;(window as any).__scroller = scroller
+    ;(window as any).__streamProbe = probe
+    const sample = (): void => {
+      if (probe.done) return
+      const height = scroller.scrollHeight
+      if (probe.heights[probe.heights.length - 1] !== height) probe.heights.push(height)
+      probe.maxGap = Math.max(probe.maxGap, height - scroller.scrollTop - scroller.clientHeight)
+      if (document.body.innerText.includes(streamEnd)) probe.done = true
+      else requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  }, STREAM_END)
+}
+
+const gapToBottom = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const s = (window as any).__scroller as HTMLElement
+    return s.scrollHeight - s.scrollTop - s.clientHeight
+  })
+
+async function openLongThread(page: Page): Promise<void> {
+  await authenticate(page)
+  await page.goto(`/chat/${THREAD_ID}`)
+  await expect(page.getByTestId('message-list-scroll').getByText('Seed message 30.')).toBeVisible()
+  await expect(page.getByTestId('message-list-loading')).toHaveCount(0)
+  await page.waitForTimeout(THREAD_LIST_LATENCY_MS * 2)
+}
+
+async function send(page: Page): Promise<void> {
+  await page.locator('textarea').fill(QUESTION)
+  await page.locator('textarea').press('Enter')
+}
+
+test('a reader at the bottom follows a streamed answer to its end', async ({ page }) => {
+  const cleanup = await mockBackend(page, { streamed: true })
+  try {
+    await openLongThread(page)
+    await send(page)
+
+    // Sending scrolls the new question into view.
+    await expect(page.getByTestId('message-list-scroll').getByText(QUESTION)).toBeInViewport()
+    await startStreamProbe(page)
+    await expect(page.getByText('Streamed paragraph 1.')).toBeAttached({ timeout: 15_000 })
+    await expect(page.getByTestId('scroll-to-bottom-button')).toBeHidden()
+
+    await expect(page.getByText(STREAM_END)).toBeAttached({ timeout: 20_000 })
+    const probe = await page.evaluate(() => (window as any).__streamProbe)
+    // Guard against a quiet pass: the answer must really have arrived in many steps and overflowed the view.
+    expect(probe.heights.length, 'the answer did not stream in chunks').toBeGreaterThan(10)
+    expect(probe.heights[probe.heights.length - 1] - probe.startHeight).toBeGreaterThan(800)
+
+    expect(probe.maxGap, 'the newest text fell below the fold while streaming').toBeLessThanOrEqual(AT_BOTTOM_PX * 2)
+    await expect(page.getByText(STREAM_END)).toBeInViewport()
+    await page.waitForTimeout(OBSERVATION_WINDOW_MS)
+    expect(await gapToBottom(page), 'the view drifted off the bottom after the stream').toBeLessThanOrEqual(AT_BOTTOM_PX)
+    await expect(page.getByTestId('scroll-to-bottom-button')).toBeHidden()
+  } finally {
+    cleanup()
+  }
+})
+
+test('a reader who scrolls up mid-stream is not moved, and the jump button brings them back', async ({ page }) => {
+  const cleanup = await mockBackend(page, { streamed: true })
+  try {
+    await openLongThread(page)
+    await send(page)
+    await startStreamProbe(page)
+    await expect(page.getByText('Streamed paragraph 3.')).toBeAttached({ timeout: 15_000 })
+
+    // Scroll up like a reader would; the stream must not pull them back down.
+    const parked = await page.evaluate(() => {
+      const s = (window as any).__scroller as HTMLElement
+      s.scrollTop = s.scrollTop - 800
+      return s.scrollTop
+    })
+    await expect(page.getByTestId('scroll-to-bottom-button')).toBeVisible()
+    const heightBefore = await page.evaluate(() => (window as any).__scroller.scrollHeight)
+    await page.waitForTimeout(1500)
+    const held = await page.evaluate(() => {
+      const s = (window as any).__scroller as HTMLElement
+      return { scrollTop: s.scrollTop, height: s.scrollHeight }
+    })
+    expect(held.height, 'the stream stopped growing while the reader was scrolled up').toBeGreaterThan(heightBefore)
+    expect(Math.abs(held.scrollTop - parked), 'the scrolled-up reader was moved').toBeLessThanOrEqual(1)
+
+    // One tap returns them to the bottom and following re-engages for the rest of the stream.
+    await page.getByTestId('scroll-to-bottom-button').click()
+    await expect.poll(() => gapToBottom(page)).toBeLessThanOrEqual(AT_BOTTOM_PX)
+    await expect(page.getByTestId('scroll-to-bottom-button')).toBeHidden()
+    await expect(page.getByText(STREAM_END)).toBeAttached({ timeout: 20_000 })
+    await expect(page.getByText(STREAM_END)).toBeInViewport()
+    await page.waitForTimeout(OBSERVATION_WINDOW_MS)
+    expect(await gapToBottom(page)).toBeLessThanOrEqual(AT_BOTTOM_PX)
+  } finally {
+    cleanup()
+  }
 })

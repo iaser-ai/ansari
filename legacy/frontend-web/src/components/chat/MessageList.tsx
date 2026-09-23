@@ -2,10 +2,13 @@ import { ScrollToBottomIcon } from '@/components/svg'
 import { useScreenInfo } from '@/hooks'
 import { Message, RootState, Thread, UserRole } from '@/store'
 import { Helpers } from '@/utils'
-import React, { forwardRef, useRef, useState } from 'react'
+import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native'
 import { useSelector } from 'react-redux'
 import MessageBubble, { MessageBubbleProps } from './MessageBubble'
+
+// Within this many pixels of the bottom the reader counts as being at the bottom.
+const AT_BOTTOM_THRESHOLD_PX = 50
 
 // Memoize MessageBubble to avoid unnecessary re-renders
 const areEqual = (prevProps: MessageBubbleProps, nextProps: MessageBubbleProps) =>
@@ -43,10 +46,65 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     ref,
   ) => {
     const scrollViewRef = useRef<ScrollView>(null)
-    const [displayScrollButton, setDisplayScrollButton] = useState(false)
+    // Whether new content should keep the bottom in view: set on send or on reaching the bottom, and
+    // cleared only when the reader scrolls up. Off until then, so opening a thread does not move the reader.
+    const followRef = useRef(false)
+    const lastScrollTopRef = useRef(0)
+    const [isAtBottom, setIsAtBottom] = useState(true)
     const sideMenuWidth = useSelector((state: RootState) => state.sideMenu.width)
-    const { isSmallScreen, height, contentWidth } = useScreenInfo(sideMenuWidth)
+    const { isSmallScreen, contentWidth } = useScreenInfo(sideMenuWidth)
     const theme = useSelector((state: RootState) => state.theme.theme)
+
+    // On web the ScrollView grows to its content height and an ancestor (the overflow-y-auto View in
+    // app/(app)/_layout.tsx) does the scrolling, so find whichever element really scrolls.
+    const getWebScroller = (): HTMLElement | null => {
+      let node: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
+      while (
+        node &&
+        !(/auto|scroll/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1)
+      ) {
+        node = node.parentElement
+      }
+      return node
+    }
+
+    const scrollToEnd = (animated = false): void => {
+      followRef.current = true
+      setIsAtBottom(true)
+      if (Platform.OS !== 'web') {
+        scrollViewRef.current?.scrollToEnd({ animated })
+        return
+      }
+      getWebScroller()?.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: animated ? 'smooth' : 'auto' })
+    }
+
+    const updateScrollPosition = useCallback((scrollTop: number, distanceToBottom: number): void => {
+      const atBottom = distanceToBottom <= AT_BOTTOM_THRESHOLD_PX
+      // Growing content widens the distance without moving scrollTop, so only an upward scroll means the
+      // reader left the bottom; that is what stops the list from following them (issue #84: never move them).
+      if (atBottom) followRef.current = true
+      else if (scrollTop < lastScrollTopRef.current - 1) followRef.current = false
+      lastScrollTopRef.current = scrollTop
+      setIsAtBottom(atBottom)
+    }, [])
+
+    // Scroll events do not bubble, so listen in the capture phase for the ancestor that scrolls on web.
+    useEffect(() => {
+      if (Platform.OS !== 'web') return
+      const onScroll = (event: Event): void => {
+        const target = event.target
+        const list: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
+        if (!(target instanceof HTMLElement) || !list || !target.contains(list)) return
+        updateScrollPosition(target.scrollTop, target.scrollHeight - target.scrollTop - target.clientHeight)
+      }
+      document.addEventListener('scroll', onScroll, true)
+      return () => document.removeEventListener('scroll', onScroll, true)
+    }, [updateScrollPosition])
+
+    // Sending is the reader's own action, so bring the new question and the thinking indicator into view.
+    useEffect(() => {
+      if (isSending) scrollToEnd()
+    }, [isSending])
 
     if (isLoading && !isSending) {
       return (
@@ -57,16 +115,16 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     }
     // Scroll to Bottom Button component
     const ScrollToBottomButton = () => (
-      <View className='absolute bottom-[25px] items-center justify-center w-full'>
+      // The page itself scrolls on web, so pin the button to the viewport there.
+      <View className={`${Platform.OS === 'web' ? 'fixed bottom-[120px]' : 'absolute bottom-[25px]'} right-[24px]`}>
         <Pressable
+          testID='scroll-to-bottom-button'
+          accessibilityLabel='Scroll to bottom'
           className='rounded-[15px] p-[10px]'
           style={{
             backgroundColor: theme.sendIconColor,
           }}
-          onPress={() => {
-            setDisplayScrollButton(false)
-            scrollViewRef.current?.scrollToEnd()
-          }}
+          onPress={() => scrollToEnd(true)}
         >
           <ScrollToBottomIcon
             name='Scroll to Bottom'
@@ -90,13 +148,25 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
           ref={scrollViewRef}
           testID='message-list-scroll'
           className={`mb-${isSmallScreen ? '1' : '2'}`}
-          scrollEventThrottle={250}
-          onContentSizeChange={(_contentWidth: number, contentHeight: number) => {
-            if (isSending) return
-
-            // Display the scroll button if the content height is greater than the screen height
-            // excluding the average height of the fixed header + footer.
-            setDisplayScrollButton(contentHeight > height - 100)
+          scrollEventThrottle={100}
+          onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>
+            updateScrollPosition(contentOffset.y, contentSize.height - contentOffset.y - layoutMeasurement.height)
+          }
+          onContentSizeChange={() => {
+            // Keep the newest text (a streaming answer, then its reaction row) in view unless the reader scrolled up.
+            if (followRef.current) {
+              scrollToEnd()
+              return
+            }
+            if (Platform.OS === 'web') {
+              const scroller = getWebScroller()
+              if (scroller) {
+                updateScrollPosition(
+                  scroller.scrollTop,
+                  scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+                )
+              }
+            }
           }}
         >
           {filteredMessages.map((message: Message, index) => {
@@ -127,7 +197,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
             </View>
           )}
         </ScrollView>
-        {Platform.OS !== 'web' && displayScrollButton && scrollToBottomEnabled && <ScrollToBottomButton />}
+        {!isAtBottom && scrollToBottomEnabled && <ScrollToBottomButton />}
       </View>
     )
   },
