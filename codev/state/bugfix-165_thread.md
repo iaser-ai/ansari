@@ -12,3 +12,10 @@
 - The fix is a revert of the column surface (tests are most of the LOC). BUGFIX scope holds: net deletion, no new design.
 - The regression test stays as a permanent guard. Beyond the deployed-state check, it asserts journal↔.sql 1:1 and that every
   schema column is created by some migration.
+
+## Fix + PR (2026-09-24)
+- Commit d9e3760: `git revert -m 1 1551edd` plus restoring the #66 codev record (specs/plans/reviews/state and `codev/projects/66-*`, which the revert had also deleted).
+  apps/api lib/src/db/tests are byte-identical to pre-#162. Full suite green (77 files); probe-column negative control fails all 3 DB checks.
+- PR #173. CMAP: codex=APPROVE, claude=APPROVE, gemini=skipped (agy produced no output). NOTE: `consult` needs `--issue 165` inside a builder, or it errors "Multiple projects found".
+- Claude follow-ups applied: close the PGlite clients; add a "superseded by #165" banner on the #66 review; document the `DEPLOYED_THROUGH` rule in arch-critical.
+  Architect decision surfaced: the guard deliberately red-lights any future migration-adding PR until the constant is bumped. That bump is the deploy-prerequisite flag.

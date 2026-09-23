@@ -37,8 +37,10 @@ import { createThread, createMessage, getThreadWithMessages, findMessagesByThrea
 import { createThreadSnapshot } from '@/lib/db/shares';
 
 const DRIZZLE_DIR = path.resolve(__dirname, '../../drizzle');
-// Last migration applied on staging and production. Advance it only once a
-// newer migration has actually been applied there.
+// Last migration the deployed code may rely on. A PR whose schema needs a newer
+// migration fails the deployed-state test until it advances this constant. That
+// bump is the PR's explicit statement that the migration must be applied on
+// staging AND production BEFORE the code deploys (arch-critical.md deploy order).
 const DEPLOYED_THROUGH = '0008_model_provenance';
 
 type JournalEntry = { idx: number; tag: string };
@@ -60,6 +62,14 @@ async function migrate(through?: string): Promise<PGlite> {
 }
 
 async function exerciseMessagePaths(client: PGlite) {
+  try {
+    await runMessagePaths(client);
+  } finally {
+    await client.close();
+  }
+}
+
+async function runMessagePaths(client: PGlite) {
   h.db = drizzle(client, { schema });
   const [{ id: userId }] = (
     await client.query<{ id: string }>(
@@ -113,6 +123,7 @@ describe('Drizzle schema vs migrations', () => {
     const { rows } = await client.query<{ table_name: string; column_name: string }>(
       `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`
     );
+    await client.close();
     columns = new Map();
     for (const r of rows) {
       if (!columns.has(r.table_name)) columns.set(r.table_name, new Set());
