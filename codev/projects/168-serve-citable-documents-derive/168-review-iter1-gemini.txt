@@ -1,0 +1,94 @@
+### Review Assessment: PR #180 — [Spec 168] Serve citable documents derived from `tool_calls`
+
+I have conducted a thorough review of PR #180 across all 51 changed files, the diff (`pr-180.diff`), the specification ([`168-serve-citable-documents-derive.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/specs/168-serve-citable-documents-derive.md)), the plan ([`168-serve-citable-documents-derive.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/plans/168-serve-citable-documents-derive.md)), and the review log ([`168-serve-citable-documents-derive.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/reviews/168-serve-citable-documents-derive.md)).
+
+---
+
+### 1. Code Quality and Correctness
+
+- **Write Path Citability Tracking ([`apps/api/lib/tools/types.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/tools/types.ts#L76-L78), [`apps/api/lib/facilitator/agent.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/facilitator/agent.ts#L348,L357))**:
+  - Citability is computed at a single canonical point: [`citabilityOf()`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/tools/types.ts#L76), extracting `doc.citations?.enabled === true`.
+  - It is stored as `citations: Array<{ enabled: boolean }>` strictly **beside** `content` on [`ToolCallRecord`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L60), preserving the Gemini payload in `content` byte-for-byte.
+  - Both `buildToolResultRecord` and the inline `budget_skipped` record populate `citations` in 1:1 positional alignment with `content.results`.
+- **Derivation Boundary ([`apps/api/lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts))**:
+  - `messages.tool_calls` is read for serving **only** inside this module. Raw `ToolCallRecord`s never escape its scope.
+  - Runtime validation defends against untrusted JSON structures (`isObject`, array checks, length matching), failing closed per record (`RejectReason`) without throwing or bubbling 500 errors.
+  - Deduplication on `(title, context, data)` correctly keeps the first occurrence in dispatch order.
+  - Compile-time fidelity guard `ExactLiteral<DocumentBlock['source']['type'], 'text'>` ensures that any future expansion of media types breaks `tsc` at the derivation boundary until explicitly handled.
+  - Sanitized logging: [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts#L156) logs only `{ messageId, reasons }` enum codes, completely excluding stored texts or arguments, while ignoring expected legacy records (`no_citations`).
+- **Serving Routes ([`apps/api/src/app/api/v2/threads/[id]/documents/route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/src/app/api/v2/threads/%5Bid%5D/documents/route.ts), [`apps/api/src/app/api/v2/share/[id]/documents/route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/src/app/api/v2/share/%5Bid%5D/documents/route.ts))**:
+  - `GET /api/v2/threads/[id]/documents`: Authenticated and owner-scoped via `findThreadById(id, user.id)`. Matches thread GET 401/404 behaviors exactly.
+  - `GET /api/v2/share/[id]/documents`: Public, reads solely from `shares.content` snapshot. Completely decoupled from `tool_calls` and `messages`.
+  - Both endpoints join via stable, zero-based `message_index`, emitting `messages: []` when no citable documents exist.
+- **Contract Freezing & Byte-Identity**:
+  - Existing `GET /api/v2/threads/[id]` and `GET /api/v2/share/[id]` handlers were not modified.
+  - Pre-change wire fixtures in [`apps/api/tests/documents-contract-fixture.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-contract-fixture.test.ts) guarantee that existing mobile and web consumers receive byte-identical responses.
+
+---
+
+### 2. Alignment with Spec and Plan
+
+- **All Spec Requirements Met**:
+  - No new database columns or schema migrations (`DEPLOYED_THROUGH` untouched).
+  - Approach A1 (per-entry citability beside Gemini payload), B1 (isolated derivation helper), C1 (snapshot copy at creation), and F2 (dedicated `/documents` endpoints) are completely implemented.
+  - History replay (`messageReadColumns`, `convertToGeminiHistory`) remains isolated from tool dispatch records and derived documents.
+- **Architectural Documentation Updated**:
+  - [`codev/resources/arch-critical.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch-critical.md#L21): Fact 10 updated to reflect that `lib/db/citable-documents.ts` is the single serving reader of `tool_calls`, keeping the hot tier within budget (10 facts, 26 lines).
+  - [`codev/resources/arch.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch.md#L34-L36): Tool-call persistence and Citable documents sections updated with derivation, snapshot, and endpoint invariants.
+  - In-code comments updated in [`messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L113), [`threads.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L26), and [`shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L34).
+  - Lessons routed appropriately to [`lessons-critical.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/lessons-critical.md) and [`lessons-learned.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/lessons-learned.md).
+
+---
+
+### 3. Test Coverage and Quality
+
+- **Test Suites & Fixtures**:
+  - Full suite passes: 853 passed / 3 skipped (baseline skips preserved). Build 4/4, `tsc` clean, lint 0 errors.
+  - Real-database integration testing via PGlite verifies SQL queries, transactions, and JSONB serialization end-to-end.
+  - Pinned pre-change byte-identity fixtures prove no regression on legacy endpoints.
+  - Live, non-vacuous regex scans ensure forbidden keys (`citations`, `tool_calls`, `raw_payload`, `status`, `model_provider`, etc.) never leak into serialized outputs.
+  - Source-scan tests enforce that `share/.../documents/route.ts` never imports derivation/thread modules or references `tool_calls`.
+- **Negative Testing Rigor**:
+  - Comprehensive negative testing across all phases (hard-coding citability, leaking into Gemini payload, omitting flag, stripping derivation, off-by-one indices, spreading documents into share GET) with failure counts accurately recorded in [`codev/reviews/168-serve-citable-documents-derive.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/reviews/168-serve-citable-documents-derive.md#L111-L126).
+- **Flaky Test Resolution**:
+  - The builder addressed two pre-existing CPU-load sensitive tests ([`migration-schema-parity.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/migration/migration-schema-parity.test.ts) and [`eslint-env-guard.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/eslint-env-guard.test.ts)) by adding a targeted 20 s per-test timeout in separate commit `7b8a423`, preserving the outage guard without skipping.
+
+---
+
+### 4. Read Cost & Escalation Handling
+
+- **Storage**: Staging assistant row `pg_column_size(tool_calls)` median is 5.6 KB (p95 14.1 KB, $n=80$), well within the 14 KB median bound.
+- **Latency Bound**: Benchmark on a 50-message (25 assistant) thread indicates `/documents` median latency of ~4.9–5.0 ms vs thread GET of ~0.9–1.0 ms (~5× ratio, exceeding the 2× threshold).
+  - The root cause is inherent: transferring and parsing 394 KB of document text vs 53 KB of message content.
+  - The builder followed spec instructions by escalating the bound violation to the architect via `afx send architect` and marking the PR clearly as merge-blocked pending the owner's decision.
+
+---
+
+### 5. Verdict
+
+---
+VERDICT: APPROVE
+SUMMARY: Exemplary implementation adhering strictly to fail-closed derivation, API contract freezing, and structural isolation, backed by exhaustive PGlite and negative testing.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None (Latency bound exceeding 2x on synthetic 25-answer thread is inherent to source text payload size and already escalated as a blocking owner decision in the PR description).
+
+PR_SUMMARY: |
+  ## Summary
+  Serves source documents (Qur'an, hadith, tafsir, mawsuah) behind assistant answers by deriving them on-demand from existing `messages.tool_calls` JSONB records. Thread GET and share GET remain untouched and byte-identical to pre-change baselines, while sources are served through dedicated `/documents` endpoints joined by `message_index`.
+
+  ## Key Changes
+  - **Citability Tracking**: Added `citations: Array<{ enabled: boolean }>` sibling field to stored `tool_result` records via `citabilityOf()`, allowing fail-closed distinction between true hits and system notices (e.g. zero-result searches) without altering Gemini payloads or database schemas.
+  - **Isolated Derivation**: Created `lib/db/citable-documents.ts` as the sole serving reader of `tool_calls`. Performs runtime validation, deduplication on `(title, context, data)`, and returns only derived document blocks.
+  - **Dedicated Serving Endpoints**: Added authenticated, owner-scoped `GET /api/v2/threads/[id]/documents` and public `GET /api/v2/share/[id]/documents` (reading immutable snapshot data copied at creation time).
+  - **Architecture & Invariant Updates**: Amended `arch-critical.md`, `arch.md`, and schema/helper comments to accurately document the new serving reader rule.
+  - **Benchmark Suite**: Added `apps/api/scripts/bench-documents.bench.ts` to measure read and latency overhead against staging distributions.
+
+  ## Test Plan
+  - `turbo run test --force`: Verify 853 passing tests, clean typecheck, and clean linting.
+  - `pnpm vitest run tests/documents-contract-fixture.test.ts`: Verify byte-identity against frozen thread GET and share GET fixtures.
+  - `pnpm vitest run tests/documents-endpoints.test.ts`: Verify auth parity, 404 behavior, snapshot parity, join keys, and key-scan leak prevention.
+  - `pnpm vitest run tests/facilitator-citability.test.ts`: Verify Gemini payload byte-identity and citability flag alignment.
+  - `pnpm vitest run --config scripts/vitest.bench.config.ts --silent=false --reporter=verbose`: Run read-cost and latency benchmark.

@@ -280,6 +280,54 @@ describe('GET /api/v2/threads/[id]/documents', () => {
   });
 });
 
+describe('equal created_at (one-transaction inserts): message_index stays consistent', () => {
+  // Messages written in one transaction share now(). Every thread-order query
+  // (thread GET, snapshot, /documents) must break ties the SAME way (by id),
+  // or message_index can point at a different message than thread GET shows.
+  // Inserted in an order that differs from id order, so a query with no
+  // tiebreaker (which returns insertion order here) fails.
+  async function seedTied() {
+    const t = at(30);
+    for (const [n, role, tc] of [
+      [3, 'user', undefined],
+      [1, 'assistant', records([[V1], [true]])],
+      [2, 'assistant', records([[H1], [true]])],
+    ] as const) {
+      await createMessage({
+        id: ID(n),
+        threadId: THREAD_ID,
+        role,
+        content: [{ type: 'text', text: `message ${n}` }],
+        createdAt: t,
+        ...(tc ? { toolCalls: tc } : {}),
+      });
+    }
+  }
+
+  it('thread GET, /documents and the share agree on order and index', async () => {
+    await seedTied();
+    const thread = await json(await getThread());
+    // Deterministic: ties broken by id.
+    expect(thread.messages.map((m: { id: string }) => m.id)).toEqual([ID(1), ID(2), ID(3)]);
+
+    const docs = await json(await getThreadDocs());
+    expect(docs.messages.map((e: { message_id: string; message_index: number }) => [e.message_id, e.message_index])).toEqual([
+      [ID(1), 0],
+      [ID(2), 1],
+    ]);
+    for (const e of docs.messages) expect(thread.messages[e.message_index].id).toBe(e.message_id);
+
+    const share = await createThreadSnapshot(THREAD_ID, USER_ID);
+    const shared = await json(await getShareDocs(share!.id));
+    const shareBody = await json(await getShare(share!.id));
+    expect(shared.messages).toEqual([
+      { message_index: 0, documents: [doc(V1)] },
+      { message_index: 1, documents: [doc(H1)] },
+    ]);
+    expect(shareBody.messages.map((m: { content: string }) => m.content)).toEqual(['message 1', 'message 2', 'message 3']);
+  });
+});
+
 describe('GET /api/v2/share/[id]/documents', () => {
   it('returns the documents copied into the snapshot, in the same shape', async () => {
     await seedMixedThread();

@@ -133,7 +133,9 @@ export async function findMessagesByThread(threadId: string, exec: Executor = db
     .select(messageReadColumns)
     .from(messages)
     .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+    // id breaks created_at ties (one-transaction inserts share now()); every
+    // thread-order query uses this SAME order so message_index stays aligned (spec 168).
+    .orderBy(messages.createdAt, messages.id);
 }
 
 export async function createMessage(data: NewMessage, exec: Executor = db): Promise<Message> {

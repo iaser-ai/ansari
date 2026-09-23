@@ -43,7 +43,8 @@ export async function createThreadSnapshot(
     })
     .from(messages)
     .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+    // Same thread order as findMessagesByThread, id breaking created_at ties (spec 168).
+    .orderBy(messages.createdAt, messages.id);
 
   // Citable sources are derived once, now, and copied into the snapshot
   // (spec 168), so the public share endpoints never read tool_calls. Only the

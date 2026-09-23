@@ -51,3 +51,4 @@
 ## review
 - Review written. Lessons routed cold (new section) plus a hot map entry; arch was already routed in phase_4. The consult outputs are committed per the repo convention.
 - PR opens with the latency-bound decision still pending from the owner; the PR body marks it as blocking merge.
+- PR review round 1: Gemini APPROVE; Codex REQUEST_CHANGES. (1) Latency is already escalated and blocks merge (N/A). (2) created_at ties make message_index undefined: FIXED with an id tiebreaker in findMessagesByThread, createThreadSnapshot and findCitableDocumentsByThread, plus an equal-timestamp regression test that fails without the tiebreaker in any one of the three. Ties are real because one-transaction inserts share now(). Suite 854 passed / 3 skipped, build 4/4.

@@ -133,8 +133,9 @@ export function deriveCitableDocuments(toolCalls: unknown): {
 export interface MessageDocuments {
   messageId: string;
   /**
-   * Zero-based position of the message in the thread, in the same `created_at`
-   * order thread GET (findMessagesByThread) and share snapshots use — the join
+   * Zero-based position of the message in the thread, in the same
+   * (`created_at`, `id`) order thread GET (findMessagesByThread) and share
+   * snapshots use — the join
    * key clients use to attach documents to messages. Messages are append-only
    * (never deleted or reordered), so the index is stable.
    */
@@ -161,7 +162,9 @@ export async function findCitableDocumentsByThread(
     .select({ id: messages.id, role: messages.role, toolCalls: messages.toolCalls })
     .from(messages)
     .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+    // Same thread order as findMessagesByThread and createThreadSnapshot:
+    // created_at, then id to break ties. Must stay identical across all three.
+    .orderBy(messages.createdAt, messages.id);
 
   const out: MessageDocuments[] = [];
   rows.forEach((row, messageIndex) => {

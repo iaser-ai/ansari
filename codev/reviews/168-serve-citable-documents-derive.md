@@ -47,6 +47,7 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
 - **Phase 4.**
   - The benchmark is `scripts/bench-documents.bench.ts` with its own `scripts/vitest.bench.config.ts`, because the handlers need `vi.mock`. It is not the plain `scripts/bench-documents.ts` the plan named.
   - The staging storage query was not re-run: the architect ruled that the plan-stage figure stands.
+- **PR review fix: a deterministic `id` tiebreaker.** Thread GET (`findMessagesByThread`), `createThreadSnapshot` and `findCitableDocumentsByThread` now all order by (`created_at`, `id`). Messages written in one transaction share `now()`, so a `created_at`-only order is undefined on ties and `message_index` could disagree with thread GET. This touches thread GET's query only for tied timestamps, whose order was undefined before. The byte fixtures (distinct timestamps) are unchanged and pass.
 - **Out-of-phase commit (architect-directed).** `7b8a423` adds a per-test 20 s timeout to two pre-existing load-sensitive tests; see Flaky Tests.
 
 ## Consultation Feedback
@@ -103,6 +104,15 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
 ### Implement phase_4 (Round 2)
 - No concerns raised. Both Codex and Gemini approved.
 
+### PR Review (Round 1)
+
+#### Gemini
+- No concerns raised (APPROVE). It noted the latency flag as already escalated.
+
+#### Codex
+- **Concern**: the latency bound is exceeded (~5× against 2×) and owner approval is pending → **N/A**: it is already escalated and marked as blocking merge in the PR body. The decision belongs to the owner, not the code.
+- **Concern**: `message_index` relies on `ORDER BY created_at` only, so ties are undefined → **Addressed**: an `id` tiebreaker in all three thread-order queries, plus an equal-timestamp regression test that fails when the tiebreaker is removed from any one of the three.
+
 ## Lessons Learned
 
 ### What Went Well
@@ -123,6 +133,7 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
   | 3 | Share GET spreads documents | 2 |
   | 3 | No owner scope | 1 |
   | 4 | Stale-wording grep | 5 hits in HEAD, 0 after |
+  | PR | Tiebreaker removed from any one of the 3 queries | 1 (each) |
 
 - **Scans caught real problems.** The public-route source scan caught my own comment naming `tool_calls`. The stale-wording grep was proven against the pre-change text before it was trusted.
 
