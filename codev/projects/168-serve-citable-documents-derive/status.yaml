@@ -1,7 +1,7 @@
 id: '168'
 title: serve-citable-documents-derive
 protocol: spir
-phase: review
+phase: verify
 plan_phases:
   - id: phase_1
     title: Persist per-result citability on tool_result records
@@ -32,22 +32,10 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
-history:
-  - iteration: 1
-    plan_phase: phase_4
-    build_output: ''
-    reviews:
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/projects/168-serve-citable-documents-derive/168-phase_4-iter1-codex.txt
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/projects/168-serve-citable-documents-derive/168-phase_4-iter1-gemini.txt
+build_complete: false
+history: []
 started_at: '2026-09-23T22:09:57.559Z'
-updated_at: '2026-09-24T03:38:13.361Z'
+updated_at: '2026-09-24T03:38:16.023Z'
 context_refreshes:
   - boundary: plan-phase:phase_2
     at: '2026-09-23T23:18:28.918Z'
