@@ -15,7 +15,7 @@ landed in four phases:
 
 Thread GET and share GET are byte-identical to before. There is no schema change and no
 migration. One item is open: the endpoint's latency is about 5× thread GET, which trips the
-spec's 2× bound. It has been flagged, and the owner's decision is pending.
+spec's 2× bound. The owner accepted it on 2026-09-24 ("latency difference is expected"): thread GET is unchanged, and the bound was defined against it.
 
 ## Spec Compliance
 
@@ -32,7 +32,7 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
 - [x] Legacy rows (no `citations`) and misaligned records yield nothing (Phase 2)
 - [x] Malformed jsonb fails closed per record and never fails the request. 11 malformed shapes are covered. Logging is `{messageId, reasons}` only, proven with a sentinel string (Phases 2–3)
 - [x] The derivation helper is reached only after authorization: the owner-scoped `findThreadById`, or `createThreadSnapshot`'s ownership check (Phase 3)
-- [x] Read cost measured against a concrete bound (Phase 4). Storage: staging median 5.6 KB, inside the 14 KB bound. **Latency: `/documents` median ~4.9–5.0 ms vs thread GET ~0.9–1.0 ms, about 5×, which trips the 2× bound.** Flagged to the architect before the PR as the spec requires, and the owner's decision is pending (see Follow-up Items). Side effect found in the integration review: `findShareById` selects the whole `shares.content` jsonb, so public share GET now also detoasts the snapshot's copied documents and discards them. Share GET's bytes on the wire are unchanged, but its read cost grows with the documents of shared threads.
+- [x] Read cost measured against a concrete bound (Phase 4). Storage: staging median 5.6 KB, inside the 14 KB bound. **Latency: `/documents` median ~4.9–5.0 ms vs thread GET ~0.9–1.0 ms, about 5×, which trips the 2× bound.** Flagged to the architect before the PR as the spec requires; **the owner accepted the ~5× ratio on `/documents` on 2026-09-24**. Side effect found in the integration review: `findShareById` selects the whole `shares.content` jsonb, so public share GET now also detoasts the snapshot's copied documents and discards them. Share GET's bytes on the wire are unchanged, but its read cost grows with the documents of shared threads.
 - [x] Raw `ToolCallRecord`s cannot reach a serializer. Only derived blocks leave `lib/db/citable-documents.ts`, `MessageRow` and `messageReadColumns` are unchanged, and a key scan covers every body (Phases 2–3)
 - [x] History replay loads neither `tool_calls` nor documents. A turn-2 test checks that no document text reaches the facilitator (Phase 3)
 - [x] Negative-tested: every drop site fails its tests when broken and passes when restored. Counts are under Lessons Learned (all phases)
@@ -112,7 +112,7 @@ spec's 2× bound. It has been flagged, and the owner's decision is pending.
 - No concerns raised (APPROVE). It noted the latency flag as already escalated.
 
 #### Codex
-- **Concern**: the latency bound is exceeded (~5× against 2×) and owner approval is pending → **N/A**: it is already escalated and marked as blocking merge in the PR body. The decision belongs to the owner, not the code.
+- **Concern**: the latency bound is exceeded (~5× against 2×) and owner approval is pending → **N/A**: it is already escalated and marked as blocking merge in the PR body. The decision belongs to the owner, not the code. Outcome: the owner accepted the ratio on 2026-09-24.
 - **Concern**: `message_index` relies on `ORDER BY created_at` only, so ties are undefined → **Addressed**: an `id` tiebreaker in all three thread-order queries, plus an equal-timestamp regression test that fails when the tiebreaker is removed from any one of the three.
 
 ## Lessons Learned
@@ -185,8 +185,7 @@ No tests were skipped. Two pre-existing tests were load-sensitive and have been 
 
 ## Follow-up Items
 
-- **Owner decision on the latency bound (blocks merge).** `/documents` is about 5× thread GET on a 25-answer synthetic thread: ~5 ms, with a 394 KB response of source texts. Options:
-  - accept it as is;
+- **Latency bound: resolved.** The owner accepted the ~5× ratio on `/documents` on 2026-09-24 (about 5 ms on a 25-answer synthetic thread, 394 KB of source texts). If long production threads ever make it matter, the other options considered were:
   - add a per-message fetch (`?message_id=`);
   - cap the documents per message.
 - **#161**: the prototype must switch to a second fetch joined by `message_index`. The contract is posted on the issue.

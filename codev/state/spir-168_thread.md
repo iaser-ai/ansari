@@ -52,3 +52,13 @@
 - Review written. Lessons routed cold (new section) plus a hot map entry; arch was already routed in phase_4. The consult outputs are committed per the repo convention.
 - PR opens with the latency-bound decision still pending from the owner; the PR body marks it as blocking merge.
 - PR review round 1: Gemini APPROVE; Codex REQUEST_CHANGES. (1) Latency is already escalated and blocks merge (N/A). (2) created_at ties make message_index undefined: FIXED with an id tiebreaker in findMessagesByThread, createThreadSnapshot and findCitableDocumentsByThread, plus an equal-timestamp regression test that fails without the tiebreaker in any one of the three. Ties are real because one-transaction inserts share now(). Suite 854 passed / 3 skipped, build 4/4.
+
+## verify (staging, debee8e, 2026-09-24)
+Positive path on api-staging.askansari.ai with a fresh throwaway guest (prototype guest pattern guest_<rand>@ansari.chat; credentials and tokens were never printed or stored). The first run's output was truncated by `tail`, so it ran twice: two guests and two chat turns. Evidence from the second run:
+- register 200 · create thread 200 · chat turn 200 (answer 5,296 chars; question "What does the Qur'an say about patience in hardship?")
+- GET /threads/{id}/documents → 200, top keys [thread_id, messages]; one entry, keys [message_id, message_index, documents], message_index 1, 25 documents, doc keys [type, source, title, context]; first titles Quran 70:5, 74:7, 14:12
+- thread GET → 200, top keys [thread_id, thread_name, source, created_at, updated_at, messages], every message keys [id, role, content, agent_name, source, created_at], NO documents key, content is a bare string on both messages
+- index check: thread GET messages[1].id == message_id, role assistant
+- create share 200 · GET /share/{id}/documents → 200, top keys [id, messages]; entry keys [message_index, documents], index 1, 25 documents; deep-equal to the thread endpoint (parity True)
+- share GET → 200, top keys [id, thread_name, messages, created_at], message keys [role, content, created_at], NO documents key
+- (First run, same results: 24 documents, parity True, no documents key on either GET.)
