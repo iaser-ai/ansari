@@ -52,6 +52,11 @@ upstream, because that silently reverts the fix:
   - `e2e/chat-scroll.spec.ts`
   - `playwright.config.ts`
   - `.gitignore`
+- #182, the composer stays put while a streamed answer is followed. On the live chat the message list is its
+  own scroller, sized by the layout rather than by its content (`flexBasis: 0` on web), so the composer and
+  footer no longer sit in the page's scroll flow:
+  - `src/components/chat/MessageList.tsx`
+  - `e2e/chat-scroll.spec.ts`
 
 To recover the exact upstream tree:
 ```

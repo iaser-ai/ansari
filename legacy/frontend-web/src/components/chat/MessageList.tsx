@@ -69,8 +69,9 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     const { isSmallScreen, contentWidth } = useScreenInfo(sideMenuWidth)
     const theme = useSelector((state: RootState) => state.theme.theme)
 
-    // On web the ScrollView grows to its content height and an ancestor (the overflow-y-auto View in
-    // app/(app)/_layout.tsx) does the scrolling, so find whichever element really scrolls.
+    // On web the ScrollView scrolls once its content overflows; until then (or wherever the list is not
+    // height-bounded) an ancestor such as the overflow-y-auto View in app/(app)/_layout.tsx may scroll instead,
+    // so find whichever element really scrolls.
     const getWebScroller = (): HTMLElement | null => {
       let node: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
       while (
@@ -87,7 +88,12 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
         scrollViewRef.current?.scrollToEnd({ animated })
         return
       }
-      getWebScroller()?.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: animated ? 'smooth' : 'auto' })
+      const scroller = getWebScroller()
+      if (!scroller) return
+      // react-native-web replaces scrollTo on the ScrollView's own node with its { x, y, animated } version, which
+      // would read these options as "animate to the top", so call the DOM method.
+      const domScrollTo: (options: ScrollToOptions) => void = HTMLElement.prototype.scrollTo
+      domScrollTo.call(scroller, { top: Number.MAX_SAFE_INTEGER, behavior: animated ? 'smooth' : 'auto' })
     }
 
     const scrollToEnd = (animated = false): void => {
@@ -139,11 +145,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
     }
     // Scroll to Bottom Button component: a white circle centred just above the composer.
     const ScrollToBottomButton = () => (
-      // On web the page scrolls and the composer scrolls with it, so a zero-height sticky anchor keeps the
-      // button just above the composer, or at the bottom of the viewport while the composer is out of view.
-      <View
-        className={`${Platform.OS === 'web' ? 'sticky h-0' : 'absolute'} bottom-0 left-0 right-0 items-center z-[100]`}
-      >
+      <View className='absolute bottom-0 left-0 right-0 items-center z-[100]'>
         <Pressable
           testID='scroll-to-bottom-button'
           accessibilityRole='button'
@@ -177,8 +179,12 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
           ref={scrollViewRef}
           testID='message-list-scroll'
           className={`mb-${isSmallScreen ? '1' : '2'}`}
+          // Web, live chat: a zero flex basis keeps the messages from sizing the page, so the list fills only the
+          // space the layout leaves it and scrolls itself, and the composer below it stays put while an answer
+          // streams (issue #182). Share views keep growing with the page.
+          style={followEnabled && Platform.OS === 'web' ? { flexBasis: 0 } : undefined}
           scrollEventThrottle={100}
-          // On web the ScrollView itself never scrolls; the capture listener above tracks the real scroller.
+          // On web the capture listener above tracks whichever element really scrolls.
           onScroll={
             followEnabled && Platform.OS !== 'web'
               ? ({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>

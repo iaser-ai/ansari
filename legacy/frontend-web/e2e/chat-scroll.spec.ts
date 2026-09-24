@@ -181,7 +181,7 @@ test('sending a message keeps the message list mounted and its scroll position',
   const scrolledTo = await page.evaluate(() => {
     const getList = (): HTMLElement | null => document.querySelector('[data-testid="message-list-scroll"]')
     const list = getList()!
-    // On web the list grows to its content height and an ancestor scrolls, so find whichever element really scrolls.
+    // Find whichever element really scrolls: the list itself on the live chat, or an ancestor if it is not bounded.
     let scroller: HTMLElement = list
     while (
       scroller.parentElement &&
@@ -232,8 +232,8 @@ test('opening a thread still shows a spinner until the thread has loaded', async
 })
 
 /**
- * Starts sampling the real scroller every frame into window.__streamProbe. On web the list grows to its
- * content height and an ancestor scrolls, so the scroller is whichever ancestor really scrolls.
+ * Starts sampling the real scroller every frame into window.__streamProbe: the list itself on the live chat,
+ * or whichever ancestor really scrolls if it is not bounded.
  */
 async function startStreamProbe(page: Page): Promise<void> {
   await page.evaluate((streamEnd) => {
@@ -268,7 +268,7 @@ const gapToBottom = (page: Page): Promise<number> =>
 
 /**
  * Where the jump button sits: its horizontal offset from the chat column's centre, and the gaps from its
- * bottom edge to the composer's top and to the viewport's bottom (negative when the composer is out of view).
+ * bottom edge to the composer's top and to the viewport's bottom.
  */
 const jumpButtonPlacement = (page: Page): Promise<{ offCentre: number; aboveComposer: number; aboveFold: number }> =>
   page.evaluate(() => {
@@ -325,6 +325,44 @@ test('a reader at the bottom follows a streamed answer to its end', async ({ pag
   }
 })
 
+test('the composer stays put while a followed answer streams', async ({ page }) => {
+  // Issue #182: the composer sat in the page's scroll flow, so every chunk pushed it down a frame before the
+  // follow logic scrolled it back, and it visibly bounced for the whole stream.
+  const cleanup = await mockBackend(page, { streamed: true })
+  try {
+    await openLongThread(page)
+    await send(page)
+    await expect(page.getByTestId('message-list-scroll').getByText(QUESTION)).toBeInViewport()
+    await startStreamProbe(page)
+    await page.evaluate((streamEnd) => {
+      const composer = document.querySelector('textarea')!
+      const probe = { tops: [] as number[], frames: 0, done: false }
+      ;(window as any).__composerProbe = probe
+      const sample = (): void => {
+        if (probe.done) return
+        probe.frames += 1
+        probe.tops.push(composer.getBoundingClientRect().top)
+        if (document.body.textContent?.includes(streamEnd)) probe.done = true
+        else requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    }, STREAM_END)
+
+    await expect(page.getByText(STREAM_END)).toBeAttached({ timeout: 20_000 })
+    const stream = await page.evaluate(() => (window as any).__streamProbe)
+    const composer = await page.evaluate(() => (window as any).__composerProbe)
+    // Guard against a quiet pass: the answer must really have streamed and been followed.
+    expect(stream.heights.length, 'the answer did not stream in chunks').toBeGreaterThan(10)
+    expect(stream.maxGap, 'the view did not follow the stream').toBeLessThanOrEqual(AT_BOTTOM_PX * 2)
+    expect(composer.frames, 'the composer was not sampled across the stream').toBeGreaterThan(60)
+    const drift = Math.max(...composer.tops) - Math.min(...composer.tops)
+    expect(drift, 'the composer moved while the answer streamed').toBeLessThanOrEqual(1)
+    await expect(page.locator('textarea')).toBeInViewport()
+  } finally {
+    cleanup()
+  }
+})
+
 test('a reader who scrolls up mid-stream is not moved, and the jump button brings them back', async ({ page }) => {
   const cleanup = await mockBackend(page, { streamed: true })
   try {
@@ -341,11 +379,12 @@ test('a reader who scrolls up mid-stream is not moved, and the jump button bring
     })
     await expect(page.getByTestId('scroll-to-bottom-button')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Scroll to bottom' })).toBeInViewport()
-    // Centred over the chat and floating just above the bottom edge while the composer is scrolled out of view.
+    // Centred over the chat and floating just above the composer, which stays in view below the list (#182).
     const parkedPlacement = await jumpButtonPlacement(page)
     expect(Math.abs(parkedPlacement.offCentre), 'the jump button is not centred over the chat').toBeLessThanOrEqual(2)
+    expect(parkedPlacement.aboveComposer, 'the jump button overlaps the composer').toBeGreaterThan(0)
+    expect(parkedPlacement.aboveComposer, 'the jump button is not just above the composer').toBeLessThanOrEqual(60)
     expect(parkedPlacement.aboveFold).toBeGreaterThan(0)
-    expect(parkedPlacement.aboveFold).toBeLessThanOrEqual(40)
     const heightBefore = await page.evaluate(() => (window as any).__scroller.scrollHeight)
     await page.waitForTimeout(1500)
     const held = await page.evaluate(() => {
@@ -355,7 +394,7 @@ test('a reader who scrolls up mid-stream is not moved, and the jump button bring
     expect(held.height, 'the stream stopped growing while the reader was scrolled up').toBeGreaterThan(heightBefore)
     expect(Math.abs(held.scrollTop - parked), 'the scrolled-up reader was moved').toBeLessThanOrEqual(1)
 
-    // Scrolled up only a little, the composer is in view and the button floats just above it.
+    // Scrolled up only a little, the button still floats just above the composer.
     await page.evaluate(() => {
       const s = (window as any).__scroller as HTMLElement
       s.scrollTop = s.scrollHeight - s.clientHeight - 120
