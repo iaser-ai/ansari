@@ -26,3 +26,12 @@
   In input full mode on a phone the composer is 242px wide, the same as before the change. That is pre-existing
   and not touched here.
 - Video: legacy/frontend-web/e2e/videos/182-composer-stays-put-fixed.webm (gitignored).
+
+## PR #183 — CMAP
+- gemini APPROVE, codex APPROVE, claude APPROVE.
+- Claude's non-blocking notes, not acted on here:
+  - The bounded list has no `minHeight`. On a very short window with a tall draft (the composer can reach
+    300px) the list can be squeezed. Reading the flex chain, it falls back to page overflow rather than
+    breaking. Possible follow-up issue.
+  - `followEnabled` now also picks the scroll-container shape. It covers the same routes today; a separate
+    prop would be clearer if this file is touched again.
