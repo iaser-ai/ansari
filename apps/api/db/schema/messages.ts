@@ -29,6 +29,9 @@ export const TOOL_RESULT_STATUSES = [
 ] as const;
 export type ToolResultStatus = (typeof TOOL_RESULT_STATUSES)[number];
 
+/** The `document` ContentBlock — the element shape served by the `/documents` endpoints (spec 168). */
+export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
+
 export type ToolCallRecord =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | {
@@ -47,6 +50,14 @@ export type ToolCallRecord =
       http_status?: number;
       /** Which short-circuit skipped this call; only on budget_skipped records. */
       skip_trigger?: 'T1' | 'T2';
+      /**
+       * Per-result citability (spec 168): the tool's own `citations.enabled`,
+       * index-aligned with `content.results` (see `citabilityOf`). A SIBLING of
+       * `content`, never inside it — `content` must stay exactly the Gemini
+       * payload. Absent on records written before spec 168; derivation treats
+       * absent or misaligned as not citable (fail closed).
+       */
+      citations?: Array<{ enabled: boolean }>;
     };
 
 /**
@@ -100,9 +111,11 @@ export const messages = pgTable('messages', {
   // guard-rejected payloads legitimately have none.
   rawPayload: jsonb('raw_payload').$type<Content>(),
   // Tool dispatch records for this assistant turn (spec 73). NULL (never [])
-  // when the turn invoked no tools. Deliberately excluded from the read-path
-  // projections in lib/db/threads.ts / shares.ts: no serializing or replay
-  // path selects it, so the frozen API contract cannot leak it structurally.
+  // when the turn invoked no tools. Excluded from the read-path projections in
+  // lib/db/threads.ts / shares.ts, so no replay or serializing path receives
+  // it. The ONE reader for serving is lib/db/citable-documents.ts (spec 168),
+  // which returns only derived `document` blocks — the raw records never leave
+  // it, so no API response can serialize them structurally.
   toolCalls: jsonb('tool_calls').$type<ToolCallRecord[]>(),
   // Per-turn model provenance (issue #99): which serving backend and model id
   // produced this assistant turn — including a #79-rescued turn (provider

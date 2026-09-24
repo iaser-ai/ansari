@@ -1,0 +1,61 @@
+### Review: Implementation Phase 3 — Documents Endpoints & Share-Snapshot Documents
+
+Reviewed files:
+- [`apps/api/src/app/api/v2/threads/[id]/documents/route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/src/app/api/v2/threads/%5Bid%5D/documents/route.ts)
+- [`apps/api/src/app/api/v2/share/[id]/documents/route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/src/app/api/v2/share/%5Bid%5D/documents/route.ts)
+- [`apps/api/lib/db/shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts)
+- [`apps/api/db/schema/shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/shares.ts)
+- [`apps/api/lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts)
+- [`apps/api/tests/documents-endpoints.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-endpoints.test.ts)
+- [`apps/api/tests/thread-get-contract.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/thread-get-contract.test.ts)
+- [`apps/api/tests/documents-contract-fixture.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-contract-fixture.test.ts)
+
+---
+
+### Assessment
+
+#### 1. Spec Adherence
+- **Dedicated Endpoints (F2)**:
+  - `GET /api/v2/threads/{id}/documents` derives sources live via [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts#L156-L177) and returns `{ thread_id, messages: [{ message_id, message_index, documents }] }`.
+  - `GET /api/v2/share/{id}/documents` is public and reads purely from snapshot memory, returning `{ id, messages: [{ message_index, documents }] }`.
+  - Both omit messages without citable documents and return `messages: []` when none exist.
+- **Index Join Key (`message_index`)**:
+  - `message_index` in [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts#L167) is computed against the full thread in `created_at` order, exactly matching the indexing of `findMessagesByThread` and `createThreadSnapshot`.
+- **Pre-Change Endpoints Byte-Identical**:
+  - Existing thread GET and share GET routes were not modified.
+  - Share GET projects only `role`, `content`, and `created_at`, so storing `documents` in `ThreadSnapshot` causes zero leakage into `GET /api/v2/share/{id}`. Pinned by pre-change fixtures in [`documents-contract-fixture.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-contract-fixture.test.ts).
+- **Snapshot Isolation (C1)**:
+  - Snapshot creation in [`createThreadSnapshot`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L46-L65) calls the derivation helper once after the ownership check, copying derived blocks into `shares.content`. The public share documents route never reads `tool_calls` or `messages`.
+
+#### 2. Code Quality & Architectural Invariants
+- **Fail-Closed & Leak Prevention**:
+  - Route handlers log only `{ name: e?.name, code: e?.code }` on errors to protect against database error payload leakage.
+  - Derivation helper fails closed per malformed record, logging `{ messageId, reasons }` without record content.
+  - The public share route is verified by a source-scan test to ensure it neither imports `citable-documents` / `threads` nor references `tool_calls`.
+- **Auth & Non-Disclosure**:
+  - `GET /api/v2/threads/{id}/documents` matches `GET /api/v2/threads/{id}`: missing/invalid auth returns the identical auth error; a nonexistent or foreign thread returns 404 `'Thread not found'`.
+
+#### 3. Test Coverage
+- Comprehensive suite in [`documents-endpoints.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-endpoints.test.ts) covering:
+  - Happy paths across multi-turn and multi-tool conversations with deduplication.
+  - Authorization parity (401 and 404 equivalence with thread GET).
+  - Join key parity (`GET(...).messages[message_index]` verification).
+  - Deep-equality parity between thread `/documents` and share `/documents`.
+  - Resilience against malformed `tool_calls` and immunity to orphan rows.
+  - Live non-vacuous regex scans for forbidden keys across all serialized payloads.
+  - Static AST/source check on the share route import boundaries.
+- History replay safety verified in [`toolcalls-routes.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/toolcalls-routes.test.ts#L308-L333).
+- Documented negative tests (derivation disable, index off-by-one, share GET leakage, unauthenticated scope) confirmed in thread log.
+
+#### 4. Plan Alignment
+- Phase 3 scope and deliverables are complete. No out-of-scope work or skipped requirements.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 correctly implements both dedicated /documents endpoints and snapshot document persistence with zero byte-drift on existing routes and thorough test coverage.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

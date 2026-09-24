@@ -1,0 +1,22 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Implementation is strong, but the latency gate remains unresolved and message-index ordering is not deterministic.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- The measured `/documents` latency exceeds the specified 2× bound by roughly 5×, and the review explicitly says owner approval is pending. This PR is not merge-ready until that decision is recorded.
+- `message_index` relies solely on `ORDER BY created_at` in all three queries. Equal timestamps have undefined ordering, so `/documents` can disagree with thread GET. Add a consistent deterministic tiebreaker and an equal-timestamp regression test.
+
+PR_SUMMARY: |
+  ## Summary
+  Adds authenticated thread and public share endpoints for serving citable source documents derived from persisted tool-call records, without changing existing thread/share GET contracts.
+
+  ## Key Changes
+  - Persists per-result citability and safely derives deduplicated document blocks.
+  - Adds `/documents` endpoints and embeds documents in share snapshots.
+  - Adds extensive contract, authorization, malformed-data, and replay-safety coverage.
+
+  ## Test Plan
+  - Run the API test, typecheck, lint, and build suites.
+  - Verify equal-timestamp messages retain matching `message_index` values.
+  - Record the owner’s decision on the exceeded latency bound.

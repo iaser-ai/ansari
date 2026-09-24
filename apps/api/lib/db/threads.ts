@@ -19,11 +19,13 @@ import {
  * Message row as returned by the thread-listing read helpers
  * (findMessagesByThread / getThreadWithMessages): every column EXCEPT
  * `tool_calls` (spec 73) and the `model_provider`/`model_id` provenance pair
- * (issue #99). The projection is structural contract safety — the
- * thread GET, share snapshot, and history-replay paths all read through these
- * helpers and never select the tool records, so the frozen API shape cannot
- * leak them — and avoids detoasting ~7 KB median of jsonb per assistant row on
- * every turn's history load just to discard it. The single-message lookups
+ * (issue #99). The projection is structural contract safety — thread GET and
+ * history replay read through these helpers and never select the tool
+ * records, so the frozen API shape cannot leak them — and avoids detoasting
+ * ~7 KB median of jsonb per assistant row on every turn's history load just to
+ * discard it. Citable sources are derived from `tool_calls` ONLY inside
+ * lib/db/citable-documents.ts (spec 168), which returns derived blocks, never
+ * the records, and is served by the separate `/documents` endpoints. The single-message lookups
  * (findMessageById / findMessageInOwnedThread) still return full rows; they
  * feed feedback ownership checks, not API serialization. Analytics reads
  * select from `messages` directly.
@@ -131,7 +133,9 @@ export async function findMessagesByThread(threadId: string, exec: Executor = db
     .select(messageReadColumns)
     .from(messages)
     .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+    // id breaks created_at ties (one-transaction inserts share now()); every
+    // thread-order query uses this SAME order so message_index stays aligned (spec 168).
+    .orderBy(messages.createdAt, messages.id);
 }
 
 export async function createMessage(data: NewMessage, exec: Executor = db): Promise<Message> {
