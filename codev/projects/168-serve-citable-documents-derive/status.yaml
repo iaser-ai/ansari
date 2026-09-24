@@ -1,7 +1,7 @@
 id: '168'
 title: serve-citable-documents-derive
 protocol: spir
-phase: review
+phase: verified
 plan_phases:
   - id: phase_1
     title: Persist per-result citability on tool_result records
@@ -30,24 +30,14 @@ gates:
     requested_at: '2026-09-23T23:47:28.544Z'
     approved_at: '2026-09-24T03:34:54.397Z'
   verify-approval:
-    status: pending
+    status: approved
+    requested_at: '2026-09-24T03:39:12.713Z'
+    approved_at: '2026-09-24T03:47:07.666Z'
 iteration: 1
 build_complete: true
-history:
-  - iteration: 1
-    plan_phase: phase_4
-    build_output: ''
-    reviews:
-      - model: codex
-        verdict: REQUEST_CHANGES
-        file: >-
-          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/projects/168-serve-citable-documents-derive/168-phase_4-iter1-codex.txt
-      - model: gemini
-        verdict: APPROVE
-        file: >-
-          /Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/projects/168-serve-citable-documents-derive/168-phase_4-iter1-gemini.txt
+history: []
 started_at: '2026-09-23T22:09:57.559Z'
-updated_at: '2026-09-24T03:34:54.398Z'
+updated_at: '2026-09-24T03:47:09.411Z'
 context_refreshes:
   - boundary: plan-phase:phase_2
     at: '2026-09-23T23:18:28.918Z'
@@ -66,4 +56,6 @@ pr_history:
     pr_number: 180
     branch: builder/spir-168
     created_at: '2026-09-23T23:43:36.916Z'
+    merged: true
+    merged_at: '2026-09-24T03:38:13.361Z'
 pr_ready_for_human: false
