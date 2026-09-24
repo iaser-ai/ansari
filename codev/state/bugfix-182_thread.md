@@ -35,3 +35,12 @@
     breaking. Possible follow-up issue.
   - `followEnabled` now also picks the scroll-container shape. It covers the same routes today; a separate
     prop would be clearer if this file is touched again.
+
+## Architect integration review — two items
+- The `followEnabled` doc comment now says it also makes the list its own height-bounded scroller on web.
+- Keyboard check. With nothing focused, Space/PageDown/arrows/End scroll nothing, and the old page scroller
+  behaved the same (checked on 173cc97), so this is not a regression. Before `tabIndex`, Tab never landed on the
+  list itself, but keys did scroll it once focus was inside it (a reaction button) or after a click. Added
+  `tabIndex={0}` on web (live chat only). Tab now reaches the list in 2 presses and PageDown/Space scroll it.
+  A mouse click draws no focus ring (`:focus-visible` false); the ring shows for keyboard focus only.
+- Follow-up for the list's minHeight floor: #184.

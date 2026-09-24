@@ -24,8 +24,9 @@ interface MessageListProps {
   isLoading: boolean
   isSending: boolean
   scrollToBottomEnabled?: boolean
-  // Follow new content while the reader is at the bottom and offer the jump-to-latest button. Only the live
-  // chat opts in; share views stay static.
+  // Follow new content while the reader is at the bottom and offer the jump-to-latest button. On web it also makes
+  // the list its own height-bounded scroller, so the composer below it stays put (issue #182). Only the live chat
+  // opts in; share views stay static and grow with the page.
   followEnabled?: boolean
   reactionsEnabled?: boolean
   width?: string | number
@@ -183,6 +184,8 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>(
           // space the layout leaves it and scrolls itself, and the composer below it stays put while an answer
           // streams (issue #182). Share views keep growing with the page.
           style={followEnabled && Platform.OS === 'web' ? { flexBasis: 0 } : undefined}
+          // Now that the list scrolls itself, make it a tab stop so the keyboard can reach and scroll the transcript.
+          tabIndex={followEnabled && Platform.OS === 'web' ? 0 : undefined}
           scrollEventThrottle={100}
           // On web the capture listener above tracks whichever element really scrolls.
           onScroll={
