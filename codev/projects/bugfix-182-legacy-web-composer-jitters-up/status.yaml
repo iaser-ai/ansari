@@ -1,7 +1,7 @@
 id: bugfix-182
 title: legacy-web-composer-jitters-up
 protocol: bugfix
-phase: investigate
+phase: fix
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-24T00:12:40.498Z'
-updated_at: '2026-09-24T00:12:40.499Z'
+updated_at: '2026-09-24T00:14:49.698Z'
