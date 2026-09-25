@@ -11,3 +11,9 @@
 - The mapper resolves documents in `mapMessage`. The khushu' sample applies only when the first answer has no documents.
 - The done hand-off swaps by message key, not text, so the persisted answer gaining markers after the stream is safe (arch.md updated; the old "must stay symmetric" note is superseded).
 - Resolution rate on real answers is NOT measured yet: no local API, and the default target is staging. Deferred to dev-approval.
+- Dev-approval blocked: staging GET /threads/{id} and chat both 500 while the list returns 200. Suspect #66 deployed without migration 0009_documents. Reported to the architect.
+
+## Redesign (2026-09-25)
+- #66's `documents` key was reverted in #165 and replaced by spec 168's `/threads/{id}/documents` + `/share/{id}/documents`. Merged develop.
+- Verified: `message_index` counts `tool` rows (a raw-array index, before the prototype drops them). Derived documents carry the same title/context/data strings, so `document-citations.ts` is reusable unchanged.
+- Plan revision 2: parallel fetch inside one queryFn. Join on message_id, cross-checked with message_index. The documents fetch fails soft (the conversation always renders). No share view in the prototype, so no share consumer. Waiting on architect review before coding.

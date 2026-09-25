@@ -1,27 +1,40 @@
-# PIR Plan: Map apps/api's real `documents` to `Citation` in the prototype
+# PIR Plan: Map apps/api's citable documents to `Citation` in the prototype
+
+> **Revision 2 (2026-09-25): redesigned for spec 168.** Revision 1 of this plan was built on #66's
+> sibling `documents` key on thread GET. #165 reverted that key (it duplicated `tool_calls`
+> data, copied document text permanently into public share snapshots, and its unapplied
+> migration took staging down). Spec 168 (PR #180) replaced it with **dedicated `/documents`
+> endpoints**. Thread GET and share GET are byte-identical to before #66. See
+> "What changed from revision 1" below. The marker-resolution design approved in revision 1
+> (strong-key matching, drop rather than guess, all sources listed) is unchanged.
 
 ## Understanding
 
-#66 has shipped (merged in PR #162). `GET /api/v2/threads/{id}` and `GET /api/v2/share/{id}` now
-emit an additive `documents` key on an assistant message, **only when non-empty**
-(`apps/api/src/app/api/v2/threads/[id]/route.ts:71-73`, `apps/api/src/app/api/v2/share/[id]/route.ts:38`).
-Each element is a `document` ContentBlock: `{ type: 'document', source: { type: 'text',
-media_type: 'text/plain', data }, title, context? }`. The data is deduped, in dispatch order, and
-contains only `citations.enabled: true` sources.
+The backend now serves each answer's citable sources separately from the thread
+(`codev/specs/168-serve-citable-documents-derive.md`):
 
-The prototype ignores it today:
+```ts
+// GET /api/v2/threads/{id}/documents: authenticated, owner-scoped, same 404 as thread GET
+{ thread_id: string,
+  messages: Array<{ message_id: string, message_index: number, documents: DocumentBlock[] }> }
+// GET /api/v2/share/{id}/documents: public, reads the share snapshot
+{ id: string, messages: Array<{ message_index: number, documents: DocumentBlock[] }> }
+// DocumentBlock, identical in both:
+{ type: 'document', source: { type, media_type, data: string }, title: string, context?: string }
+```
 
-- `prototypes/ansari-expo/lib/api/wire-schemas.ts:52-59`: `wireMessageSchema` has no `documents`.
-  Zod strips unknown keys, so the data is dropped when the response is parsed.
-- `prototypes/ansari-expo/lib/api/mappers.ts:114`: every message gets `citations: []`.
-- `prototypes/ansari-expo/lib/api/mappers.ts:137-170`: the only citations that ever render are the
-  hard-coded khushu' sample (`lib/sample-citations.ts`), which also replaces that answer's text.
-- `prototypes/ansari-expo/lib/api/mappers.ts:163-167`: any assistant answer with no citations
-  goes through `stripUnbackedCitations`, which removes the model's own `[N]` markers and its
-  trailing "Citations:" list.
+Verified against the merged code (`apps/api/src/app/api/v2/threads/[id]/documents/route.ts`,
+`.../share/[id]/documents/route.ts`, `apps/api/lib/db/citable-documents.ts`):
 
-The four search tools determine what `title` / `source.data` look like
-(`apps/api/lib/tools/search-*.ts`):
+- Only assistant messages with ≥1 citable document are listed, so a thread with none returns
+  `messages: []`. Notices ("No Results" and the like) are filtered upstream by the preserved
+  `citations.enabled`. This needs no client-side guard.
+- `message_index` is the position in thread GET's **raw** `messages` array, **including
+  `role: 'tool'` rows**. Both reads order by `(created_at, id)`. The prototype drops `tool` rows
+  in `mapMessage`, so any index join must happen **before** that filter.
+- The derived blocks carry the tool's original strings: `source.data` is `doc.source.data`, and
+  `title` and `context` pass through (`formatToolResultForGemini`, `agent.ts:392`). The
+  per-tool shapes the resolver matches on are therefore unchanged:
 
 | Tool | `context` | `title` | `source.data` |
 |---|---|---|---|
@@ -30,14 +43,16 @@ The four search tools determine what `title` / `source.data` look like
 | tafsir | `Retrieved from Encyclopedia of Evidence-based Tafsir` | `Tafsir Encyclopedia, Volume V, Page P` | plain text, optionally prefixed `Chapter: …\n\n` |
 | mawsuah | `Retrieved from Encyclopedia of Islamic Jurisprudence` | `Encyclopedia of Islamic Jurisprudence, Volume V, Page P` | plain text, optionally prefixed `Chapter: …\n\n` |
 
-Documents reach the UI only through the thread GET. The streamed answer does not carry them, but
-`chat-reconcile` already swaps the streamed bubble for the persisted message once the detail
-refetch lands. The persisted message will carry the citations, so no streaming changes are
-needed.
+- The server-side cost of `/documents` is about 5 ms (median, 25-answer synthetic thread), about
+  5× thread GET's ~1 ms. The owner accepted this (`codev/reviews/168-*.md`). On a phone, both
+  requests are dominated by network round-trip, so fetching both in parallel costs roughly one
+  round-trip.
+- The prototype has **no share view** (`app/` has only `chat/[id]`, index, login, register,
+  about). `/share/{id}/documents` therefore has no consumer here and is out of scope.
 
 ### Inline markers: kept, resolved through the model's own "Citations:" list
 
-The issue says #66 adds no inline `[N]` markers. That is true of #66 itself. However, the
+Neither #66 nor spec 168 adds inline `[N]` markers. However, the
 existing facilitator prompt **already tells the model** to write `[1]`, `[2]` inline and a
 trailing `**Citations**:` list (`apps/api/lib/ai/prompts/facilitator.ts:116-133`), with each
 entry giving "its number, title, and bilingual content". Hadith entries must also carry the
@@ -46,7 +61,7 @@ key that says what each number means**. No prompt change is needed, so the Islam
 prompt rule is not triggered.
 
 The model's numbering has **no fixed relationship to `documents` array order**, which is
-tool-dispatch order after dedup. So we can't just pair `[2]` with `documents[1]`. Instead each
+tool-dispatch order after dedup (spec 168 keeps that order). So we can't just pair `[2]` with `documents[1]`. Instead each
 marker is **resolved**:
 
 1. Parse the trailing "Citations:" section into entries `N → entry text`.
@@ -77,146 +92,148 @@ This keeps the model's inline references wherever we can prove what they point a
 never links a marker by guesswork. `stripUnbackedCitations` still covers answers with no
 `documents`, unchanged from #158/#160.
 
+
+## What changed from revision 1
+
+| | Revision 1 (#66) | Revision 2 (spec 168) |
+|---|---|---|
+| Where documents come from | `documents` key on each thread-GET message | separate `GET /threads/{id}/documents` |
+| Wire schema | optional `documents` on `wireMessageSchema` | **removed**; new `threadDocumentsSchema` for the new endpoint. `wireMessageSchema` returns to its pre-#161 shape |
+| Join | none needed (inline) | by `message_id` against thread GET's message `id`, cross-checked with `message_index` (see below) |
+| Fetch | one request | two requests **in parallel inside the same query function**, so the answer, its markers and its pills arrive together |
+| Failure of the sources request | n/a | **degrades, never blocks**: the conversation renders with citations stripped, as today (see below) |
+| `lib/document-citations.ts` | new | **unchanged**: same `WireDocument[]` input. `WireDocument` is re-pointed at the new schema's element |
+| Khushu' fallback, stripping, "keep all sources" | as approved | unchanged |
+
+**Join key.** The architect named `message_index` as the join key. It is the only key the share
+endpoint has. The thread endpoint also returns `message_id`, and the prototype only reads
+threads. I propose to **join on `message_id` and require `message_index` to agree**: the
+entry is attached only if `raw.messages[message_index].id === message_id` and that message is an
+assistant message. A disagreement (e.g. the thread changed between the two requests, or an
+ordering drift) attaches nothing for that entry and logs `{messageId, reason}`. This keeps the
+drop-rather-than-guess rule at the join as well as at the markers. If you'd rather join on
+`message_index` alone (so the same code serves share later), the change is one line, but we
+would lose that cross-check.
+
+**Failure posture.** Staging went down on #66 because a sources problem took the whole thread
+with it. The thread fetch keeps its loud-failure zod gate unchanged. The sources request must
+never make a conversation unreadable:
+- **HTTP or network error on `/documents`** (including a 404 from an API older than spec 168):
+  render with no citations and strip, exactly as #158/#160. Log `console.warn` with the status
+  only.
+- **A 200 whose body fails `threadDocumentsSchema`**: same degraded render, but log
+  `console.error` naming the ZodError path. This is the "wrong backend" signal, surfaced
+  without taking the answer away. (Alternative: throw, which is consistent with the thread
+  gate but repeats the staging failure mode. I recommend against it.)
+- A malformed single entry fails the whole documents parse (zod is all-or-nothing), which
+  degrades the whole thread to no citations. That is acceptable: the server already fails
+  closed per record, so a malformed body means a contract break, not bad data.
+
 ## Proposed Change
 
 1. **Wire schema** (`lib/api/wire-schemas.ts`)
-   - Add `documentBlockSchema`, matching #66 exactly:
-     `z.object({ type: z.literal('document'), source: z.object({ type: z.string(), media_type: z.string(), data: z.string() }), title: z.string(), context: z.string().optional() })`.
-     It is non-strict, like the rest of the file.
-   - `wireMessageSchema` gains `documents: z.array(documentBlockSchema).optional()`. The key is
-     absent on document-less messages and on older deploys, so it has to be optional. A
-     present-but-malformed array still throws, which keeps the loud-failure gate.
-   - Update the header/doc comments to say which content types we now render.
+   - Remove the `documents` field from `wireMessageSchema`, back to its pre-#161 shape.
+   - Keep `documentBlockSchema` (unchanged, matches spec 168's `DocumentBlock`).
+   - Add `threadDocumentsSchema = z.object({ thread_id: z.string(), messages: z.array(z.object({
+     message_id: z.string(), message_index: z.number().int().nonnegative(),
+     documents: z.array(documentBlockSchema) })) })`. It is non-strict, like the rest of the file.
+   - No share-documents schema (no consumer, see Understanding).
 
-2. **Document → Citation mapper** (new `lib/document-citations.ts`, pure and RN-free so it can
-   be unit-tested)
-   - `documentToCitation(doc): Omit<Citation, 'id' | 'marker'>`: the per-document field
-     mapping below.
-   - `resolveCitations(content, docs, messageId): { content: string; citations: Citation[] }`:
-     the marker-resolution algorithm above (parse the Citations list, match, strip unresolved
-     markers, renumber, append uncited documents, drop the list, fall back). `id` is
-     `${messageId}-doc-${documentIndex}`, so it stays stable across renumbering.
-   - Classification comes from `context`, falling back to the `title` prefix:
-     - **quran** → `sourceType: 'quran'`, `reference: "Qur'an 2:255"` (from the title),
-       `sourceTitle: "Qur'an"`, `arabicText: data.ar`, `translationText: data.en`,
-       `url: https://quran.com/2/255`. The URL is only set when the title parses as
-       `S:A`, the same scheme the sample already uses.
-     - **hadith** → `sourceType: 'hadith'`, `reference`: the `title` minus its trailing
-       `(LK id …)` token, `sourceTitle: data.collection`, `arabicText: data.ar`,
-       `translationText: data.en`. `url` is left unset: the repo has no verified hadith URL
-       scheme, and a guessed link is not acceptable.
-     - **tafsir / mawsuah** → `sourceType: 'scholarly'`, `reference: title`,
-       `sourceTitle`: the encyclopedia name. The passage goes in `arabicText` if it is mostly
-       Arabic script. Otherwise it goes in `translationText`. The `Chapter: …` prefix is
-       lifted into the reference.
-     - **Unknown context, or JSON that fails to parse** → `sourceType: 'scholarly'`,
-       `reference: title`, `sourceTitle: context ?? ''`, `translationText: data`. We show the
-       raw text rather than drop a real source or throw.
-   - Pure functions only. Nothing is fabricated: every field comes from the document itself.
+2. **Decode** (`lib/api/decode.ts`)
+   - `decodeConversationDetail(rawThread, rawDocuments?)` parses the thread (throws on mismatch,
+     unchanged). Then it parses the documents with `safeParse`. On failure it logs and uses none,
+     then maps.
+   - New pure `joinThreadDocuments(detail: WireThreadDetail, docs: WireThreadDocuments):
+     Map<string, WireDocument[]>` implements the `message_id` + `message_index` cross-check rule
+     above.
 
-3. **Mapper** (`lib/api/mappers.ts`)
-   - `mapMessage`: an assistant message with `documents?.length` gets its `content` and
-     `citations` from `resolveCitations(...)`. Everything else gets `[]` as before.
-   - Khushu' sample gate: it now applies only when that first assistant answer has **no real
-     documents**, and is kept as the fallback demo the issue allows. A real answer is never
-     overwritten by sample text or sample sources. (If the reviewer prefers, we delete
-     `sample-citations.ts` entirely. That is simple to do, but no demo would remain on an
-     environment without #66.)
-   - Strip step: unchanged. `stripUnbackedCitations` runs when `citations.length === 0`, which
-     is now exactly "no real documents and not the sample". Answers with documents have
-     already had their markers resolved and their list removed by `resolveCitations`.
-   - Rewrite the header comment. `citations` is no longer "apps/api never carries". It now
-     comes from `documents` (#66), with the sample kept as a fallback.
+3. **Fetch** (`lib/api/hooks.ts`, `fetchConversation`)
+   - `Promise.all([apiFetch(thread), apiFetch(documents).catch(→ undefined + warn)])`, then
+     decode. The query key, the hook signature and the screen are unchanged. The existing
+     post-stream invalidation refetches both, so a just-streamed answer gets its sources on the
+     same refetch that replaces the streaming bubble.
 
-4. **Docs**
-   - Update `lib/citations.ts` header, `lib/sample-citations.ts` header, and the prototype
-     README's "empty by design" section wherever they say "real citations arrive with #66".
-     This follows the lesson "fix a doc defect everywhere".
-   - Update the `codev/resources/arch.md` "Prototype chat display" section to describe the
-     documents → pills path and the marker decision.
+4. **Mapper** (`lib/api/mappers.ts`)
+   - `mapConversationDetail(detail, documentsByMessageId = new Map())`. `mapMessage` reads the
+     documents for `msg.id` from the map instead of `msg.documents`. Everything downstream
+     (`resolveCitations`, the khushu' fallback gate, the strip condition) is unchanged.
+
+5. **`lib/document-citations.ts`**: no logic change. It gets its `WireDocument` type import
+   from the schema module as before.
+
+6. **Docs**
+   - `codev/resources/arch.md` "Prototype chat display": replace "`documents` (#66) on the wire
+     message" with the spec-168 fetch, join and failure posture. Also make sure the reverted #66
+     paragraph that the develop merge brought back is not contradicted.
+   - `lib/api/mappers.ts`, `lib/citations.ts`, `lib/sample-citations.ts`, `README.md`: replace
+     "#66 / `documents` key" wording with "spec 168 `/documents`". This is the "fix a doc defect
+     everywhere" rule, including my own revision-1 comments.
 
 ## Files to Change
 
-- `prototypes/ansari-expo/lib/api/wire-schemas.ts:33-59`: `documentBlockSchema`, optional
-  `documents` on `wireMessageSchema`
-- `prototypes/ansari-expo/lib/document-citations.ts`: new, `documentToCitation` +
-  `resolveCitations`, reusing the `CITATIONS_SECTION` regex exported from `lib/citations.ts`
-- `prototypes/ansari-expo/lib/document-citations.test.ts`: new
-- `prototypes/ansari-expo/lib/api/mappers.ts:15-37, 105-170`: attach real citations, narrow the
-  sample gate, adjust the strip condition, update comments
-- `prototypes/ansari-expo/lib/api/decode.test.ts:219-345`: new real-documents cases; khushu'
-  cases updated where their premise changes
-- `prototypes/ansari-expo/lib/citations.ts:1-24`: export the section regex; doc comment, `lib/sample-citations.ts:3-39`,
-  `prototypes/ansari-expo/README.md`: doc comments
-- `codev/resources/arch.md`: prototype chat display section
+- `prototypes/ansari-expo/lib/api/wire-schemas.ts`: drop `documents` from `wireMessageSchema`,
+  add `threadDocumentsSchema` + `WireThreadDocuments`
+- `prototypes/ansari-expo/lib/api/decode.ts`: second argument, safe-parse, `joinThreadDocuments`
+- `prototypes/ansari-expo/lib/api/hooks.ts:87-93`: parallel fetch with fail-soft documents
+- `prototypes/ansari-expo/lib/api/mappers.ts`: consume the join map
+- `prototypes/ansari-expo/lib/api/decode.test.ts`: move the revision-1 "real documents" cases to
+  the two-payload decode; add join and failure cases
+- `prototypes/ansari-expo/lib/document-citations.ts` / `.test.ts`: unchanged (the 20 tests stay
+  as the resolver's spec)
+- `codev/resources/arch.md`, `prototypes/ansari-expo/README.md`, `lib/citations.ts`,
+  `lib/sample-citations.ts`: wording
 
-The API, the shared UI components (`AnswerMessage`, `CitationChip`, `SourceFolio`,
-`SourcePanel`), and the generated `Citation` type do not change.
+No apps/api change. Thread GET, share GET and the streaming path are untouched.
 
 ## Risks & Alternatives Considered
 
-- **Risk: tool output format drifts** (e.g. hadith JSON keys renamed). Mitigation: the mapper
-  falls back to raw text, and unit tests pin each tool's current shape using fixtures copied
-  from the `search-*.ts` builders. The zod schema checks only the #66 envelope, not the
-  per-tool `data` payload, so a payload change degrades the display without breaking the
-  thread.
-- **Risk: long tafsir/mawsuah passages.** `SourceFolio` shows the whole text. I will check in
-  the running app that the sheet scrolls, and cap the preview if it does not.
-- **Risk: many documents.** One turn can retrieve 10+ sources, which means 10+ pills. We accept
-  this for the prototype: it is real data, and hiding sources would misrepresent what the answer
-  was built on. The count is noted in the review.
-- **Risk: the model paraphrases or mangles a Citations entry.** Then that entry doesn't
-  resolve, and its marker is stripped rather than mislinked. The degraded case is the
-  document-only pill list, never a wrong link. The strong keys (LK id, surah:ayah, volume/page)
-  are ones the prompt tells the model to copy verbatim. I will spot-check resolution rates on
-  a handful of real answers at dev-approval and report them.
-- **Risk: the streamed bubble shows no markers (the stream strips them), then the persisted
-  answer shows them after the refetch swap.** That makes the swap visible in a small way. We
-  accept it: the stream has no documents to resolve against.
-- **Alternative: map markers to documents by position.** Rejected: the model's numbering
-  doesn't follow document order, so markers would open wrong sources.
-- **Alternative: build citations from the model's Citations list text alone, ignoring
-  `documents`.** Rejected: that shows what the model *says* a source contains rather than the
-  retrieved text itself.
-- **Alternative: strip all markers and show pills only** (the previous draft of this plan).
-  Rejected at plan review: we want inline references kept where they can be trusted.
+- **Risk: the two requests see different thread states** (a message persisted between them).
+  Appends land at the end, and the id + index cross-check drops anything inconsistent. The
+  worst case is one answer without sources until the next refetch.
+- **Risk: `/documents` payload size.** It is unbounded and linear in thread length (PR #180
+  review finding 2; a follow-up issue is planned upstream). The prototype fetches it once per
+  thread load. When the upstream `?message_id=`/cap lands, we can adopt it in a later issue.
+- **Risk: the model paraphrases a Citations entry** (carried over). The entry doesn't resolve
+  and its marker is dropped, never mislinked.
+- **Alternative: a separate react-query query for documents, merged in the screen.** Rejected:
+  the thread would render first and markers and pills would pop in a moment later on every
+  load, and the chat screen and `chat-reconcile` would need to learn about a second query. The
+  saving is about 5 ms of server time.
+- **Alternative: fetch documents lazily, only when a source is tapped.** Rejected: the markers
+  themselves depend on the documents (resolution decides which `[N]` survive), so the text
+  can't be rendered correctly without them.
+- **Alternative: join on `message_index` only.** It works and matches the share endpoint, but
+  it loses the free consistency check that `message_id` gives. Kept as the one-line fallback
+  if you prefer it.
 
 ## Test Plan
 
-- **Unit (`document-citations.test.ts`):**
-  - Field mapping: one fixture per tool (quran, hadith, tafsir, mawsuah) builds the expected
-    `Citation`. Also covered: hadith `LK id` removed from the reference; Quran URL set only for
-    a parseable `S:A` title; malformed JSON → raw-text fallback; unknown context → scholarly
-    fallback.
-  - Resolution:
-    - The model's `[1]` names `documents[2]` by LK id, and the marker opens `documents[2]`.
-    - Model numbering that is out of document order is resolved correctly.
-    - An unresolved entry strips only its own marker.
-    - An ambiguous match (two candidates) is unresolved.
-    - Renumbering leaves no gaps, and inline markers match pill numbers.
-    - Uncited documents are appended after the cited ones.
-    - The Citations section is removed.
-    - No Citations list → fallback (all markers stripped, document-order pills).
-    - The same marker used twice resolves to the same pill.
-  - Negative check: a deliberately wrong LK id in the entry must NOT link.
-- **Unit (`decode.test.ts`):**
-  - An assistant message with `documents` and a matching Citations list decodes with inline
-    markers kept, `citations` numbered to match, and no "Citations:" block.
-  - A message without `documents` is unchanged from #158/#160: stripped, `citations: []`.
-  - A khushu' thread whose first answer HAS documents gets the real citations and keeps its
-    real text, not the sample.
-  - A khushu' thread with no documents still gets the sample, with its markers.
-  - A malformed `documents` array (e.g. missing `title`) throws a ZodError.
-  - A negative check: the with-documents assertion fails when the mapper drops `documents`.
-- `pnpm --filter ansari-expo test` and the typecheck pass.
-- **Manual (dev-approval):** run the prototype against an apps/api that includes #66.
-  - Ask a question that triggers search, e.g. "What does the Qur'an say about patience?". After
-    the stream completes and the refetch lands, the answer shows footnote pills for the real
-    sources and inline superscripts. Tapping a superscript opens the source that its sentence
-    cites. I will check this against the model's original Citations text in the raw API
-    response. The Qur'an link opens quran.com. No "Citations:" list appears in the prose.
-  - Ask something that uses no tool (e.g. "hello"): no pills, text stripped as before.
-  - Open an old thread from before #66: no pills, no errors.
-  - Check a shared thread view if it uses the same decoder.
-- **Cross-platform:** web plus the iOS simulator at minimum, for the pill list and the source
-  sheet (RTL Arabic rendering).
+- **Unit, resolver (`document-citations.test.ts`):** the existing 20 cases, unchanged. This
+  includes the mutation check (positional pairing fails 5 of them).
+- **Unit, decode (`decode.test.ts`):**
+  - Thread + documents payloads → the right assistant message gets resolved markers and pills.
+  - `message_index` counts `tool` rows: a thread `[user, tool, assistant]` with
+    `message_index: 2` attaches to the assistant.
+  - Id/index disagreement → nothing attached for that entry, and other entries still attach.
+  - An entry pointing at a user message → ignored.
+  - `rawDocuments` undefined (fetch failed) → identical to the no-documents output (stripped,
+    `citations: []`).
+  - Malformed documents body → same degraded output, no throw. The thread-shape gate tests
+    still throw.
+  - Khushu' thread whose first answer has documents → real sources; without → sample (carried
+    over).
+  - `messages: []` → identical to no documents.
+- **Unit, fetch:** `fetchConversation` with a rejecting documents request still resolves the
+  conversation. Mock at the `apiFetch` boundary only.
+- `pnpm --filter ansari-expo test`, typecheck, and the porch build check (with
+  `apps/api/.env.ci` loaded, as CI does).
+- **Manual (dev-approval), against staging once it runs spec 168:**
+  - A search-triggering question ("What does the Qur'an say about patience? Cite a hadith
+    too."). After the stream, the answer shows inline markers and pills together. Tapping a
+    marker opens the source its sentence cites, checked against the raw `/documents` response
+    and the model's original Citations text. No "Citations:" list is shown.
+  - "hello" → no pills, stripped text.
+  - An old thread → loads, and has sources if its tool records carry the new metadata (pre-168
+    rows fail closed upstream, so no sources).
+  - I will also measure and report how often markers resolve across 5–10 real answers.
+- **Cross-platform:** web plus iOS simulator.
