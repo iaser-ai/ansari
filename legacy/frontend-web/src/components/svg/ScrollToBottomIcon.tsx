@@ -15,7 +15,10 @@ const ScrollToBottomIcon: React.FC<Props> = (props: Props) => {
       height={props.height || '200px'}
       transform={props.transform}
     >
-      <Path d='M2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2zm6.5 4.5v5.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 10.293V4.5a.5.5 0 0 1 1 0z'></Path>
+      <Path
+        fillRule='evenodd'
+        d='M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1'
+      ></Path>
     </ReactNativeSvg>
   )
 }

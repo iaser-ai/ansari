@@ -64,7 +64,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ isHome }) => {
     <View className='flex-1 justify-end'>
       {isHome ? (
         isLoading || isSending || activeThread?.messages ? (
-          <MessageList ref={messageListRef} activeThread={activeThread} isLoading={isLoading} isSending={isSending} />
+          <MessageList
+            ref={messageListRef}
+            activeThread={activeThread}
+            isLoading={isLoading}
+            isSending={isSending}
+            followEnabled
+          />
         ) : (
           <View
             className='flex-grow'
@@ -89,7 +95,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ isHome }) => {
           </View>
         )
       ) : (
-        <MessageList ref={messageListRef} activeThread={activeThread} isLoading={isLoading} isSending={isSending} />
+        <MessageList
+          ref={messageListRef}
+          activeThread={activeThread}
+          isLoading={isLoading}
+          isSending={isSending}
+          followEnabled
+        />
       )}
       <View
         style={{

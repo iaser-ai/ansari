@@ -1,0 +1,43 @@
+### Assessment: Phase 1 Review — Persist per-result citability on `tool_result` records
+
+Phase 1 implementation has been reviewed across all modified and created files against the specification (`codev/specs/168-serve-citable-documents-derive.md`) and the plan (`codev/plans/168-serve-citable-documents-derive.md`).
+
+---
+
+### 1. Spec Adherence
+- **Citability representation**: `ToolCallRecord` in [`apps/api/db/schema/messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L53-L61) defines `citations?: Array<{ enabled: boolean }>` as an optional sibling to `content`. `content` remains strictly the unmodified Gemini `functionResponse` payload.
+- **Single computation point**: [`apps/api/lib/tools/types.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/tools/types.ts#L68-L78) introduces and exports `citabilityOf(result: ToolResult)`, which extracts `doc.citations?.enabled === true` for each document in order, failing closed if undefined or false.
+- **Both record generation sites updated**:
+  - `buildToolResultRecord` in [`apps/api/lib/facilitator/agent.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/facilitator/agent.ts#L298) populates `citations: citabilityOf(result)`.
+  - The inline `budget_skipped` record in [`apps/api/lib/facilitator/agent.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/facilitator/agent.ts#L941) populates `citations: citabilityOf(skipped)` (evaluating to `[]`, aligned with `content.results: []`).
+- **Gemini payload frozen**: `formatToolResultForGemini` was not modified, preserving byte-identity of the functionResponse parts.
+- **No database migration**: Citability is encapsulated within the existing JSONB structure of `tool_calls`.
+
+---
+
+### 2. Code Quality & Invariant Safety
+- **Array alignment by construction**: Because `formatToolResultForGemini` maps 1:1 over `result.documents` and `citabilityOf` also maps 1:1 over `result.documents`, `content.results.length === citations.length` is guaranteed at write time.
+- **Exported block type**: `DocumentContentBlock` is exported from [`apps/api/db/schema/messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L33) ready for consumption by Phase 2 derivation.
+- **Clean separation**: `citations` is kept out of `content` and `rawPayload`, ensuring zero serialization leakage to Gemini history replay or existing API endpoints.
+
+---
+
+### 3. Test Coverage & Plan Alignment
+- **Contract fixtures pinned**: [`apps/api/tests/documents-contract-fixture.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/documents-contract-fixture.test.ts) pins byte-identity against `thread-get.json` and `share-get.json` fixtures captured from unmodified handlers on a thread containing user messages, no-tool answers, legacy tool answers, and citable tool answers.
+- **Unit and boundary testing**:
+  - [`apps/api/tests/tool-citability.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/tool-citability.test.ts) tests the 4 search tools directly (Qur'an, Hadith, Mawsuah, Tafsir) to ensure zero-result notices (with `status: 'ok'`) produce `{ enabled: false }`, hits produce `{ enabled: true }`, and degrades produce `{ enabled: false }`.
+  - [`apps/api/tests/facilitator-citability.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/facilitator-citability.test.ts) verifies notice kinds (zero-results, degraded, backstop throw, limit-refused, unknown tool, budget-skipped), index alignment, and exact byte-identity of the sent Gemini `functionResponse`.
+- **Database persistence round-trip**:
+  - [`apps/api/tests/toolcalls-routes.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/toolcalls-routes.test.ts#L522-L576) tests all three persisting routes (`POST /threads/[id]`, `POST /threads/[id]/chat`, and `POST /mcp-complete`) against real pglite, querying raw JSONB via SQL to prove `citations` persists correctly.
+- **Negative testing verified**: Negative test scenarios (hardcoding `enabled: true`, leaking citations into Gemini payload, dropping citations in record builder) and failure counts are properly executed and documented in `codev/state/spir-168_thread.md`.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 cleanly persists per-result citability without touching Gemini payloads or database columns, backed by comprehensive unit, route, and byte-identity tests.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

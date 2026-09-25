@@ -34,8 +34,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
         role: m.role,
         content: formatMessageContent(m.content),
         created_at: m.createdAt,
-        // Citable sources (issue #66); old snapshots carry no key and emit none.
-        ...(m.documents && m.documents.length > 0 ? { documents: m.documents } : {}),
       })),
       created_at: share.createdAt?.toISOString(),
     });

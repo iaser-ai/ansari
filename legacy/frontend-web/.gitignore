@@ -31,6 +31,7 @@ credentials.json
 /dist-e2e
 /test-results
 /playwright-report
+/e2e/videos
 
 # production
 /build

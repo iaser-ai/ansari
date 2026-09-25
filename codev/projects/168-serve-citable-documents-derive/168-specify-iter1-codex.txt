@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong and feasible design, but internal contradictions and one incorrect persistence assumption must be resolved before planning.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `raw_payload` requirements conflict: `messageReadColumns` must retain it for history replay, yet a success criterion says it “stays fully projected out.” Clarify that it is excluded from derivation queries and API serialization, not from history reads.
+- The spec says `v1/chat/completions` persists facilitator tool records, but the current route drops `event.toolCalls` and creates its assistant message without `toolCalls`. Either exclude that route explicitly or require its persistence behavior to change.
+- A1/C1/fail-closed are treated as chosen throughout Desired State and tests, but remain “to be confirmed” in Open Questions. Record them as final decisions—or state that approval must explicitly select them—so the plan has one authoritative design.
+- Specify that malformed JSONB metadata or result entries fail closed without causing thread/share GET to return 500; current criteria cover missing and length-misaligned metadata only.
