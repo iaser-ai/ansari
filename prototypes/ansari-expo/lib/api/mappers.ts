@@ -1,6 +1,8 @@
 import type {
+  WireDocument,
   WireThread,
   WireThreadDetail,
+  WireThreadDocuments,
   WireMessage,
 } from '@/lib/api/wire-schemas';
 import type {
@@ -16,8 +18,9 @@ import { resolveCitations } from '@/lib/document-citations';
 /**
  * Map apps/api wire shapes onto the UI types.
  *
- * CITATIONS come from the answer's real `documents` (issue #66): see
- * `lib/document-citations.ts`, which also keeps each of the model's inline `[N]`
+ * CITATIONS come from the answer's real source documents, fetched from
+ * `GET /threads/{id}/documents` (spec 168) and joined in by `joinThreadDocuments`
+ * below: see `lib/document-citations.ts`, which also keeps each of the model's inline `[N]`
  * markers it can tie to one of those documents and drops the rest. An answer
  * with no documents gets `[]`, and its citation-shaped text is stripped. One
  * fallback demo remains: the FIRST assistant answer of a thread about khushu',
@@ -102,13 +105,14 @@ function mapRole(role: string): MessageRole | null {
 export function mapMessage(
   msg: WireMessage,
   conversationId: string,
+  documents: WireDocument[] = [],
 ): Message | null {
   const role = mapRole(msg.role);
   if (!role) return null;
   const text = flattenContent(msg.content);
   const { content, citations } =
-    role === 'assistant' && msg.documents && msg.documents.length > 0
-      ? resolveCitations(text, msg.documents, msg.id)
+    role === 'assistant' && documents.length > 0
+      ? resolveCitations(text, documents, msg.id)
       : { content: text, citations: [] };
   return {
     id: msg.id,
@@ -134,12 +138,49 @@ function isKhushuThread(messages: Message[]): boolean {
   return /khush/i.test(firstUser.content);
 }
 
+/**
+ * Attach `/documents` entries to thread GET's messages. Keyed by message id, and
+ * an entry is used ONLY when its `message_index` (a position in the RAW
+ * `messages` array, `tool` rows included) points at that same id, on an
+ * assistant message. Anything else — the thread changed between the two
+ * requests, an ordering drift, an entry for a user row — attaches nothing:
+ * sources on the wrong answer would be worse than none. Logged by id and
+ * reason only, never content.
+ */
+export function joinThreadDocuments(
+  detail: WireThreadDetail,
+  docs: WireThreadDocuments,
+): Map<string, WireDocument[]> {
+  const byId = new Map<string, WireDocument[]>();
+  for (const entry of docs.messages) {
+    const target = detail.messages[entry.message_index];
+    const reason =
+      target === undefined || target.id !== entry.message_id
+        ? 'index_mismatch'
+        : target.role !== 'assistant'
+          ? 'not_assistant'
+          : byId.has(entry.message_id)
+            ? 'duplicate'
+            : null;
+    if (reason) {
+      console.warn('Thread documents entry not attached:', {
+        messageId: entry.message_id,
+        reason,
+      });
+      continue;
+    }
+    byId.set(entry.message_id, entry.documents);
+  }
+  return byId;
+}
+
 export function mapConversationDetail(
   detail: WireThreadDetail,
+  documentsByMessageId: ReadonlyMap<string, WireDocument[]> = new Map(),
 ): ConversationDetail {
   const id = detail.thread_id;
   const mapped = detail.messages
-    .map((m) => mapMessage(m, id))
+    .map((m) => mapMessage(m, id, documentsByMessageId.get(m.id)))
     .filter((m): m is Message => m !== null);
   const firstAnswer = mapped.find((m) => m.role === 'assistant');
   const withSamples =

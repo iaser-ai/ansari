@@ -2,11 +2,13 @@ import {
   healthSchema,
   messageResponseSchema,
   threadDetailSchema,
+  threadDocumentsSchema,
   threadListSchema,
   threadSchema,
 } from '@/lib/api/wire-schemas';
 import {
   filterThreadsByName,
+  joinThreadDocuments,
   mapConversation,
   mapConversationDetail,
   mapConversationList,
@@ -41,8 +43,57 @@ export function decodeConversation(raw: unknown): Conversation {
   return mapConversation(threadSchema.parse(raw));
 }
 
-export function decodeConversationDetail(raw: unknown): ConversationDetail {
-  return mapConversationDetail(threadDetailSchema.parse(raw));
+/**
+ * A thread plus, when available, its `/documents` response (spec 168).
+ *
+ * The thread keeps the loud-failure gate: a wrong shape throws. The documents
+ * do NOT — they are an enhancement, and a sources problem must never make a
+ * conversation unreadable (#165: a documents fault once took every thread GET
+ * down on staging). `rawDocuments` is `undefined` when the request failed (see
+ * `fetchConversation`); a body that fails its schema is logged as an error —
+ * the wrong-backend signal — and the thread renders without sources, exactly
+ * as an answer with no documents does.
+ */
+export function decodeConversationDetail(
+  raw: unknown,
+  rawDocuments?: unknown,
+): ConversationDetail {
+  const detail = threadDetailSchema.parse(raw);
+  if (rawDocuments === undefined) return mapConversationDetail(detail);
+  const docs = threadDocumentsSchema.safeParse(rawDocuments);
+  if (!docs.success) {
+    console.error('Thread documents response did not match its schema:', {
+      issues: docs.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })),
+    });
+    return mapConversationDetail(detail);
+  }
+  return mapConversationDetail(detail, joinThreadDocuments(detail, docs.data));
+}
+
+/**
+ * The thread and its source documents (spec 168), fetched in parallel so an
+ * answer, its markers and its source pills arrive together. This is the detail
+ * queryFn body with the transport injected (`apiFetch` in the app), so the
+ * degrade path is unit-testable. A failed documents request (network, 5xx, or a
+ * 404 from an apps/api without spec 168) never fails the conversation: it is
+ * logged by status only and the thread renders without sources. The thread
+ * request keeps its normal error path.
+ */
+export async function loadConversationDetail(
+  conversationId: string,
+  fetchJson: (path: string) => Promise<unknown>,
+): Promise<ConversationDetail> {
+  const path = `/api/v2/threads/${encodeURIComponent(conversationId)}`;
+  const [raw, rawDocuments] = await Promise.all([
+    fetchJson(path),
+    fetchJson(`${path}/documents`).catch((error: unknown) => {
+      console.warn('Thread documents unavailable; showing answers without sources:', {
+        status: (error as { status?: number } | null)?.status ?? null,
+      });
+      return undefined;
+    }),
+  ]);
+  return decodeConversationDetail(raw, rawDocuments);
 }
 
 export function decodeHealth(raw: unknown): HealthStatus {

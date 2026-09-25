@@ -12,7 +12,7 @@ import { streamChat, type ChatStreamEvent } from '@/lib/api/streaming';
 import { resolveBaseUrl } from '@/lib/api/config';
 import {
   decodeConversation,
-  decodeConversationDetail,
+  loadConversationDetail,
   decodeConversationList,
   decodeDeleteResult,
   decodeHealth,
@@ -86,10 +86,8 @@ export function useListConversations(
 async function fetchConversation(
   conversationId: string,
 ): Promise<ConversationDetail> {
-  const raw = await apiFetch<unknown>(
-    `/api/v2/threads/${encodeURIComponent(conversationId)}`,
-  );
-  return decodeConversationDetail(raw);
+  // Thread + its source documents, in parallel; see loadConversationDetail.
+  return loadConversationDetail(conversationId, (path) => apiFetch<unknown>(path));
 }
 
 export function useGetConversation(
