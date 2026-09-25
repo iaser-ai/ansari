@@ -1,15 +1,16 @@
 /**
  * Citation-shaped text with nothing behind it.
  *
- * When an answer arrives with no `documents` (no tool ran, or an apps/api
- * without issue #66), the model has still written its own
+ * When an answer has no source documents (no tool ran, the `/documents`
+ * request failed, or an apps/api without spec 168), the model has still
+ * written its own
  * `[1]` markers and, often, a trailing "Citations:" list. With no sources to
  * open, those read as raw scaffolding: brackets that go nowhere and a list
  * the answer's own footnotes (when there are any) would duplicate. So an
  * answer with no citations attached is shown without them.
  *
  * Display only — the stored content is untouched. The caller decides when it
- * applies: an answer with no real `documents` (issue #66) and no sample. An
+ * applies: an answer with no real documents (spec 168) and no sample. An
  * answer that HAS documents goes through `lib/document-citations.ts` instead,
  * which keeps each marker it can tie to a real source; the khushu' sample
  * keeps its hand-matched markers.

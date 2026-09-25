@@ -3,10 +3,10 @@ import type { Citation } from '@/lib/api/types';
 /**
  * FIXED SAMPLE CITATIONS — sample data, not real output.
  *
- * Real answers now carry their own sources (`documents`, issue #66 — mapped in
- * `lib/document-citations.ts`, issue #161). This hardcoded set is kept only as a
- * FALLBACK DEMO, for an environment where the answer has no documents (an
- * apps/api without #66, or a turn that ran no tool), so the citation UI
+ * Real answers now carry their own sources (`GET /threads/{id}/documents`,
+ * spec 168 — mapped in `lib/document-citations.ts`, issue #161). This hardcoded
+ * set is kept only as a FALLBACK DEMO, for an answer with no documents (an
+ * apps/api without spec 168, or a turn that ran no tool), so the citation UI
  * (`AnswerMessage` pills, `CitationChip`, the source sheet) can still be shown.
  *
  * These are NOT derived from the answer they appear beneath — they are a fixed
