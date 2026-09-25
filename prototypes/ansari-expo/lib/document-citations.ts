@@ -5,9 +5,10 @@ import { CITATIONS_SECTION, stripUnbackedCitations } from '@/lib/citations';
 /**
  * Real sources behind an answer (issue #161).
  *
- * `apps/api` returns the documents each answer's search tools retrieved as a
- * `documents` key (issue #66): Qur'an verses, hadith, and passages from the
- * tafsir and jurisprudence encyclopedias, in dispatch order. This turns them
+ * `apps/api` serves the documents each answer's search tools retrieved from
+ * `GET /threads/{id}/documents` (spec 168): Qur'an verses, hadith, and passages
+ * from the tafsir and jurisprudence encyclopedias, in dispatch order, notices
+ * already filtered out. This turns them
  * into the `Citation`s the answer UI already renders.
  *
  * The model, separately, writes its own inline `[N]` markers and a trailing
@@ -134,12 +135,19 @@ function toCitationFields(p: ParsedDocument): CitationFields {
       const collection = str(json.collection);
       const chapter = str(json.chapter);
       const grade = str(json.grade);
-      // Title: "<book> - Chapter N: <chapter>, Hadith M (Grade: …) (LK id …)".
-      const number = /, Hadith ([^\s(]+)/.exec(doc.title)?.[1];
-      const reference =
-        collection && number
+      // Title: "<book> - Chapter N: <chapter>, Hadith M (Grade: …) (LK id …)",
+      // but apps/api cuts it to 100 characters (then appends the LK id), often
+      // mid-chapter or mid-number. A cut title ends in "..."; its number can't
+      // be trusted, so the reference falls back to the collection alone.
+      const head = doc.title.replace(LK_ID_IN_TITLE, '');
+      const number = head.endsWith('...')
+        ? undefined
+        : /, Hadith ([^\s(]+)/.exec(head)?.[1];
+      const reference = collection
+        ? number
           ? `${collection} ${number}`
-          : doc.title.replace(LK_ID_IN_TITLE, '');
+          : collection
+        : head;
       const detail = [chapter, grade && `Grade: ${grade}`].filter(Boolean);
       return {
         sourceType: 'hadith',
@@ -222,7 +230,9 @@ function matchEntry(entry: string, docs: ParsedDocument[]): number | null {
     return hits.length === 1 ? hits[0]! : null;
   };
 
-  const lkId = /\bLK id[ \t]*:?[ \t]*([A-Za-z0-9_]+)/i.exec(entry)?.[1];
+  // Real ids carry a `-1` segment for books without sub-chapters
+  // (`4_6_-1_1597`), so `-` is part of the token.
+  const lkId = /\bLK id[ \t]*:?[ \t]*([A-Za-z0-9_-]+)/i.exec(entry)?.[1];
   if (lkId) return only((p) => p.kind === 'hadith' && p.lkId === lkId);
 
   if (/qur['’`ʼ]?an|\bsurah?\b/i.test(entry)) {

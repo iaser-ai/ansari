@@ -120,6 +120,53 @@ describe('document → Citation field mapping', () => {
   });
 });
 
+describe('hadith titles as apps/api actually sends them (staging, 2026-09-25)', () => {
+  const realHadith = (title: string, lkId: string, collection: string, chapter: string) =>
+    doc(
+      title,
+      'Retrieved from hadith collections',
+      JSON.stringify({ ar: 'ع', en: 'e', grade: 'Sahih - Authentic', collection, chapter, lk_id: lkId }),
+    );
+  const IBN_MAJA = realHadith(
+    'IbnMaja - Chapter 6: Chapters Regarding Funerals, Hadith 1597 (Grade: Hasan - Good) (LK id 4_6_-1_1597)',
+    '4_6_-1_1597',
+    'IbnMaja',
+    'Chapters Regarding Funerals',
+  );
+  const CUT = realHadith(
+    'AbuDaud - Chapter 32: Dialects and Readings of the Qur\'an (Kitab Al-Huruf Wa Al-Qira\'at), Hadith ... (LK id 3_32_1_3869)',
+    '3_32_1_3869',
+    'AbuDaud',
+    "Dialects and Readings of the Qur'an (Kitab Al-Huruf Wa Al-Qira'at)",
+  );
+
+  it('matches an LK id with a -1 segment', () => {
+    const { content, citations } = resolveCitations(
+      'Be patient at the first shock [1].\n\n**Citations**:\n' +
+        '[1] Ibn Maja — Chapter 6: Chapters Regarding Funerals, Hadith 1597 (Grade: Hasan - Good) (LK id 4_6_-1_1597)\n',
+      [Q_20_14, IBN_MAJA],
+      'm',
+    );
+    expect(content).toBe('Be patient at the first shock [1].');
+    expect(citations[0]!.reference).toBe('IbnMaja 1597');
+  });
+
+  it('does not match an LK id that differs only after the hyphen', () => {
+    const { content } = resolveCitations(
+      'Claim [1].\n\nCitations:\n[1] Ibn Maja (LK id 4_6_-1_1598)\n',
+      [IBN_MAJA],
+      'm',
+    );
+    expect(content).toBe('Claim.');
+  });
+
+  it('never reads a number out of a title apps/api cut short', () => {
+    const [c] = resolveCitations('x', [CUT], 'm').citations;
+    expect(c!.reference).toBe('AbuDaud');
+    expect(c!.sourceTitle).toContain('Dialects and Readings');
+  });
+});
+
 describe('resolving the model\'s inline markers', () => {
   it('ties each marker to the document its Citations entry names, not its position', () => {
     // The model numbers the hadith [1] and the verse [2]; documents are in the
