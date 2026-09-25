@@ -17,3 +17,9 @@
 - #66's `documents` key was reverted in #165 and replaced by spec 168's `/threads/{id}/documents` + `/share/{id}/documents`. Merged develop.
 - Verified: `message_index` counts `tool` rows (a raw-array index, before the prototype drops them). Derived documents carry the same title/context/data strings, so `document-citations.ts` is reusable unchanged.
 - Plan revision 2: parallel fetch inside one queryFn. Join on message_id, cross-checked with message_index. The documents fetch fails soft (the conversation always renders). No share view in the prototype, so no share consumer. Waiting on architect review before coding.
+
+## Implement, revision 2
+- The architect approved both decisions (id+index cross-check, fail-soft). `loadConversationDetail` (decode.ts) fetches the thread and /documents in parallel with the transport injected, so it is testable without RN.
+- The first join mutation test passed vacuously (a mismatched id attaches to nothing anyway). Replaced it with an id→answer B / index→answer A case, which now catches both mutations.
+- Real staging data (5 answers, 9–14 docs each): initially 23/28 markers resolved. All 5 misses were a bug in my matching: real LK ids contain `-1` (`4_6_-1_1597`). After the fix, 28/28 resolve.
+- apps/api cuts hadith titles at 100 chars, often through "Hadith N". A cut title now shows the collection only. Follow-up idea: apps/api could add `hadith_number` to the hadith data JSON.
