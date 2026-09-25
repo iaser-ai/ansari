@@ -136,7 +136,6 @@ beforeAll(async () => {
       tool_calls jsonb,
       model_provider text,
       model_id text,
-      documents jsonb,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE tool_call_orphans (
@@ -303,6 +302,33 @@ describe('POST /api/v2/threads/[id] (web)', () => {
     for (const m of history) {
       expect(Object.keys(m).sort()).toEqual(['content', 'rawPayload', 'role']);
     }
+  });
+});
+
+describe('history replay never carries citable documents (spec 168)', () => {
+  it('turn 2 history contains no document text and no documents/tool keys, though turn 1 derived documents', async () => {
+    const SENTINEL = 'SENTINEL-VERSE-TEXT';
+    const CITABLE: ToolCallRecord[] = [
+      { type: 'tool_use', id: 'tool_9_1_zzzzz', name: 'search_quran', input: { query: 'q' } },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool_9_1_zzzzz',
+        content: { results: [{ title: 'Quran 2:153', context: 'Retrieved from the Holy Quran', content: SENTINEL }], summary: 's' },
+        status: 'ok',
+        duration_ms: 1,
+        citations: [{ enabled: true }],
+      },
+    ];
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', CITABLE)());
+    await readAll(await threadPost(webReq('first'), ctx));
+
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Second.', undefined)());
+    await readAll(await threadPost(webReq('second'), ctx));
+
+    const history = mockRunFacilitator.mock.calls[1][0] as Array<Record<string, unknown>>;
+    expect(history.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    for (const m of history) expect(Object.keys(m).sort()).toEqual(['content', 'rawPayload', 'role']);
+    expect(JSON.stringify(history)).not.toContain(SENTINEL);
   });
 });
 
@@ -517,5 +543,61 @@ describe('per-turn model provenance (issue #99) — terminal-event provenance �
     const noProvenance = all.find((o) => o.modelProvider === null);
     expect(noProvenance).toBeDefined();
     expect(noProvenance!.modelId).toBeNull();
+  });
+});
+
+describe('per-result citability (spec 168) — persisted verbatim by every persisting route, real pglite', () => {
+  const CITABLE_RECORDS: ToolCallRecord[] = [
+    { type: 'tool_use', id: 'tool_1_1_ccccc', name: 'search_quran', input: { query: 'q' } },
+    {
+      type: 'tool_result',
+      tool_use_id: 'tool_1_1_ccccc',
+      content: {
+        results: [
+          { title: 'Quran 2:153', context: 'Retrieved from the Holy Quran', content: 'v1' },
+          { title: 'Quran 2:155', context: 'Retrieved from the Holy Quran', content: 'v2' },
+        ],
+        summary: 'Please see the Quran verses below.',
+      },
+      status: 'ok',
+      duration_ms: 300,
+      citations: [{ enabled: true }, { enabled: true }],
+    },
+    { type: 'tool_use', id: 'tool_1_2_ddddd', name: 'search_hadith', input: { query: 'q' } },
+    {
+      type: 'tool_result',
+      tool_use_id: 'tool_1_2_ddddd',
+      content: { results: [{ title: 'No Results', context: 'Hadith Search', content: 'No results found.' }], summary: 'No hadith found.' },
+      status: 'ok',
+      duration_ms: 200,
+      citations: [{ enabled: false }],
+    },
+  ];
+
+  async function storedCitations() {
+    // Raw jsonb, bypassing drizzle's typing: the flag must be in the stored bytes.
+    const r = await client.query<{ c1: unknown; c3: unknown }>(
+      `SELECT tool_calls->1->'citations' AS c1, tool_calls->3->'citations' AS c3 FROM messages WHERE role = 'assistant'`
+    );
+    return r.rows;
+  }
+
+  it('POST /threads/[id] (web)', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', CITABLE_RECORDS)());
+    await readAll(await threadPost(webReq('q'), ctx));
+    expect((await assistantRows())[0].toolCalls).toEqual(CITABLE_RECORDS);
+    expect(await storedCitations()).toEqual([{ c1: [{ enabled: true }, { enabled: true }], c3: [{ enabled: false }] }]);
+  });
+
+  it('POST /threads/[id]/chat (SSE)', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', CITABLE_RECORDS)());
+    await readAll(await chatPost(chatReq('q'), ctx));
+    expect(await storedCitations()).toEqual([{ c1: [{ enabled: true }, { enabled: true }], c3: [{ enabled: false }] }]);
+  });
+
+  it('POST /mcp-complete', async () => {
+    mockRunFacilitator.mockImplementation(() => toolTurnThenDone('Answer.', CITABLE_RECORDS)());
+    await mcpPost(mcpReq('q'));
+    expect(await storedCitations()).toEqual([{ c1: [{ enabled: true }, { enabled: true }], c3: [{ enabled: false }] }]);
   });
 });

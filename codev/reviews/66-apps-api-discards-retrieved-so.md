@@ -1,5 +1,7 @@
 # Review: apps/api discards retrieved source documents — persist and return them (issue #66)
 
+> **Superseded by #165.** The `messages.documents` column and the `documents` response key described below were removed. The column duplicated `tool_calls`, and its unapplied migration broke staging. The contract is to be rebuilt on data derived from `tool_calls`. Do not build against this design.
+
 ## Summary
 
 The facilitator now collects the citable documents (`citations.enabled === true`) from every

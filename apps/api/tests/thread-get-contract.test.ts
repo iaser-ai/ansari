@@ -40,11 +40,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
 import type { ToolCallRecord } from '@/db/schema';
-import type { DocumentContentBlock } from '@/db/schema/messages';
 import { createMessage, createToolCallOrphan } from '@/lib/db/threads';
 import { createThreadSnapshot } from '@/lib/db/shares';
 import { GET as threadGet } from '../src/app/api/v2/threads/[id]/route';
-import { GET as shareGet } from '../src/app/api/v2/share/[id]/route';
 
 let client: PGlite;
 
@@ -65,7 +63,9 @@ const RECORDS: ToolCallRecord[] = [
 // Today's exact key sets (order included — JSON.stringify preserves insertion order).
 const TOP_LEVEL_KEYS = ['thread_id', 'thread_name', 'source', 'created_at', 'updated_at', 'messages'];
 const MESSAGE_KEYS = ['id', 'role', 'content', 'agent_name', 'source', 'created_at'];
-const TOOL_KEY_PATTERN = /tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms/;
+// `citations` (spec 168): the per-result citability flag on tool records must
+// never serialize either.
+const TOOL_KEY_PATTERN = /tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms|citations/;
 // Provenance columns (issue #99) must never serialize either — same structural
 // exclusion (messageReadColumns / share projection), same live-scan discipline.
 const PROVENANCE_KEY_PATTERN = /model_provider|modelProvider|model_id|modelId/;
@@ -106,7 +106,6 @@ beforeAll(async () => {
       tool_calls jsonb,
       model_provider text,
       model_id text,
-      documents jsonb,
       created_at timestamp with time zone DEFAULT now()
     );
     CREATE TABLE tool_call_orphans (
@@ -161,11 +160,12 @@ async function seedConversation() {
 
 describe('TOOL_KEY_PATTERN is a live scan (negative-tested per lessons-critical)', () => {
   it('matches each known-bad key and not a near-miss', () => {
-    for (const bad of ['tool_use', 'tool_result', 'tool_calls', 'toolCalls', 'rawPayload', 'raw_payload', 'duration_ms']) {
+    for (const bad of ['tool_use', 'tool_result', 'tool_calls', 'toolCalls', 'rawPayload', 'raw_payload', 'duration_ms', 'citations']) {
       expect(JSON.stringify({ [bad]: 1 })).toMatch(TOOL_KEY_PATTERN);
     }
     // Near-misses that legitimately appear in responses must NOT trip the scan.
     expect(JSON.stringify({ thread_name: 'tools of the trade', agent_name: 'facilitator' })).not.toMatch(TOOL_KEY_PATTERN);
+    expect(JSON.stringify({ title: 'Quran 2:153', context: 'Retrieved from the Holy Quran' })).not.toMatch(TOOL_KEY_PATTERN);
   });
 });
 
@@ -233,6 +233,43 @@ describe('GET /api/v2/threads/[id] — frozen contract with tool_calls populated
   });
 });
 
+describe('with records that DO derive documents (spec 168)', () => {
+  // Same seed, but the assistant's records carry the spec-168 citability flag,
+  // so documents are derivable — the scans run where a leak is actually possible.
+  const CITABLE: ToolCallRecord[] = [
+    RECORDS[0],
+    { ...(RECORDS[1] as Extract<ToolCallRecord, { type: 'tool_result' }>), citations: [{ enabled: true }] },
+  ];
+
+  it('thread GET keeps today\'s exact keys and no tool/provenance/citations key; the snapshot too', async () => {
+    await createMessage({ threadId: THREAD_ID, role: 'user', content: [{ type: 'text', text: 'What is sabr?' }] });
+    await createMessage({
+      threadId: THREAD_ID,
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Sabr is patience.' }],
+      agentName: 'facilitator',
+      toolCalls: CITABLE,
+      modelProvider: 'gemini',
+      modelId: 'm',
+    });
+
+    const raw = await (await threadGet(getReq(), ctx)).text();
+    const body = JSON.parse(raw);
+    for (const m of body.messages) expect(Object.keys(m)).toEqual(MESSAGE_KEYS);
+    expect(raw).not.toMatch(TOOL_KEY_PATTERN);
+    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
+    expect(raw).not.toContain('documents');
+
+    const share = await createThreadSnapshot(THREAD_ID, USER_ID);
+    const snap = JSON.stringify(share!.content);
+    // Not vacuous: the snapshot really does carry the derived document…
+    expect(share!.content.messages[1].documents).toHaveLength(1);
+    // …and still no record key.
+    expect(snap).not.toMatch(TOOL_KEY_PATTERN);
+    expect(snap).not.toMatch(PROVENANCE_KEY_PATTERN);
+  });
+});
+
 describe('share snapshot — second serializing surface', () => {
   it('serializes no tool, payload, or provenance keys with the columns populated', async () => {
     await seedConversation();
@@ -245,179 +282,5 @@ describe('share snapshot — second serializing surface', () => {
       ['role', 'content', 'createdAt'],
       ['role', 'content', 'createdAt'],
     ]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Issue #66 — citable documents: an additive `documents` sibling key on the
-// owning message ONLY. The exact-key assertions above stay untouched; the
-// document-bearing cases get their own pinned lists (order included).
-// ---------------------------------------------------------------------------
-
-const DOC_MESSAGE_KEYS = [...MESSAGE_KEYS, 'documents'];
-const DOC_SNAPSHOT_KEYS = ['role', 'content', 'createdAt', 'documents'];
-
-// Source text carries `<`, `&` and quotes: returned strings must equal the
-// persisted strings exactly — no escaping or transformation on the way out.
-const DOCUMENTS: DocumentContentBlock[] = [
-  {
-    type: 'document',
-    source: {
-      type: 'text',
-      media_type: 'text/plain',
-      data: 'إِنَّ اللَّهَ مَعَ الصَّابِرِينَ — "patience" & <sabr> \'2:153\'',
-    },
-    title: 'Quran 2:153',
-    context: 'Ayah text',
-  },
-  {
-    type: 'document',
-    source: { type: 'text', media_type: 'text/plain', data: 'Actions are judged by intentions…' },
-    title: 'Sahih al-Bukhari 1',
-  },
-];
-
-async function seedDocumentedAnswer() {
-  await createMessage({ threadId: THREAD_ID, role: 'user', content: [{ type: 'text', text: 'What is sabr?' }] });
-  await createMessage({
-    threadId: THREAD_ID,
-    role: 'assistant',
-    content: [{ type: 'text', text: 'Sabr is patience.' }],
-    agentName: 'facilitator',
-    rawPayload: { role: 'model', parts: [{ text: 'Sabr is patience.' }] },
-    toolCalls: RECORDS,
-    modelProvider: 'gemini',
-    modelId: 'gemini-2.5-pro',
-    documents: DOCUMENTS,
-  });
-}
-
-describe('GET /api/v2/threads/[id] — documents (issue #66)', () => {
-  it('returns documents on the documented assistant message only, verbatim and in order', async () => {
-    await seedDocumentedAnswer();
-
-    const res = await threadGet(getReq(), ctx);
-    expect(res.status).toBe(200);
-    const raw = await res.text();
-    const body = JSON.parse(raw);
-
-    expect(Object.keys(body)).toEqual(TOP_LEVEL_KEYS);
-    const [user, assistant] = body.messages;
-    expect(Object.keys(user)).toEqual(MESSAGE_KEYS);
-    expect(Object.keys(assistant)).toEqual(DOC_MESSAGE_KEYS);
-    // content is still a bare string for a single-text answer.
-    expect(assistant.content).toBe('Sabr is patience.');
-    expect(assistant.documents).toEqual(DOCUMENTS);
-    expect(assistant.documents[0].source.data).toBe(DOCUMENTS[0].source.data);
-    // The frozen-contract scans still find nothing with every internal column populated.
-    expect(raw).not.toMatch(TOOL_KEY_PATTERN);
-    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
-  });
-
-  it('a mixed thread: only the documented answer carries the key', async () => {
-    await seedDocumentedAnswer();
-    await createMessage({ threadId: THREAD_ID, role: 'user', content: [{ type: 'text', text: 'Thanks' }] });
-    await createMessage({
-      threadId: THREAD_ID,
-      role: 'assistant',
-      content: [{ type: 'text', text: 'You are welcome.' }],
-      agentName: 'facilitator',
-    });
-
-    const body = JSON.parse(await (await threadGet(getReq(), ctx)).text());
-    expect(body.messages.map((m: object) => Object.keys(m))).toEqual([
-      MESSAGE_KEYS,
-      DOC_MESSAGE_KEYS,
-      MESSAGE_KEYS,
-      MESSAGE_KEYS,
-    ]);
-    expect(body.messages[1].documents).toEqual(DOCUMENTS);
-  });
-});
-
-describe('GET /api/v2/threads/[id] — document-less threads are byte-identical to pre-#66', () => {
-  // Deterministic rows (fixed ids and timestamps) inserted by SQL, so the
-  // serialized response can be compared to a fixture. LEGACY_FIXTURE was
-  // captured by running this exact seed through the UNMODIFIED (pre-#66) GET
-  // handler. Rows cover: a user message, a no-tool answer (documents NULL), a
-  // legacy row written before the column existed (NULL), and a hand-inserted
-  // '[]' row (which documentsOrNull never writes, but must still emit no key).
-  const LEGACY_FIXTURE =
-    '{"thread_id":"22222222-2222-2222-2222-222222222222","thread_name":"Sabr","source":"web","created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:05:00.000Z","messages":[{"id":"a0000000-0000-0000-0000-000000000001","role":"user","content":"What is sabr?","agent_name":null,"source":"web","created_at":"2026-01-01T00:01:00.000Z"},{"id":"a0000000-0000-0000-0000-000000000002","role":"assistant","content":"Sabr is patience.","agent_name":"facilitator","source":"web","created_at":"2026-01-01T00:02:00.000Z"},{"id":"a0000000-0000-0000-0000-000000000003","role":"user","content":"And shukr?","agent_name":null,"source":"web","created_at":"2026-01-01T00:03:00.000Z"},{"id":"a0000000-0000-0000-0000-000000000004","role":"assistant","content":"Shukr is gratitude.","agent_name":"facilitator","source":"web","created_at":"2026-01-01T00:04:00.000Z"}]}';
-
-  async function seedDeterministic() {
-    await client.exec(`
-      UPDATE threads SET created_at = '2026-01-01T00:00:00Z', updated_at = '2026-01-01T00:05:00Z';
-      INSERT INTO messages (id, thread_id, role, content, agent_name, source, created_at) VALUES
-        ('a0000000-0000-0000-0000-000000000001', '${THREAD_ID}', 'user',
-          '[{"type":"text","text":"What is sabr?"}]', NULL, 'web', '2026-01-01T00:01:00Z'),
-        ('a0000000-0000-0000-0000-000000000002', '${THREAD_ID}', 'assistant',
-          '[{"type":"text","text":"Sabr is patience."}]', 'facilitator', 'web', '2026-01-01T00:02:00Z'),
-        ('a0000000-0000-0000-0000-000000000003', '${THREAD_ID}', 'user',
-          '[{"type":"text","text":"And shukr?"}]', NULL, 'web', '2026-01-01T00:03:00Z');
-      INSERT INTO messages (id, thread_id, role, content, agent_name, source, documents, created_at) VALUES
-        ('a0000000-0000-0000-0000-000000000004', '${THREAD_ID}', 'assistant',
-          '[{"type":"text","text":"Shukr is gratitude."}]', 'facilitator', 'web', '[]'::jsonb, '2026-01-01T00:04:00Z');
-    `);
-  }
-
-  it('serializes exactly the pre-change bytes, with no documents key anywhere', async () => {
-    await seedDeterministic();
-    const raw = await (await threadGet(getReq(), ctx)).text();
-    expect(raw).toBe(LEGACY_FIXTURE);
-    expect(raw).not.toContain('documents');
-  });
-});
-
-describe('share — documents in snapshot and share GET (issue #66)', () => {
-  const shareCtx = (id: string) => ({ params: Promise.resolve({ id }) });
-  const shareReq = (id: string) => new NextRequest(`http://localhost/api/v2/share/${id}`, { method: 'GET' });
-
-  it('a share created now snapshots documents and share GET returns them on the same message', async () => {
-    await seedDocumentedAnswer();
-    const share = await createThreadSnapshot(THREAD_ID, USER_ID);
-    expect(share).toBeDefined();
-    expect(share!.content.messages.map((m) => Object.keys(m))).toEqual([
-      ['role', 'content', 'createdAt'],
-      DOC_SNAPSHOT_KEYS,
-    ]);
-
-    const res = await shareGet(shareReq(share!.id), shareCtx(share!.id));
-    expect(res.status).toBe(200);
-    const raw = await res.text();
-    const body = JSON.parse(raw);
-    expect(Object.keys(body.messages[0])).toEqual(['role', 'content', 'created_at']);
-    expect(Object.keys(body.messages[1])).toEqual(['role', 'content', 'created_at', 'documents']);
-    expect(body.messages[1].content).toBe('Sabr is patience.');
-    expect(body.messages[1].documents).toEqual(DOCUMENTS);
-    expect(raw).not.toMatch(TOOL_KEY_PATTERN);
-    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
-  });
-
-  it('a pre-#66 snapshot (no documents key) returns no documents key', async () => {
-    const SHARE_ID = '33333333-3333-3333-3333-333333333333';
-    const legacySnapshot = {
-      threadName: 'Sabr',
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: 'What is sabr?' }], createdAt: '2026-01-01T00:01:00.000Z' },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Sabr is patience.' }],
-          createdAt: '2026-01-01T00:02:00.000Z',
-        },
-      ],
-    };
-    await client.query(`INSERT INTO shares (id, thread_id, content) VALUES ($1, $2, $3)`, [
-      SHARE_ID,
-      THREAD_ID,
-      JSON.stringify(legacySnapshot),
-    ]);
-
-    const raw = await (await shareGet(shareReq(SHARE_ID), shareCtx(SHARE_ID))).text();
-    const body = JSON.parse(raw);
-    for (const m of body.messages) {
-      expect(Object.keys(m)).toEqual(['role', 'content', 'created_at']);
-    }
-    expect(raw).not.toContain('documents');
   });
 });

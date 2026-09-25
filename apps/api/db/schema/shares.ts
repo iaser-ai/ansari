@@ -8,8 +8,9 @@ export type ThreadSnapshot = {
     role: string;
     content: Message['content'];
     createdAt: string;
-    // Citable sources (issue #66); set only when non-empty. Snapshots taken
-    // before the column existed have no key.
+    // Citable sources, copied at share creation (spec 168); present only when
+    // non-empty. Served by GET /api/v2/share/{id}/documents — share GET's
+    // explicit projection never emits it. Pre-168 snapshots have no key.
     documents?: DocumentContentBlock[];
   }>;
 };

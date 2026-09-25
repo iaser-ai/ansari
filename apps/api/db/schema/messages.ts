@@ -9,9 +9,6 @@ export type ContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string }
   | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string };
 
-/** A retrieved source document persisted with an assistant turn (issue #66). */
-export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
-
 // Tool dispatch records (spec 73). Persisted in the SEPARATE `tool_calls`
 // column — NEVER in `content` — so no API-serialization path can leak them to
 // the frozen mobile/web contract. Interleaved in dispatch order:
@@ -32,6 +29,9 @@ export const TOOL_RESULT_STATUSES = [
 ] as const;
 export type ToolResultStatus = (typeof TOOL_RESULT_STATUSES)[number];
 
+/** The `document` ContentBlock — the element shape served by the `/documents` endpoints (spec 168). */
+export type DocumentContentBlock = Extract<ContentBlock, { type: 'document' }>;
+
 export type ToolCallRecord =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | {
@@ -50,6 +50,14 @@ export type ToolCallRecord =
       http_status?: number;
       /** Which short-circuit skipped this call; only on budget_skipped records. */
       skip_trigger?: 'T1' | 'T2';
+      /**
+       * Per-result citability (spec 168): the tool's own `citations.enabled`,
+       * index-aligned with `content.results` (see `citabilityOf`). A SIBLING of
+       * `content`, never inside it — `content` must stay exactly the Gemini
+       * payload. Absent on records written before spec 168; derivation treats
+       * absent or misaligned as not citable (fail closed).
+       */
+      citations?: Array<{ enabled: boolean }>;
     };
 
 /**
@@ -59,17 +67,6 @@ export type ToolCallRecord =
  */
 export function toolCallsOrNull(records: ToolCallRecord[] | null | undefined): ToolCallRecord[] | null {
   return records && records.length > 0 ? records : null;
-}
-
-/**
- * Normalize a terminal event's citable documents for the `documents` column
- * (issue #66): an answer with nothing citable stores NULL, never [] — absent
- * AND empty both map to null, mirroring toolCallsOrNull.
- */
-export function documentsOrNull(
-  docs: DocumentContentBlock[] | null | undefined
-): DocumentContentBlock[] | null {
-  return docs && docs.length > 0 ? docs : null;
 }
 
 /** Serving backends a turn can be produced by (issue #99). */
@@ -114,9 +111,11 @@ export const messages = pgTable('messages', {
   // guard-rejected payloads legitimately have none.
   rawPayload: jsonb('raw_payload').$type<Content>(),
   // Tool dispatch records for this assistant turn (spec 73). NULL (never [])
-  // when the turn invoked no tools. Deliberately excluded from the read-path
-  // projections in lib/db/threads.ts / shares.ts: no serializing or replay
-  // path selects it, so the frozen API contract cannot leak it structurally.
+  // when the turn invoked no tools. Excluded from the read-path projections in
+  // lib/db/threads.ts / shares.ts, so no replay or serializing path receives
+  // it. The ONE reader for serving is lib/db/citable-documents.ts (spec 168),
+  // which returns only derived `document` blocks — the raw records never leave
+  // it, so no API response can serialize them structurally.
   toolCalls: jsonb('tool_calls').$type<ToolCallRecord[]>(),
   // Per-turn model provenance (issue #99): which serving backend and model id
   // produced this assistant turn — including a #79-rescued turn (provider
@@ -126,12 +125,6 @@ export const messages = pgTable('messages', {
   // frozen API contract cannot serialize it structurally.
   modelProvider: text('model_provider').$type<ModelProvider>(),
   modelId: text('model_id'),
-  // Citable source documents retrieved for this assistant turn (issue #66),
-  // in first-retrieval order. NULL (never []) when the answer used no
-  // citation-enabled retrieval. Kept out of `content` so existing clients see
-  // an unchanged message shape, and excluded from messageReadColumns so the
-  // history-replay path can never feed document text back to the model.
-  documents: jsonb('documents').$type<DocumentContentBlock[]>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('idx_messages_thread').on(table.threadId, table.createdAt),

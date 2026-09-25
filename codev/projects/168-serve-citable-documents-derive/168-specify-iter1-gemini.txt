@@ -1,0 +1,69 @@
+# Specification Review: 168-serve-citable-documents-derive
+
+## 1. Clarity and Completeness of Requirements
+
+The specification is exceptionally well-scoped, thorough, and clear. It directly addresses the problems identified after the revert of #66 in #165:
+- **Wire Contract Preservation**: Explicitly guarantees that `content` remains unmodified (specifically preserving the single-text bare string contract parsed by mobile clients), while introducing `documents` as an additive sibling array that is omitted entirely when empty.
+- **Citability Invariant**: Identifies that `citations.enabled` was previously lost in `formatToolResultForGemini`, which would otherwise cause system notices (e.g., zero-result queries with `status: 'ok'`, degradation notices, limit notices) to be served as citable sources.
+- **Architectural Boundary**: Enforces the owner ruling on issue #168: `tool_calls` is loaded only within a dedicated derivation helper, returning only derived `DocumentBlock[]` structures to callers, preventing raw `ToolCallRecord`s from reaching route handlers or API serializers.
+- **Zero Schema Migrations**: By persisting entry-level metadata inside the existing `tool_calls` JSONB, no Drizzle schema migration is needed, entirely avoiding the deployment ordering hazard (`DEPLOYED_THROUGH`) that caused the #165 staging outage.
+
+---
+
+## 2. Technical Feasibility
+
+The chosen approaches are technically sound and integrate cleanly with the existing codebase:
+- **Approach A1 (`result_meta` on `ToolCallRecord`)**: In [`apps/api/lib/facilitator/agent.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/facilitator/agent.ts), `buildToolResultRecord` receives both `ToolResult` (containing `DocumentBlock[]` with `citations.enabled`) and the Gemini-formatted `content`. Generating a parallel `result_meta` array (`[{ citable, source_type, media_type }]`) index-aligned with `content.results` has zero impact on the Gemini function call payload or the model's history.
+- **Approach B1 (Dedicated DB derivation helper)**:
+  - Querying `SELECT id, tool_calls FROM messages WHERE thread_id = $1 AND role = 'assistant' AND tool_calls IS NOT NULL` uses the existing index `idx_messages_thread` on `(thread_id, created_at)`.
+  - Keeping `findMessagesByThread` and `messageReadColumns` untouched in [`apps/api/lib/db/threads.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts) guarantees that history replay (`convertToGeminiHistory`) during subsequent chat turns does not load or detoast `tool_calls`.
+- **Approach C1 (Snapshot creation derivation)**: Extending `ThreadSnapshot` in [`apps/api/db/schema/shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/shares.ts) to optionally include `documents?: DocumentBlock[]` keeps snapshots immutable and ensures the unauthenticated `GET /api/v2/share/[id]` route remains completely decoupled from `tool_calls` and derivation queries.
+
+---
+
+## 3. Edge Cases and Error Scenarios
+
+The spec handles edge cases with robust fail-closed mechanics:
+- **Historical Rows**: Rows persisted prior to this change lack `result_meta`. Failing closed (yielding no documents) prevents any chance of misclassifying historical system notices as valid sources.
+- **Length Misalignment**: If `result_meta.length !== content.results.length`, the spec drops all documents from that record. This defends against desynchronization should `formatToolResultForGemini` be modified independently in the future.
+- **Notice Handling**: Accurately accounts for all failure modes (`limit_refused`, `unknown_tool`, `backstop_error`, `budget_skipped`, and degraded returns from [`resilience.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/tools/resilience.ts)), ensuring `citations.enabled: false` is consistently recorded and filtered out.
+- **Dedup Semantics**: Correctly specifies deduplication on `(title, context, source.data)` while preserving dispatch order and position of the first occurrence.
+- **Context Handling**: Enforces that absent `context` is completely omitted from the document block rather than serialized as `null` or `undefined`.
+- *Recommendation for Implementation*: Ensure the derivation helper wraps per-record processing in defensive guards so that any malformed JSON in a historical row does not throw an unhandled exception or cause `GET /api/v2/threads/[id]` to return a 500.
+
+---
+
+## 4. Security and Architectural Governance
+
+- **Information Leak Prevention**: Spec-73 telemetry (`duration_ms`, `error_class`, `attempts`, `http_status`, `skip_trigger`) and raw model function call structures remain trapped inside the derivation helper.
+- **Public Surface Isolation**: By adopting C1, the public share endpoint (`/api/v2/share/[id]`) continues to read only from `shares.content` without performing dynamic derivation or accessing `messages.tool_calls`.
+- **`arch-critical.md` Invariant**: Amending the hot-tier rule from an absolute ban on loading `tool_calls` in read paths to allowing it specifically within the dedicated derivation helper maintains honest alignment between architectural documentation and implementation.
+
+---
+
+## 5. Testing Strategy
+
+The 13-point test plan is exceptionally thorough:
+- **Negative Testing**: Specifically mandates tests that verify assertions fail when derivation is disabled or the citability filter is bypassed, preventing false passes.
+- **Byte-Identity Fixtures**: Pinned fixtures ensure pre-change thread serialization is preserved bit-for-bit for answers without citable retrieval.
+- **Real-DB Integration**: Using PGLite for end-to-end route testing (`GET /api/v2/threads/[id]` and `GET /api/v2/share/[id]`) validates SQL queries and JSONB serialization against Postgres semantics.
+
+---
+
+## 6. Assessment of Open Questions
+
+The spec's proposed recommendations should be approved as stated:
+1. **Share snapshot timing (C1 vs C2)**: **Adopt C1**. Preserves snapshot immutability, avoids additional database queries on public share views, and keeps unauthenticated endpoints isolated from `tool_calls`.
+2. **Persisted shape (A1 vs A2)**: **Adopt A1**. Per-entry `{ citable, source_type, media_type }` handles mixed results cleanly and eliminates runtime synthesis of source typing.
+3. **Historical rows**: **Fail closed**. String-matching or heuristic backfills on historical data carry unacceptable risk of misattributing system notices as religious sources.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: The specification is complete, technically sound, respects all architectural constraints, and is ready for implementation planning.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

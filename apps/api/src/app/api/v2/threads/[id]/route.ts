@@ -13,7 +13,7 @@ import {
 } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
-import { toolCallsOrNull, documentsOrNull, type ContentBlock } from '@/db/schema/messages';
+import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import {
   startHeartbeat,
@@ -68,9 +68,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
         agent_name: m.agentName,
         source: m.source,
         created_at: m.createdAt?.toISOString(),
-        // Citable sources (issue #66): an additive sibling key, present ONLY when
-        // non-empty, so document-less messages serialize byte-identically.
-        ...(m.documents && m.documents.length > 0 ? { documents: m.documents } : {}),
       })),
     });
   } catch (error) {
@@ -286,8 +283,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
                     // Per-turn model provenance (issue #99); NULL, never '', when absent.
                     modelProvider: event.provenance?.provider ?? null,
                     modelId: event.provenance?.modelId ?? null,
-                    // Citable retrieved documents (issue #66); NULL, never [], when none.
-                    documents: documentsOrNull(event.documents),
                   });
                 }
                 safeClose();

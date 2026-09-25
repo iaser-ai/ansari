@@ -32,11 +32,17 @@ describe('no-restricted-properties env guard', () => {
     ['JWT_SECRET', 'src/app/api/v2/users/login/hypothetical.ts'],
     ['ACCESS_TOKEN_EXPIRY_HOURS', 'lib/auth/hypothetical.ts'],
     ['REFRESH_TOKEN_EXPIRY_HOURS', 'lib/auth/hypothetical.ts'],
-  ])('flags process.env.%s in %s', async (envVar, filePath) => {
-    const errors = await ruleErrors(`export const v = process.env.${envVar};\n`, filePath);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('lib/config.ts');
-  });
+  ])(
+    'flags process.env.%s in %s',
+    async (envVar, filePath) => {
+      const errors = await ruleErrors(`export const v = process.env.${envVar};\n`, filePath);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('lib/config.ts');
+    },
+    // The first lint call cold-loads the project ESLint config and plugins:
+    // well under 5 s normally, but past vitest's 5 s default under CPU load.
+    20_000
+  );
 
   it('flags getEnv() sidesteps outside lib/config.ts', async () => {
     const code = `import { getEnv } from '@/lib/config';\nexport const s = getEnv().JWT_SECRET;\n`;
