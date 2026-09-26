@@ -266,4 +266,34 @@ describe('reconcileThread — thread-typed follow-up echo (issue #128)', () => {
     expect(postRefetch.landedFollowUp).toBe(persistedFollowUp);
     expect(postRefetch.landedAnswer).toBe(landed);
   });
+
+  it('does not re-key an earlier identical user message when the follow-up repeats old text', () => {
+    // Regression (3-way consult, PIR #128): matching `pendingFollowUp` by an
+    // unbounded backward content scan claims the OLD row when a reader
+    // repeats earlier text (e.g. "tell me more" twice) — no synthetic row
+    // gets appended (reproducing #128's exact symptom for that input) and the
+    // historical row's key changes out from under it (re-animates as "new").
+    // The fix binds the match to `landedFollowUp`'s identity, which is itself
+    // scanned from `sentAtCount` forward and so can never reach this old row.
+    const priorFollowUp = msg('user', 'tell me more', 'u1');
+    const priorAnswer = msg('assistant', 'a1', 'a1');
+    const { messages, landedFollowUp } = reconcileThread({
+      ...base,
+      serverMessages: [priorFollowUp, priorAnswer],
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'tell me more',
+    });
+    expect(landedFollowUp).toBeNull();
+    // A new synthetic row is appended; the old row keeps its own identity.
+    expect(messages.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+    expect(messages.find((m) => m.id === 'u1')).toMatchObject({
+      content: 'tell me more',
+    });
+  });
 });

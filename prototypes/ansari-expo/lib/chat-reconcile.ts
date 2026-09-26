@@ -132,20 +132,20 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
         ];
   }
 
-  // A thread-typed follow-up: the same identity trick as ECHO_ID, but matched
-  // from the END (the most recent occurrence) and never against the echo row
-  // itself (`id !== ECHO_ID`) — the carried-in question and this turn's
-  // follow-up can be identical text, and each reconciliation must claim its
-  // own row rather than fight over one.
+  // A thread-typed follow-up: the same identity trick as ECHO_ID, but bound to
+  // the persisted copy THIS turn actually produced (`landedFollowUp`), never
+  // matched by scanning the whole list for equal content. An unbounded scan
+  // would claim an EARLIER, unrelated user message with the same text (e.g. a
+  // repeated "tell me more") — suppressing the synthetic row (reproducing
+  // #128's exact symptom for that input) and re-keying a historical row it
+  // doesn't own (which then reads as new content and re-animates). This is
+  // safe precisely because `landedFollowUp` is itself scanned from
+  // `sentAtCount` forward, so it can never point at a row older than this
+  // turn — matching on its identity inherits that bound.
   if (pendingFollowUp) {
-    let matchIndex = -1;
-    for (let i = withEcho.length - 1; i >= 0; i--) {
-      const m = withEcho[i];
-      if (m.role === 'user' && m.content === pendingFollowUp && m.id !== ECHO_ID) {
-        matchIndex = i;
-        break;
-      }
-    }
+    const matchIndex = landedFollowUp
+      ? withEcho.findIndex((m) => m.id === landedFollowUp.id)
+      : -1;
     withEcho =
       matchIndex === -1
         ? [
