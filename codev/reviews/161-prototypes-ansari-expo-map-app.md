@@ -24,6 +24,9 @@ The plan was redone mid-flight. Revision 1 was built on #66's sibling `documents
 - `codev/plans/161-prototypes-ansari-expo-map-app.md` (+239 / -0)
 - `codev/resources/arch.md` (+3 / -1)
 - `codev/state/pir-161_thread.md` (+25 / -0)
+- `codev/reviews/161-prototypes-ansari-expo-map-app.md` (this file)
+- `codev/resources/lessons-learned.md` (+13 / -0)
+- `codev/resources/lessons-critical.md` (+1 / -0)
 - `prototypes/ansari-expo/README.md` (+2 / -1)
 - `prototypes/ansari-expo/lib/api/decode.test.ts` (+208 / -2)
 - `prototypes/ansari-expo/lib/api/decode.ts` (+53 / -2)
@@ -108,6 +111,12 @@ it works" lesson, and the cap is full.
 
 ## Things to Look At During PR Review
 
+- **3-way consult (single pass):** Claude APPROVE; Codex COMMENT (asked for explicit web + iOS
+  steps and for the files list to include the review and lessons files, both now added); Gemini
+  COMMENT, because the lane was **skipped**: its `agy` CLI is not installed on this machine, so
+  only two models actually reviewed. Claude's non-blocking notes (the fallback render and the
+  end-of-stream reflow) are now listed under "What to verify".
+
 - **Marker resolution (`lib/document-citations.ts`, `matchEntry`).** The first key the entry
   carries decides, and an ambiguous or empty match is never rescued by a weaker key. That is
   the drop-rather-than-guess rule. If you loosen it, the "wrong LK id must not link" and
@@ -149,3 +158,10 @@ it works" lesson, and the cap is full.
     closed upstream).
   - Block `/documents` in dev tools, or point at an API without spec 168: the conversation
     still loads, without sources.
+  - The fallback render: an answer whose model wrote no usable "Citations:" list shows NO
+    superscripts but still shows numbered pills for every retrieved source (often 9–14). This
+    is the approved behavior; check it reads acceptably.
+  - When a stream ends, the answer reflows once as markers and pills appear after the refetch.
+- **Platforms**: web (`afx dev pir-161`) **and** the iOS simulator. The source sheet's Arabic
+  (RTL) rendering and the reflow at the end of the stream are the things to eyeball on
+  device. No on-device pass has been recorded for revision 2 yet.
