@@ -4,6 +4,7 @@ import type { Message } from '@/lib/api';
 
 const CID = 'conv1';
 const STREAM_KEY = '__streaming-answer-1';
+const FOLLOWUP_ID = '__followup-question-1';
 
 function msg(role: Message['role'], content: string, id = `${role}-${content}`): Message {
   return { id, conversationId: CID, role, content, citations: [], safety: null, createdAt: '' };
@@ -13,6 +14,8 @@ const base = {
   q: undefined,
   conversationId: CID,
   streamKey: STREAM_KEY,
+  pendingFollowUp: undefined,
+  followUpKey: FOLLOWUP_ID,
 };
 
 describe('reconcileThread — send-before-detail-load regression', () => {
@@ -129,5 +132,168 @@ describe('reconcileThread — echo + synthetic basics', () => {
     });
     expect(messages).toEqual([]);
     expect(landedAnswer).toBeNull();
+  });
+});
+
+describe('reconcileThread — thread-typed follow-up echo (issue #128)', () => {
+  // A follow-up sent from inside the thread — as opposed to the carried-in
+  // `q` — must render the instant it's sent, not wait for the post-`done`
+  // refetch. Same identity trick as ECHO_ID, distinguished by FOLLOWUP_ID.
+  const prior = [msg('user', 'q1', 'u1'), msg('assistant', 'a1', 'a1')];
+
+  it('renders the pending follow-up immediately, before any answer text', () => {
+    const { messages, landedFollowUp } = reconcileThread({
+      ...base,
+      serverMessages: prior,
+      streamingText: '',
+      sentAtCount: 2,
+      pendingFollowUp: 'q2',
+    });
+    expect(messages.map((m) => m.id)).toEqual(['u1', 'a1', FOLLOWUP_ID]);
+    const followUp = messages.find((m) => m.id === FOLLOWUP_ID);
+    expect(followUp).toMatchObject({ role: 'user', content: 'q2' });
+    // The refetch hasn't delivered the persisted copy yet.
+    expect(landedFollowUp).toBeNull();
+  });
+
+  it('keeps the pending follow-up above the streaming answer bubble', () => {
+    const { messages } = reconcileThread({
+      ...base,
+      serverMessages: prior,
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'q2',
+    });
+    expect(messages.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+  });
+
+  it('reconciles the follow-up into its persisted copy once the refetch delivers it', () => {
+    // Baseline captured at send (2 messages). The refetch appends this turn's
+    // user+assistant → the persisted user row inherits FOLLOWUP_ID, no
+    // duplicate, and the assistant is still held back behind the streaming
+    // bubble (same "no double-render" rule as landedAnswer).
+    const persistedFollowUp = msg('user', 'q2', 'u2');
+    const landed = msg('assistant', 'a2', 'a2');
+    const after = [...prior, persistedFollowUp, landed];
+    const { messages, landedAnswer, landedFollowUp } = reconcileThread({
+      ...base,
+      serverMessages: after,
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'q2',
+    });
+    expect(landedAnswer).toBe(landed);
+    expect(landedFollowUp).toBe(persistedFollowUp);
+    expect(messages.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+  });
+
+  it('does not perturb landedAnswer / the done hand-off', () => {
+    // The synthetic follow-up row is added to the OUTPUT list only —
+    // landedAnswer is computed from serverMessages/sentAtCount alone, so it
+    // must come out identical with and without a pending follow-up.
+    const landed = msg('assistant', 'a2', 'a2');
+    const after = [...prior, msg('user', 'q2', 'u2'), landed];
+    const withFollowUp = reconcileThread({
+      ...base,
+      serverMessages: after,
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'q2',
+    });
+    const withoutFollowUp = reconcileThread({
+      ...base,
+      serverMessages: after,
+      streamingText: 'partial',
+      sentAtCount: 2,
+    });
+    expect(withFollowUp.landedAnswer).toBe(landed);
+    expect(withFollowUp.landedAnswer).toBe(withoutFollowUp.landedAnswer);
+  });
+
+  it('keeps ECHO_ID and the follow-up key on separate rows when q === pendingFollowUp', () => {
+    // The carried-in question and the thread-typed follow-up can be
+    // identical text (q never clears once the thread is open). ECHO_ID must
+    // stay on the FIRST occurrence; the follow-up must claim the LAST —
+    // never the echo row itself.
+    const serverEcho = msg('user', 'same', 'server-u1');
+    const priorAnswer = msg('assistant', 'a1', 'a1');
+
+    // Pre-refetch: only the carried-in question is on the server.
+    const preRefetch = reconcileThread({
+      ...base,
+      q: 'same',
+      serverMessages: [serverEcho, priorAnswer],
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'same',
+    });
+    expect(preRefetch.messages.map((m) => m.id)).toEqual([
+      '__asked-question',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+    expect(preRefetch.landedFollowUp).toBeNull();
+
+    // Post-refetch: the persisted follow-up (second occurrence of "same")
+    // is what claims FOLLOWUP_ID, not the echoed first occurrence.
+    const persistedFollowUp = msg('user', 'same', 'u2');
+    const landed = msg('assistant', 'a2', 'a2');
+    const postRefetch = reconcileThread({
+      ...base,
+      q: 'same',
+      serverMessages: [serverEcho, priorAnswer, persistedFollowUp, landed],
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'same',
+    });
+    expect(postRefetch.messages.map((m) => m.id)).toEqual([
+      '__asked-question',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+    expect(postRefetch.landedFollowUp).toBe(persistedFollowUp);
+    expect(postRefetch.landedAnswer).toBe(landed);
+  });
+
+  it('does not re-key an earlier identical user message when the follow-up repeats old text', () => {
+    // Regression (3-way consult, PIR #128): matching `pendingFollowUp` by an
+    // unbounded backward content scan claims the OLD row when a reader
+    // repeats earlier text (e.g. "tell me more" twice) — no synthetic row
+    // gets appended (reproducing #128's exact symptom for that input) and the
+    // historical row's key changes out from under it (re-animates as "new").
+    // The fix binds the match to `landedFollowUp`'s identity, which is itself
+    // scanned from `sentAtCount` forward and so can never reach this old row.
+    const priorFollowUp = msg('user', 'tell me more', 'u1');
+    const priorAnswer = msg('assistant', 'a1', 'a1');
+    const { messages, landedFollowUp } = reconcileThread({
+      ...base,
+      serverMessages: [priorFollowUp, priorAnswer],
+      streamingText: 'partial',
+      sentAtCount: 2,
+      pendingFollowUp: 'tell me more',
+    });
+    expect(landedFollowUp).toBeNull();
+    // A new synthetic row is appended; the old row keeps its own identity.
+    expect(messages.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      FOLLOWUP_ID,
+      STREAM_KEY,
+    ]);
+    expect(messages.find((m) => m.id === 'u1')).toMatchObject({
+      content: 'tell me more',
+    });
   });
 });
