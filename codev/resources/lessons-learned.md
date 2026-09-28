@@ -72,3 +72,14 @@ See `codev/reviews/168-serve-citable-documents-derive.md` for the full context.
 - **`( cmd & )` escapes `wait`.** A load test that launched builds in detached subshells left one running, and it collided with a later build on `.next`, producing a false 3/4 build failure. Check `pgrep` before trusting a failure seen right after a load test.
 - **A cold-start test can be load-sensitive without being flaky in logic.** The first pglite-from-migrations build and the first ESLint config load each take ~0.5–0.7 s, but they exceed vitest's 5 s default under CPU load. Fix with a per-test timeout on just that test; do not skip a safety guard (the #165 parity test) to get a green run.
 - **A source scan on a route can catch its own comments.** The "public route never names tool_calls" scan failed on a comment that said "never messages.tool_calls". That is the scan working. Reword the comment rather than loosening the scan.
+
+## Citation mapping — prototype (issue #161)
+
+See `codev/reviews/161-prototypes-ansari-expo-map-app.md` for the full context.
+
+- **Fixtures copied from the producer's code inherit your assumptions; run a matcher on real payloads before calling it done.** Test documents written from `search-hadith.ts` all had LK ids like `2_9_6_528`. Real ones include `4_6_-1_1597`, and the `[A-Za-z0-9_]+` pattern missed every one of them. Only 23/28 real markers resolved until the pattern allowed `-`. The unit suite was green throughout.
+- **A cross-check test can pass vacuously.** The first "id and index disagree" test used an id that named no message, so the entry attached nowhere whether or not the check ran. Mutation-testing exposed it. A cross-check test needs each key, used alone, to point at a real but *different* target.
+- **Never parse structured fields out of a display title the API truncates.** apps/api cuts citation titles at 100 characters (`trimCitationTitle`), often through "Hadith N". A partial number is worse than none. Take fields from the structured payload, and detect truncation (a trailing `...`) before trusting anything parsed from the title.
+- **An enhancement request must never fail its primary view.** The sources for a thread come from a second request. Its failure or malformed body degrades to "no sources" and never to "this conversation didn't load". #165 is the reason: a documents fault once took every thread GET down on staging.
+- **An index into an API array is an index into the RAW array.** Spec 168's `message_index` counts `tool` rows that the prototype drops while mapping. Join before filtering, and cross-check with the id when one is available.
+- **A gate approval covers the code it saw.** The recorded `dev-approval` predated a full redesign. Confirm with the human before advancing on it.
