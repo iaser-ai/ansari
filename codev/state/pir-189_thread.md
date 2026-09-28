@@ -13,3 +13,7 @@
   catch-up fails the lag test; dropping the same-render clamp fails the pull-back test (the first
   version of that test did NOT catch it — rerender flushes effects; fixed by recording every render).
   Not run against the live staging API (no credentials) — manual check left to dev-approval.
+- 2026-09-28 porch checks: as with #128, `build`/`tests` need `apps/api/.env.ci` exported (no real
+  apps/api/.env here). First `tests` run then failed in ansari-api under full parallel turbo load;
+  api tests pass alone (854) and via a forced turbo run, and the retry passed (cache hit of that
+  forced run). Failing test not captured — possibly load-sensitive/flaky, unrelated to this diff.
