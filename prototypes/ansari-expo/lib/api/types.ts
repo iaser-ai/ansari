@@ -28,6 +28,8 @@ import type { Citation as GeneratedCitation } from '@/vendor/api-client-react/ge
  * The vendored client is reference-only, so additions live here.
  */
 export interface Citation extends GeneratedCitation {
+  /** A hadith's first (or only) grade, for the pill (issue #194). */
+  grade?: string;
   /**
    * Every grade a hadith carries, one entry per grader, empties dropped —
    * present only when there is more than one (issue #194). The pill shows

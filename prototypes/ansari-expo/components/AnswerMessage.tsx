@@ -21,6 +21,7 @@ import { SafetyCard } from '@/components/SafetyCard';
 import type { Citation, Message } from '@/lib/api';
 import { AnswerProse } from '@/components/AnswerProse';
 import { toSuperscript } from '@/components/CitationChip';
+import { footnoteLabel, groupFootnotes } from '@/lib/footnote-groups';
 import { RADIUS, rounded } from '@/constants/radius';
 
 /**
@@ -34,8 +35,9 @@ const ANSWER_ACTION_SLOP = { top: 4, bottom: 4, left: 4, right: 4 } as const;
  * Renders an assistant answer as a book page: unboxed serif prose set
  * directly on the paper — no card, border, or fill — with small
  * superscript footnote markers inline, then a quiet footnote block at
- * the foot of the same page: a short hairline rule and one restrained
- * line per source, as at the foot of a printed page. Source-type
+ * the foot of the same page: a short hairline rule, then the sources
+ * grouped by kind — Qur'an, hadith, scholarly works — as quiet pills
+ * that sit side by side. Source-type
  * distinction is carried by wording and type (the source title sits in
  * the serif italic), never by badges.
  *
@@ -66,8 +68,8 @@ export function AnswerMessage({
     return map;
   }, [message.citations]);
 
-  const footnotes = useMemo(
-    () => [...message.citations].sort((a, b) => a.marker - b.marker),
+  const footnoteGroups = useMemo(
+    () => groupFootnotes(message.citations),
     [message.citations],
   );
 
@@ -140,65 +142,89 @@ export function AnswerMessage({
         selectable={selecting}
       />
 
-      {footnotes.length > 0 && (
+      {footnoteGroups.length > 0 && (
         <View style={styles.footnotes}>
           <View
             style={[styles.footnoteRule, { backgroundColor: colors.border }]}
           />
-          {footnotes.map((citation) => (
-            <PressableScale
-              key={citation.id}
-              onPress={() => openSources(citation)}
-              accessibilityRole="button"
-              accessibilityLabel={`Sources for this answer, from source ${citation.marker}: ${citation.reference}, ${citation.sourceTitle}`}
-              style={(state) => [
-                styles.footnoteLine,
-                {
-                  // Outlined, not filled: a hairline ring drawn on
-                  // the bare paper. Visibly a control, but the
-                  // opposite material to the reader's own messages —
-                  // their words are a solid card, the sources are
-                  // engraved into the page. Pressing inks the ring in.
-                  backgroundColor: state.pressed
-                    ? withAlpha(colors.heroInk, 0.38)
-                    : isHovered(state)
-                      ? withAlpha(colors.heroInk, 0.16)
-                      : 'transparent',
-                  borderColor: withAlpha(colors.heroInk, 0.55),
-                },
-              ]}
-              testID={`footnote-${citation.marker}`}
+          {/* Grouped by kind, pills side by side: fifteen sources one to a
+              line made the foot of the page longer than the answer (#194). */}
+          {footnoteGroups.map((group) => (
+            <View
+              key={group.kind}
+              style={styles.footnoteGroup}
+              testID={`footnote-group-${group.kind}`}
             >
-              {/* Two lines at most, whatever the source carries: a long
-                  chapter, or a hadith graded many times over (#194). */}
               <Text
-                style={styles.footnoteText}
-                numberOfLines={2}
-                ellipsizeMode="tail"
+                style={[styles.footnoteHeading, { color: colors.mutedForeground }]}
+                accessibilityRole="header"
               >
-                <Text style={[styles.footnoteMarker, { color: colors.accent }]}>
-                  {toSuperscript(citation.marker)}
-                </Text>
-                <Text
-                  style={[
-                    styles.footnoteReference,
-                    { color: colors.secondaryForeground },
-                  ]}
-                >
-                  {'\u2009'}
-                  {citation.reference}
-                </Text>
-                <Text
-                  style={[
-                    styles.footnoteSource,
-                    { color: withAlpha(colors.secondaryForeground, 0.6) },
-                  ]}
-                >
-                  {' · '}
-                  {citation.sourceTitle}
-                </Text>
+                {group.label}
               </Text>
-            </PressableScale>
+              <View style={styles.footnoteRow}>
+                {group.citations.map((citation) => {
+                  const label = footnoteLabel(citation);
+                  return (
+                    <PressableScale
+                      key={citation.id}
+                      onPress={() => openSources(citation)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Sources for this answer, from source ${citation.marker}: ${citation.reference}, ${citation.sourceTitle}`}
+                      style={(state) => [
+                        styles.footnoteLine,
+                        {
+                          // Outlined, not filled: a hairline ring drawn on
+                          // the bare paper. Visibly a control, but the
+                          // opposite material to the reader's own messages —
+                          // their words are a solid card, the sources are
+                          // engraved into the page. Pressing inks the ring in.
+                          backgroundColor: state.pressed
+                            ? withAlpha(colors.heroInk, 0.38)
+                            : isHovered(state)
+                              ? withAlpha(colors.heroInk, 0.16)
+                              : 'transparent',
+                          borderColor: withAlpha(colors.heroInk, 0.55),
+                        },
+                      ]}
+                      testID={`footnote-${citation.marker}`}
+                    >
+                      {/* Two lines at most, whatever the source carries. */}
+                      <Text
+                        style={styles.footnoteText}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                      >
+                        <Text
+                          style={[styles.footnoteMarker, { color: colors.accent }]}
+                        >
+                          {toSuperscript(citation.marker)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.footnoteReference,
+                            { color: colors.secondaryForeground },
+                          ]}
+                        >
+                          {'\u2009'}
+                          {label.reference}
+                        </Text>
+                        {label.detail && (
+                          <Text
+                            style={[
+                              styles.footnoteSource,
+                              { color: withAlpha(colors.secondaryForeground, 0.6) },
+                            ]}
+                          >
+                            {' · '}
+                            {label.detail}
+                          </Text>
+                        )}
+                      </Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+            </View>
           ))}
         </View>
       )}
@@ -286,16 +312,33 @@ const styles = StyleSheet.create({
   container: {
     gap: 12,
   },
-  // The foot of the page: a short rule, then one quiet line per source.
+  // The foot of the page: a short rule, then the sources by kind.
   footnotes: {
     marginTop: 18,
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  footnoteGroup: {
+    alignSelf: 'stretch',
+    gap: 6,
+  },
+  // Set like the folio's own kind label: case and tracking say "label".
+  footnoteHeading: {
+    fontSize: 10.5,
+    fontFamily: fonts.displayMedium,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  // Pills flow side by side and wrap; a long one takes a row to itself.
+  footnoteRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'flex-start',
     gap: 8,
   },
   footnoteRule: {
     width: 56,
     height: StyleSheet.hairlineWidth,
-    marginBottom: 6,
   },
   // A comfortable thumb target that also *looks* like one: an outlined
   // pill, never under 44pt, hugging its reference so long ones wrap

@@ -73,6 +73,7 @@ describe('document → Citation field mapping', () => {
       sourceType: 'hadith',
       reference: 'Sahih al-Bukhari 528',
       sourceTitle: 'Times of the Prayers · Grade: Sahih',
+      grade: 'Sahih',
       arabicText: 'أَرَأَيْتُمْ لَوْ أَنَّ نَهَرًا',
       translationText: 'If there was a river at the door…',
     });
@@ -374,6 +375,7 @@ describe('a hadith graded several times (issue #194)', () => {
   });
 
   it('carries every verdict for the folio, empties dropped', () => {
+    expect(c!.grade).toBe('Sahih');
     expect(c!.grades).toEqual(['Sahih', 'Sahih Mauquf', "The chain is da'if"]);
     expect(titleWithoutGrades(c!)).toBe('Purification (Kitab Al-Taharah)');
   });

@@ -203,6 +203,7 @@ function toCitationFields(p: ParsedDocument): CitationFields {
         sourceTitle: detail.length > 0 ? detail.join(' · ') : (collection ?? ''),
         arabicText: str(json.ar),
         translationText: str(json.en) ?? '',
+        ...(grades[0] ? { grade: grades[0] } : {}),
         ...(grades.length > 1 ? { grades } : {}),
       };
     }
