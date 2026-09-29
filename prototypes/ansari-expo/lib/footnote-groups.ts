@@ -53,3 +53,24 @@ export function footnoteLabel(citation: Citation): { reference: string; detail?:
   }
   return { reference: citation.reference };
 }
+
+/** How many rows of pills a group shows before it folds the rest away. */
+export const FOOTNOTE_ROWS_SHOWN = 3;
+
+/**
+ * Where to fold a group of wrapped pills: the top of the first row past
+ * `rows`, and how many pills sit at or below it — or null when every pill
+ * fits. `tops` are the pills' measured offsets in the wrapping row; pills
+ * on one line share a top (the row aligns them to its start).
+ */
+export function foldAt(
+  tops: number[],
+  rows: number = FOOTNOTE_ROWS_SHOWN,
+): { top: number; hidden: number } | null {
+  // Offsets from layout are fractional on some platforms; a row is the
+  // same row to within a point.
+  const rowTops = [...new Set(tops.map(Math.round))].sort((a, b) => a - b);
+  if (rowTops.length <= rows) return null;
+  const top = rowTops[rows]!;
+  return { top, hidden: tops.filter((t) => Math.round(t) >= top).length };
+}

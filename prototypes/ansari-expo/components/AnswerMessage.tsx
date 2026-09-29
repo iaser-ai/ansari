@@ -10,7 +10,6 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
-import { withAlpha } from '@/lib/color';
 import { isHovered } from '@/lib/web';
 import { copyToClipboard } from '@/lib/clipboard';
 import { tapHaptic } from '@/lib/haptics';
@@ -20,8 +19,8 @@ import { PressableScale } from '@/components/PressableScale';
 import { SafetyCard } from '@/components/SafetyCard';
 import type { Citation, Message } from '@/lib/api';
 import { AnswerProse } from '@/components/AnswerProse';
-import { toSuperscript } from '@/components/CitationChip';
-import { footnoteLabel, groupFootnotes } from '@/lib/footnote-groups';
+import { groupFootnotes } from '@/lib/footnote-groups';
+import { FootnoteGroup } from '@/components/FootnoteGroup';
 import { RADIUS, rounded } from '@/constants/radius';
 
 /**
@@ -147,84 +146,21 @@ export function AnswerMessage({
           <View
             style={[styles.footnoteRule, { backgroundColor: colors.border }]}
           />
-          {/* Grouped by kind, pills side by side: fifteen sources one to a
-              line made the foot of the page longer than the answer (#194). */}
+          <Text
+            style={[styles.footnoteTitle, { color: colors.strongForeground }]}
+            accessibilityRole="header"
+          >
+            Sources
+            <Text style={{ color: colors.mutedForeground }}>
+              {' · '}
+              {message.citations.length}
+            </Text>
+          </Text>
+          {/* Grouped by kind, pills side by side, each group folded past
+              three rows: twenty sources one to a line made the foot of
+              the page longer than the answer (#194). */}
           {footnoteGroups.map((group) => (
-            <View
-              key={group.kind}
-              style={styles.footnoteGroup}
-              testID={`footnote-group-${group.kind}`}
-            >
-              <Text
-                style={[styles.footnoteHeading, { color: colors.mutedForeground }]}
-                accessibilityRole="header"
-              >
-                {group.label}
-              </Text>
-              <View style={styles.footnoteRow}>
-                {group.citations.map((citation) => {
-                  const label = footnoteLabel(citation);
-                  return (
-                    <PressableScale
-                      key={citation.id}
-                      onPress={() => openSources(citation)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Sources for this answer, from source ${citation.marker}: ${citation.reference}, ${citation.sourceTitle}`}
-                      style={(state) => [
-                        styles.footnoteLine,
-                        {
-                          // Outlined, not filled: a hairline ring drawn on
-                          // the bare paper. Visibly a control, but the
-                          // opposite material to the reader's own messages —
-                          // their words are a solid card, the sources are
-                          // engraved into the page. Pressing inks the ring in.
-                          backgroundColor: state.pressed
-                            ? withAlpha(colors.heroInk, 0.38)
-                            : isHovered(state)
-                              ? withAlpha(colors.heroInk, 0.16)
-                              : 'transparent',
-                          borderColor: withAlpha(colors.heroInk, 0.55),
-                        },
-                      ]}
-                      testID={`footnote-${citation.marker}`}
-                    >
-                      {/* Two lines at most, whatever the source carries. */}
-                      <Text
-                        style={styles.footnoteText}
-                        numberOfLines={2}
-                        ellipsizeMode="tail"
-                      >
-                        <Text
-                          style={[styles.footnoteMarker, { color: colors.accent }]}
-                        >
-                          {toSuperscript(citation.marker)}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.footnoteReference,
-                            { color: colors.secondaryForeground },
-                          ]}
-                        >
-                          {'\u2009'}
-                          {label.reference}
-                        </Text>
-                        {label.detail && (
-                          <Text
-                            style={[
-                              styles.footnoteSource,
-                              { color: withAlpha(colors.secondaryForeground, 0.6) },
-                            ]}
-                          >
-                            {' · '}
-                            {label.detail}
-                          </Text>
-                        )}
-                      </Text>
-                    </PressableScale>
-                  );
-                })}
-              </View>
-            </View>
+            <FootnoteGroup key={group.kind} group={group} onOpen={openSources} />
           ))}
         </View>
       )}
@@ -318,57 +254,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 14,
   },
-  footnoteGroup: {
-    alignSelf: 'stretch',
-    gap: 6,
-  },
-  // Set like the folio's own kind label: case and tracking say "label".
-  footnoteHeading: {
-    fontSize: 10.5,
-    fontFamily: fonts.displayMedium,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  // Pills flow side by side and wrap; a long one takes a row to itself.
-  footnoteRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
   footnoteRule: {
     width: 56,
     height: StyleSheet.hairlineWidth,
   },
-  // A comfortable thumb target that also *looks* like one: an outlined
-  // pill, never under 44pt, hugging its reference so long ones wrap
-  // onto a second line, and truncate past that.
-  footnoteLine: {
-    maxWidth: '100%',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 15,
-    // Clamped by the 44 minimum to the 22 it always drew; a wrapped
-    // one settles at 24 rather than turning into a lozenge.
-    ...rounded(RADIUS.xl),
-    borderWidth: StyleSheet.hairlineWidth,
-    cursor: 'pointer',
-  },
-  // The footnotes belong to the answer, so they speak in the answer's
-  // voice rather than the app's chrome voice.
-  footnoteText: {
-    fontSize: 13,
-    lineHeight: 19.5,
-  },
-  footnoteMarker: {
-    fontFamily: fonts.proseSemiBold,
-  },
-  footnoteReference: {
-    fontFamily: fonts.proseMedium,
-  },
-  footnoteSource: {
-    fontFamily: fonts.proseItalic,
+  // The block's own title, in the display face the folio's reference
+  // is set in, so it reads as the heading of an apparatus.
+  footnoteTitle: {
+    fontSize: 15,
+    fontFamily: fonts.display,
   },
   answerActions: {
     flexDirection: 'row',

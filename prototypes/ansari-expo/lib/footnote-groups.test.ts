@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Citation } from '@/lib/api';
-import { footnoteLabel, groupFootnotes } from '@/lib/footnote-groups';
+import { foldAt, footnoteLabel, groupFootnotes } from '@/lib/footnote-groups';
 
 const cite = (marker: number, sourceType: string, reference: string, extra: Partial<Citation> = {}): Citation => ({
   id: `c-${marker}`,
@@ -59,5 +59,24 @@ describe('footnoteLabel', () => {
     expect(footnoteLabel(cite(2, 'scholarly', 'Tafsir Encyclopedia, Volume 3, Page 12'))).toEqual({
       reference: 'Tafsir Encyclopedia, Volume 3, Page 12',
     });
+  });
+});
+
+describe('foldAt', () => {
+  it('does not fold three rows or fewer', () => {
+    expect(foldAt([])).toBeNull();
+    expect(foldAt([0, 0, 52, 52, 104])).toBeNull();
+  });
+
+  it('folds at the fourth row and counts every pill at or below it', () => {
+    expect(foldAt([0, 0, 0, 52, 52, 104, 104, 156, 156, 208])).toEqual({ top: 156, hidden: 3 });
+  });
+
+  it('treats sub-point differences as one row, whatever order pills report in', () => {
+    expect(foldAt([104.4, 0, 52.2, 0.3, 156.1, 103.8])).toEqual({ top: 156, hidden: 1 });
+  });
+
+  it('takes a row count', () => {
+    expect(foldAt([0, 52, 104], 1)).toEqual({ top: 52, hidden: 2 });
   });
 });
