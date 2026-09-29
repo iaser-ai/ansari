@@ -94,3 +94,12 @@ See `codev/reviews/189-prototypes-ansari-expo-animate.md` for the full context.
 - **Pace only what is shown; never let the paced value decide state.** Feeding the revealed slice into the reconciler as *the* stream input made its empty first frame read as "not streaming", so an already-landed answer escaped the holdback. Keep the "in flight" signal and the "displayed" value as separate inputs (a Codex consult catch).
 - **Describe a recomputed-proportional rate as a time constant, not a deadline.** `rate = backlog / window` recomputed each tick decays exponentially, so drain time is logarithmic in the backlog. We shipped docs saying "within ~150 ms" that were 5× off for large backlogs.
 - **`renderHook`'s `rerender` flushes effects inside `act`, so `result.current` never shows the render between a prop change and its effect.** To test a "never, even for one render" invariant, record every render from inside the hook callback and assert over all of them. Our first version of the test passed with the clamp deleted, and a mutation check caught that.
+
+## Hadith grades & source pills — prototype (issue #194)
+
+See `codev/reviews/194-prototypes-ansari-expo-hadith-.md` for the full context.
+
+- **When you only know a data shape from a symptom, bound the renderer as well as parsing the shape.** No fixture carried a multi-grade `grade_en`, and no live key was available, so the parser's input format was inferred from a screenshot. The `numberOfLines` cap on the pill and the folded group are what guarantee the fix if the real separator differs. The parser alone can't.
+- **A live test answer can miss the path the bug report is about.** The staging answer used at `dev-approval` had 20 sources and no multi-graded hadith, so `(+N more)` was never seen live. Say which paths the manual pass did NOT cover rather than letting "tested on staging" imply that they were.
+- **Fold a wrapping layout by measured rows, not item count.** How many pills fit on a row depends on the column width and each label. Measure the offsets, clip at the top of row N+1, keep the hidden items mounted for measurement, and remove them from focus and the accessibility tree while they're out of sight. Before measuring, hold an estimated fold, so a long group doesn't flash open on mount.
+

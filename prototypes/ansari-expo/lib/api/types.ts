@@ -10,7 +10,6 @@ export type {
   ConversationDetail,
   Message,
   MessageRole,
-  Citation,
   CitationSourceType,
   SafetySignal,
   SafetySignalLevel,
@@ -21,3 +20,20 @@ export type {
   SuggestedTopic,
   ListConversationsParams,
 } from '@/vendor/api-client-react/generated/api.schemas';
+
+import type { Citation as GeneratedCitation } from '@/vendor/api-client-react/generated/api.schemas';
+
+/**
+ * The generated shape, plus what the prototype derives on its own side.
+ * The vendored client is reference-only, so additions live here.
+ */
+export interface Citation extends GeneratedCitation {
+  /** A hadith's first (or only) grade, for the pill (issue #194). */
+  grade?: string;
+  /**
+   * Every grade a hadith carries, one entry per grader, empties dropped —
+   * present only when there is more than one (issue #194). The pill shows
+   * the first and a count; the folio lists them all.
+   */
+  grades?: string[];
+}

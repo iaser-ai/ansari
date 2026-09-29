@@ -1,0 +1,56 @@
+I'll review the implementation against the plan. Let me start by reading the key files.The review file is thorough. Now let me read the actual implementation.Now the UI components and types:Now let me verify the tests pass and typecheck is clean.Typecheck clean. Let me run the full prototype suite to check nothing regressed, and look for tests referencing the old footnote layout.Let me verify two claims: the dropped `sample-citations.ts` change, and whether component-test infrastructure exists.The dropped sample is justified — the file explicitly forbids unverified entries. Let me verify the scope-widening was genuinely human-directed, and check the doc updates.Let me run lint to catch dead code/unused styles, and confirm the plan's "Files to Change" coverage.I've verified the implementation end-to-end. Here's my review.
+
+## What I verified
+
+- **Tests**: full prototype suite passes — 308/308, 25 new (34 in `document-citations.test.ts`, 11 in `footnote-groups.test.ts`). Matches the review file's claim exactly.
+- **Typecheck**: `tsc --noEmit` exits 0.
+- **Plan adherence**: every file in the plan's "Files to Change" is changed except `lib/sample-citations.ts`. I read that file's preamble — it states *"do not add entries unless every field is verified against a primary source."* Dropping a fabricated multi-grade sample is the correct call, and it's disclosed in both the review and the thread.
+- **Scope expansion is human-directed, not creep**: `codev/state/pir-194_thread.md:13-16` records the reviewer choosing grouping-by-source-type, then the three-row fold and the title at `dev-approval`. The grouping/fold work is a response to the gate, not the builder widening scope on its own.
+
+## Code quality
+
+`parseGrades` is careful: the inline-numbered split only fires when the string starts with `1:`, and the near-miss tests (`'Hasan: according to Al-Albani'`, `'Sahih (see 2: note)'`) lock that guard in. `foldAt` was extracted as a pure function with good tests including fractional offsets and out-of-order reporting — the right way to make a layout-dependent behavior testable. The hidden-pill accessibility handling covers all four platform props (`focusable`, `accessibilityElementsHidden`, `importantForAccessibility`, `aria-hidden`), which is more thorough than typical.
+
+The empty-title edge case is handled correctly: a multi-grade hadith with no chapter yields `sourceTitle === 'Grade: X (+2 more)'`, which `titleWithoutGrades` reduces to `''`, and `SourceFolio.tsx:61` guards on that before rendering the `<Text>`.
+
+## Findings (all non-blocking)
+
+1. **Dedupe conflates graders with verdicts.** `parseGrades('1: Sahih\n2: Sahih')` → `['Sahih']`, so a hadith graded Sahih by two scholars shows no `(+1 more)`, and the folio's `GRADES` list numbers 1..n over *distinct verdicts*, not graders. The plan explicitly asked for dedupe so this is as-designed, but the folio's numbered list invites reading "2." as "grader 2". Worth a human decision since it changes displayed information.
+2. **Asymmetric edge in the inline split.** `'1: Sahih (see 2: note)'` (prefixed *and* containing an inner colon) splits into two grades. The near-miss test covers the unprefixed form only. Very unlikely shape, and bounded by the two-line cap.
+3. **Hadith pills no longer show the chapter** (`footnoteLabel` returns grade-or-nothing as detail). An ungraded hadith pill now reads just `AbuDaud 135`. Reviewer-directed, folio still has the chapter — but it's a visible information change beyond the original issue, so the human should confirm it's intended.
+4. **`FootnoteGroup.tsx` (275 lines) has no component test.** Justified — `onLayout` doesn't fire under jsdom, so the measured fold genuinely can't be exercised, and `foldAt` carries the logic. Noting it so the human knows the fold rests on manual verification.
+5. Nits: `titleWithoutGrades(citation)` is evaluated twice per render in `SourceFolio`; the per-pill `accessibilityLabel` repeats "Sources for this answer, from source N…" for up to 20 pills under headings that already say the kind.
+
+## Review file
+
+Honest and specific. It leads "Things to Look At" with the fact that the multi-grade path was never seen on live data, names the unresolved AbuDaud 135/137 ambiguity, discloses the plan deviations and the non-sequential marker order, and the "How to Test Locally" steps are concrete enough to act on. The lessons-learned entry about live test data missing the reported path is a genuinely useful generalization.
+
+---
+VERDICT: APPROVE
+SUMMARY: Plan followed with disclosed, human-directed deviations; 308 tests and typecheck pass; honest review file — remaining items are display-fidelity questions for the human, not defects.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Verdict dedupe means two graders giving the same verdict show as one entry and no `(+N more)`; folio's numbered GRADES list reads as grader index but isn't. As-planned, but a human call.
+- `'1: Sahih (see 2: note)'` mis-splits into two grades; untested edge, bounded by the two-line pill cap.
+- Hadith pills dropped the chapter (reviewer-directed) — visible change beyond issue #194, confirm intended.
+- Multi-grade path still never exercised on live data; fold/measure logic in `FootnoteGroup.tsx` rests on manual verification only. Both disclosed in the review file.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the claude review (#1649).
+A consultant reviews the tree; it must never write to it. 1 path changed while this lane was running:
+  - .consult-gemini.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.
+
+
+---
+
+## ⚠️ REPOSITORY MOVED during the claude review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: 8bf39a9b2530949f3b066f812faf2afa144fe734 -> c2db3c1ac525ac728777390da4fd64fdc7e2f4a2
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.
