@@ -1,0 +1,14 @@
+id: '196'
+title: prototypes-ansari-expo-view-n-
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-09-29T23:46:02.482Z'
+updated_at: '2026-09-29T23:46:02.483Z'
