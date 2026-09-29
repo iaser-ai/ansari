@@ -84,6 +84,17 @@ See `codev/reviews/161-prototypes-ansari-expo-map-app.md` for the full context.
 - **An index into an API array is an index into the RAW array.** Spec 168's `message_index` counts `tool` rows that the prototype drops while mapping. Join before filtering, and cross-check with the id when one is available.
 - **A gate approval covers the code it saw.** The recorded `dev-approval` predated a full redesign. Confirm with the human before advancing on it.
 
+## Paced streaming reveal — prototype (issue #189)
+
+See `codev/reviews/189-prototypes-ansari-expo-animate.md` for the full context.
+
+- **A cleaned stream is not append-only; don't pace it by length alone.** `stripStreamingCitations` can remove or rewrite text behind the end of what it last returned (a completed `[1]`, a `Citations` cut, a held tail released). A reveal cursor must clamp to the common prefix of what it has shown and the new target, in the *same render*, or a stripped marker flashes back on screen.
+- **Bound lag with a rate proportional to backlog, not a fixed speed.** `max(base, backlog / window)` looks like steady typing when idle and caps the lag at about `arrival rate × window` under bursts. A fixed speed either lags a fast model without limit or crawls.
+- **A hand-off that swaps in a persisted copy must wait for any local pacing to catch up,** or the unrevealed tail lands all at once, which is the exact jump the pacing exists to prevent. Speed up once the request settles, so the wait stays short.
+- **Pace only what is shown; never let the paced value decide state.** Feeding the revealed slice into the reconciler as *the* stream input made its empty first frame read as "not streaming", so an already-landed answer escaped the holdback. Keep the "in flight" signal and the "displayed" value as separate inputs (a Codex consult catch).
+- **Describe a recomputed-proportional rate as a time constant, not a deadline.** `rate = backlog / window` recomputed each tick decays exponentially, so drain time is logarithmic in the backlog. We shipped docs saying "within ~150 ms" that were 5× off for large backlogs.
+- **`renderHook`'s `rerender` flushes effects inside `act`, so `result.current` never shows the render between a prop change and its effect.** To test a "never, even for one render" invariant, record every render from inside the hook callback and assert over all of them. Our first version of the test passed with the clamp deleted, and a mutation check caught that.
+
 ## Hadith grades & source pills — prototype (issue #194)
 
 See `codev/reviews/194-prototypes-ansari-expo-hadith-.md` for the full context.

@@ -31,6 +31,14 @@ export interface ReconcileInput {
   conversationId: string;
   /** The answer streamed so far this turn; empty when not streaming. */
   streamingText: string;
+  /**
+   * How much of `streamingText` the synthetic bubble shows — a paced prefix of
+   * it (hooks/useRevealedText.ts). Defaults to all of it. Only what is shown
+   * is paced: whether a turn is in flight, and so whether a landed answer is
+   * held back, is decided by `streamingText`, so an answer that lands before
+   * the reveal's first tick is never drawn whole for a frame.
+   */
+  revealedText?: string;
   /** This turn's synthetic-bubble list key (see STREAM_KEY_PREFIX). */
   streamKey: string;
   /**
@@ -67,6 +75,7 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
     q,
     conversationId,
     streamingText,
+    revealedText = streamingText,
     streamKey,
     sentAtCount,
     pendingFollowUp,
@@ -168,14 +177,14 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
   // key, rendered through AnswerMessage exactly like a persisted one. Present
   // only while text is streaming and before the hand-off; on `done` the persisted
   // message inherits this same key (see keyOverrides) and the synthetic drops.
-  if (streamingText) {
+  if (streamingText && revealedText) {
     withEcho = [
       ...withEcho,
       {
         id: streamKey,
         conversationId,
         role: 'assistant',
-        content: streamingText,
+        content: revealedText,
         citations: [],
         safety: null,
         createdAt: '',
