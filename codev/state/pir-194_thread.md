@@ -9,3 +9,7 @@
 - Done per plan. Deviation: did NOT add a multi-grade sample to lib/sample-citations.ts — that file forbids entries not verified against a primary source.
 - Live grade_en shape still unconfirmed: no Kalimat key in worktree (.env.example/.env.ci only). Parser handles newline and single-line numbered forms; pill capped at 2 lines regardless.
 - vitest 297 pass (14 new), tsc clean.
+
+## dev-approval feedback (2026-09-29)
+- Reviewer: no "+N more" visible and list still long. Staging answer had only single-grade hadith, so no +N was correct; AbuDaud 135/137 show no grade (unverified whether raw grade was empty or all-empty entries).
+- Reviewer chose "group by source type": lib/footnote-groups.ts + AnswerMessage grouped, wrapping pills. 304 tests pass.
