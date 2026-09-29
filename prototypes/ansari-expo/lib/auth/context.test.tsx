@@ -25,7 +25,12 @@ vi.mock('@/lib/auth/api', () => ({
   logoutRequest: vi.fn(async () => {}),
 }));
 
+import * as store from '@/lib/auth/store';
+import * as authApiModule from '@/lib/auth/api';
 import { AuthProvider, useAuth } from '@/lib/auth/context';
+
+const loadSessionMock = vi.mocked(store.loadSession);
+const registerRequestMock = vi.mocked(authApiModule.registerRequest);
 
 let authApi!: ReturnType<typeof useAuth>;
 
@@ -34,8 +39,17 @@ function Probe() {
   return <span>{authApi.status}</span>;
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  loadSessionMock.mockResolvedValue(null);
+  registerRequestMock.mockClear();
+});
 
+/**
+ * Mount and let startup settle. With nothing stored, the provider auto-provisions
+ * a GUEST session (`apps/api` has no anonymous path), so the settled state is
+ * `signedIn` as a guest — not `signedOut`.
+ */
 async function mount(queryClient: QueryClient) {
   render(
     <QueryClientProvider client={queryClient}>
@@ -44,9 +58,42 @@ async function mount(queryClient: QueryClient) {
       </AuthProvider>
     </QueryClientProvider>,
   );
-  // Flush the startup loadSession effect (resolves to signed-out).
   await waitFor(() => expect(authApi.status).not.toBe('loading'));
 }
+
+/**
+ * Issue #124: `apps/api` returns 401 for any thread call without a bearer token
+ * and has no anonymous path, so a tokenless "signed-out" app is broken. The
+ * provider must auto-provision a guest — on first launch with nothing stored,
+ * and again after logout — so the app is never tokenless.
+ */
+describe('AuthProvider auto-provisions a guest session', () => {
+  it('first launch with no stored session lands signed-in as a guest', async () => {
+    const queryClient = new QueryClient();
+    await mount(queryClient);
+
+    expect(authApi.status).toBe('signedIn');
+    expect(authApi.isGuest).toBe(true);
+    // The guest was registered (no cached credentials in this run).
+    expect(registerRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores a real stored session without minting a guest', async () => {
+    loadSessionMock.mockResolvedValueOnce({
+      accessToken: 'real-access',
+      refreshToken: 'real-refresh',
+      firstName: 'Real',
+      lastName: 'User',
+      isGuest: false,
+    });
+    const queryClient = new QueryClient();
+    await mount(queryClient);
+
+    expect(authApi.status).toBe('signedIn');
+    expect(authApi.isGuest).toBe(false);
+    expect(registerRequestMock).not.toHaveBeenCalled();
+  });
+});
 
 /**
  * BLOCKER 2 regression: cached, user-scoped queries must not outlive a principal
@@ -55,9 +102,9 @@ async function mount(queryClient: QueryClient) {
  * `applySession`, both assertions below fail — the seeded data survives.
  */
 describe('AuthProvider clears the query cache on principal transitions', () => {
-  it('signing in as a different account wipes the previous account cache', async () => {
+  it('signing in as a real account wipes the guest cache', async () => {
     const queryClient = new QueryClient();
-    await mount(queryClient);
+    await mount(queryClient); // signed in as guest
 
     queryClient.setQueryData(['conversations'], [{ id: 'A-thread', title: 'A secret' }]);
     expect(queryClient.getQueryData(['conversations'])).toBeTruthy();
@@ -67,16 +114,18 @@ describe('AuthProvider clears the query cache on principal transitions', () => {
     });
 
     expect(authApi.status).toBe('signedIn');
+    expect(authApi.isGuest).toBe(false);
     expect(queryClient.getQueryData(['conversations'])).toBeUndefined();
   });
 
-  it('logging out wipes the cache', async () => {
+  it('logging out of a real account wipes the cache and drops back to a guest', async () => {
     const queryClient = new QueryClient();
     await mount(queryClient);
 
     await act(async () => {
       await authApi.login('a@example.com', 'pw');
     });
+    expect(authApi.isGuest).toBe(false);
     queryClient.setQueryData(['conversations'], [{ id: 'A-thread' }]);
     expect(queryClient.getQueryData(['conversations'])).toBeTruthy();
 
@@ -84,7 +133,9 @@ describe('AuthProvider clears the query cache on principal transitions', () => {
       await authApi.logout();
     });
 
-    expect(authApi.status).toBe('signedOut');
+    // logout clears the cache, then the app falls straight back to a guest.
+    await waitFor(() => expect(authApi.isGuest).toBe(true));
+    expect(authApi.status).toBe('signedIn');
     expect(queryClient.getQueryData(['conversations'])).toBeUndefined();
   });
 });

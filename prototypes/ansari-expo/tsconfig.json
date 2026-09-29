@@ -6,6 +6,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@workspace/api-client-react": [
+        "./vendor/api-client-react/index.ts"
       ]
     }
   },

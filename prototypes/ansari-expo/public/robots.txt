@@ -1,0 +1,11 @@
+# Ansari — a free assistant that answers from the Qur'an and Sunnah.
+#
+# The front of the site is public and welcome to be indexed. A
+# conversation is a reader's own, and the Expo Go landing page is a
+# tool for the people building the app; neither has anything in it for
+# a search result.
+
+User-agent: *
+Disallow: /chat/
+Disallow: /expo-go
+Allow: /

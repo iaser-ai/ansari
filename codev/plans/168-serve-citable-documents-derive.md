@@ -1,0 +1,385 @@
+# Plan: Serve citable documents derived from `tool_calls`
+
+**Specification**: [codev/specs/168-serve-citable-documents-derive.md](../specs/168-serve-citable-documents-derive.md)
+
+## Executive Summary
+
+This plan implements the spec's ratified design: **A1 + B1 + C1 + F2, historical rows fail
+closed**. F2 is the owner's direction at the plan gate: dedicated `/documents` endpoints, with
+thread GET and share GET untouched. The plan does not re-decide any of it.
+
+- **A1: persist citability.** Every persisted `tool_result` record gains a sibling
+  `citations: Array<{ enabled: boolean }>`. The array aligns index-for-index with
+  `content.results` and holds the tool's own `citations.enabled`, with a missing flag saved as
+  `false`. `content` stays byte-identical to the Gemini `functionResponse`. There is no new
+  column and no migration.
+- **B1: derive in a dedicated helper.** A pure function turns records into document blocks.
+  Beside it, a DB helper selects `id, tool_calls` for a thread's assistant messages, runs the
+  pure function inside its own scope, and returns only `Map<messageId, DocumentContentBlock[]>`.
+  Raw records never leave that module.
+- **C1: share snapshots copy at creation.** `createThreadSnapshot` calls the same DB helper and
+  stores each message's non-empty `documents` in the snapshot. The public endpoints never touch
+  `tool_calls`.
+- **F2: serving.** There are two new routes. `GET /api/v2/threads/{id}/documents` is
+  authenticated and owner-scoped, and derives live. `GET /api/v2/share/{id}/documents` is public
+  and reads the snapshot. Both return `messages: [{ message_index, documents }]`, and the thread
+  route also adds `message_id`. **Thread GET and share GET are not modified at all.**
+
+The phases are ordered so that each is independently testable and none changes a response
+to an existing endpoint at any point. Phase 1 (persist the flag) goes first and pins today's
+thread GET and share GET bytes as fixtures. Those fixtures must stay green through every later
+phase.
+
+## Phases (Machine Readable)
+
+```json
+{
+  "phases": [
+    {"id": "phase_1", "title": "Persist per-result citability on tool_result records"},
+    {"id": "phase_2", "title": "Citable-document derivation helper"},
+    {"id": "phase_3", "title": "Documents endpoints and share-snapshot documents"},
+    {"id": "phase_4", "title": "Invariant documentation and read-cost report"}
+  ]
+}
+```
+
+## Phase Breakdown
+
+### Phase 1: Persist per-result citability on tool_result records
+
+**Dependencies**: None
+
+#### Objective
+
+Stop losing `citations.enabled`. From this phase on, every new `tool_result` record carries the
+tool's own per-result citability, so the rows written after deploy are derivable. No response
+changes.
+
+#### Files to Create / Modify
+
+- `apps/api/db/schema/messages.ts`: add optional `citations?: Array<{ enabled: boolean }>` to the
+  `tool_result` variant of `ToolCallRecord`, with a doc comment covering alignment with
+  `content.results`, why it is beside `content` and not inside it, and absent meaning a legacy
+  row. Add an exported `DocumentContentBlock` type
+  (`Extract<ContentBlock, { type: 'document' }>`) for later phases.
+- `apps/api/lib/facilitator/agent.ts`:
+  - `buildToolResultRecord` sets `citations` by calling `citabilityOf(result)`. It covers
+    executed, degraded, backstop, limit-refused and unknown-tool calls.
+  - The inline budget-skip record sets `citations: []`, because its `results` is `[]`.
+  - `formatToolResultForGemini` is **not** touched.
+- `apps/api/lib/tools/types.ts`: add and export `citabilityOf(result: ToolResult): Array<{
+  enabled: boolean }>`, which returns `result.documents.map(d => ({ enabled: d.citations?.enabled
+  === true }))`. This is the **single computation point** for per-result citability, as the spec
+  requires for #109. The facilitator's record builder calls it now, and the SSE `tool_result`
+  frame can call it later without redefining the rule. This spec does not change the SSE frame.
+- `apps/api/tests/facilitator-toolcalls.test.ts`: update the existing exact-record expectations
+  to include `citations`, as a deliberate change the commit message records. Add new cases.
+- `apps/api/tests/facilitator-citability.test.ts` (new): notice-kind and payload-freeze
+  coverage.
+- `apps/api/tests/toolcalls-persistence.test.ts` or `toolcalls-routes.test.ts`: assert that the
+  flag survives the real persist path into pglite jsonb.
+- `apps/api/tests/documents-contract-fixture.test.ts` (new): the byte-identity fixtures, captured
+  now from the unmodified GET handlers.
+
+#### Deliverables
+
+- [ ] `ToolCallRecord` `tool_result` type carries optional `citations`.
+- [ ] `citabilityOf` is exported from `lib/tools/types.ts` and is the only place the
+      `enabled === true` rule is written on the write side.
+- [ ] Both record-building sites populate it. Alignment holds by construction: both arrays are
+      mapped from the same `result.documents`.
+- [ ] Tests (below).
+- [ ] Captured pre-change fixtures for thread GET and share GET on a thread with a user
+      message, a no-tool answer, a legacy `tool_calls` answer and an answer whose records
+      **will** derive documents. Because F2 leaves both endpoints unchanged, these bytes must
+      never move in any phase.
+
+#### Acceptance Criteria
+
+- [ ] A real hit records `{ enabled: true }`. Each notice kind records `{ enabled: false }`: "No
+      Results" from each of the four tools under `status: 'ok'`, degraded, backstop, tool limit
+      and unknown tool. Budget skip records `citations: []`.
+- [ ] `citations.length === content.results.length` on every record in every facilitator test
+      path.
+- [ ] The Gemini `functionResponse` parts are **deep-equal and byte-identical**
+      (`JSON.stringify`) to a snapshot of today's output for a representative multi-document
+      result and for a notice. The persisted `content` equals the payload sent. No `citations`
+      key appears anywhere in the functionResponse.
+- [ ] The fixtures are committed and green against the unchanged routes.
+- [ ] `pnpm --filter ansari-api test`, `typecheck` and `lint` pass.
+
+#### Test Plan
+
+- **Unit (facilitator, mocked Gemini and tools):** one case per notice kind, one per real hit,
+  and a mixed round (one hit tool plus one zero-result tool). Assert per-entry flags, lengths and
+  the frozen payload.
+- **Integration (pglite):** persist a turn's records through the real route helper, read the raw
+  `tool_calls` back with SQL, and assert `citations` round-trips.
+- **Negative test:** hard-code `enabled: true` in the mapping and confirm the notice-kind tests
+  fail; restore and confirm they pass. Temporarily add `citations` to the Gemini payload and
+  confirm the payload-freeze test fails. Record the counts for the review.
+
+---
+
+### Phase 2: Citable-document derivation helper
+
+**Dependencies**: Phase 1 (record shape and `DocumentContentBlock` type)
+
+#### Objective
+
+The one place that turns stored tool records into citable documents. It is fail-closed,
+deduplicated and ordered, never throws on malformed data, and never lets a raw record escape.
+
+#### Files to Create / Modify
+
+- `apps/api/lib/db/citable-documents.ts` (new). It is the only module that selects `tool_calls`
+  for serving.
+  - `deriveCitableDocuments(toolCalls: unknown): { documents: DocumentContentBlock[]; rejected:
+    RejectReason[] }` is pure and never logs. `RejectReason` is a closed string-literal union,
+    for example `'not_array' | 'bad_content' | 'bad_results' | 'bad_entry' | 'no_citations' |
+    'bad_citations' | 'length_mismatch'`. It carries **only** these enum values, one per
+    rejected record, and never record data, indexes into it, or text. `'no_citations'` (a legacy
+    row) is counted but not logged, because it is expected. Its input is
+    `unknown` on purpose, because stored jsonb is untrusted. It validates each record's shape
+    at runtime and walks `tool_result` records in array (dispatch) order. It keeps result `i`
+    only when `citations` is an array of the same length as `results` and
+    `citations[i].enabled === true`. Each kept result becomes
+    `{ type: 'document', source: { type, media_type, data: content }, title, ...(context
+    string ? { context } : {}) }`. Duplicates are removed on `JSON.stringify([title, context ??
+    null, data])`, and the first occurrence wins. A malformed or misaligned record contributes
+    nothing, and the others still derive.
+  - Compile-time fidelity guard: `source.type` and `media_type` come from the
+    `DocumentBlock['source']` literal types, backed by a type-level assertion that fails the
+    build if either literal is widened.
+  - `findCitableDocumentsByThread(threadId, exec = db): Promise<Map<string,
+    DocumentContentBlock[]>>` selects only `messages.id` and `messages.tool_calls`, where
+    `thread_id = $1 AND role = 'assistant' AND tool_calls IS NOT NULL`. It derives inside the
+    function and returns only message ids with non-empty lists. It does not export the raw rows,
+    their type, or any other function that returns them. Its doc comment states that callers
+    must already have authorized `threadId`.
+  - Malformed-record reporting: the DB wrapper emits one `console.warn` per affected message
+    with `{ messageId, reasons }`, where `reasons` is the de-duplicated non-legacy `rejected`
+    list. It never includes record content. The wrapper returns only the documents map, so
+    `rejected` does not leave the module either.
+- `apps/api/tests/citable-documents.test.ts` (new): pure-function unit tests.
+- `apps/api/tests/citable-documents-db.test.ts` (new): the DB helper on pglite.
+
+#### Deliverables
+
+- [ ] Pure derivation and DB helper, as above.
+- [ ] Tests (below).
+
+#### Acceptance Criteria
+
+- [ ] Real hits are derived in dispatch order across multiple records and rounds.
+- [ ] **Status-independence:** a zero-result "No Results" entry under `status: 'ok'` is excluded
+      because its flag is `false`. A test builds a filter that keys on `status` and shows it
+      would admit the notice, so the test demonstrably fails under a status-based rule.
+- [ ] Every notice kind is excluded. A legacy record with no `citations` yields nothing, and so
+      does a misaligned one.
+- [ ] Each malformed shape in the spec yields nothing from that record without throwing, while a
+      well-formed sibling record still derives. The shapes are: non-array `tool_calls`; missing
+      or non-object `content`; non-array `results`; an entry with a non-string `title` or
+      `content`; a non-string `context`; a `citations` element without a boolean `enabled`.
+- [ ] Dedup keeps the first occurrence in place. Documents that differ only in `context`,
+      including absent versus present, are both kept. An absent `context` key is omitted from the
+      output.
+- [ ] The DB helper returns a map keyed by message id with no empty entries, ignores user rows
+      and NULL `tool_calls`, and ignores `tool_call_orphans`.
+- [ ] `rejected` reports the right enum value for each malformed shape. A test asserts that the
+      warn call's argument contains only `messageId` and `reasons`, with no record text (the
+      test seeds a sentinel string into the malformed record and checks it is absent from the
+      logged arguments).
+- [ ] Type-level test: `DocumentContentBlock` output has no `citations`, `status` or other
+      record keys.
+- [ ] Tests, typecheck and lint pass.
+
+#### Test Plan
+
+- **Unit:** a table-driven suite over hand-built record arrays covering all the cases above.
+- **Integration (pglite):** insert assistant and user rows with varied `tool_calls` (legacy, new,
+  malformed, NULL) plus an orphan row, then assert the map.
+- **Negative tests:** remove the `enabled === true` check and confirm the status-independence and
+  notice tests fail. Remove the length check and confirm the misalignment test fails. Record the
+  counts.
+
+---
+
+### Phase 3: Documents endpoints and share-snapshot documents
+
+**Dependencies**: Phase 2
+
+#### Objective
+
+Deliver the F2 contract: two `/documents` endpoints returning identical document fields, with
+share snapshots carrying their documents built in. Thread GET and share GET stay byte-identical.
+
+#### Files to Create / Modify
+
+- `apps/api/src/app/api/v2/threads/[id]/documents/route.ts` (new, GET only).
+  `authenticateRequest` comes first, identical to thread GET, so the unauthenticated responses
+  match. Then `findThreadById(id, user.id)`, with 404 `Thread not found` for a missing or foreign
+  thread. Then an **id-and-order-only** message listing (`id`, `created_at` order, no content)
+  to compute `message_index`, followed by `findCitableDocumentsByThread(thread.id)`. It returns
+  `{ thread_id, messages: [{ message_id, message_index, documents }] }` in thread order, and
+  `messages: []` when there are none. `message_index` comes from the same ordering
+  `findMessagesByThread` uses (`created_at`), so it matches thread GET. The listing is added to
+  `lib/db/citable-documents.ts` so that the helper can return entries that already carry
+  `message_index`, keeping the route free of both raw rows and index arithmetic.
+- `apps/api/src/app/api/v2/share/[id]/documents/route.ts` (new, GET only, public).
+  `findShareById`, with 404 `Share not found`. It maps `snapshot.messages` to
+  `{ message_index: i, documents }` for entries whose stored `documents` is a non-empty array,
+  and returns `{ id, messages }`. It never imports the derivation module or reads `messages` or
+  `tool_calls`. A test enforces the no-import rule.
+- `apps/api/lib/db/shares.ts`. In `createThreadSnapshot`, after the ownership check, add
+  `messages.id` to the projection for lookup only (it is not written into the snapshot), call the
+  derivation helper, and store `documents` on a snapshot message when it is non-empty.
+- `apps/api/db/schema/shares.ts`: `ThreadSnapshot` message gains
+  `documents?: DocumentContentBlock[]`.
+- `apps/api/src/app/api/v2/threads/[id]/route.ts` and
+  `apps/api/src/app/api/v2/share/[id]/route.ts`: **not modified.** Share GET's existing explicit
+  mapping (`role`, `content`, `created_at`) already keeps snapshot `documents` out of its output.
+  A test pins that.
+- `apps/api/lib/db/threads.ts`: **no projection change.** Only the doc comment is corrected, in
+  Phase 4.
+- `apps/api/tests/thread-get-contract.test.ts`: existing assertions stay unmodified. Add
+  `citations` to `TOOL_KEY_PATTERN` and to its negative test, which checks known-bad keys and a
+  near-miss. Add a documents-bearing seed and run the scans over thread GET, share GET, the
+  stored snapshot and both `/documents` responses.
+- `apps/api/tests/documents-endpoints.test.ts` (new): endpoints, auth, parity, `message_index`
+  and byte-identity, on pglite through the real handlers.
+- Every test file that `vi.mock`s `@/lib/db/shares`, `@/lib/db/threads` or the new module is
+  grepped, and each factory is updated (lessons-critical).
+
+#### Deliverables
+
+- [ ] Both `/documents` routes, and snapshot documents.
+- [ ] Tests (below).
+
+#### Acceptance Criteria
+
+- [ ] The thread endpoint returns the spec's shape. Entries are in thread order, only messages
+      with documents appear, and there is `messages: []` when there are none.
+- [ ] The share endpoint returns the spec's shape from the snapshot. A pre-change snapshot
+      returns `messages: []`. A message added to the thread after sharing does not appear.
+- [ ] **Parity:** for a share created after the change, its entries deep-equal the thread
+      endpoint's (`message_index` and `documents`) for a thread mixing citable, notice-only and
+      no-tool messages.
+- [ ] **Join key correct:** `threadGET.messages[e.message_index].id === e.message_id` for every
+      thread entry. For every share entry, `shareGET.messages[e.message_index]` is the same
+      message, compared by role, content and `created_at`.
+- [ ] **Auth:** the thread endpoint returns a missing-token or bad-token response identical to
+      thread GET's, and an identical 404 body for foreign and nonexistent threads. The share
+      endpoint returns 404 for an unknown id.
+- [ ] **Byte-identity:** the Phase 1 thread GET and share GET fixtures still match exactly,
+      including the documents-bearing thread. Share GET output has no `documents` key although
+      the snapshot stores one.
+- [ ] Malformed `tool_calls` on one message: the thread endpoint returns 200 with the well-formed
+      messages' documents, and share creation succeeds.
+- [ ] Orphan rows change nothing on either endpoint.
+- [ ] History replay is untouched: `findMessagesByThread` rows carry no `toolCalls` or
+      `documents`. A POST turn-2 test asserts that the facilitator's `messageHistory` contains no
+      document text.
+- [ ] No `tool_calls`, `citations`, `status`, `raw_payload` or provenance key in any serialized
+      body from these endpoints, thread GET, share GET or the stored snapshot.
+- [ ] The share `/documents` route module does not import `lib/db/citable-documents` or
+      `lib/db/threads`, asserted by a source-scan test that is itself negative-tested.
+- [ ] Full test suite, typecheck and lint pass.
+
+#### Test Plan
+
+- **Integration (pglite, real handlers):** all criteria above. Records are persisted through
+  `createMessage` with Phase 1-shaped records.
+- **Negative tests:** stub `findCitableDocumentsByThread` to return nothing and confirm the
+  endpoint, parity and share tests fail; restore. Off-by-one `message_index` and confirm the
+  join-key test fails; restore. Temporarily spread snapshot `documents` into share GET and
+  confirm the byte-identity fixture fails; restore. Record every count for the review.
+
+---
+
+### Phase 4: Invariant documentation and read-cost report
+
+**Dependencies**: Phase 3
+
+#### Objective
+
+State the amended invariant accurately everywhere it is written, and measure the read cost
+against the spec's bound.
+
+#### Files to Create / Modify
+
+- `codev/resources/arch-critical.md`: rewrite the Vertex/tool-history fact to the owner-ruled
+  wording. `tool_calls` may be loaded for serving **only inside** the dedicated derivation helper
+  (`lib/db/citable-documents.ts`), reached from the thread `/documents` route and share creation.
+  No API response may serialize raw tool records. Thread GET and share GET carry no documents;
+  sources are served only by the `/documents` endpoints. `raw_payload` is never serialized, and
+  it stays in `messageReadColumns` only for replay. The hot-tier cap is kept, and wording is tightened
+  rather than adding a line.
+- `codev/resources/arch.md`: update the Tool-call persistence paragraph for the `citations` field
+  and the read-path exception. Add a short Citable documents paragraph covering derivation,
+  dedup, fail-closed legacy rows, C1 snapshots, the two `/documents` endpoints and the
+  `message_index` join.
+- In-code comments that repeat the old absolute claim: `db/schema/messages.ts` (the `toolCalls`
+  column), `lib/db/threads.ts` (the `MessageRow` and projection doc) and `lib/db/shares.ts`
+  (the snapshot projection comment). Grep the repo for other copies (for example "no API
+  response", "project it OUT", "never selects it") and fix every hit.
+- `codev/state/spir-168_thread.md`: measurement results.
+
+#### Deliverables
+
+- [ ] Docs and comments updated, with no stale copy left.
+- [ ] Read-cost numbers recorded. **Storage:** a read-only `pg_column_size(tool_calls)` median
+      and p95 over recent assistant rows on staging. The owner granted access via the backend's
+      `DATABASE_URL`, and the session is forced `default_transaction_read_only=on`. The initial
+      2026-09-24 run gave a median of 5.6 KB and a p95 of 14.1 KB, and it is re-run here.
+- [ ] **Latency method.** The script `apps/api/scripts/bench-documents.ts` is committed so the
+      numbers can be reproduced. It is not part of the test suite.
+  - *Fixture:* a pglite thread of 50 messages (25 user, 25 assistant). Every assistant row
+    carries Phase 1-shaped `tool_calls`: 1–3 tool rounds and 5–10 results per call across the
+    four tools. The results use realistic Arabic and English text lengths, sized so the median
+    `tool_calls` is about 7 KB and matches the spec's accepted figure. This is asserted by the
+    script before timing, so an empty or trivial derivation path cannot be measured by
+    accident. About a third of the rows include a notice or a legacy (no `citations`) record.
+  - *Baseline:* the real, unmodified thread GET handler on the same fixture in the same process.
+    It is compared with the real thread `/documents` handler.
+  - *Sampling:* 20 warm-up requests per variant, then 200 measured requests alternated between
+    variants to cancel drift. Report median and p95 for each variant and the ratio.
+  - The script also asserts that the `/documents` handler actually returned documents on the
+    expected messages, which proves the derivation path ran.
+
+#### Acceptance Criteria
+
+- [ ] A grep for the old wording returns zero hits. The grep is negative-tested by running it
+      against the pre-change text, where it must hit.
+- [ ] `arch-critical.md` stays within its cap (≤10 facts, ≤35 lines).
+- [ ] The cost bound is evaluated. If the median exceeds 14 KB/row, or the `/documents` median
+      latency exceeds 2× thread GET's, `afx send architect` is sent before the PR is marked ready, and the PR body says
+      so.
+
+#### Test Plan
+
+- Doc-only phase. Verification is the grep audit, the cap check and the recorded measurements.
+  The full suite runs once more before the PR.
+
+## Risks and Mitigation
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| Existing exact-record tests break when `citations` is added | High (expected) | Low | Updated deliberately in Phase 1, and the commit message lists them. No test is weakened. |
+| A `vi.mock` factory lacks the new module or export, and a route's try/catch swallows the error | Medium | High | Grep every factory mock of the touched modules in Phase 3. The serving tests run through real modules on pglite. |
+| The byte-identity fixture is captured after the change and pins the wrong bytes | Low | High | Captured in Phase 1, before any serving code exists. |
+| Key scans pass vacuously | Medium | Medium | Documents-bearing seed in the scan, plus negative tests of the pattern. |
+| Malformed legacy jsonb causes a 500 | Low | Medium | Runtime validation with `unknown` input. Phase 2 and 3 tests cover each shape. |
+| The benchmark measures a trivial path | Medium | Medium | The script asserts the fixture's median `tool_calls` size (~7 KB) and that `documents` were actually returned before it reports any timing. |
+| No staging access for the cost measurement | Medium | Low | Synthetic fallback, stated in the PR. The architect is asked for read access in Phase 4. |
+| The Gemini payload drifts | Low | High | `formatToolResultForGemini` untouched. The payload-freeze test is negative-tested. |
+
+## Documentation Updates
+
+- `codev/resources/arch-critical.md`: amended invariant (owner ruling condition 3).
+- `codev/resources/arch.md`: tool-call persistence and citable documents paragraphs.
+- In-code invariant comments in `db/schema/messages.ts`, `lib/db/threads.ts` and
+  `lib/db/shares.ts`.
+- `codev/resources/lessons-learned.md` / `lessons-critical.md`: decided in the Review phase.
+- `codev/reviews/168-serve-citable-documents-derive.md`: written in the Review phase, with the
+  negative-test counts and cost numbers.

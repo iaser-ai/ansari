@@ -5,14 +5,16 @@ import {
   decodeConversationDetail,
   decodeConversationList,
   decodeDeleteResult,
+  loadConversationDetail,
 } from '@/lib/api/decode';
-import { SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { SAMPLE_ANSWER_CONTENT, SAMPLE_CITATIONS } from '@/lib/sample-citations';
+import { parseAnswer } from '@/lib/markdown';
 
 /**
  * THE LOUD-FAILURE GATE (see issue #63).
  *
- * apps/api returns no citations and no safety signal, so a correct empty app and
- * a broken app look identical on screen. The only defence is proving the adapter
+ * apps/api returns no safety signal (and citations only when a tool ran), so a
+ * correct empty app and a broken app can look identical on screen. The only defence is proving the adapter
  * THROWS when the response shape is wrong. These fixtures are the prototype's
  * ORIGINAL Replit "Ansari 4" shapes (`{ id, title, preview }`, `MessageExchange`,
  * …); feeding them to the decoders must throw, exactly as it would at runtime if
@@ -250,6 +252,19 @@ describe('sample citations — khushu-gated placement', () => {
     expect(user?.citations).toEqual([]);
   });
 
+  it('rewrites the assistant answer content with inline [1]/[2]/[3] markers matching SAMPLE_CITATIONS (issue #145)', () => {
+    const detail = decodeConversationDetail(khushuThread);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(SAMPLE_ANSWER_CONTENT);
+    // Not just present in the string — parseable as the footnote markers
+    // `AnswerProse`/`lib/markdown.ts` look for, one per sample citation.
+    const markers = parseAnswer(assistant!.content)
+      .flatMap((block) => (block.type === 'paragraph' ? block.spans : []))
+      .filter((span) => span.type === 'footnote')
+      .map((span) => (span as { marker: number }).marker);
+    expect(markers).toEqual(SAMPLE_CITATIONS.map((c) => c.marker));
+  });
+
   it('attaches to ONLY the first assistant answer, not follow-ups', () => {
     const detail = decodeConversationDetail({
       ...khushuThread,
@@ -263,6 +278,10 @@ describe('sample citations — khushu-gated placement', () => {
     const answers = detail.messages.filter((m) => m.role === 'assistant');
     expect(answers[0].citations).toEqual(SAMPLE_CITATIONS); // supported answer
     expect(answers[1].citations).toEqual([]); // unrelated follow-up
+    // Only the supported answer's content is rewritten with markers; the
+    // unrelated follow-up keeps its real text untouched.
+    expect(answers[0].content).toBe(SAMPLE_ANSWER_CONTENT);
+    expect(answers[1].content).toBe('Zakat is 2.5%…');
   });
 
   it('attaches nothing when the thread is not about khushu', () => {
@@ -274,5 +293,260 @@ describe('sample citations — khushu-gated placement', () => {
       ],
     });
     for (const m of detail.messages) expect(m.citations).toEqual([]);
+    // Content is real (apps/api) text everywhere else — never overwritten.
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe('Zakat is 2.5%…');
+  });
+});
+
+describe('unbacked citations — hidden where no sources back them', () => {
+  const thread = (messages: unknown[]) =>
+    decodeConversationDetail({ ...realThread, messages });
+
+  it('collapses a non-khushu answer with markers and a Citations: block to just the prose', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: 'How do I calculate zakat?' },
+      {
+        id: 'a',
+        role: 'assistant',
+        content:
+          'Zakat is 2.5% of wealth held for a lunar year [1]. It is due above the nisab [2].\n\n' +
+          "**Citations:**\n[1] Qur'an 9:60\n[2] Sahih Muslim 979",
+      },
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(
+      'Zakat is 2.5% of wealth held for a lunar year. It is due above the nisab.',
+    );
+  });
+
+  it('keeps [1]/[2]/[3] intact on the khushu sample answer, which carries its citations', () => {
+    const detail = thread([
+      { id: 'u', role: 'user', content: "How can I develop khushu' in my prayer?" },
+      { id: 'a', role: 'assistant', content: 'Model text [1].\n\nCitations:\n[1] x' },
+    ]);
+    const assistant = detail.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe(SAMPLE_ANSWER_CONTENT);
+    for (const marker of ['[1]', '[2]', '[3]']) {
+      expect(assistant?.content).toContain(marker);
+    }
+  });
+
+  it('strips a khushu follow-up, which carries no citations', () => {
+    const detail = thread([
+      { id: 'u1', role: 'user', content: "How do I develop khushu'?" },
+      { id: 'a1', role: 'assistant', content: 'Understand what you recite…' },
+      { id: 'u2', role: 'user', content: 'And in sujud [1]?' },
+      { id: 'a2', role: 'assistant', content: 'Lengthen it [1].\n\n## Citations\n[1] x' },
+    ]);
+    const answers = detail.messages.filter((m) => m.role === 'assistant');
+    expect(answers[1].content).toBe('Lengthen it.');
+    // The reader's own words are never rewritten.
+    expect(detail.messages[2].content).toBe('And in sujud [1]?');
+  });
+});
+
+describe('source documents (spec 168) — joined from /threads/{id}/documents', () => {
+  const verse = {
+    type: 'document',
+    source: {
+      type: 'text',
+      media_type: 'text/plain',
+      data: JSON.stringify({
+        ar: 'وَأَقِمِ ٱلصَّلَوٰةَ لِذِكْرِىٓ',
+        en: 'And establish prayer for My remembrance.',
+      }),
+    },
+    title: 'Quran 20:14',
+    context: 'Retrieved from the Holy Quran',
+  };
+
+  const answerText =
+    'Establish prayer for remembrance [1]. Something unsourced [2].\n\n' +
+    "**Citations**:\n[1] Qur'an 20:14\n[2] Sahih Muslim 979";
+
+  // The raw thread GET array, `tool` row included: the answer is at index 2.
+  const rawMessages = [
+    { id: 'u', role: 'user', content: 'Why do we pray?' },
+    { id: 't', role: 'tool', content: [{ type: 'tool_result' }] },
+    { id: 'a', role: 'assistant', content: answerText },
+  ];
+  const rawThread = { ...realThread, messages: rawMessages };
+  const docsFor = (messages: unknown[]) => ({ thread_id: realThread.thread_id, messages });
+  const entry = { message_id: 'a', message_index: 2, documents: [verse] };
+
+  const answerOf = (raw: unknown, rawDocuments?: unknown) =>
+    decodeConversationDetail(raw, rawDocuments).messages.find((m) => m.role === 'assistant')!;
+
+  const STRIPPED = 'Establish prayer for remembrance. Something unsourced.';
+
+  it('keeps resolved markers inline, drops the rest, and attaches the real sources', () => {
+    const assistant = answerOf(rawThread, docsFor([entry]));
+    expect(assistant.content).toBe('Establish prayer for remembrance [1]. Something unsourced.');
+    expect(assistant.citations).toHaveLength(1);
+    expect(assistant.citations[0]).toMatchObject({
+      marker: 1,
+      reference: "Qur'an 20:14",
+      url: 'https://quran.com/20/14',
+    });
+    // The kept marker parses as a footnote the answer UI can open.
+    const footnotes = parseAnswer(assistant.content)
+      .flatMap((block) => (block.type === 'paragraph' ? block.spans : []))
+      .filter((span) => span.type === 'footnote');
+    expect(footnotes).toHaveLength(1);
+  });
+
+  it('counts tool rows in message_index (the join runs on the raw array)', () => {
+    // Index 1 is the tool row: with the tool row filtered out first, index 1
+    // would wrongly land on the answer.
+    const assistant = answerOf(rawThread, docsFor([{ ...entry, message_index: 1 }]));
+    expect(assistant.citations).toEqual([]);
+    expect(assistant.content).toBe(STRIPPED);
+  });
+
+  it('attaches nothing when message_id and message_index name different answers', () => {
+    // The id names the SECOND answer, the index points at the FIRST: either
+    // key alone would attach the sources somewhere; together they disagree.
+    const detail = decodeConversationDetail(
+      {
+        ...realThread,
+        messages: [
+          ...rawMessages,
+          { id: 'u2', role: 'user', content: 'More?' },
+          { id: 'a2', role: 'assistant', content: 'More prayer [1].\n\nCitations:\n[1] Quran 20:14' },
+        ],
+      },
+      docsFor([{ message_id: 'a2', message_index: 2, documents: [verse] }]),
+    );
+    for (const m of detail.messages) expect(m.citations).toEqual([]);
+  });
+
+  it('drops only the inconsistent entry; a good one in the same response still attaches', () => {
+    const twoAnswers = {
+      ...realThread,
+      messages: [
+        ...rawMessages,
+        { id: 'u2', role: 'user', content: 'More?' },
+        { id: 'a2', role: 'assistant', content: 'More prayer [1].\n\nCitations:\n[1] Quran 20:14' },
+      ],
+    };
+    const detail = decodeConversationDetail(
+      twoAnswers,
+      docsFor([{ ...entry, message_index: 9 }, { message_id: 'a2', message_index: 4, documents: [verse] }]),
+    );
+    const answers = detail.messages.filter((m) => m.role === 'assistant');
+    expect(answers[0]!.citations).toEqual([]);
+    expect(answers[1]!.citations).toHaveLength(1);
+    expect(answers[1]!.content).toBe('More prayer [1].');
+  });
+
+  it('never attaches documents to a user message', () => {
+    const detail = decodeConversationDetail(
+      { ...realThread, messages: [{ id: 'u', role: 'user', content: 'Why [1]?' }] },
+      docsFor([{ message_id: 'u', message_index: 0, documents: [verse] }]),
+    );
+    expect(detail.messages[0]!.citations).toEqual([]);
+    expect(detail.messages[0]!.content).toBe('Why [1]?');
+  });
+
+  it('renders exactly as with no documents when the documents request failed', () => {
+    const failed = decodeConversationDetail(rawThread, undefined);
+    const empty = decodeConversationDetail(rawThread, docsFor([]));
+    expect(failed).toEqual(empty);
+    expect(answerOf(rawThread).content).toBe(STRIPPED);
+  });
+
+  it('does not fail the conversation when the documents body is malformed', () => {
+    const { title: _dropped, ...noTitle } = verse;
+    for (const bad of [
+      docsFor([{ ...entry, documents: [noTitle] }]),
+      docsFor([{ ...entry, message_index: -1 }]),
+      { messages: 'nope' },
+      '<html>error</html>',
+    ]) {
+      const assistant = answerOf(rawThread, bad);
+      expect(assistant.citations).toEqual([]);
+      expect(assistant.content).toBe(STRIPPED);
+    }
+  });
+
+  it('still throws when the THREAD is malformed, documents or not', () => {
+    expect(() =>
+      decodeConversationDetail({ ...realThread, messages: 'nope' }, docsFor([entry])),
+    ).toThrow(ZodError);
+  });
+
+  it('gives a khushu thread its real sources, not the sample, when it has documents', () => {
+    const khushu = {
+      ...rawThread,
+      messages: [
+        { id: 'u', role: 'user', content: "How can I develop khushu' in my prayer?" },
+        ...rawMessages.slice(1),
+      ],
+    };
+    const assistant = answerOf(khushu, docsFor([entry]));
+    expect(assistant.content).not.toBe(SAMPLE_ANSWER_CONTENT);
+    expect(assistant.citations[0]!.reference).toBe("Qur'an 20:14");
+    // …and falls back to the sample when the answer has none.
+    expect(answerOf(khushu, docsFor([])).citations).toEqual(SAMPLE_CITATIONS);
+  });
+});
+
+describe('loadConversationDetail — the detail queryFn body (spec 168)', () => {
+  const docs = {
+    thread_id: realThread.thread_id,
+    messages: [
+      {
+        message_id: 'a',
+        message_index: 1,
+        documents: [
+          {
+            type: 'document',
+            source: { type: 'text', media_type: 'text/plain', data: '{"ar":"x","en":"y"}' },
+            title: 'Quran 1:1',
+            context: 'Retrieved from the Holy Quran',
+          },
+        ],
+      },
+    ],
+  };
+  const thread = {
+    ...realThread,
+    messages: [
+      { id: 'u', role: 'user', content: 'Q' },
+      { id: 'a', role: 'assistant', content: 'A [1].\n\nCitations:\n[1] Quran 1:1' },
+    ],
+  };
+
+  const fetcher =
+    (documents: () => Promise<unknown>, threadBody: () => Promise<unknown> = async () => thread) =>
+    (path: string) =>
+      path.endsWith('/documents') ? documents() : threadBody();
+
+  it('requests the thread and its documents, and joins them', async () => {
+    const paths: string[] = [];
+    const detail = await loadConversationDetail('t 1', (path) => {
+      paths.push(path);
+      return fetcher(async () => docs)(path);
+    });
+    expect(paths.sort()).toEqual(['/api/v2/threads/t%201', '/api/v2/threads/t%201/documents']);
+    expect(detail.messages[1]!.content).toBe('A [1].');
+    expect(detail.messages[1]!.citations).toHaveLength(1);
+  });
+
+  it('still loads the conversation when the documents request fails', async () => {
+    const error = Object.assign(new Error('Not Found'), { status: 404 });
+    const detail = await loadConversationDetail('t', fetcher(() => Promise.reject(error)));
+    expect(detail.messages[1]!.content).toBe('A.');
+    expect(detail.messages[1]!.citations).toEqual([]);
+  });
+
+  it('fails when the thread request fails, even if documents succeed', async () => {
+    await expect(
+      loadConversationDetail(
+        't',
+        fetcher(async () => docs, () => Promise.reject(new Error('down'))),
+      ),
+    ).rejects.toThrow('down');
   });
 });

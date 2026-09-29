@@ -4,6 +4,12 @@ import { Alert, Platform } from 'react-native';
  * Cross-platform dialogs. React Native's `Alert` is a silent no-op on
  * react-native-web, which turns informational taps into dead ends — so
  * the web branch uses the browser's own dialogs instead.
+ *
+ * A dialog is for a *decision*: something the reader has to answer
+ * before anything else happens, or a body of text they came here to
+ * read. Transient feedback — copied, sent, failed — is not a decision,
+ * and blocks the reading for no reason; that goes through `toast` in
+ * `lib/toast.ts` instead.
  */
 
 export function showNotice(title: string, message: string) {

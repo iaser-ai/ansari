@@ -11,6 +11,12 @@ updates:
   # Note: there is no "pnpm" package-ecosystem value; pnpm is handled by "npm".
   - package-ecosystem: "npm"
     directory: "/"
+    # legacy/ holds archived snapshots of the pre-monorepo frontend (issue #150).
+    # They sit outside the pnpm workspace and are never built or deployed, but
+    # each keeps its own npm/yarn lockfile as a reference for the track merge —
+    # without this, Dependabot opens update PRs against code nothing runs.
+    exclude-paths:
+      - "legacy/**"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

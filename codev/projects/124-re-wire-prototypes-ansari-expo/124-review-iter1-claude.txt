@@ -1,0 +1,39 @@
+I'll review this implementation against the plan. Let me start by reading the key files.I read the plan, then the actual files on disk, and independently verified the build.
+
+**Verification I ran myself:**
+- `npx tsc --noEmit` — clean.
+- `npx vitest run` — 12 files / 218 tests pass.
+- `grep @workspace/api-client-react` across `app/`, `components/`, `lib/`, `hooks/` — zero source hits; only README, `metro.config.js`, `tsconfig.json`, `.env.local.example`. Stream 1 is complete.
+
+**What's right (and it's most of it):**
+
+- `_layout.tsx` matches the plan point for point: `setBaseUrl(resolveBaseUrl())` (correct name, not the issue's fictional `apiBaseUrl()`), the ZodError/4xx retry gate, `<AuthProvider>` inside `QueryClientProvider` and above `GestureHandlerRootView`, both `Stack.Screen`s, and the rail gated on `authRoute` derived from the same `usePathname()` the existing `reading` flag uses — so the "mounted once" invariant holds for non-auth routes.
+- The **main integration risk is genuinely solved**. `isNewContent(keyFor(item))` keys on list identity, and the hand-off effect does `drawn.current?.add(streamKey)` synchronously. I traced the effect ordering: the `drawn` effect is declared before the hand-off effect, so on the landing commit the synthetic bubble's key is already in `drawn`, the override is written and `streamingText` cleared in one batched commit, and the persisted answer re-renders with a key already marked drawn. No re-animation.
+- `onEvent` is placed correctly as a top-level sibling of `mutation` per `SendMessageOptions`, with the `typeof event.content === 'string'` guard the plan called for. `sentAtCount` is a `number | null` ref and `send()` requires `conversationQuery.data` — the `null ≠ 0` distinction the reconciler documents is respected.
+- `AuthForm` calls the real context API (`login` / `register({email,password,firstName,lastName})` / `loginAsGuest` all match `lib/auth/context.tsx`), uses `selfInkedFocusId` so the focus-ring exemption applies, and carries the 16px touch-browser guard.
+
+**Issues:**
+
+1. **Composer isn't gated on loaded data — silently eats a typed message.** The plan says "Composer stays disabled until `conversationQuery.data` (defence in depth)," but `chat/[id].tsx:780` is `disabled={conversationQuery.isError}` only. `ChatInput` (line 342-343) calls `onSend(text.trim())` then `setText('')` unconditionally, so when `send()` bails on `!conversationQuery.data` the text is cleared and nothing happens — no error, no retry. Reachable: open an existing thread from the sidebar on a slow connection (the composer renders outside the `showLoadingScreen` branch) and type immediately. One line: `disabled={conversationQuery.isError || !conversationQuery.data}`.
+
+2. **`.env.local.example` is now actively wrong** and isn't in the file list. It still says `EXPO_PUBLIC_API_URL` "is NOT read by anything the UI actually calls" and that `_layout.tsx` uses `EXPO_PUBLIC_DOMAIN` — the only surviving reference to that variable in the tree. It's the first file a new developer opens to configure the base URL. This is precisely the partial-docs-fix failure mode stream 6 and `lessons-critical` name.
+
+3. *(Comment)* A follow-up typed in the thread isn't rendered until the post-`done` refetch — the reconciler only synthesizes the `q` echo. Pre-existing from #121, but streaming makes it conspicuous: the answer streams in with no question above it. Worth a line in "Things to Look At" or a follow-up issue.
+
+4. *(Comment)* `logout()` in `Sidebar` / `AccountChrome` doesn't navigate. Signing out while inside an account-owned thread leaves the detail query refetching anonymously into the "This conversation didn't load" error screen.
+
+5. *(Nit)* The `ListFooterComponent` comment says "the synthetic bubble in the list carries it [the trace]" — it doesn't; the trace is dropped once text streams.
+
+No new tests is defensible here: the pure seams (`chat-reconcile`, `chat-trace`, `streaming`) are already covered and untouched, there's no component-test infra in the prototype, and the residue is screen-level glue that PIR's human gate exists to catch. The review file is honest and specific, and correctly separates the two non-regressions (web fonts, citations/#66) from this PR's scope.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Streaming hand-off, auth wiring, and import repointing are all correctly implemented and verified green, but the plan-specified composer data-gate was dropped (silently discards a message typed while a thread loads) and `.env.local.example` now documents the opposite of reality.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `chat/[id].tsx:780` — composer `disabled` omits `!conversationQuery.data`; `ChatInput` clears its field before `send()` bails, so a follow-up typed during load is silently lost. Plan explicitly required this gate. One-line fix.
+- `.env.local.example` not updated — still claims `EXPO_PUBLIC_API_URL` is unread and that `_layout.tsx` uses `EXPO_PUBLIC_DOMAIN`; the only stale reference to that var left in the tree, and the file a new dev reads first.
+- (Non-blocking) A follow-up question isn't rendered until the post-`done` refetch, so the streamed answer appears with no question above it — pre-existing, but newly conspicuous. Worth flagging to the human.
+- (Non-blocking) `logout()` doesn't navigate; signing out inside an account-owned thread drops to the load-error screen.
+- (Nit) ListFooterComponent comment claims the synthetic bubble carries the trace; it doesn't.

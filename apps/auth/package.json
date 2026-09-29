@@ -6,7 +6,7 @@
   "description": "Standalone Better Auth service for the Ansari monorepo. Additive (issue #59).",
   "main": "src/index.ts",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

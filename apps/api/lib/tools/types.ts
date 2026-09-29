@@ -64,6 +64,19 @@ export interface ToolResult {
   degradation?: ToolDegradation;
 }
 
+/**
+ * Per-result citability of a tool result (spec 168) — the SINGLE place the
+ * rule is written: a document is citable only when its tool set
+ * `citations.enabled === true`; notices (no results, unavailable, tool limit,
+ * unknown tool) set false, and a missing flag is not citable either. One entry
+ * per `result.documents` entry, in order, so it aligns with the
+ * `formatToolResultForGemini` results it is persisted beside. Reusable by the
+ * SSE tool_result frame (#109).
+ */
+export function citabilityOf(result: ToolResult): Array<{ enabled: boolean }> {
+  return result.documents.map((doc) => ({ enabled: doc.citations?.enabled === true }));
+}
+
 export interface ToolDegradation {
   errorClass?: ToolFetchErrorClass;
   attempts?: number;

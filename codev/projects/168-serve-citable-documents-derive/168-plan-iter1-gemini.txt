@@ -1,0 +1,65 @@
+# Plan Review: 168-serve-citable-documents-derive
+
+## 1. Spec Alignment & Baked Decisions
+
+The implementation plan is thoroughly aligned with [codev/specs/168-serve-citable-documents-derive.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/specs/168-serve-citable-documents-derive.md) and faithfully implements the owner's ratified design (**A1 + B1 + C1, fail closed**):
+- **A1 (Persist Citability)**: Stores per-result `citations: Array<{ enabled: boolean }>` directly alongside `content` on [`ToolCallRecord`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L32-L51) for `tool_result` without mutating the Gemini `functionResponse` or modifying database columns.
+- **B1 (Dedicated Derivation Helper)**: Confines `tool_calls` querying and document block derivation to [`apps/api/lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts). Raw records never leak into API routes or shared read projections.
+- **C1 (Snapshot Copy at Creation)**: Keeps [`shares`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/shares.ts) immutable by computing documents at snapshot creation time in [`createThreadSnapshot`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L15-L58). Unauthenticated public share GET endpoints never touch `tool_calls`.
+- **Fail-Closed Stance**: Unflagged legacy records, length-misaligned records, and malformed JSONB safely evaluate to empty document lists.
+- **Frozen Contract & Key Position**: Appends `documents` strictly as the last property on assistant messages only when non-empty; leaves `content` untouched (preserving bare strings for single-text messages).
+
+---
+
+## 2. Implementation Approach & Architecture
+
+The architectural boundaries are clean and adhere strictly to project invariants:
+- **Structural Safety over Route-Level Filtering**: [`MessageRow`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L31) and `messageReadColumns` in [`apps/api/lib/db/threads.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L35-L50) remain unchanged, ensuring replay history and default thread reads cannot leak raw tool calls.
+- **Authorization Before Derivation**: [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts) expects the caller to have already authorized thread access (via [`getThreadWithMessages`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L20) or [`createThreadSnapshot`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L15-L58)), preventing authorization leaks.
+- **Database Helper Conventions**: [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts) accepts an optional `exec = db` parameter, adhering to the codebase's transactional pattern.
+
+---
+
+## 3. Phase Breakdown & Ordering
+
+The 4-phase sequence is logical, incremental, and supports independent validation and commits:
+1. **Phase 1**: Persist per-result citability on [`tool_result`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L35) records and capture pre-change wire fixtures against unmodified handlers.
+2. **Phase 2**: Implement the pure derivation helper and the internal DB query module with runtime validation, deduplication, and error isolation.
+3. **Phase 3**: Wire the helper into [`GET /api/v2/threads/[id]`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/src/app/api/v2/threads/[id]/route.ts#L40) and [`createThreadSnapshot`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L15), update [`ThreadSnapshot`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/shares.ts#L5-L12), and assert parity and contract preservation.
+4. **Phase 4**: Amend hot-tier invariant documentation in [`arch-critical.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch-critical.md), update code comments, and benchmark read cost against the accepted 14 KB/row and 2× latency limits.
+
+---
+
+## 4. Risk Identification & Testing Strategy
+
+- **Robust Regression Prevention**: Capturing byte-identity fixtures in Phase 1 before touching serving routes ensures that legacy turns, user messages, and notice-only turns undergo no unintended regressions.
+- **Negative Testing Discipline**: The plan adheres to lessons-critical guidelines by explicitly requiring negative tests (e.g. testing that citability cannot be inferred from `status: 'ok'`, verifying misalignment rejections, and validating that near-misses do not trip [`TOOL_KEY_PATTERN`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/tests/thread-get-contract.test.ts#L66)).
+- **Mock Factory Audit**: Explicitly grepping all `vi.mock` factories for touched DB modules avoids the silent failure trap documented in [`lessons-critical.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/lessons-critical.md#L19).
+
+---
+
+## 5. Constructive Considerations for Implementation
+
+1. **Typing of `DocumentContentBlock` vs `ContentBlock`**:
+   In [`apps/api/db/schema/messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L10), the existing definition is:
+   ```ts
+   | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string }
+   ```
+   If [`DocumentContentBlock`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts) is typed solely as `Extract<ContentBlock, { type: 'document' }>`, `source.type` and `media_type` remain general `string`s. Consider refining `ContentBlock`'s document variant in `messages.ts` (or defining `DocumentContentBlock`) to use literal `'text'` and `'text/plain'` matching [`DocumentBlock['source']`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/tools/types.ts#L33-L37) so the compile-time fidelity guard and type-level assertions are strongly enforced.
+
+2. **Deduplication Key on `context`**:
+   When hashing on `JSON.stringify([title, context ?? null, data])`, verify in Phase 2 tests that empty string contexts (if ever passed) or omitted contexts behave predictably, and that `context` is omitted from the resulting object whenever it is not a valid non-empty string.
+
+3. **`console.warn` Throttling on Malformed Records**:
+   To ensure the "one `console.warn` per affected message" requirement is strictly met, have [`deriveCitableDocuments`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts) return structured issue flags (or take an issue callback) so [`findCitableDocumentsByThread`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts) can emit exactly one structured warning per message ID without leaking record contents.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: The plan fully covers the ratified spec, honors all owner constraints and baked decisions, maintains contract freezing, and includes thorough testing and verification discipline.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

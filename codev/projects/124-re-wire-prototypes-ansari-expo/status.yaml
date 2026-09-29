@@ -1,0 +1,31 @@
+id: '124'
+title: re-wire-prototypes-ansari-expo
+protocol: pir
+phase: review
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-09-07T04:42:16.776Z'
+    approved_at: '2026-09-07T08:28:43.312Z'
+  dev-approval:
+    status: approved
+    approved_at: '2026-09-07T19:51:06.840Z'
+  pr:
+    status: approved
+    requested_at: '2026-09-07T21:07:36.341Z'
+    approved_at: '2026-09-09T10:15:35.824Z'
+iteration: 1
+build_complete: true
+history: []
+started_at: '2026-09-07T04:35:21.105Z'
+updated_at: '2026-09-09T10:15:47.005Z'
+pr_history:
+  - phase: review
+    pr_number: 127
+    branch: builder/pir-124
+    created_at: '2026-09-07T19:53:20.560Z'
+    merged: true
+    merged_at: '2026-09-09T10:15:47.005Z'
+pr_ready_for_human: false

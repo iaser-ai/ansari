@@ -16,6 +16,7 @@ const session: StoredSession = {
   refreshToken: 'refresh-token',
   firstName: 'Test',
   lastName: 'User',
+  isGuest: false,
 };
 
 /**

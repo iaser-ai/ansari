@@ -1,0 +1,39 @@
+I'll read the changed files from disk to review the implementation.I read all changed files from disk, plus the supporting code the change depends on (`chat-reconcile.ts`, `AnsariMarkPulse.tsx`, `useAppFonts.ts`, `colors.ts`, `pnpm-workspace.yaml`), and independently ran the checks.
+
+## Verification I ran
+
+- `npx tsc --noEmit` in `prototypes/ansari-expo` — clean.
+- `npx vitest run` — 13 files, **245 tests pass** (`lib/citations.test.ts` 21, `lib/api/decode.test.ts` 27). Matches the review file's claims exactly.
+- `fonts.proseItalic` → `Literata_300Light_Italic` is actually loaded (`hooks/useAppFonts.ts:41`) and has a web `@font-face` (`public/index.html:293`), so the weight swap won't silently fall back — the #130 failure mode is not being reintroduced.
+- `MARK_HEIGHT` grep: the hoisted `ANSARI_MARK_EMBLEM_HEIGHT` is the only 32 in play; no other mark site was left with a literal.
+
+## Plan adherence
+
+All ten "Files to Change" are changed, nothing outside them. The one addition beyond the plan — `stripStreamingCitations` with `PENDING_MARKER`/`PENDING_HEADING` — is exactly the contingency the plan pre-declared under "Risk: a partial marker or heading flashes at a chunk boundary," so it's in-scope rather than creep. The plan's open question about the khushu' exemption keeping a model-written `Citations:` block is moot in the implementation: `mapConversationDetail` replaces that message's content wholesale with `SAMPLE_ANSWER_CONTENT`, and the new decode test pins it.
+
+The lifecycle reasoning holds under reading: the synthetic bubble carries `id: streamKey` (`chat-reconcile.ts:110`), so `generating={!!streamingText && item.id === streamKey.current}` is true only for the in-flight bubble, and the hand-off effect (`[id].tsx:408-420`) clears `streamingText`, remaps the key, and resets `rawStreamText` in one commit — mark out and Copy/Share back in a single layout change, as designed.
+
+## Test coverage
+
+Good for the parts that are testable here. `citations.test.ts` covers all five heading shapes, the mid-sentence negative, markers with/without a leading space, near-misses (`[a]`, `[]`, `[1a]`, `array[i]`), and — the strongest part — a frame-by-frame replay at chunk sizes 1/3/7/16 asserting no frame ever shows a half-written marker/heading *and* that the final frame equals `stripUnbackedCitations(persisted)`, which is the property the in-place hand-off depends on. The builder's claim that these fail without `87e36dd` is consistent with the regexes: without `PENDING_MARKER`, the chunk-size-1 replay necessarily produces a frame ending `[`.
+
+## Comments (none blocking)
+
+1. **The heading cut is "first", not "trailing".** `CITATIONS_SECTION` has no anchor to the end of the document, so a line-only `Citations:` anywhere mid-answer drops everything after it, including substantive prose. Unlikely from this model, display-only, and reversible — but it's a sharper edge than "a trailing citations section" and deserves a line in Things to Look At.
+2. **Only "Citations" is recognized.** `References:` / `Sources:` headings survive while their `[N]` markers are stripped, leaving a heading over a bare reference list. Consistent with the plan's wording; worth a follow-up if the model varies its footer.
+3. **`[N]` alone on a line** leaves an empty line behind (`MARKER` eats one preceding space, not a newline). Cosmetic, rare.
+4. **Plan-doc nit:** `pnpm --filter ansari-expo test` does not work — `prototypes/*` isn't in `pnpm-workspace.yaml` and the package is named `ansari-expo-prototype`. It errors with "No projects matched the filters". The review file doesn't repeat this command, so the PR reader isn't misled; just don't carry it into the PR body.
+5. **No component-level test** for the `generating` gate or the footer branch, but this package has no component-render tests at all — consistent, and the human already exercised it at the dev-approval gate.
+
+Review file is accurate, follows the template, and its "Things to Look At" is genuinely honest (the mark pulsing for one extra round trip, the long-press Copy still available mid-stream, unconditional `[N]` stripping). "How to Test Locally" is specific enough to act on.
+
+---
+VERDICT: APPROVE
+SUMMARY: Faithful to the plan, typecheck and all 245 tests verified green, with strong chunk-replay tests for the streaming transform; only minor display-edge comments.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Minor: the `Citations` heading cut is first-match, not trailing-anchored, so a mid-answer heading would drop later prose (display-only).
+- Minor: only "Citations" is recognized — `References:`/`Sources:` footers survive while their `[N]` markers are stripped.
+- Doc nit: the plan's `pnpm --filter ansari-expo test/typecheck` commands don't resolve (prototypes aren't pnpm workspace members); run from `prototypes/ansari-expo`.

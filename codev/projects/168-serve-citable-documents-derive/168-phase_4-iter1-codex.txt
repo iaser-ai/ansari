@@ -1,0 +1,16 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Documentation and benchmarking are sound, but Phase 4 lacks a recorded clean final full-suite run.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Run and record the required post-Phase-4 full suite; the state file reports unresolved timeout failures and only a Phase 3 clean run.
+- Clarify that the staging storage query was rerun in Phase 4; currently the report appears to repeat the initial plan-stage measurement.
+
+---
+
+## ⚠️ REPOSITORY MOVED during the codex review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: 6964f3d9478fd35ec95c1dad6f17bfa7620b3739 -> 7b8a423c98ee7ca09470443eb7bbc88ae94b949b
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

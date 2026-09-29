@@ -1,0 +1,23 @@
+# Implementation Review: Phase 4 (Invariant documentation and read-cost report)
+
+### 1. Spec Adherence & Plan Alignment
+- [arch-critical.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch-critical.md#L19): Fact 10 on line 19 accurately documents the owner ruling: `tool_calls` may be loaded for serving only inside [`lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts), returning derived `document` blocks for the dedicated `/documents` endpoints while thread GET and share GET remain untouched. The hot-tier cap is respected (10 facts, 26 lines; within the $\le 10$ facts, $\le 35$ lines limit).
+- [arch.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch.md#L35-L38): The Tool-call persistence section and new Citable documents section thoroughly document `citations: [{enabled}]`, fail-closed legacy/malformed rows, deduplication rules, C1 snapshot copying, dedicated endpoint routing, and `message_index` joins.
+- **In-code comments**: Verified in [`apps/api/db/schema/messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L113-L119), [`apps/api/lib/db/threads.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L26-L28), and [`apps/api/lib/db/shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L34-L36,L48-L50). Stale absolute claims have been cleanly updated.
+- **Read-Cost & Bounds**:
+  - **Storage**: Staging measurement is documented (median 5.6 KB, p95 14.1 KB, $n=80$), well within the 14 KB median bound. The builder clarified in the thread log that the architect ruled this plan-stage measurement stands.
+  - **Latency Benchmark**: [`apps/api/scripts/bench-documents.bench.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/scripts/bench-documents.bench.ts) and [`apps/api/scripts/vitest.bench.config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/scripts/vitest.bench.config.ts) provide a reproducible, deterministic benchmark verifying staging payload sizes and document emission before sampling. The observed ratio ($4.9\text{–}5.3\times$, $\sim 5\text{ ms}$ vs $1\text{ ms}$ for 25 assistant answers returning 394 KB of document text) trips the $2\times$ threshold, and the builder adhered to acceptance criteria by documenting root causes and notifying the architect before the PR.
+
+### 2. Resolution of Iteration 1 Feedback
+- **Recorded Clean Full-Suite Run**: Addressed in [spir-168_thread.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/state/spir-168_thread.md#L48). Following architect-directed per-test timeouts for pre-existing load-sensitive tests in commit `7b8a423`, the builder executed and logged a clean `turbo run test --force` run (83 files, 853 passed / 3 skipped, build 4/4, clean tsc, 0 lint errors).
+- **Staging Query Clarification**: Addressed in [spir-168_thread.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/state/spir-168_thread.md#L49), documenting the architect's ruling that the plan-stage measurement stands.
+
+All deliverables and acceptance criteria for Phase 4 are fully satisfied.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 invariant documentation, benchmarks, and clean full-suite run verification are complete and accurate.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

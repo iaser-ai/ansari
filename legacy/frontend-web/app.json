@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "Ansari Chat",
+    "owner": "ansari-project",
+    "slug": "ansari-chat",
+    "version": "1.0.0",
+    "scheme": "ansarichat",
+    "userInterfaceStyle": "automatic",
+    "orientation": "portrait",
+    "newArchEnabled": true,
+    "icon": "./src/assets/images/icon.png",
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-localization",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "ansari-project-llc",
+          "project": "ansari-frontend",
+          "url": "https://sentry.io/"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "image": "./src/assets/images/splash-icon.png",
+          "dark": {
+            "backgroundColor": "#0F0F0F",
+            "image": "./src/assets/images/splash-icon-dark.png"
+          },
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT"
+        }
+      ]
+    ],
+    "extra": {
+      "supportsRTL": true,
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "e2f465a7-8007-4e83-91ba-4a9df4c5209a"
+      }
+    },
+    "android": {
+      "package": "chat.ansari.app"
+    },
+    "ios": {
+      "bundleIdentifier": "chat.ansari.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e2f465a7-8007-4e83-91ba-4a9df4c5209a"
+    }
+  }
+}

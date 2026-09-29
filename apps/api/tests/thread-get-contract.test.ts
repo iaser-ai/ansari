@@ -63,7 +63,9 @@ const RECORDS: ToolCallRecord[] = [
 // Today's exact key sets (order included — JSON.stringify preserves insertion order).
 const TOP_LEVEL_KEYS = ['thread_id', 'thread_name', 'source', 'created_at', 'updated_at', 'messages'];
 const MESSAGE_KEYS = ['id', 'role', 'content', 'agent_name', 'source', 'created_at'];
-const TOOL_KEY_PATTERN = /tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms/;
+// `citations` (spec 168): the per-result citability flag on tool records must
+// never serialize either.
+const TOOL_KEY_PATTERN = /tool_use|tool_result|tool_calls|toolCalls|rawPayload|raw_payload|duration_ms|citations/;
 // Provenance columns (issue #99) must never serialize either — same structural
 // exclusion (messageReadColumns / share projection), same live-scan discipline.
 const PROVENANCE_KEY_PATTERN = /model_provider|modelProvider|model_id|modelId/;
@@ -158,11 +160,12 @@ async function seedConversation() {
 
 describe('TOOL_KEY_PATTERN is a live scan (negative-tested per lessons-critical)', () => {
   it('matches each known-bad key and not a near-miss', () => {
-    for (const bad of ['tool_use', 'tool_result', 'tool_calls', 'toolCalls', 'rawPayload', 'raw_payload', 'duration_ms']) {
+    for (const bad of ['tool_use', 'tool_result', 'tool_calls', 'toolCalls', 'rawPayload', 'raw_payload', 'duration_ms', 'citations']) {
       expect(JSON.stringify({ [bad]: 1 })).toMatch(TOOL_KEY_PATTERN);
     }
     // Near-misses that legitimately appear in responses must NOT trip the scan.
     expect(JSON.stringify({ thread_name: 'tools of the trade', agent_name: 'facilitator' })).not.toMatch(TOOL_KEY_PATTERN);
+    expect(JSON.stringify({ title: 'Quran 2:153', context: 'Retrieved from the Holy Quran' })).not.toMatch(TOOL_KEY_PATTERN);
   });
 });
 
@@ -227,6 +230,43 @@ describe('GET /api/v2/threads/[id] — frozen contract with tool_calls populated
 
     const after = await (await threadGet(getReq(), ctx)).text();
     expect(after).toBe(before);
+  });
+});
+
+describe('with records that DO derive documents (spec 168)', () => {
+  // Same seed, but the assistant's records carry the spec-168 citability flag,
+  // so documents are derivable — the scans run where a leak is actually possible.
+  const CITABLE: ToolCallRecord[] = [
+    RECORDS[0],
+    { ...(RECORDS[1] as Extract<ToolCallRecord, { type: 'tool_result' }>), citations: [{ enabled: true }] },
+  ];
+
+  it('thread GET keeps today\'s exact keys and no tool/provenance/citations key; the snapshot too', async () => {
+    await createMessage({ threadId: THREAD_ID, role: 'user', content: [{ type: 'text', text: 'What is sabr?' }] });
+    await createMessage({
+      threadId: THREAD_ID,
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Sabr is patience.' }],
+      agentName: 'facilitator',
+      toolCalls: CITABLE,
+      modelProvider: 'gemini',
+      modelId: 'm',
+    });
+
+    const raw = await (await threadGet(getReq(), ctx)).text();
+    const body = JSON.parse(raw);
+    for (const m of body.messages) expect(Object.keys(m)).toEqual(MESSAGE_KEYS);
+    expect(raw).not.toMatch(TOOL_KEY_PATTERN);
+    expect(raw).not.toMatch(PROVENANCE_KEY_PATTERN);
+    expect(raw).not.toContain('documents');
+
+    const share = await createThreadSnapshot(THREAD_ID, USER_ID);
+    const snap = JSON.stringify(share!.content);
+    // Not vacuous: the snapshot really does carry the derived document…
+    expect(share!.content.messages[1].documents).toHaveLength(1);
+    // …and still no record key.
+    expect(snap).not.toMatch(TOOL_KEY_PATTERN);
+    expect(snap).not.toMatch(PROVENANCE_KEY_PATTERN);
   });
 });
 

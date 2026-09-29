@@ -1,0 +1,258 @@
+import { ScrollToBottomIcon } from '@/components/svg'
+import { useScreenInfo } from '@/hooks'
+import { Message, RootState, Thread, UserRole } from '@/store'
+import { Helpers } from '@/utils'
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native'
+import { useSelector } from 'react-redux'
+import MessageBubble, { MessageBubbleProps } from './MessageBubble'
+
+// Within this many pixels of the bottom the reader counts as being at the bottom.
+const AT_BOTTOM_THRESHOLD_PX = 50
+
+// Memoize MessageBubble to avoid unnecessary re-renders
+const areEqual = (prevProps: MessageBubbleProps, nextProps: MessageBubbleProps) =>
+  prevProps.isOutgoing === nextProps.isOutgoing &&
+  prevProps.isSending === nextProps.isSending &&
+  prevProps.message.id === nextProps.message.id &&
+  prevProps.message.timestamp === nextProps.message.timestamp
+
+const MessageBubbleMemo = React.memo(MessageBubble, areEqual)
+
+interface MessageListProps {
+  activeThread: Thread | null
+  isLoading: boolean
+  isSending: boolean
+  scrollToBottomEnabled?: boolean
+  // Follow new content while the reader is at the bottom and offer the jump-to-latest button. On web it also makes
+  // the list its own height-bounded scroller, so the composer below it stays put (issue #182). Only the live chat
+  // opts in; share views stay static and grow with the page.
+  followEnabled?: boolean
+  reactionsEnabled?: boolean
+  width?: string | number
+  isShare?: boolean
+}
+
+export interface MessageListRef {
+  scrollToBottom: () => void
+}
+
+/**
+ * MessageList component renders a list of chat messages efficiently.
+ * It includes performance optimizations such as memoization and dynamic
+ * scroll-to-bottom functionality. It also handles loading states and
+ * provides a smooth user experience across web and mobile platforms using React Native Web.
+ */
+
+const MessageList = forwardRef<MessageListRef, MessageListProps>(
+  (
+    {
+      isLoading,
+      activeThread,
+      isSending,
+      reactionsEnabled = true,
+      scrollToBottomEnabled = true,
+      followEnabled = false,
+      width,
+      isShare,
+    },
+    ref,
+  ) => {
+    const scrollViewRef = useRef<ScrollView>(null)
+    // Whether new content should keep the bottom in view: set on send or on reaching the bottom, and
+    // cleared only when the reader scrolls up. Off until then, so opening a thread does not move the reader.
+    const followRef = useRef(false)
+    const lastScrollTopRef = useRef(0)
+    // Native only: the ScrollView's own height, to tell whether new content left the reader above the bottom.
+    const viewportHeightRef = useRef(0)
+    const [isAtBottom, setIsAtBottom] = useState(true)
+    const sideMenuWidth = useSelector((state: RootState) => state.sideMenu.width)
+    const { isSmallScreen, contentWidth } = useScreenInfo(sideMenuWidth)
+    const theme = useSelector((state: RootState) => state.theme.theme)
+
+    // On web the ScrollView scrolls once its content overflows; until then (or wherever the list is not
+    // height-bounded) an ancestor such as the overflow-y-auto View in app/(app)/_layout.tsx may scroll instead,
+    // so find whichever element really scrolls.
+    const getWebScroller = (): HTMLElement | null => {
+      let node: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
+      while (
+        node &&
+        !(/auto|scroll/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1)
+      ) {
+        node = node.parentElement
+      }
+      return node
+    }
+
+    const scrollListToEnd = (animated: boolean): void => {
+      if (Platform.OS !== 'web') {
+        scrollViewRef.current?.scrollToEnd({ animated })
+        return
+      }
+      const scroller = getWebScroller()
+      if (!scroller) return
+      // react-native-web replaces scrollTo on the ScrollView's own node with its { x, y, animated } version, which
+      // would read these options as "animate to the top", so call the DOM method.
+      const domScrollTo: (options: ScrollToOptions) => void = HTMLElement.prototype.scrollTo
+      domScrollTo.call(scroller, { top: Number.MAX_SAFE_INTEGER, behavior: animated ? 'smooth' : 'auto' })
+    }
+
+    const scrollToEnd = (animated = false): void => {
+      followRef.current = true
+      setIsAtBottom(true)
+      scrollListToEnd(animated)
+    }
+
+    const updateScrollPosition = useCallback((scrollTop: number, distanceToBottom: number): void => {
+      const atBottom = distanceToBottom <= AT_BOTTOM_THRESHOLD_PX
+      // Growing content widens the distance without moving scrollTop, so only an upward scroll means the
+      // reader left the bottom; that is what stops the list from following them (issue #84: never move them).
+      if (atBottom) followRef.current = true
+      else if (scrollTop < lastScrollTopRef.current - 1) followRef.current = false
+      lastScrollTopRef.current = scrollTop
+      setIsAtBottom(atBottom)
+    }, [])
+
+    // Scrolls only; whether to keep following is left to the reader's resulting position, so a call made while
+    // the thread is still empty or loading does not drag the reader down once it arrives.
+    useImperativeHandle(ref, () => ({ scrollToBottom: () => scrollListToEnd(false) }))
+
+    // Scroll events do not bubble, so listen in the capture phase for the ancestor that scrolls on web.
+    useEffect(() => {
+      if (!followEnabled || Platform.OS !== 'web') return
+      const onScroll = (event: Event): void => {
+        const target = event.target
+        const list: HTMLElement | null = scrollViewRef.current?.getScrollableNode() ?? null
+        if (!(target instanceof HTMLElement) || !list || !target.contains(list)) return
+        updateScrollPosition(target.scrollTop, target.scrollHeight - target.scrollTop - target.clientHeight)
+      }
+      document.addEventListener('scroll', onScroll, true)
+      return () => document.removeEventListener('scroll', onScroll, true)
+    }, [followEnabled, updateScrollPosition])
+
+    // Sending is the reader's own action, so bring the new question and the thinking indicator into view.
+    useEffect(() => {
+      if (followEnabled && isSending) scrollToEnd()
+      // scrollToEnd is recreated every render and only reads refs; this must run on isSending changes alone.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [followEnabled, isSending])
+
+    if (isLoading && !isSending) {
+      return (
+        <View testID='message-list-loading' className='flex-1 items-center justify-center'>
+          <ActivityIndicator size='large' color={theme.hoverColor} />
+        </View>
+      )
+    }
+    // Scroll to Bottom Button component: a white circle centred just above the composer.
+    const ScrollToBottomButton = () => (
+      <View className='absolute bottom-0 left-0 right-0 items-center z-[100]'>
+        <Pressable
+          testID='scroll-to-bottom-button'
+          accessibilityRole='button'
+          accessibilityLabel='Scroll to bottom'
+          className='absolute bottom-[12px] w-[40px] h-[40px] rounded-full items-center justify-center'
+          style={{
+            backgroundColor: '#ffffff',
+            borderWidth: 1,
+            borderColor: 'rgba(0, 0, 0, 0.1)',
+            shadowColor: '#000000',
+            shadowOpacity: 0.15,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 3,
+          }}
+          onPress={() => scrollToEnd(true)}
+        >
+          <ScrollToBottomIcon width={20} height={20} fill='#1f1f1f' />
+        </Pressable>
+      </View>
+    )
+
+    const filteredMessages = (activeThread?.messages || []).filter((message) => typeof message.content === 'string')
+    const lastAssistantMessageIndex = filteredMessages.findLastIndex((message) => message.role === UserRole.Assistant)
+    const lastMessage = filteredMessages[filteredMessages.length - 1]
+    const showThinkingIndicator = isSending && (!lastMessage || lastMessage.role === UserRole.User)
+
+    return (
+      <View className='flex-1'>
+        <ScrollView
+          ref={scrollViewRef}
+          testID='message-list-scroll'
+          className={`mb-${isSmallScreen ? '1' : '2'}`}
+          // Web, live chat: a zero flex basis keeps the messages from sizing the page, so the list fills only the
+          // space the layout leaves it and scrolls itself, and the composer below it stays put while an answer
+          // streams (issue #182). Share views keep growing with the page.
+          style={followEnabled && Platform.OS === 'web' ? { flexBasis: 0 } : undefined}
+          // Now that the list scrolls itself, make it a tab stop so the keyboard can reach and scroll the transcript.
+          tabIndex={followEnabled && Platform.OS === 'web' ? 0 : undefined}
+          scrollEventThrottle={100}
+          // On web the capture listener above tracks whichever element really scrolls.
+          onScroll={
+            followEnabled && Platform.OS !== 'web'
+              ? ({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) =>
+                  updateScrollPosition(contentOffset.y, contentSize.height - contentOffset.y - layoutMeasurement.height)
+              : undefined
+          }
+          onLayout={({ nativeEvent }) => {
+            viewportHeightRef.current = nativeEvent.layout.height
+          }}
+          onContentSizeChange={(_contentWidth: number, contentHeight: number) => {
+            if (!followEnabled) return
+            // Keep the newest text (a streaming answer, then its reaction row) in view unless the reader scrolled up.
+            if (followRef.current) {
+              scrollToEnd()
+              return
+            }
+            if (Platform.OS !== 'web') {
+              // Content that does not fill the view yet (a thread still loading) says nothing about the reader.
+              if (contentHeight <= viewportHeightRef.current) return
+              const scrollTop = lastScrollTopRef.current
+              updateScrollPosition(scrollTop, contentHeight - scrollTop - viewportHeightRef.current)
+              return
+            }
+            const scroller = getWebScroller()
+            if (scroller) {
+              updateScrollPosition(
+                scroller.scrollTop,
+                scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+              )
+            }
+          }}
+        >
+          {filteredMessages.map((message: Message, index) => {
+            const id = message.id || Helpers.generateUniqueId() + (isSending ? '-sending' : '')
+
+            return (
+              <MessageBubbleMemo
+                key={id}
+                isSending={isSending}
+                displayActivity={isSending && lastAssistantMessageIndex === index}
+                isOutgoing={message.role === UserRole.User}
+                message={message}
+                threadId={String(activeThread?.id)}
+                reactionsEnabled={reactionsEnabled}
+                width={width}
+                isShare={isShare}
+              />
+            )
+          })}
+          {showThinkingIndicator && (
+            <View
+              className={`mx-1 my-1 rounded flex flex-row flex-grow self-start ${isSmallScreen ? 'p-2 gap-2' : 'p-2.5 gap-4'}`}
+              style={{ width: width || contentWidth }}
+            >
+              <View className='rounded px-5 py-2 w-8 h-8 items-center justify-center'>
+                <ActivityIndicator size='small' color={theme.hoverColor} />
+              </View>
+            </View>
+          )}
+        </ScrollView>
+        {followEnabled && !isAtBottom && scrollToBottomEnabled && <ScrollToBottomButton />}
+      </View>
+    )
+  },
+)
+
+MessageList.displayName = 'MessageList'
+export default MessageList

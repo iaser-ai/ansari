@@ -1,0 +1,33 @@
+# Phase 4 Review: Invariant documentation and read-cost report
+
+### 1. Spec Adherence & Plan Alignment
+- [codev/resources/arch-critical.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch-critical.md#L19): Fact 10 on line 19 accurately reflects the owner ruling: `tool_calls` is loaded for serving strictly within [`lib/db/citable-documents.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/citable-documents.ts), returning only derived `document` blocks for the dedicated `/documents` endpoints. Thread GET and share GET remain untouched. The file respects the hot-tier budget (10 facts, 26 lines; cap is $\le 10$ facts, $\le 35$ lines).
+- [codev/resources/arch.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/codev/resources/arch.md#L35-L38): The Tool-call persistence section and new Citable documents section accurately document the `citations: [{enabled}]` field, fail-closed handling for legacy/malformed rows, deduplication rules, C1 snapshot copying, dedicated endpoint contract, and `message_index` join key.
+- **In-code comments**: Verified in [`apps/api/db/schema/messages.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/db/schema/messages.ts#L113-L119), [`apps/api/lib/db/threads.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/threads.ts#L26-L28), and [`apps/api/lib/db/shares.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/lib/db/shares.ts#L34-L36). Stale assertions that `tool_calls` is never loaded have been updated to document `lib/db/citable-documents.ts` as the sole serving exception.
+- **Read-cost report & Bound evaluation**:
+  - **Storage**: Staging data measured from 80 assistant rows with `tool_calls` yields a median `pg_column_size` of 5.6 KB and p95 of 14.1 KB (well within the $\le 14\text{ KB}$ median bound).
+  - **Latency**: Benchmark script [`apps/api/scripts/bench-documents.bench.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/scripts/bench-documents.bench.ts) and config [`apps/api/scripts/vitest.bench.config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-168/apps/api/scripts/vitest.bench.config.ts) properly simulate a 50-message thread with staging-sized `tool_calls` payloads and assert preconditions (stored size, documents returned) before timing.
+  - The latency ratio (4.9–5.3$\times$ median, $\sim 5\text{ ms}$ vs $1\text{ ms}$ for 25 assistant answers returning 394 KB of document text) trips the $2\times$ threshold; in accordance with acceptance criteria, the builder documented the root cause and escalated to the architect via `afx send architect` before finalizing the PR.
+
+### 2. Code Quality & Benchmark Setup
+- Benchmark setup is clean: uses deterministic seeding for PRNG data generation, isolates tests outside standard test suites via custom Vitest configuration, performs warmup iterations, and alternates test order between variants across 200 iterations to cancel drift.
+- All Phase 4 requirements and deliverables are fully satisfied.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 documentation and read-cost benchmarks are complete, accurate, and adhere strictly to the plan and architectural constraints.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - apps/api/tests/eslint-env-guard.test.ts
+  - apps/api/tests/migration/migration-schema-parity.test.ts
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

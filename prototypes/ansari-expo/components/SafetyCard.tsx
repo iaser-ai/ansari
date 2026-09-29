@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import type { SafetySignal } from '@/lib/api';
+import { RADIUS, rounded } from '@/constants/radius';
 
 /**
  * Compassionate guidance card shown when a response carries a distress
@@ -18,15 +19,13 @@ export function SafetyCard({ safety }: { safety: SafetySignal }) {
         {
           backgroundColor: colors.secondary,
           borderColor: colors.accent,
-          borderRadius: colors.radius + 4,
+          ...rounded(RADIUS.lg),
         },
       ]}
       testID="safety-card"
     >
       <View style={styles.header}>
-        <View
-          style={[styles.iconCircle, { backgroundColor: colors.accent }]}
-        >
+        <View style={[styles.iconCircle, { backgroundColor: colors.accent }]}>
           <Feather name="heart" size={14} color={colors.accentForeground} />
         </View>
         <Text style={[styles.title, { color: colors.secondaryForeground }]}>
@@ -42,12 +41,17 @@ export function SafetyCard({ safety }: { safety: SafetySignal }) {
             key={resource.label}
             disabled={!resource.url}
             onPress={() => resource.url && Linking.openURL(resource.url)}
+            // A helpline with a number to ring is a link out; one
+            // without is a line of text, and saying so is the
+            // difference between a reader trying it and not.
+            accessibilityRole={resource.url ? 'link' : undefined}
+            accessibilityState={resource.url ? undefined : { disabled: true }}
             style={({ pressed }) => [
               styles.resource,
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                borderRadius: colors.radius,
+                ...rounded(RADIUS.md),
                 opacity: pressed ? 0.7 : 1,
               },
             ]}
@@ -95,7 +99,7 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 26,
     height: 26,
-    borderRadius: 13,
+    ...rounded(RADIUS.pill),
     alignItems: 'center',
     justifyContent: 'center',
   },

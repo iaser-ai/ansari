@@ -33,8 +33,10 @@ export const threadListSchema = z.array(threadSchema);
 /**
  * A single Claude-format content block. Text blocks are strictly typed because
  * we render them; other block kinds (tool_use, tool_result, document, and any
- * future type) only need a `type` string — we don't render them, so we tolerate
- * their shape while still rejecting genuinely malformed content (e.g. a number).
+ * future type) only need a `type` string — we don't render them from `content`,
+ * so we tolerate their shape while still rejecting genuinely malformed content
+ * (e.g. a number). An answer's source documents are served separately, by
+ * `GET /threads/{id}/documents` (spec 168 — see `threadDocumentsSchema`).
  */
 export const contentBlockSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string() }),
@@ -46,6 +48,24 @@ export const messageContentSchema = z.union([
   z.string(),
   z.array(contentBlockSchema),
 ]);
+
+/**
+ * A citable source document (spec 168) — the `document` ContentBlock apps/api
+ * derives from an answer's tool records: `source.data` is the text itself (JSON
+ * `{ar, en, …}` for Qur'an/hadith, a plain passage for the encyclopedias).
+ * Strictly typed, since we render every field of it.
+ */
+export const documentBlockSchema = z.object({
+  type: z.literal('document'),
+  source: z.object({
+    type: z.string(),
+    media_type: z.string(),
+    data: z.string(),
+  }),
+  title: z.string(),
+  context: z.string().optional(),
+});
+export type WireDocument = z.infer<typeof documentBlockSchema>;
 
 export const wireMessageSchema = z.object({
   id: z.string(),
@@ -62,6 +82,29 @@ export const threadDetailSchema = threadSchema.extend({
   messages: z.array(wireMessageSchema),
 });
 export type WireThreadDetail = z.infer<typeof threadDetailSchema>;
+
+/**
+ * `GET /threads/{id}/documents` (spec 168) — the citable sources behind a
+ * thread's answers, served apart from thread GET (which stays frozen). Lists
+ * only assistant messages with at least one document. `message_index` is the
+ * message's position in thread GET's RAW `messages` array — `tool` rows
+ * included — and `message_id` is its id; the decoder requires both to agree.
+ *
+ * Unlike the schemas above, a mismatch here does NOT fail the conversation:
+ * the decoder logs it and renders the answers without sources (see
+ * `decodeConversationDetail`).
+ */
+export const threadDocumentsSchema = z.object({
+  thread_id: z.string(),
+  messages: z.array(
+    z.object({
+      message_id: z.string(),
+      message_index: z.number().int().nonnegative(),
+      documents: z.array(documentBlockSchema),
+    }),
+  ),
+});
+export type WireThreadDocuments = z.infer<typeof threadDocumentsSchema>;
 
 // --- Auth ------------------------------------------------------------------
 
