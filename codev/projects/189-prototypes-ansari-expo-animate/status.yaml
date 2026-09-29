@@ -1,0 +1,30 @@
+id: '189'
+title: prototypes-ansari-expo-animate
+protocol: pir
+phase: review
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-09-26T08:41:34.807Z'
+    approved_at: '2026-09-26T08:42:28.246Z'
+  dev-approval:
+    status: approved
+    requested_at: '2026-09-28T15:26:16.286Z'
+    approved_at: '2026-09-28T15:47:22.057Z'
+  pr:
+    status: approved
+    requested_at: '2026-09-29T13:39:50.497Z'
+    approved_at: '2026-09-29T20:27:50.359Z'
+iteration: 1
+build_complete: true
+history: []
+started_at: '2026-09-26T08:39:28.438Z'
+updated_at: '2026-09-29T20:27:50.367Z'
+pr_history:
+  - phase: review
+    pr_number: 193
+    branch: builder/pir-189
+    created_at: '2026-09-29T13:33:44.441Z'
+pr_ready_for_human: false

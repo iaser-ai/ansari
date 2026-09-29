@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The pacing core is well tested, but a hand-off race can briefly render the complete persisted answer before the reveal starts.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `app/chat/[id].tsx:382` passes `revealedText` as the reconciler’s sole `streamingText` value. During the initial ~48 ms where `revealedText === ''`, `chat-reconcile.ts:105-106` does not hold back an already-landed answer. A fast completion/refetch can therefore render the full persisted answer, then replace it with the paced prefix—precisely the jump/flicker this change is intended to prevent. The reconciler needs to distinguish “a stream target exists” from “the revealed slice is non-empty,” with a regression test covering landed answer + non-empty target + empty revealed slice.
+- The documented settle bound is not implemented. Recomputing `backlog / settleSeconds` each tick creates exponential decay, not drainage within 150 ms. For example, a 2,000-character settled backlog takes roughly 700 ms. `reveal.test.ts:56-60` only checks up to 300 characters and permits 400 ms, while the plan, architecture documentation, and review claim approximately 150–200 ms. Either implement the promised bound and test a large backlog, or correct the approved behavior and documentation before review.
