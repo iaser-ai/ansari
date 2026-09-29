@@ -83,3 +83,12 @@ See `codev/reviews/161-prototypes-ansari-expo-map-app.md` for the full context.
 - **An enhancement request must never fail its primary view.** The sources for a thread come from a second request. Its failure or malformed body degrades to "no sources" and never to "this conversation didn't load". #165 is the reason: a documents fault once took every thread GET down on staging.
 - **An index into an API array is an index into the RAW array.** Spec 168's `message_index` counts `tool` rows that the prototype drops while mapping. Join before filtering, and cross-check with the id when one is available.
 - **A gate approval covers the code it saw.** The recorded `dev-approval` predated a full redesign. Confirm with the human before advancing on it.
+
+## Hadith grades & source pills — prototype (issue #194)
+
+See `codev/reviews/194-prototypes-ansari-expo-hadith-.md` for the full context.
+
+- **When you only know a data shape from a symptom, bound the renderer as well as parsing the shape.** No fixture carried a multi-grade `grade_en`, and no live key was available, so the parser's input format was inferred from a screenshot. The `numberOfLines` cap on the pill and the folded group are what guarantee the fix if the real separator differs. The parser alone can't.
+- **A live test answer can miss the path the bug report is about.** The staging answer used at `dev-approval` had 20 sources and no multi-graded hadith, so `(+N more)` was never seen live. Say which paths the manual pass did NOT cover rather than letting "tested on staging" imply that they were.
+- **Fold a wrapping layout by measured rows, not item count.** How many pills fit on a row depends on the column width and each label. Measure the offsets, clip at the top of row N+1, keep the hidden items mounted for measurement, and remove them from focus and the accessibility tree while they're out of sight. Before measuring, hold an estimated fold, so a long group doesn't flash open on mount.
+
