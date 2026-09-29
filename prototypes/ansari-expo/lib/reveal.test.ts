@@ -54,9 +54,21 @@ describe('advanceReveal', () => {
   });
 
   it('finishes quickly once the stream has settled', () => {
-    for (const backlog of [5, 75, 300]) {
-      expect(ticksToDrain(0, backlog, true) * TICK).toBeLessThanOrEqual(400);
+    // The backlog a fast stream leaves behind drains in ~0.2 s…
+    expect(ticksToDrain(0, 75, true) * TICK).toBeLessThanOrEqual(260);
+    // …and any backlog within the logarithmic bound REVEAL documents:
+    // exponential down to the settled floor, then linear across it.
+    for (const backlog of [5, 75, 300, 2000, 20_000]) {
+      const ms = ticksToDrain(0, backlog, true) * TICK;
+      const floor = REVEAL.settledCps * REVEAL.settleSeconds;
+      const bound =
+        1000 *
+          (REVEAL.settleSeconds * Math.log(Math.max(1, backlog / floor)) +
+            REVEAL.settleSeconds) +
+        2 * TICK;
+      expect(ms).toBeLessThanOrEqual(bound);
     }
+    expect(ticksToDrain(0, 2000, true) * TICK).toBeLessThanOrEqual(800);
     expect(ticksToDrain(0, 75, true)).toBeLessThan(ticksToDrain(0, 75, false));
   });
 

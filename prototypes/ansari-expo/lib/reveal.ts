@@ -22,11 +22,20 @@
 export const REVEAL = {
   /** Characters per second when the backlog is small: an unhurried typist. */
   baseCps: 90,
-  /** While streaming, any backlog is drained within about this long. */
+  /**
+   * While streaming, the backlog shrinks with this time constant: the rate is
+   * backlog / window, so the lag holds at about (arrival rate × window) and a
+   * burst decays exponentially rather than being queued.
+   */
   catchUpSeconds: 0.5,
-  /** Once the stream has finished, the backlog is drained within about this long… */
+  /**
+   * Once the stream has finished, the same with a shorter time constant, and
+   * never slower than `settledCps`, so the last few characters do not
+   * trickle. A drain is logarithmic in the backlog, not a fixed time: the
+   * ~75 characters a fast stream leaves behind take ~0.2 s, and the rare
+   * 2000-character backlog (one huge final chunk) ~0.7 s.
+   */
   settleSeconds: 0.15,
-  /** …and never slower than this, so the last few characters do not trickle. */
   settledCps: 360,
 } as const;
 
@@ -44,6 +53,8 @@ export function advanceReveal(
   if (position >= targetLength) return targetLength;
   if (!(dtMs > 0)) return Math.max(0, position);
   const backlog = targetLength - position;
+  // Recomputed every tick, so the drain is exponential down to the floor
+  // rate and linear from there (see REVEAL for the resulting times).
   const rate = Math.max(
     settled ? REVEAL.settledCps : REVEAL.baseCps,
     backlog / (settled ? REVEAL.settleSeconds : REVEAL.catchUpSeconds),

@@ -379,7 +379,8 @@ export default function ChatScreen() {
         serverMessages,
         q,
         conversationId,
-        streamingText: revealedText,
+        streamingText,
+        revealedText,
         streamKey: streamKey.current,
         sentAtCount: sentAtCount.current,
         pendingFollowUp,
@@ -388,7 +389,14 @@ export default function ChatScreen() {
     // streamKey / followUpKey / sentAtCount are refs, current at each
     // recompute; the reactive inputs are the ones listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [serverMessages, q, conversationId, revealedText, pendingFollowUp],
+    [
+      serverMessages,
+      q,
+      conversationId,
+      streamingText,
+      revealedText,
+      pendingFollowUp,
+    ],
   );
 
   // The row's stable list identity. On the `done` hand-off the landed
