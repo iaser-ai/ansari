@@ -105,6 +105,47 @@ function splitChapter(data: string): { chapter?: string; text: string } {
   return m ? { chapter: m[1]!.trim() || undefined, text: m[2]! } : { text: data };
 }
 
+/** A grader's number at the head of an entry: `1:`, `2.`, `3)`. */
+const GRADE_NUMBER = /^\d{1,2}[:.)][ \t]*/;
+/** Numbered entries run together on one line: `1: Sahih 2: Hasan`. */
+const INLINE_GRADE_NUMBER = /(?:^|\s)\d{1,2}[:.)][ \t]*/;
+
+/**
+ * A hadith's `grade` as its separate verdicts (issue #194).
+ *
+ * Kalimat's `grade_en` is one string; for a hadith with several graders it
+ * holds one numbered entry per grader — `1: Sahih\n2:\n3: Sahih Mauquf` —
+ * including empty ones for a grader who gave no verdict. Entries are split
+ * on newlines, or on their numbers when they arrive on a single line that
+ * starts with `1:` (only then, so a grade that merely contains a colon is
+ * never cut). Numbers are removed, whitespace collapsed, and empty or
+ * repeated entries dropped.
+ */
+export function parseGrades(raw: string | undefined): string[] {
+  if (!raw) return [];
+  let lines = raw.split(/\r?\n/);
+  if (lines.length === 1 && /^\s*1[:.)]/.test(raw)) {
+    lines = raw.split(INLINE_GRADE_NUMBER);
+  }
+  const grades: string[] = [];
+  for (const line of lines) {
+    const grade = line.trim().replace(GRADE_NUMBER, '').replace(/\s+/g, ' ').trim();
+    if (grade !== '' && !grades.includes(grade)) grades.push(grade);
+  }
+  return grades;
+}
+
+/** The `Grade: … (+N more)` summary `toCitationFields` ends a hadith title with. */
+const GRADE_SUMMARY = /(?:^| · )Grade: .*$/;
+
+/**
+ * A source's title for a view that lists its grades in full — the summary
+ * would only repeat them. Unchanged for a source with a single grade.
+ */
+export function titleWithoutGrades(citation: Citation): string {
+  return citation.grades ? citation.sourceTitle.replace(GRADE_SUMMARY, '') : citation.sourceTitle;
+}
+
 type CitationFields = Omit<Citation, 'id' | 'marker'>;
 
 function rawFallback(doc: WireDocument): CitationFields {
@@ -134,12 +175,13 @@ function toCitationFields(p: ParsedDocument): CitationFields {
       if (!json) return { ...rawFallback(doc), sourceType: 'hadith' };
       const collection = str(json.collection);
       const chapter = str(json.chapter);
-      const grade = str(json.grade);
+      const grades = parseGrades(str(json.grade));
       // Title: "<book> - Chapter N: <chapter>, Hadith M (Grade: …) (LK id …)",
       // but apps/api cuts it to 100 characters (then appends the LK id), often
       // mid-chapter or mid-number. A cut title ends in "..."; its number can't
       // be trusted, so the reference falls back to the collection alone.
-      const head = doc.title.replace(LK_ID_IN_TITLE, '');
+      // The title carries the raw grade, line breaks and all.
+      const head = doc.title.replace(LK_ID_IN_TITLE, '').replace(/\s+/g, ' ');
       const number = head.endsWith('...')
         ? undefined
         : /, Hadith ([^\s(]+)/.exec(head)?.[1];
@@ -148,13 +190,20 @@ function toCitationFields(p: ParsedDocument): CitationFields {
           ? `${collection} ${number}`
           : collection
         : head;
-      const detail = [chapter, grade && `Grade: ${grade}`].filter(Boolean);
+      // One line whatever the grading: the first verdict and a count of
+      // the rest. The folio lists them all from `grades`.
+      const grade =
+        grades.length > 1
+          ? `Grade: ${grades[0]} (+${grades.length - 1} more)`
+          : grades[0] && `Grade: ${grades[0]}`;
+      const detail = [chapter, grade].filter(Boolean);
       return {
         sourceType: 'hadith',
         reference,
         sourceTitle: detail.length > 0 ? detail.join(' · ') : (collection ?? ''),
         arabicText: str(json.ar),
         translationText: str(json.en) ?? '',
+        ...(grades.length > 1 ? { grades } : {}),
       };
     }
     case 'tafsir':

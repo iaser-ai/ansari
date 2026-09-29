@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WireDocument } from '@/lib/api/wire-schemas';
-import { resolveCitations } from '@/lib/document-citations';
+import { parseGrades, resolveCitations, titleWithoutGrades } from '@/lib/document-citations';
 
 // Fixtures shaped exactly as apps/api/lib/tools/search-*.ts builds them.
 const doc = (title: string, context: string, data: string): WireDocument => ({
@@ -314,5 +314,83 @@ describe('resolving the model\'s inline markers', () => {
     );
     expect(content).toBe('Claim [1].');
     expect(citations[0]!.reference).toBe('Riyad as-Salihin 1');
+  });
+});
+
+// Issue #194: Kalimat's `grade_en` for a hadith with several graders.
+const MULTI_GRADE = "1: Sahih\n2:\n3: Sahih Mauquf\n4: The chain is da'if";
+
+describe('parseGrades', () => {
+  it('keeps a single grade whole', () => {
+    expect(parseGrades('Sahih')).toEqual(['Sahih']);
+  });
+
+  it('is empty for no grade', () => {
+    expect(parseGrades('')).toEqual([]);
+    expect(parseGrades(undefined)).toEqual([]);
+  });
+
+  it('splits numbered lines and drops a grader with no verdict', () => {
+    expect(parseGrades(MULTI_GRADE)).toEqual(['Sahih', 'Sahih Mauquf', "The chain is da'if"]);
+  });
+
+  it('ignores blank lines and CRLF between entries', () => {
+    expect(parseGrades('1: Sahih\r\n\r\n2: Hasan\n\n')).toEqual(['Sahih', 'Hasan']);
+  });
+
+  it('splits numbered entries run together on one line', () => {
+    expect(parseGrades('1: Sahih 2: Hasan 3:')).toEqual(['Sahih', 'Hasan']);
+  });
+
+  it('does not cut a single grade that merely contains a colon or a number', () => {
+    expect(parseGrades('Hasan: according to Al-Albani')).toEqual(['Hasan: according to Al-Albani']);
+    expect(parseGrades('Sahih (see 2: note)')).toEqual(['Sahih (see 2: note)']);
+  });
+
+  it('drops a repeated verdict', () => {
+    expect(parseGrades('1: Sahih\n2: Sahih')).toEqual(['Sahih']);
+  });
+});
+
+describe('a hadith graded several times (issue #194)', () => {
+  const graded = doc(
+    `Sunan Abi Dawud - Chapter 1: Purification (Kitab Al-Taharah), Hadith 61 (Grade: ${MULTI_GRADE}) (LK id 3_1_-1_61)`,
+    'Retrieved from hadith collections',
+    JSON.stringify({
+      ar: 'مِفْتَاحُ الصَّلَاةِ الطُّهُورُ',
+      en: 'The key to prayer is purification…',
+      grade: MULTI_GRADE,
+      collection: 'Sunan Abi Dawud',
+      chapter: 'Purification (Kitab Al-Taharah)',
+      lk_id: '3_1_-1_61',
+    }),
+  );
+  const [c] = resolveCitations('Answer.', [graded], 'm').citations;
+
+  it('titles it with the first verdict and a count, on one line', () => {
+    expect(c!.reference).toBe('Sunan Abi Dawud 61');
+    expect(c!.sourceTitle).toBe('Purification (Kitab Al-Taharah) · Grade: Sahih (+2 more)');
+    expect(c!.sourceTitle).not.toMatch(/\n/);
+  });
+
+  it('carries every verdict for the folio, empties dropped', () => {
+    expect(c!.grades).toEqual(['Sahih', 'Sahih Mauquf', "The chain is da'if"]);
+    expect(titleWithoutGrades(c!)).toBe('Purification (Kitab Al-Taharah)');
+  });
+
+  it('keeps line breaks out of the reference when it falls back to the title', () => {
+    const noCollection = doc(
+      graded.title,
+      graded.context!,
+      JSON.stringify({ grade: MULTI_GRADE, lk_id: '3_1_-1_61' }),
+    );
+    const [f] = resolveCitations('Answer.', [noCollection], 'm').citations;
+    expect(f!.reference).not.toMatch(/\n/);
+  });
+
+  it('leaves a single-grade hadith without a grades list', () => {
+    const [single] = resolveCitations('Answer.', [H_528], 'm').citations;
+    expect(single!.grades).toBeUndefined();
+    expect(titleWithoutGrades(single!)).toBe('Times of the Prayers · Grade: Sahih');
   });
 });
