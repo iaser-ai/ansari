@@ -46,7 +46,7 @@ downstream of `stripStreamingCitations`: raw → cleaned → revealed → `recon
 - Mutation checks:
   - Disabling catch-up (`catchUpSeconds: 1e9`) fails the backlog-drain and bursty-stream lag tests.
   - Removing the same-render clamp fails the pull-back test. The first version of that test did *not* catch this; see Lessons.
-- Manual: the human approved the running code at `dev-approval`. Which platforms they exercised wasn't recorded. I did not exercise it against live staging myself (no credentials), and no iOS or Android run is known.
+- Manual: the human approved the running code at `dev-approval`. After the consult fix, on 2026-09-29, the human re-tested the final branch on web (local Expo web on :8082 against the staging API) and reported it looks good. No iOS or Android run is known.
 
 ## Architecture Updates
 
