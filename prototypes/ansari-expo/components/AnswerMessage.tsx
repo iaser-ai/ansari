@@ -169,7 +169,13 @@ export function AnswerMessage({
               ]}
               testID={`footnote-${citation.marker}`}
             >
-              <Text style={styles.footnoteText}>
+              {/* Two lines at most, whatever the source carries: a long
+                  chapter, or a hadith graded many times over (#194). */}
+              <Text
+                style={styles.footnoteText}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 <Text style={[styles.footnoteMarker, { color: colors.accent }]}>
                   {toSuperscript(citation.marker)}
                 </Text>
@@ -293,7 +299,7 @@ const styles = StyleSheet.create({
   },
   // A comfortable thumb target that also *looks* like one: an outlined
   // pill, never under 44pt, hugging its reference so long ones wrap
-  // onto a second line rather than truncating.
+  // onto a second line, and truncate past that.
   footnoteLine: {
     maxWidth: '100%',
     minHeight: 44,
