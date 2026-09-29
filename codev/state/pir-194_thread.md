@@ -13,3 +13,4 @@
 ## dev-approval feedback (2026-09-29)
 - Reviewer: no "+N more" visible and list still long. Staging answer had only single-grade hadith, so no +N was correct; AbuDaud 135/137 show no grade (unverified whether raw grade was empty or all-empty entries).
 - Reviewer chose "group by source type": lib/footnote-groups.ts + AnswerMessage grouped, wrapping pills. 304 tests pass.
+- Reviewer: fold each group past 3 rows with "View more", add an overall title. Done via measured fold (foldAt) in components/FootnoteGroup.tsx; "Sources · N" title. Not visually verified by me (Chrome extension not connected).
