@@ -17,3 +17,4 @@
   apps/api/.env here). First `tests` run then failed in ansari-api under full parallel turbo load;
   api tests pass alone (854) and via a forced turbo run, and the retry passed (cache hit of that
   forced run). Failing test not captured — possibly load-sensitive/flaky, unrelated to this diff.
+- 2026-09-29 review: PR #193. Consult: Codex REQUEST_CHANGES (hand-off race before first reveal tick — fixed via separate revealedText reconcile input + mutation-checked test; settle-time docs overstated — corrected, behaviour kept), Claude APPROVE, Gemini skipped (no agy CLI). At pr gate.
