@@ -27,16 +27,16 @@ export interface TraceEntry {
   pending: boolean;
 }
 
-// Used when the backend omits a tool name; phrased so every template still reads
-// naturally ("Searching the sources…", "no results found").
+// Used when the backend omits a tool name. Such an entry belongs to no source
+// category (see `sourceProgress`).
 const GENERIC_TOOL = 'the sources';
 
 /**
- * Turn a backend tool id into the bare label the trace copy reads inline. The
+ * Turn a backend tool id into the bare label a trace entry is keyed by. The
  * facilitator's tools are named `search_quran` / `search_hadith` /
  * `search_mawsuah` / `search_tafsir_encyclopedia`; stripping the `search_`
- * prefix (and underscores) yields "quran", "hadith", "tafsir encyclopedia" — so
- * a line reads "Searching hadith for …" rather than "Searching search_hadith …".
+ * prefix (and underscores) yields "quran", "hadith", "tafsir encyclopedia" —
+ * the keys `SOURCE_CATALOGUE` maps to the row's labels.
  * An unknown or unprefixed id passes through (underscores flattened); an absent
  * or empty id falls back to the GENERIC_TOOL path, unchanged.
  */

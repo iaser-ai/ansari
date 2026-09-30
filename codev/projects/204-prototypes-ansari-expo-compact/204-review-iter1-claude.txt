@@ -1,0 +1,44 @@
+I'll read the changed files from disk to review the implementation.I read all the changed source files, the tests, the plan, the review file, and the doc updates; I also ran the two affected test suites (read-only) — 21 tests pass.
+
+## Plan adherence
+
+Every "Files to Change" item is changed, and the two dev-approval revisions the plan's header records are actually in the code:
+
+- `sourceProgress()` returns `SourceProgress[]` directly — no `phase`, no "Reading" (`lib/chat-trace.ts:120`), and `ThinkingLine` hard-codes the lead word `Searching` (`ThinkingLine.tsx:85`).
+- `SOURCE_CATALOGUE` is Qur'an · Hadith · **Fiqh · Tafsir** (`chat-trace.ts:102-107`), the facilitator prompt's tool order, and the test at `chat-trace.test.ts:116` pins it.
+
+`traceReducer` / `displayTool` / `TraceEntry` are byte-identical, and their tests are untouched — exactly the "derive, don't replace" shape the plan argued for. `formatTraceLine` / `plural` are gone with no dangling callers (grep finds them only in prose: plans, old reviews, the builder prompt). Both consumers (`app/index.tsx:832`, `app/chat/[id].tsx:818`) still compile against the unchanged props, and neither needed a change — as predicted. The diff is `prototypes/ansari-expo/**` + `codev/**` only, so the cross-boundary approval rule genuinely doesn't apply.
+
+## Code quality
+
+- The nested-`Text`-opacity trap is handled the right way: sibling `Animated.Text` in a wrapping row (`ThinkingLine.tsx:84-92`), matching the risk the plan called out.
+- `SourceWord`'s effect mirrors `AnsariMarkPulse.useLitPiece` closely (same `withRepeat(withSequence(...), -1, false)`, same `cancelAnimation` cleanup, same reduced-motion early return) — good consistency, and `.get()`/`.set()` is correct for reanimated `~4.1.1` (checked `package.json:53`).
+- The `searching → done` transition is safe: React runs the searching branch's `cancelAnimation` cleanup before the new effect writes `withTiming(DONE)`.
+- `sourceProgress` is recomputed per render and never stored, so the "never stranded" claim holds structurally, not just by test.
+- The grouping `{dot}{word}` in `styles.source` keeps the separator with its word on a wrap — a nice detail nobody asked for.
+
+## Test coverage
+
+Nine `sourceProgress` cases cover every rule in the plan's test list, including the two non-obvious ones (FIFO re-label leaves Hadith `idle` rather than half-lit, `chat-trace.test.ts:158`; unknown `search_fatwa_archive` appended and title-cased, `:168`). The three render tests pin the fixed shape across a 4-entry multi-query trace — which is the actual regression being fixed (no line per query).
+
+## Minor points (non-blocking)
+
+1. **Stale doc comments in `chat-trace.ts`.** Lines 30-32 and 36-41 still describe copy that no longer exists: *"phrased so every template still reads naturally ('Searching the sources…', 'no results found')"* and *"so a line reads 'Searching hadith for …'"*. The module header was updated but these two weren't. Given your own hot-tier lesson about partial doc fixes, worth a one-line cleanup — the code is correct either way.
+2. **Per-state opacity has no automated coverage.** The review file discloses this honestly. It's a real gap (opacity *is* the feature), but the mocked `useAnimatedStyle` isn't reactive, so asserting it would mean a heavier mock. Fine to leave, since the human verifies visually at the gate.
+3. **`accessibilityLiveRegion="polite"` re-announces the full four-source sentence on every state change** — up to ~8 announcements per question on Android/TalkBack. Might be chatty in practice; worth a listen if the human has a device handy, not worth blocking on.
+
+## Review file
+
+Follows the template, accurate against the code, and specific enough to act on. "Things to Look At" is genuinely honest — it flags the untested opacity, the hand-mirrored catalogue, and the deliberate Hadith→idle behavior rather than burying them. The `porch next` promotion suggestion is correctly left as the architect's call.
+
+---
+VERDICT: APPROVE
+SUMMARY: Implementation matches the revised plan exactly, tests pass and cover the stated rules, with only stale doc comments in chat-trace.ts as a nit.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking
+- Nit: `chat-trace.ts:30-32` and `:36-41` doc comments still describe the removed `formatTraceLine` copy templates
+- Nit: per-state opacity (the feature's core visual signal) is not asserted in tests — disclosed in the review file, verified by eye
+- Nit: the polite live region re-announces all four sources on every state change; may be chatty on TalkBack

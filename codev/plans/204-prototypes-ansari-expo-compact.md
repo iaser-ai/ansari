@@ -7,6 +7,9 @@
 > 2. The order is **Qur'an · Hadith · Fiqh · Tafsir**, the order the facilitator
 >    prompt lists its tools (`apps/api/lib/ai/prompts/facilitator.ts:58-61`). The
 >    row therefore tends to light left to right instead of going 1, 2, 4, 3.
+> 3. (PR review) The claims below that the row wraps to "at most 2 lines" at the
+>    largest Dynamic Type are wrong. Type scaling is uncapped, as it is everywhere in the
+>    app, so at the accessibility sizes the row wraps further, deliberately.
 
 ## Understanding
 

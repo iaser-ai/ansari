@@ -29,7 +29,7 @@ While Ansari searches, the waiting line in `prototypes/ansari-expo` used to add 
 ## Test Results
 
 - `tsc --noEmit` (prototype): ✓ clean
-- `vitest run` (prototype): ✓ 372 tests passing, 12 of them new (9 `sourceProgress` and 3 `ThinkingLine` render tests)
+- `vitest run` (prototype): ✓ 372 tests passing, 11 of them new (8 `sourceProgress` and 3 `ThinkingLine` render tests)
 - Monorepo `turbo run build --force` with the CI dummy envs: ✓ (4/4, uncached)
 - Manual: the reviewer verified the running worktree on web at dev-approval, after two rounds of feedback (below), and said it "looks great".
 
@@ -68,6 +68,17 @@ COLD: I added a new **"Compact retrieval trace — prototype (issue #204)"** sec
 - **Opacity is not asserted in tests.** The render test mocks reanimated's shared values, so it checks the text, the order and the accessibility label, not the animated opacity. Opacity was verified by eye at dev-approval.
 - **Cross-boundary check.** The diff touches only `prototypes/ansari-expo/**` and `codev/**`, with no other app or package, so the cross-boundary approval rule does not apply.
 
+### 3-way consultation (single pass)
+
+- **Gemini: skipped.** The `agy` CLI is not installed on this machine, so there is no verdict. Porch treats this as a non-blocking skip.
+- **Codex: REQUEST_CHANGES.** Two findings.
+  1. **"The row can exceed two lines at large Dynamic Type."** The finding is correct, and I rebutted it rather than changing the code. Nothing in the app caps text scaling: `maxFontSizeMultiplier` / `allowFontScaling` appear nowhere in `app/` or `components/`. Capping only this row would make it the one line that ignores a reader's text-size setting, and it would shrink the text for exactly the people who need it larger. At default size it is 1 line on a phone, and 2 on a narrow window or at larger text. At the accessibility sizes it wraps further, and that is a deliberate choice. The real defect was my claim of "at most 2 lines at the largest Dynamic Type", which was wrong. I corrected it in this review, the plan's revision note and the component comment (`6ff6b56`). **The human should confirm this call at the pr gate.** If a hard two-line cap is wanted, the alternative is `maxFontSizeMultiplier` (about 1.3) on the row's words.
+  2. **Test count and missing screen-reader steps.** Fixed. It is 8 `sourceProgress` tests, not 9, and the VoiceOver/TalkBack check is now listed under How to Test Locally.
+- **Claude: APPROVE.** Nits:
+  - Two stale doc comments in `chat-trace.ts` still described the removed per-line copy. Fixed.
+  - Per-state opacity is not asserted in the tests. This was already disclosed above, and it was verified by eye.
+  - `accessibilityLiveRegion="polite"` re-announces the whole summary on every state change, up to about 8 times per question on TalkBack. I left this as is, since only Android honours live regions. Worth a listen on a device, and easy to drop if it is chatty.
+
 ## How to Test Locally
 
 - **View diff**: VSCode sidebar → right-click builder pir-204 → **Review Diff**
@@ -80,5 +91,6 @@ COLD: I added a new **"Compact retrieval trace — prototype (issue #204)"** sec
     - The row hands off to the streaming answer as before.
   - Send a greeting with no tool calls. The row stays dim until the answer streams, with no layout jump.
   - Start from the home screen. The same row appears under the lifted question and carries into the thread.
-  - On a narrow window (~320px) or at the largest text size, the row wraps to at most 2 lines.
+  - On a narrow window (~320px) or at a larger text size, the row wraps to 2 lines. At the accessibility text sizes it wraps further on purpose (see Things to Look At).
+  - With VoiceOver or TalkBack on, the row reads one summary, e.g. "Searching sources. Qur'an done, Hadith searching, …".
   - With reduced motion on, there is no breathing, only static opacity steps.

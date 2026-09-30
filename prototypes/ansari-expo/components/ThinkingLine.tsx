@@ -78,8 +78,9 @@ export function ThinkingLine({
         <AnsariMarkPulse height={MARK_HEIGHT} />
       </View>
       {/* One word per source, wrapping as words do: a single line on
-          a phone, a second only on a narrow window or at the largest
-          type sizes. Separate words rather than spans of one Text,
+          a phone at default type, a second on a narrow window or at
+          larger type. Type scaling is left uncapped, as everywhere in
+          the app, so at the accessibility sizes it wraps further. Separate words rather than spans of one Text,
           because a nested span cannot take an opacity of its own. */}
       <View style={styles.words}>
         <Text style={[styles.text, ink]}>Searching</Text>
