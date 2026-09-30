@@ -1,7 +1,7 @@
 id: '206'
 title: prototypes-ansari-expo-chat-in
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-30T07:09:01.936Z'
-updated_at: '2026-09-30T11:54:51.594Z'
+updated_at: '2026-09-30T11:54:53.597Z'
 pr_history:
   - phase: pr
     pr_number: 207
