@@ -1,7 +1,7 @@
 id: '196'
 title: prototypes-ansari-expo-view-n-
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-29T23:46:02.482Z'
-updated_at: '2026-09-30T04:11:07.155Z'
+updated_at: '2026-09-30T04:11:09.292Z'
 pr_history:
   - phase: pr
     pr_number: 197
