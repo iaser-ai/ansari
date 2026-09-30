@@ -85,6 +85,13 @@ export function makeGuestPassword(options: GuestPasswordOptions = {}): string {
   return shuffle([...required, ...fill]);
 }
 
+/**
+ * The display name every guest account is registered with. `store.ts` also keys
+ * on it to classify session blobs written before `isGuest` was persisted.
+ */
+export const GUEST_FIRST_NAME = 'Welcome';
+export const GUEST_LAST_NAME = 'Guest';
+
 function guestEmail(): string {
   return `guest_${randomFromCharset(10, ALNUM)}@ansari.chat`;
 }
@@ -93,8 +100,8 @@ export function generateGuestCredentials(): RegisterInput {
   return {
     email: guestEmail(),
     password: makeGuestPassword(),
-    firstName: 'Welcome',
-    lastName: 'Guest',
+    firstName: GUEST_FIRST_NAME,
+    lastName: GUEST_LAST_NAME,
     registerToMailList: false,
   };
 }
