@@ -98,41 +98,70 @@ export function FootnoteGroup({
         </View>
       </View>
       {fold !== null && (
-        <PressableScale
+        <FootnoteToggle
+          kind={group.kind}
+          label={group.label}
+          hidden={fold.hidden}
+          expanded={expanded}
           onPress={() => setExpanded((open) => !open)}
-          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityState={{ expanded }}
-          accessibilityLabel={
-            expanded
-              ? `Show fewer ${group.label} sources`
-              : `View ${fold.hidden} more ${group.label} sources`
-          }
-          style={(state) => [
-            styles.toggle,
-            { opacity: state.pressed ? 0.55 : isHovered(state) ? 0.78 : 1 },
-          ]}
-          testID={`footnote-toggle-${group.kind}`}
-        >
-          <Text
-            style={[
-              styles.toggleText,
-              {
-                color: colors.mutedForeground,
-                textDecorationColor: colors.accent,
-              },
-            ]}
-          >
-            {expanded ? 'Show less' : `View ${fold.hidden} more`}
-          </Text>
-          <Feather
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={14}
-            color={colors.accent}
-          />
-        </PressableScale>
+        />
       )}
     </View>
+  );
+}
+
+/**
+ * Opens and closes a folded group. Drawn at a pill's scale and filled
+ * rather than ringed, so it reads as the one thing in the group to
+ * press rather than one more source to read (issue #196).
+ */
+export function FootnoteToggle({
+  kind,
+  label,
+  hidden,
+  expanded,
+  onPress,
+}: {
+  kind: Group['kind'];
+  label: string;
+  hidden: number;
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+
+  return (
+    <PressableScale
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      // react-native-web reads only the aria prop, not accessibilityState.
+      aria-expanded={expanded}
+      accessibilityLabel={
+        expanded
+          ? `Show fewer ${label} sources`
+          : `View ${hidden} more ${label} sources`
+      }
+      style={(state) => [
+        styles.toggle,
+        {
+          // The quiet fill, lifting a rung under the pointer or thumb —
+          // the same material and the same lift as a suggestion chip.
+          backgroundColor:
+            state.pressed || isHovered(state) ? colors.card : colors.secondary,
+        },
+      ]}
+      testID={`footnote-toggle-${kind}`}
+    >
+      <Text style={[styles.toggleText, { color: colors.secondaryForeground }]}>
+        {expanded ? 'Show less' : `View ${hidden} more`}
+      </Text>
+      <Feather
+        name={expanded ? 'chevron-up' : 'chevron-down'}
+        size={16}
+        color={colors.accent}
+      />
+    </PressableScale>
   );
 }
 
@@ -256,20 +285,22 @@ const styles = StyleSheet.create({
   detail: {
     fontFamily: fonts.proseItalic,
   },
-  // Set as a line of the page, like the folio's way out to the book:
-  // muted ink over a brass rule, not a button laid on the paper.
+  // A control, not a caption: a filled pill at the footnote pills' own
+  // scale, so it is exactly as easy to hit as the sources above it.
   toggle: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
+    gap: 6,
     marginTop: 2,
-    paddingVertical: 2,
+    minHeight: PILL_MIN_HEIGHT,
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+    ...rounded(RADIUS.xl),
     cursor: 'pointer',
   },
   toggleText: {
     fontSize: 13,
-    fontFamily: fonts.proseMedium,
-    textDecorationLine: 'underline',
+    fontFamily: fonts.proseSemiBold,
   },
 });
