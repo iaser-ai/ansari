@@ -1,5 +1,13 @@
 # PIR Plan: Compact the retrieval trace into a source-category row
 
+> **Revised at dev-approval (reviewer feedback).** Two points below are superseded:
+> 1. The lead word is always **"Searching"**. There is no "Reading" and no `phase`,
+>    because swapping the first word shifted the whole row. `sourceProgress()`
+>    returns `SourceProgress[]` directly.
+> 2. The order is **Qur'an · Hadith · Fiqh · Tafsir**, the order the facilitator
+>    prompt lists its tools (`apps/api/lib/ai/prompts/facilitator.ts:58-61`). The
+>    row therefore tends to light left to right instead of going 1, 2, 4, 3.
+
 ## Understanding
 
 While Ansari retrieves sources, the waiting line under the question

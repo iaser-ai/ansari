@@ -41,13 +41,13 @@ const WAIT_ENTER = FadeIn.duration(DURATION.state)
  * (the thread's first frame), so it does not fade in a second time.
  *
  * While the model searches, the line names every source Ansari can
- * consult — "Searching Qur'an · Hadith · Tafsir · Fiqh" — and `trace`
+ * consult — "Searching Qur'an · Hadith · Fiqh · Tafsir" — and `trace`
  * (one entry per tool call) lights each one as its search completes
  * (issue #204). The row is the same shape from the first frame to the
  * last, so it never grows as searches pile up: a source not searched
  * stays dim, the one being searched breathes, a finished one is fully
- * inked. Once every search is in, "Searching" gives way to "Reading",
- * the model's pause before it writes. It is transient — shown only
+ * inked. The lead word holds at "Searching" throughout, so nothing at
+ * the head of the line shifts under the reader. It is transient — shown only
  * here, while awaiting the answer, never persisted or replayed — and it
  * is not citation UI: it shows what the answer is being built FROM.
  */
@@ -59,8 +59,7 @@ export function ThinkingLine({
   trace?: TraceEntry[];
 }) {
   const colors = useColors();
-  const { phase, sources } = sourceProgress(trace);
-  const lead = phase === 'searching' ? 'Searching' : 'Reading';
+  const sources = sourceProgress(trace);
   const ink = { color: colors.mutedForeground };
   return (
     <Animated.View
@@ -68,7 +67,7 @@ export function ThinkingLine({
       style={styles.row}
       accessible
       accessibilityRole="text"
-      accessibilityLabel={describe(lead, sources)}
+      accessibilityLabel={describe(sources)}
       accessibilityLiveRegion="polite"
     >
       {/* Sized to the line of type it stands in, not to an icon slot:
@@ -83,7 +82,7 @@ export function ThinkingLine({
           type sizes. Separate words rather than spans of one Text,
           because a nested span cannot take an opacity of its own. */}
       <View style={styles.words}>
-        <Text style={[styles.text, ink]}>{lead}</Text>
+        <Text style={[styles.text, ink]}>Searching</Text>
         {sources.map((source, i) => (
           <View key={source.key} style={styles.source}>
             {i > 0 && <Text style={[styles.text, ink, styles.dot]}>·</Text>}
@@ -145,13 +144,13 @@ function SourceWord({
 }
 
 /** What a screen reader hears in place of the opacity steps. */
-function describe(lead: string, sources: SourceProgress[]): string {
+function describe(sources: SourceProgress[]): string {
   const said: Record<SourceState, string> = {
     idle: 'not searched',
     searching: 'searching',
     done: 'done',
   };
-  return `${lead} sources. ${sources.map((s) => `${s.label} ${said[s.state]}`).join(', ')}.`;
+  return `Searching sources. ${sources.map((s) => `${s.label} ${said[s.state]}`).join(', ')}.`;
 }
 
 /**

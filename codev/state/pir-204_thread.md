@@ -9,3 +9,7 @@
 - Plan approved with 'Fiqh' / 'Reading'. Note: porch recorded dev-approval gate-requested right after plan approval, before any code (double `porch next`); flagged to architect.
 - Done: `sourceProgress()` + tests; ThinkingLine fixed row (per-word Animated.Text, opacity idle/breathe/done, a11y summary label); component test via react-native-web; arch.md paragraph.
 - Could not eyeball in a browser (Chrome extension not connected; live run needs staging login). Web bundle compiles; human check at dev-approval.
+
+## 2026-09-30 — dev-approval feedback
+- Merged origin/develop (incl. #203) — clean.
+- Reviewer: (1) the lead word shifting Searching→Reading moved the row → always "Searching"; dropped `phase` entirely. (2) Row lit 1,2,4,3 → reordered to Qur'an · Hadith · Fiqh · Tafsir, matching the facilitator prompt's tool order (not enforced; the model's usual sequence). Plan got a revision note; arch.md corrected in place.

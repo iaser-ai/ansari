@@ -90,26 +90,20 @@ export interface SourceProgress {
   state: SourceState;
 }
 
-export interface TraceProgress {
-  /**
-   * `searching` while any call is in flight, or before the first one arrives;
-   * `searched` once every call so far has its result (the model is reading).
-   */
-  phase: 'searching' | 'searched';
-  sources: SourceProgress[];
-}
-
 /**
- * The sources Ansari can consult, in the order the row shows them: scripture
- * first, then scholarship — the Sources footer's order. Keys are the
- * `displayTool` labels of the facilitator's four tools (`TOOL_LABELS`,
- * apps/api/lib/tools/resilience.ts); the Mawsuah is the encyclopedia of fiqh.
+ * The sources Ansari can consult, in the order the row shows them — the
+ * order the facilitator's prompt lists its tools in
+ * (apps/api/lib/ai/prompts/facilitator.ts), and so the order the model
+ * usually reaches for them: the row tends to light left to right rather
+ * than jumping about. Keys are the `displayTool` labels of the four tools
+ * (`TOOL_LABELS`, apps/api/lib/tools/resilience.ts); the Mawsuah is the
+ * encyclopedia of fiqh.
  */
 export const SOURCE_CATALOGUE: ReadonlyArray<{ key: string; label: string }> = [
   { key: 'quran', label: "Qur'an" },
   { key: 'hadith', label: 'Hadith' },
-  { key: 'tafsir encyclopedia', label: 'Tafsir' },
   { key: 'mawsuah', label: 'Fiqh' },
+  { key: 'tafsir encyclopedia', label: 'Tafsir' },
 ];
 
 /**
@@ -121,10 +115,9 @@ export const SOURCE_CATALOGUE: ReadonlyArray<{ key: string; label: string }> = [
  *  - `idle` if it has not been searched.
  * All four known sources are always present, in catalogue order, so the row
  * never changes shape; a tool outside the catalogue is appended rather than
- * dropped. Nameless entries belong to no category but still count toward
- * `phase`.
+ * dropped. Nameless entries belong to no category.
  */
-export function sourceProgress(entries: TraceEntry[]): TraceProgress {
+export function sourceProgress(entries: TraceEntry[]): SourceProgress[] {
   const categories = SOURCE_CATALOGUE.map(({ key, label }) => ({ key, label }));
   for (const { tool } of entries) {
     if (tool === GENERIC_TOOL) continue;
@@ -132,14 +125,12 @@ export function sourceProgress(entries: TraceEntry[]): TraceProgress {
       categories.push({ key: tool, label: titleCase(tool) });
     }
   }
-  const sources = categories.map(({ key, label }) => {
+  return categories.map(({ key, label }) => {
     const own = entries.filter((e) => e.tool === key);
     const state: SourceState =
       own.length === 0 ? 'idle' : own.some((e) => e.pending) ? 'searching' : 'done';
     return { key, label, state };
   });
-  const settled = entries.length > 0 && entries.every((e) => !e.pending);
-  return { phase: settled ? 'searched' : 'searching', sources };
 }
 
 function titleCase(label: string): string {

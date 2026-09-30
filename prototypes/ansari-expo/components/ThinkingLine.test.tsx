@@ -39,9 +39,9 @@ const row = () => screen.getByLabelText(/sources\./);
 describe('ThinkingLine — the source row (issue #204)', () => {
   it('names all four sources once, under "Searching", before any search starts', () => {
     render(<ThinkingLine />);
-    expect(row().textContent).toBe("SearchingQur'an·Hadith·Tafsir·Fiqh");
+    expect(row().textContent).toBe("SearchingQur'an·Hadith·Fiqh·Tafsir");
     expect(row().getAttribute('aria-label')).toBe(
-      "Searching sources. Qur'an not searched, Hadith not searched, Tafsir not searched, Fiqh not searched.",
+      "Searching sources. Qur'an not searched, Hadith not searched, Fiqh not searched, Tafsir not searched.",
     );
   });
 
@@ -53,19 +53,19 @@ describe('ThinkingLine — the source row (issue #204)', () => {
       { tool: 'hadith', pending: true },
     ];
     render(<ThinkingLine trace={trace} />);
-    expect(row().textContent).toBe("SearchingQur'an·Hadith·Tafsir·Fiqh");
+    expect(row().textContent).toBe("SearchingQur'an·Hadith·Fiqh·Tafsir");
     expect(row().getAttribute('aria-label')).toBe(
-      "Searching sources. Qur'an done, Hadith searching, Tafsir not searched, Fiqh not searched.",
+      "Searching sources. Qur'an done, Hadith searching, Fiqh not searched, Tafsir not searched.",
     );
   });
 
-  it('reads "Reading" once every search is in', () => {
+  it('holds the lead at "Searching" once every search is in', () => {
     render(
       <ThinkingLine
         trace={[{ tool: 'mawsuah', query: 'riba', resultCount: 4, pending: false }]}
       />,
     );
-    expect(row().textContent?.startsWith('Reading')).toBe(true);
+    expect(row().textContent).toBe("SearchingQur'an·Hadith·Fiqh·Tafsir");
     expect(row().getAttribute('aria-label')).toContain('Fiqh done');
   });
 });
