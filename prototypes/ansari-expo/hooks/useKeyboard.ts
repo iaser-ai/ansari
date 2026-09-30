@@ -22,3 +22,13 @@ import { type SharedValue } from 'react-native-reanimated';
 export function useKeyboardProgress(): SharedValue<number> {
   return useReanimatedKeyboardAnimation().progress;
 }
+
+/**
+ * The web shortens its shell for a keyboard and tells whoever stands in
+ * it (see `useKeyboard.web.ts`). Native has no shell to shorten — the
+ * keyboard controller pads the stage, and a list hears about it through
+ * its own `onLayout` — so there is never anything to report.
+ */
+export function onShellResize(_listener: () => void): () => void {
+  return () => {};
+}

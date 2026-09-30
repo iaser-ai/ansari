@@ -7,7 +7,7 @@
  *
  */
 import { describe, expect, it } from 'vitest';
-import { keyboardOverlap, KEYBOARD_MIN } from './keyboard';
+import { keepFootInView, keyboardOverlap, KEYBOARD_MIN } from './keyboard';
 
 const AT_REST = {
   innerHeight: 844,
@@ -56,5 +56,32 @@ describe('keyboardOverlap', () => {
     // Android reports a visual viewport a point or two taller than the
     // layout one at some chrome heights.
     expect(keyboardOverlap({ ...AT_REST, viewportHeight: 846 })).toBe(0);
+  });
+});
+
+describe('keepFootInView', () => {
+  // A thread 600 tall, scrolled 40 short of its end, shortened to 280
+  // by a keyboard.
+  const SHORTENED = { previousHeight: 600, height: 280, offset: 1000, atBottom: true };
+
+  it('hands back exactly the height the list lost', () => {
+    // Not a snap to the very end: the reader keeps their distance from
+    // it, so nothing moves by more than the keyboard did.
+    expect(keepFootInView(SHORTENED)).toBe(1320);
+  });
+
+  it('leaves a reader in the middle of the thread where they are', () => {
+    expect(keepFootInView({ ...SHORTENED, atBottom: false })).toBeNull();
+  });
+
+  it('does nothing when the list grew or held its height', () => {
+    // A growing list is clamped by the browser; the keyboard leaving
+    // needs no help.
+    expect(keepFootInView({ ...SHORTENED, height: 600 })).toBeNull();
+    expect(keepFootInView({ ...SHORTENED, height: 700 })).toBeNull();
+  });
+
+  it('does nothing before the list has ever been measured', () => {
+    expect(keepFootInView({ ...SHORTENED, previousHeight: 0 })).toBeNull();
   });
 });

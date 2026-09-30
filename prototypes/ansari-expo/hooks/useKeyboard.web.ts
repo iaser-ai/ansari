@@ -66,6 +66,11 @@ import { touchBrowser } from '@/lib/web';
  * far worse failure than a transition that is abrupt. Everything moves
  * in the one frame, deliberately.
  *
+ * That is a warning about the *document*, which iOS may already have
+ * moved. A scroller's own height and offset are the element's, not the
+ * document's, and are safe to read after the reshape: that is how a
+ * thread keeps its newest lines above the composer (`onShellResize`).
+ *
  * Measured once for the whole app, at module scope, because the
  * viewport is one object and every screen is asking the same question
  * of it.
@@ -161,6 +166,39 @@ function writeShell(top: string, height: string): boolean {
   const shell = document.body.style;
   shell.top = top;
   shell.height = height;
+  return true;
+}
+
+/**
+ * Who needs to hear about a reshape before it is painted.
+ *
+ * A shell that shortens in one step shortens every scroller standing in
+ * it in the same step, and a scroller keeps its offset — so a thread
+ * the reader was following to its foot would have its newest lines cut
+ * off under the composer. react-native-web reports the new size through
+ * `onLayout` a frame later (a `ResizeObserver` answered on a timeout),
+ * so a screen that waits for it has already shown a frame of the cut
+ * and then snaps. A listener here runs inside the reshape, with the new
+ * layout already done, and can put the offset right in the same frame.
+ */
+const shellListeners = new Set<() => void>();
+
+export function onShellResize(listener: () => void): () => void {
+  shellListeners.add(listener);
+  return () => {
+    shellListeners.delete(listener);
+  };
+}
+
+/**
+ * Write the shell, lay it out, and tell whoever is standing in it —
+ * all before the caller returns, so nothing between the reshape and the
+ * answers to it is ever painted.
+ */
+function reshape(top: string, height: string): boolean {
+  if (!writeShell(top, height)) return false;
+  void document.body.offsetHeight;
+  shellListeners.forEach((listener) => listener());
   return true;
 }
 
@@ -273,7 +311,7 @@ function track() {
   // visual viewport is a window they are moving on purpose.
   if (viewport.scale > 1) return;
   unscroll();
-  const moved = writeShell(
+  const moved = reshape(
     `${Math.round(viewport.offsetTop)}px`,
     // Never taller than the room that was made. Until the keyboard is
     // fully up the viewport still reports its old height, and handing
@@ -313,12 +351,11 @@ function engage(event: FocusEvent) {
   easeShell(false);
   unscroll();
   shortHeight = Math.max(FLOOR, Math.min(room, window.innerHeight));
-  writeShell(`${Math.round(viewport?.offsetTop ?? 0)}px`, `${shortHeight}px`);
-  // Lay it out before this handler returns. The browser works out
+  // Laid out before this handler returns. The browser works out
   // whether the field needs scrolling into view once the event has been
   // dispatched, and it must find the app already short by then — an
   // invalidated layout it has not performed yet is the old layout.
-  void document.body.offsetHeight;
+  reshape(`${Math.round(viewport?.offsetTop ?? 0)}px`, `${shortHeight}px`);
   raise(true, false);
   unscroll();
   startTracking();
@@ -337,7 +374,7 @@ function release() {
   engaged = false;
   stopTracking();
   easeShell(true);
-  writeShell('', '');
+  reshape('', '');
   raise(false, true);
   clearTimeout(easeOffTimer);
   easeOffTimer = setTimeout(() => easeShell(false), SHELL_MOTION + 80);
@@ -399,7 +436,7 @@ function settle() {
     const corrects = measured !== shortHeight;
     if (corrects) easeShell(true);
     shortHeight = measured;
-    writeShell(`${Math.round(viewport.offsetTop)}px`, `${shortHeight}px`);
+    reshape(`${Math.round(viewport.offsetTop)}px`, `${shortHeight}px`);
     if (corrects) {
       clearTimeout(easeOffTimer);
       easeOffTimer = setTimeout(() => easeShell(false), SHELL_MOTION + 80);

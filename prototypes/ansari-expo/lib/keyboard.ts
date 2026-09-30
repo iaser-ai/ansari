@@ -67,3 +67,31 @@ export function keyboardOverlap(reading: ViewportReading): number {
   if (!Number.isFinite(covered) || covered < KEYBOARD_MIN) return 0;
   return Math.round(covered);
 }
+
+export type ListResize = {
+  /** The list's height before this resize; 0 when never measured. */
+  previousHeight: number;
+  /** Its height now. */
+  height: number;
+  /** How far it is scrolled. */
+  offset: number;
+  /** Whether the reader was reading the newest turn. */
+  atBottom: boolean;
+};
+
+/**
+ * Where a list's scroll offset has to go so a reader at the foot of it
+ * stays there when it gets shorter, or null when it stays put.
+ *
+ * A list shortened by the keyboard keeps its offset, so the newest
+ * lines slide under its new foot. Adding back exactly the height it
+ * lost keeps the reader's distance from the end — no snap to the very
+ * end, which would also swallow however far short of it they were. A
+ * reader in the middle of the thread is left where they are, and a list
+ * that grew needs nothing: the browser clamps it.
+ */
+export function keepFootInView(resize: ListResize): number | null {
+  const lost = resize.previousHeight - resize.height;
+  if (resize.previousHeight <= 0 || lost <= 0 || !resize.atBottom) return null;
+  return resize.offset + lost;
+}
