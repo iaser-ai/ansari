@@ -1,0 +1,21 @@
+# pir-189 thread — paced reveal of streamed answer
+
+- 2026-09-26 plan: reveal as a new hook (`hooks/useRevealedText.ts`) + pure core (`lib/reveal.ts`)
+  layered on `streamingText`; onEvent untouched (architect: #128/PR #188 and #161 touch same files,
+  keep additive, merge develop + re-verify before PR). Key finding: `stripStreamingCitations` output
+  is NOT append-only, so reveal clamps to common prefix. Hand-off gated on reveal caught up;
+  reveal accelerates to ~150ms drain once stream settles.
+- 2026-09-28 implement: session had paused on a usage limit after plan approval; architect pinged,
+  resumed. Merged origin/develop (#128/PR #188) first — reconciler now also takes pendingFollowUp;
+  passing revealedText as its `streamingText` input is still safe. Added lib/reveal.ts (+15 tests),
+  hooks/useRevealedText.ts (+6 jsdom tests; vitest include now covers hooks/). Footer switched to
+  revealedText so ThinkingLine→bubble hand over in the same frame. Mutation-checked: disabling
+  catch-up fails the lag test; dropping the same-render clamp fails the pull-back test (the first
+  version of that test did NOT catch it — rerender flushes effects; fixed by recording every render).
+  Not run against the live staging API (no credentials) — manual check left to dev-approval.
+- 2026-09-28 porch checks: as with #128, `build`/`tests` need `apps/api/.env.ci` exported (no real
+  apps/api/.env here). First `tests` run then failed in ansari-api under full parallel turbo load;
+  api tests pass alone (854) and via a forced turbo run, and the retry passed (cache hit of that
+  forced run). Failing test not captured — possibly load-sensitive/flaky, unrelated to this diff.
+- 2026-09-29 review: PR #193. Consult: Codex REQUEST_CHANGES (hand-off race before first reveal tick — fixed via separate revealedText reconcile input + mutation-checked test; settle-time docs overstated — corrected, behaviour kept), Claude APPROVE, Gemini skipped (no agy CLI). At pr gate.
+- 2026-09-29: human re-tested final branch on local web (:8082 → staging API): "test looks good". Still at pr gate; merge is the human's call.

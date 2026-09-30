@@ -297,3 +297,45 @@ describe('reconcileThread — thread-typed follow-up echo (issue #128)', () => {
     });
   });
 });
+
+describe('reconcileThread — paced reveal (issue #189)', () => {
+  const prior = [msg('user', 'q1', 'u1'), msg('assistant', 'a1', 'a1')];
+  const landed = msg('assistant', 'the whole answer', 'a2');
+  const after = [...prior, msg('user', 'q2', 'u2'), landed];
+
+  it('holds a landed answer back before the reveal has shown anything', () => {
+    // A fast turn: the answer lands before the reveal's first tick. It must
+    // not be drawn whole for a frame and then replaced by the paced prefix.
+    const { landedAnswer, messages } = reconcileThread({
+      ...base,
+      serverMessages: after,
+      streamingText: 'the whole answer',
+      revealedText: '',
+      sentAtCount: 2,
+    });
+    expect(landedAnswer).toBe(landed);
+    expect(messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2']);
+  });
+
+  it('shows the revealed prefix in the bubble, not the whole target', () => {
+    const { messages } = reconcileThread({
+      ...base,
+      serverMessages: after,
+      streamingText: 'the whole answer',
+      revealedText: 'the wh',
+      sentAtCount: 2,
+    });
+    expect(messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2', STREAM_KEY]);
+    expect(messages.at(-1)?.content).toBe('the wh');
+  });
+
+  it('shows the whole stream when no reveal is given', () => {
+    const { messages } = reconcileThread({
+      ...base,
+      serverMessages: prior,
+      streamingText: 'partial',
+      sentAtCount: 2,
+    });
+    expect(messages.at(-1)?.content).toBe('partial');
+  });
+});

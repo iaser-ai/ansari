@@ -1,0 +1,50 @@
+I'll review the implementation against the plan. Let me read the changed files.I read every changed file from disk, verified the deps and conventions against the project, traced the hook's state machine by hand, and ran the two new test files.
+
+## Plan Adherence — good, with two documented refinements
+
+Every "Files to Change" item is present. Two deviations, both improvements and both disclosed:
+
+- The plan specified `nextRevealLength(shown, target, dtMs, settled)`. The implementation splits it into `advanceReveal` (a **fractional** cursor) + `revealSlice` (the cut). This is better: the plan's "always advance at least 1 char" was a hack to stop integer truncation from stalling a slow rate; fractional accumulation removes the need. The convergence guarantee survives — at ≥90 cps over ≥32 ms ticks that's ≥2.88 chars/tick.
+- The footer conditions moved to `revealedText` (the plan listed this as a contingency, "if it isn't [invisible]"). Correct call: without it, `GeneratingMark` would swap in for `ThinkingLine` ~48 ms before any bubble exists. Documented in `arch.md`.
+
+No scope creep. `onEvent`, `rawStreamText`, `AnswerProse`/`AnswerMessage` untouched, as the merge-queue direction required. The `develop` merge (#161) landed after dev-approval and only touched `citations.ts` with comment changes + an `export` — no behavioral interaction with the reveal.
+
+## Hand-off deadlock — checked by reading, it can't stall
+
+This is the one thing that could ship a hung UI, so I traced it rather than trusting the review's claim:
+
+- `advanceReveal` is monotonic for `dt > 0` and the rate floor is unconditional.
+- `revealSlice(target, position)` when `position >= target.length` takes `end = target.length`, and the surrogate guard is gated on `end < target.length` — so it *cannot* pull back off the final character. `shown.current === target` is reachable, hence `revealedText === streamingText` is reachable.
+- The effect re-runs on every `target`/`settled` change and reschedules, and `cancelAnimationFrame` only ever cancels the id that `tick` most recently assigned to the same local `frame` binding. No stale closure survives a `target` change.
+- The rAF re-registration on rapid deltas doesn't starve: registration happens in effects (not inside a rAF callback), so a cancel+re-add still lands in the upcoming frame.
+
+The residual case the review doesn't name: **a backgrounded browser tab pauses rAF**, so the hand-off is deferred while backgrounded. On return, one tick with a huge `dt` snaps to full and the swap fires. Invisible to the user, but worth a line in "Things to Look At".
+
+## Tests
+
+`vitest run lib/reveal.test.ts hooks/useRevealedText.test.tsx` → 21 passed. Deps check out: `@testing-library/react@^16.3.0`, `jsdom@^26.1.0`, and `lib/auth/context.test.tsx` is existing precedent for the jsdom + react-native-web + mocked-reanimated pattern. `useReducedMotion` from reanimated is the established app convention (9 other call sites).
+
+The pull-back test is the valuable one, and the builder's honesty about it is the best thing in the review file: the first version passed with the clamp deleted, and a mutation check caught it. The fix — recording `[target, shown]` for *every* render from inside the hook callback and asserting `target.startsWith(shown)` across all of them — is the right way to test a "not even for one render" invariant, and the lesson is written up correctly.
+
+Not covered: the hand-off gate in `[id].tsx` itself. There's no screen-level test harness for that file (coverage lives in `chat-reconcile.test.ts`), so this is consistent with the existing codebase rather than a gap this PR introduced.
+
+## Minor observations
+
+- **Reduced motion costs an extra render per delta.** The effect calls `setRevealed(target)` with a new value while render already returns `target` directly. Harmless, but it's 2× renders for the accessibility path — the one path that least wants extra work. Not worth changing now.
+- **`generating` is still keyed on `streamingText`** while the footer is keyed on `revealedText`. Benign — during the one window where they disagree, `reconcileThread` produces no synthetic bubble for the prop to apply to — but it's a small asymmetry a future reader will stumble over.
+- **Platform coverage isn't stated.** The plan said "iOS simulator smoke test if available"; the review says only that the human approved at `dev-approval` (presumably web). For a PIR touching render timing, the review should say plainly which platforms were exercised. RN's `requestAnimationFrame` is fine here, but "web only" is worth writing down rather than leaving inferred.
+
+## Review file
+
+Follows the template and is genuinely honest — it flags the unprofiled re-parse cost with a concrete remedy (`TICK_MS` → ~50), the Arabic re-shaping question, the pre-existing #161 marker interaction, and an unrelated flaky `ansari-api` run it declined to paper over. "How to Test Locally" is specific enough to act on.
+
+---
+VERDICT: APPROVE
+SUMMARY: Faithful to the plan with two well-justified refinements; the hand-off gate provably cannot stall, tests pass and the key invariant is mutation-checked.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None blocking.
+- Nit: a backgrounded tab pauses rAF and defers the hand-off until the tab is foregrounded (self-resolving, invisible) — worth one line in "Things to Look At".
+- Nit: the review doesn't state which platforms were manually exercised; say "web only" explicitly rather than leaving it inferred.
+- Nit: reduced-motion path does a redundant `setRevealed(target)`, doubling renders per delta on the accessibility path.

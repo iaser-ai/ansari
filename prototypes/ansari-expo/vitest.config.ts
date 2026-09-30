@@ -21,6 +21,10 @@ export default defineConfig({
     // Default env is node; component tests opt into jsdom via a
     // `// @vitest-environment jsdom` header comment.
     environment: 'node',
-    include: ['lib/**/*.test.{ts,tsx}', 'components/**/*.test.{ts,tsx}'],
+    include: [
+      'lib/**/*.test.{ts,tsx}',
+      'components/**/*.test.{ts,tsx}',
+      'hooks/**/*.test.{ts,tsx}',
+    ],
   },
 });

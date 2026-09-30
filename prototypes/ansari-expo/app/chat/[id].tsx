@@ -30,6 +30,7 @@ import Animated, {
 import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
 import { useKeyboardProgress } from '@/hooks/useKeyboard';
+import { useRevealedText } from '@/hooks/useRevealedText';
 import { useSidebarInset } from '@/hooks/useSidebarCollapsed';
 import { openSidebarDrawer } from '@/hooks/useSidebarDrawer';
 import {
@@ -310,6 +311,12 @@ export default function ChatScreen() {
     },
   });
 
+  // What the synthetic bubble actually shows: `streamingText` written out
+  // at a steady pace rather than in whatever chunks the network delivered
+  // (lib/reveal.ts). Once the request has finished there is nothing left
+  // to pace against, so the remainder is hurried out.
+  const revealedText = useRevealedText(streamingText, !sendMessage.isPending);
+
   // A follow-up asked from the foot of a long thread must not be
   // answered off-screen, so sending one brings the waiting line into
   // view. The question carried in from the ask is the exception: it
@@ -373,6 +380,7 @@ export default function ChatScreen() {
         q,
         conversationId,
         streamingText,
+        revealedText,
         streamKey: streamKey.current,
         sentAtCount: sentAtCount.current,
         pendingFollowUp,
@@ -381,7 +389,14 @@ export default function ChatScreen() {
     // streamKey / followUpKey / sentAtCount are refs, current at each
     // recompute; the reactive inputs are the ones listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [serverMessages, q, conversationId, streamingText, pendingFollowUp],
+    [
+      serverMessages,
+      q,
+      conversationId,
+      streamingText,
+      revealedText,
+      pendingFollowUp,
+    ],
   );
 
   // The row's stable list identity. On the `done` hand-off the landed
@@ -429,8 +444,13 @@ export default function ChatScreen() {
   // exact same durable treatment: without it, clearing `pendingFollowUp`
   // here would make the row revert to its raw server id and re-animate as
   // if it had just appeared.
+  //
+  // It waits for the reveal to catch up: swapping in the persisted answer
+  // while the bubble is still writing would drop the unwritten rest onto
+  // the page at once — the very jump the reveal exists to avoid. The
+  // wait is short, since the reveal hurries once the request is done.
   useEffect(() => {
-    if (streamingText && landedAnswer) {
+    if (streamingText && landedAnswer && revealedText === streamingText) {
       const key = streamKey.current;
       const id = landedAnswer.id;
       setKeyOverrides((prev) => {
@@ -448,7 +468,7 @@ export default function ChatScreen() {
       setTrace([]);
       setPendingFollowUp('');
     }
-  }, [streamingText, landedAnswer, landedFollowUp]);
+  }, [streamingText, revealedText, landedAnswer, landedFollowUp]);
 
   // The thread is waiting on an answer while a follow-up is in flight,
   // or while the question we arrived with has yet to be answered.
@@ -744,9 +764,9 @@ export default function ChatScreen() {
                 // answer back its Copy and Share, so the foot of the thread
                 // changes once rather than twice. A failure takes its place.
                 ListFooterComponent={
-                  awaitingAnswer && !streamingText ? (
+                  awaitingAnswer && !revealedText ? (
                     <ThinkingLine animate={!carriedInWait} trace={trace} />
-                  ) : streamingText && !failedQuestion ? (
+                  ) : revealedText && !failedQuestion ? (
                     <GeneratingMark />
                   ) : failedQuestion ? (
                     <SendFailure
