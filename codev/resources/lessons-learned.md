@@ -114,3 +114,15 @@ See `codev/reviews/202-prototypes-ansari-expo-compose.md` for the full context.
 - **Compensate a shrink by the height lost, not by snapping to the end.** `scrollToEnd` also swallows the reader's distance from the end (up to the 160px "at bottom" slack), which makes a second, larger movement.
 - **A module that registers listeners at import is testable under jsdom** if you stub `visualViewport` and `matchMedia` before a fresh `vi.resetModules()` import, and track `window.addEventListener` so each test removes what its copy added.
 - **Reading a phase's instructions with `porch next` can advance porch state.** A second `porch next` during implement requested `dev-approval` before any code existed. Run `porch done` after the work so the build and test checks really run.
+
+## Compact retrieval trace — prototype (issue #204)
+
+See `codev/reviews/204-prototypes-ansari-expo-compact.md` for the full context.
+
+- **Derive a coarse view from the fine-grained record; don't replace the record.** The per-category row is a pure function over `traceReducer`'s per-call entries. The reducer's hard-won cases (out-of-order results, name mismatch, orphan result) keep their tests unchanged, and the derived view inherits "never stranded" for free, because it is recomputed and never stored.
+- **In React Native, `opacity` on a nested `<Text>` span is ignored.** To give one word its own opacity, lay the words out as sibling `Animated.Text` nodes in a `flexWrap: 'wrap'` row. They still wrap like prose.
+- **A fixed-shape status row reads calmer than a growing one, and so does a fixed first word.** Swapping "Searching" to "Reading" re-flowed every word after it, which the reviewer read as jitter. Keep the element the eye anchors on constant.
+- **Order a progress row by the sequence the work usually runs in, not by taxonomy.** The row lit 1, 2, 4, 3 until it followed the facilitator prompt's tool order (`apps/api/lib/ai/prompts/facilitator.ts`).
+- **"I don't see the fix" is usually a stale server, not missing code.** Check which checkout each running Metro serves (`lsof -p <pid> -d cwd`), and whether it was started with `CI=1`, which disables file watching so the server keeps serving its first bundle. The fix is to restart it with `env -u CI … --clear`. Then confirm the served bundle, not the source, contains the change (grep the bundle for a new literal).
+- **The `porch next` trap from #202 recurred.** After plan approval a second `porch next` again recorded `dev-approval` as requested before any code was written. It has now hit two builders in a row.
+- **Porch's `build` check fails locally on apps/api env validation** when no `apps/api/.env` exists. Load the committed CI dummy envs (`set -a; . apps/api/.env.ci; . apps/auth/.env.ci`) and force an uncached build to prove the failure is environmental.
