@@ -1,15 +1,19 @@
 import type { ChatStreamEvent } from '@/lib/api';
 
 /**
- * The transient retrieval trace shown while the assistant is still working:
- * one line per tool call, driven live by the stream's `tool_call` /
- * `tool_result` events (see the chat screen's `onEvent` wiring).
+ * The transient retrieval trace shown while the assistant is still working,
+ * driven live by the stream's `tool_call` / `tool_result` events (see the chat
+ * screen's `onEvent` wiring).
+ *
+ * Two layers: `traceReducer` records one entry per tool CALL (the hard part —
+ * out-of-order results, name mismatches, orphan results), and `sourceProgress`
+ * folds those entries into the fixed row of source categories the waiting line
+ * shows (issue #204). The row is derived, never stored, so it inherits the
+ * reducer's "never strand a spinner" guarantee.
  *
  * It is deliberately transient — shown ONLY while awaiting the answer, never
  * persisted or replayed on reload — and it is NOT citation UI: it shows what the
- * answer is being built FROM, not the sources the finished answer cites. Keeping
- * the reducer and the copy pure lets the honesty rules (`resultCount: 0` reads
- * "no hadith found", never "0 results") be unit-tested without React Native.
+ * answer is being built FROM, not the sources the finished answer cites.
  */
 
 export interface TraceEntry {
@@ -23,16 +27,16 @@ export interface TraceEntry {
   pending: boolean;
 }
 
-// Used when the backend omits a tool name; phrased so every template still reads
-// naturally ("Searching the sources…", "no results found").
+// Used when the backend omits a tool name. Such an entry belongs to no source
+// category (see `sourceProgress`).
 const GENERIC_TOOL = 'the sources';
 
 /**
- * Turn a backend tool id into the bare label the trace copy reads inline. The
+ * Turn a backend tool id into the bare label a trace entry is keyed by. The
  * facilitator's tools are named `search_quran` / `search_hadith` /
  * `search_mawsuah` / `search_tafsir_encyclopedia`; stripping the `search_`
- * prefix (and underscores) yields "quran", "hadith", "tafsir encyclopedia" — so
- * a line reads "Searching hadith for …" rather than "Searching search_hadith …".
+ * prefix (and underscores) yields "quran", "hadith", "tafsir encyclopedia" —
+ * the keys `SOURCE_CATALOGUE` maps to the row's labels.
  * An unknown or unprefixed id passes through (underscores flattened); an absent
  * or empty id falls back to the GENERIC_TOOL path, unchanged.
  */
@@ -76,35 +80,59 @@ export function traceReducer(
   return entries;
 }
 
-/**
- * Render one trace entry as a single line, in the answer's own voice:
- *  - pending                → `Searching hadith…`
- *  - completed, count > 0   → `Searching hadith for "patience" — 12 results`
- *  - completed, count === 0 → `no hadith found` (honest, never "0 results")
- * Missing query/count degrade to a plain "Searched …" line rather than inventing
- * detail.
- */
-export function formatTraceLine(entry: TraceEntry): string {
-  const named = entry.tool !== GENERIC_TOOL;
-  if (entry.pending) {
-    return `Searching ${entry.tool}…`;
-  }
-  if (entry.resultCount === 0) {
-    return named ? `no ${entry.tool} found` : 'no results found';
-  }
-  if (
-    typeof entry.query === 'string' &&
-    entry.query.length > 0 &&
-    typeof entry.resultCount === 'number'
-  ) {
-    return `Searching ${entry.tool} for "${entry.query}" — ${entry.resultCount} ${plural(entry.resultCount)}`;
-  }
-  if (typeof entry.resultCount === 'number') {
-    return `Searched ${entry.tool} — ${entry.resultCount} ${plural(entry.resultCount)}`;
-  }
-  return `Searched ${entry.tool}`;
+export type SourceState = 'idle' | 'searching' | 'done';
+
+export interface SourceProgress {
+  /** The `displayTool` label the category's entries carry, e.g. "quran". */
+  key: string;
+  /** What the row reads, e.g. "Qur'an". */
+  label: string;
+  state: SourceState;
 }
 
-function plural(n: number): string {
-  return n === 1 ? 'result' : 'results';
+/**
+ * The sources Ansari can consult, in the order the row shows them — the
+ * order the facilitator's prompt lists its tools in
+ * (apps/api/lib/ai/prompts/facilitator.ts), and so the order the model
+ * usually reaches for them: the row tends to light left to right rather
+ * than jumping about. Keys are the `displayTool` labels of the four tools
+ * (`TOOL_LABELS`, apps/api/lib/tools/resilience.ts); the Mawsuah is the
+ * encyclopedia of fiqh.
+ */
+export const SOURCE_CATALOGUE: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'quran', label: "Qur'an" },
+  { key: 'hadith', label: 'Hadith' },
+  { key: 'mawsuah', label: 'Fiqh' },
+  { key: 'tafsir encyclopedia', label: 'Tafsir' },
+];
+
+/**
+ * Fold per-call trace entries into one state per source category:
+ *  - `searching` while any of its calls is pending (a category searched again
+ *    in a later round goes back to searching),
+ *  - `done` once it has calls and all have resolved — a search that found
+ *    nothing is still a finished search,
+ *  - `idle` if it has not been searched.
+ * All four known sources are always present, in catalogue order, so the row
+ * never changes shape; a tool outside the catalogue is appended rather than
+ * dropped. Nameless entries belong to no category.
+ */
+export function sourceProgress(entries: TraceEntry[]): SourceProgress[] {
+  const categories = SOURCE_CATALOGUE.map(({ key, label }) => ({ key, label }));
+  for (const { tool } of entries) {
+    if (tool === GENERIC_TOOL) continue;
+    if (!categories.some((c) => c.key === tool)) {
+      categories.push({ key: tool, label: titleCase(tool) });
+    }
+  }
+  return categories.map(({ key, label }) => {
+    const own = entries.filter((e) => e.tool === key);
+    const state: SourceState =
+      own.length === 0 ? 'idle' : own.some((e) => e.pending) ? 'searching' : 'done';
+    return { key, label, state };
+  });
+}
+
+function titleCase(label: string): string {
+  return label.replace(/\b\w/g, (c) => c.toUpperCase());
 }

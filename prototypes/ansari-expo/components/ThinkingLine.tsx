@@ -1,12 +1,27 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  ReduceMotion,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { AnsariMarkPulse } from '@/components/AnsariMarkPulse';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
-import { DURATION, EASE_OUT } from '@/constants/motion';
+import { DURATION, EASE_IN_OUT, EASE_OUT } from '@/constants/motion';
 import { ANSARI_MARK_EMBLEM_HEIGHT } from '@/constants/ansariMark';
-import { formatTraceLine, type TraceEntry } from '@/lib/chat-trace';
+import {
+  sourceProgress,
+  type SourceProgress,
+  type SourceState,
+  type TraceEntry,
+} from '@/lib/chat-trace';
 
 // A line of status arriving: a small change in place, held back a beat
 // so an answer that comes straight back never shows it at all.
@@ -25,12 +40,16 @@ const WAIT_ENTER = FadeIn.duration(DURATION.state)
  * into the thread. Pass `animate={false}` where it is already on screen
  * (the thread's first frame), so it does not fade in a second time.
  *
- * While the model searches the sources, `trace` carries one line per
- * tool call ("Searching hadith for "patience" — 12 results"). It is
- * transient — shown only here, while awaiting the answer, never
- * persisted or replayed — and it is not citation UI: it shows what the
- * answer is being built FROM. Empty (or absent) falls back to the plain
- * "Searching the sources…" line.
+ * While the model searches, the line names every source Ansari can
+ * consult — "Searching Qur'an · Hadith · Fiqh · Tafsir" — and `trace`
+ * (one entry per tool call) lights each one as its search completes
+ * (issue #204). The row is the same shape from the first frame to the
+ * last, so it never grows as searches pile up: a source not searched
+ * stays dim, the one being searched breathes, a finished one is fully
+ * inked. The lead word holds at "Searching" throughout, so nothing at
+ * the head of the line shifts under the reader. It is transient — shown only
+ * here, while awaiting the answer, never persisted or replayed — and it
+ * is not citation UI: it shows what the answer is being built FROM.
  */
 export function ThinkingLine({
   animate = true,
@@ -40,37 +59,99 @@ export function ThinkingLine({
   trace?: TraceEntry[];
 }) {
   const colors = useColors();
-  const lines =
-    trace.length > 0
-      ? trace.map(formatTraceLine)
-      : ['Searching the sources…'];
-  // One line sits centred on the mark, as it always has; a stack of
-  // trace lines aligns to the top so the mark stays with the first.
-  const multiline = lines.length > 1;
+  const sources = sourceProgress(trace);
+  const ink = { color: colors.mutedForeground };
   return (
     <Animated.View
       entering={animate ? WAIT_ENTER : undefined}
-      style={[styles.row, multiline ? styles.rowTop : styles.rowCenter]}
+      style={styles.row}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={describe(sources)}
+      accessibilityLiveRegion="polite"
     >
       {/* Sized to the line of type it stands in, not to an icon slot:
           the mark's height is the text's own em box, so its star sits
           level with the ascenders and its arcs with the descenders,
-          and it reads as the first character of the line. Top-aligned,
-          so it sits with the first trace line while the rest stack
-          beneath it. */}
-      <AnsariMarkPulse height={MARK_HEIGHT} />
-      <View style={styles.lines}>
-        {lines.map((line, i) => (
-          <Text
-            key={i}
-            style={[styles.text, { color: colors.mutedForeground }]}
-          >
-            {line}
-          </Text>
+          and it reads as the first character of the line. */}
+      <View style={styles.markSlot}>
+        <AnsariMarkPulse height={MARK_HEIGHT} />
+      </View>
+      {/* One word per source, wrapping as words do: a single line on
+          a phone at default type, a second on a narrow window or at
+          larger type. Type scaling is left uncapped, as everywhere in
+          the app, so at the accessibility sizes it wraps further. Separate words rather than spans of one Text,
+          because a nested span cannot take an opacity of its own. */}
+      <View style={styles.words}>
+        <Text style={[styles.text, ink]}>Searching</Text>
+        {sources.map((source, i) => (
+          <View key={source.key} style={styles.source}>
+            {i > 0 && <Text style={[styles.text, ink, styles.dot]}>·</Text>}
+            <SourceWord label={source.label} state={source.state} color={ink.color} />
+          </View>
         ))}
       </View>
     </Animated.View>
   );
+}
+
+/** Not yet searched: recessive, but still legible as a name. */
+const IDLE = 0.35;
+/** The top of the breath while a source is being searched. */
+const BREATH = 0.7;
+/** Reduced motion: searching held between the two, and left there. */
+const STILL_SEARCHING = 0.6;
+const DONE = 1;
+
+function SourceWord({
+  label,
+  state,
+  color,
+}: {
+  label: string;
+  state: SourceState;
+  color: string;
+}) {
+  const still = useReducedMotion();
+  const opacity = useSharedValue(IDLE);
+
+  useEffect(() => {
+    if (state === 'searching') {
+      if (still) {
+        opacity.set(STILL_SEARCHING);
+        return;
+      }
+      // Breathes on the mark's own tempo, so the two read as one wait.
+      opacity.set(
+        withRepeat(
+          withSequence(
+            withTiming(BREATH, { duration: DURATION.enter * 2, easing: EASE_IN_OUT }),
+            withTiming(IDLE, { duration: DURATION.enter * 2, easing: EASE_IN_OUT }),
+          ),
+          -1,
+          false,
+        ),
+      );
+      return () => cancelAnimation(opacity);
+    }
+    const target = state === 'done' ? DONE : IDLE;
+    opacity.set(
+      still ? target : withTiming(target, { duration: DURATION.state, easing: EASE_OUT }),
+    );
+  }, [opacity, state, still]);
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+  return <Animated.Text style={[styles.text, { color }, style]}>{label}</Animated.Text>;
+}
+
+/** What a screen reader hears in place of the opacity steps. */
+function describe(sources: SourceProgress[]): string {
+  const said: Record<SourceState, string> = {
+    idle: 'not searched',
+    searching: 'searching',
+    done: 'done',
+  };
+  return `Searching sources. ${sources.map((s) => `${s.label} ${said[s.state]}`).join(', ')}.`;
 }
 
 /**
@@ -97,33 +178,48 @@ export function GeneratingMark() {
 
 /** The status line's own size, so the mark stands as tall as the type. */
 const MARK_HEIGHT = 15;
+/** The status line's leading; the mark's slot matches it. */
+const LINE_HEIGHT = 20;
 
 const styles = StyleSheet.create({
   // No card: the same air the answer sits in, so the answer can simply
   // replace these words without a surface dissolving away.
+  // The mark sits with the first line; a wrapped second line runs on
+  // beneath the words, not beneath the mark.
   row: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
-  rowCenter: {
-    alignItems: 'center',
-  },
-  rowTop: {
-    alignItems: 'flex-start',
+  // One line of type tall, so the mark centres on the first line
+  // however many the words wrap to.
+  markSlot: {
+    height: LINE_HEIGHT,
+    justifyContent: 'center',
   },
   generating: {
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
-  lines: {
+  words: {
     flexShrink: 1,
-    gap: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 6,
+    rowGap: 2,
+  },
+  source: {
+    flexDirection: 'row',
+    columnGap: 6,
+  },
+  dot: {
+    opacity: IDLE,
   },
   text: {
     fontSize: 15,
-    lineHeight: 20,
+    lineHeight: LINE_HEIGHT,
     fontFamily: fonts.proseItalic,
   },
 });
