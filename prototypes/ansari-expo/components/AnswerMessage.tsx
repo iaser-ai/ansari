@@ -20,6 +20,7 @@ import { SafetyCard } from '@/components/SafetyCard';
 import type { Citation, Message } from '@/lib/api';
 import { AnswerProse } from '@/components/AnswerProse';
 import { groupFootnotes } from '@/lib/footnote-groups';
+import { answerWithSources } from '@/lib/answer-text';
 import { FootnoteGroup } from '@/components/FootnoteGroup';
 import { RADIUS, rounded } from '@/constants/radius';
 
@@ -80,11 +81,19 @@ export function AnswerMessage({
     tapHaptic();
     onSourcesOpen(message, citation.marker);
   };
+  // What Copy, Share and the hold menu hand on: the prose with its
+  // sources keyed underneath, so a pasted `[3]` still points somewhere.
+  const shareableText = useMemo(
+    () => answerWithSources(message.content, message.citations),
+    [message.content, message.citations],
+  );
+  const hasSources = message.citations.length > 0;
+
   // Copying is the plainest case for a notice over a dialog: the reader
   // is mid-answer, and a modal would cost them a tap to undo a tap.
   const copyAnswer = async () => {
-    if (await copyToClipboard(message.content)) {
-      toast.success('Answer copied');
+    if (await copyToClipboard(shareableText)) {
+      toast.success(hasSources ? 'Answer and sources copied' : 'Answer copied');
       return;
     }
     toast.error("Couldn't copy the answer", {
@@ -93,7 +102,7 @@ export function AnswerMessage({
   };
   const shareAnswer = async () => {
     try {
-      await Share.share({ message: message.content });
+      await Share.share({ message: shareableText });
     } catch {
       toast.error('Sharing is unavailable', {
         detail: 'Hold the answer down and select the part you need.',
@@ -120,7 +129,7 @@ export function AnswerMessage({
           tapHaptic();
           openMessageActions({
             kind: 'answer',
-            text: message.content,
+            text: shareableText,
             onSelectText: () => setSelecting(true),
           });
         };
@@ -165,11 +174,19 @@ export function AnswerMessage({
         </View>
       )}
       {!generating && (
-        <View style={styles.answerActions}>
+        // With sources above them, the actions stand clear of the
+        // source block — a wider break than any gap inside it — so they
+        // read as acting on the whole answer, not on its last group.
+        <View
+          style={[
+            styles.answerActions,
+            footnoteGroups.length > 0 && styles.answerActionsAfterSources,
+          ]}
+        >
           <PressableScale
             onPress={() => void copyAnswer()}
             accessibilityRole="button"
-            accessibilityLabel="Copy answer"
+            accessibilityLabel={hasSources ? 'Copy answer with sources' : 'Copy answer'}
             // A pill this quiet has to stay this quiet — it sits at the
             // foot of every answer — so the thumb is given its room
             // outside the drawn box rather than inside it. 36 drawn,
@@ -193,7 +210,7 @@ export function AnswerMessage({
           <PressableScale
             onPress={() => void shareAnswer()}
             accessibilityRole="button"
-            accessibilityLabel="Share answer"
+            accessibilityLabel={hasSources ? 'Share answer with sources' : 'Share answer'}
             hitSlop={ANSWER_ACTION_SLOP}
             style={(state) => [
               styles.answerAction,
@@ -268,6 +285,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 4,
+  },
+  answerActionsAfterSources: {
+    marginTop: 28,
   },
   answerAction: {
     flexDirection: 'row',
