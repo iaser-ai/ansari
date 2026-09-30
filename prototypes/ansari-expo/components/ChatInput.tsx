@@ -20,11 +20,11 @@ import Animated, {
 import { BrassSendButton } from '@/components/BrassSendButton';
 import { useColors } from '@/hooks/useColors';
 import { useScheme } from '@/hooks/useScheme';
-import { useDesktop } from '@/hooks/useDesktop';
 import { fonts } from '@/constants/colors';
 import { DURATION, EASE_OUT } from '@/constants/motion';
 import { COMPOSER_RADIUS, rounded } from '@/constants/radius';
 import { withAlpha } from '@/lib/color';
+import { composerShadow, type ComposerEdge } from '@/lib/composer-shadow';
 import { sendHaptic } from '@/lib/haptics';
 import { selfInkedFocusId } from '@/lib/semantics';
 
@@ -103,7 +103,10 @@ function Lip({ color }: { color: string }) {
  * Both are one interpolation between two stops off the palette, run on
  * the UI thread and stepped straight to its end under Reduce Motion.
  */
-function useComposerDepth(focused: boolean, sheen: string | null) {
+function useComposerDepth(
+  focused: boolean,
+  edge: ComposerEdge | null,
+) {
   const { composerDepth } = useColors();
   const lift = useSharedValue(0);
 
@@ -115,27 +118,10 @@ function useComposerDepth(focused: boolean, sheen: string | null) {
     });
   }, [focused, lift]);
 
-  return useAnimatedStyle(() => {
-    const { rest, focus, shadowRgb, glowRgb } = composerDepth;
-    const t = lift.value;
-    const at = (key: keyof typeof rest) =>
-      rest[key] + (focus[key] - rest[key]) * t;
-
-    const layers = [
-      `0 ${at('castY')}px ${at('castBlur')}px rgba(${shadowRgb}, ${at('castAlpha')})`,
-      `0 ${at('contactY')}px ${at('contactBlur')}px rgba(${shadowRgb}, ${at('contactAlpha')})`,
-    ];
-    // The resting sheen the clear desktop composer already wore, kept
-    // exactly as it was so nothing changes when the bar is at rest.
-    if (sheen) layers.push(`inset 0 8px 18px ${sheen}`);
-    const glow = at('glowAlpha');
-    if (glow > 0) {
-      layers.push(
-        `inset 0 ${at('glowY')}px ${at('glowBlur')}px rgba(${glowRgb}, ${glow})`,
-      );
-    }
-    return { boxShadow: layers.join(', ') };
-  }, [composerDepth, sheen]);
+  return useAnimatedStyle(
+    () => ({ boxShadow: composerShadow(composerDepth, lift.value, edge) }),
+    [composerDepth, edge?.lip, edge?.ring],
+  );
 }
 
 /**
@@ -171,13 +157,14 @@ function ComposerSurface({
 }) {
   const colors = useColors();
   const scheme = useScheme();
-  const desktop = useDesktop();
+  const web = Platform.OS === 'web';
 
   // A disabled composer stops being a raised surface, so it takes no
   // depth at all — the hook still runs, its result simply isn't applied.
+  // One recipe for every web width: desktop and mobile web can't drift.
   const lift = useComposerDepth(
     focused && !disabled,
-    clear && desktop ? colors.glassSheen : null,
+    web ? { lip: colors.composerLip, ring: colors.inputRimFocus } : null,
   );
   const depth = disabled ? undefined : lift;
 
@@ -211,7 +198,7 @@ function ComposerSurface({
           style={[
             styles.container,
             styles.clip,
-            {
+            !web && {
               borderWidth: RIM_WIDTH,
               // The lift is the composer's answer to focus, and a
               // shadow is a poor thing to ask a keyboard reader to spot
@@ -236,10 +223,7 @@ function ComposerSurface({
           ]}
         >
           <BlurView
-            // The desktop clear composer wants to read like lit glass over
-            // the ambient shadow, so it leans on a much lighter blur tint;
-            // the phone/native and non-clear surfaces keep the fuller wash.
-            intensity={clear && desktop ? 24 : 30}
+            intensity={30}
             tint={scheme === 'dark' ? 'dark' : 'light'}
             style={StyleSheet.absoluteFillObject}
           />
@@ -259,7 +243,7 @@ function ComposerSurface({
               },
             ]}
           />
-          {!disabled && <Lip color={colors.glassLip} />}
+          {!disabled && !web && <Lip color={colors.glassLip} />}
           {children}
         </Animated.View>
       </View>
