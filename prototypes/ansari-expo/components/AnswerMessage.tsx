@@ -100,13 +100,14 @@ export function AnswerMessage({
     }
   };
 
-  // Selection is off until it is asked for, and asked for through the
-  // hold menu below. A selectable <Text> claims the long press for the
-  // platform's own magnifier, so an answer that was selectable from the
-  // start could never be held down for anything else — and a thumb
-  // dragging the thread would keep catching on the words. See
-  // `lib/messageActions`.
-  const [selecting, setSelecting] = useState(false);
+  // On a phone, selection is off until it is asked for, and asked for
+  // through the hold menu below. A selectable <Text> claims the long
+  // press for the platform's own magnifier, so an answer that was
+  // selectable from the start could never be held down for anything
+  // else — and a thumb dragging the thread would keep catching on the
+  // words. See `lib/messageActions`. The web has a cursor, no hold
+  // menu, and nothing to arbitrate: the words are simply selectable.
+  const [selecting, setSelecting] = useState(Platform.OS === 'web');
 
   // A finger has no hover, so the copy and share that a pointer finds
   // by resting on the answer are reached by holding it instead. The
