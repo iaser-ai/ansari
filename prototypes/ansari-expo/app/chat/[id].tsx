@@ -29,7 +29,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
-import { useKeyboardProgress } from '@/hooks/useKeyboard';
+import { onShellResize, useKeyboardProgress } from '@/hooks/useKeyboard';
+import { keepFootInView } from '@/lib/keyboard';
 import { useRevealedText } from '@/hooks/useRevealedText';
 import { useSidebarInset } from '@/hooks/useSidebarCollapsed';
 import { openSidebarDrawer } from '@/hooks/useSidebarDrawer';
@@ -221,6 +222,43 @@ export default function ChatScreen() {
   // jumping to the end of the last answer.
   const atBottom = useRef(false);
   const listHeight = useRef(0);
+  // The offset as last reported, for native, where the list cannot be
+  // asked for it; the web reads it off the element instead.
+  const listOffset = useRef(0);
+
+  // A shorter list keeps its offset, so a reader on the newest turn
+  // would find its last lines slid under the composer: hand back
+  // exactly the height it lost (see `keepFootInView`).
+  const holdFoot = (height: number, offset: number) => {
+    const next = keepFootInView({
+      previousHeight: listHeight.current,
+      height,
+      offset,
+      atBottom: atBottom.current,
+    });
+    listHeight.current = height;
+    if (next !== null) {
+      listRef.current?.scrollToOffset({ offset: next, animated: false });
+    }
+  };
+  const scroller = () =>
+    listRef.current?.getScrollableNode() as HTMLElement | undefined;
+
+  // On the web the keyboard shortens the shell in one step, and the
+  // list's own `onLayout` hears of it only a frame later — one frame of
+  // the newest lines cut off, then a snap. The shim says so inside the
+  // reshape itself, so the thread moves in the same frame as the shell.
+  // Latest-render closure through a ref: the subscription is made once.
+  const holdFootRef = useRef(holdFoot);
+  holdFootRef.current = holdFoot;
+  useEffect(
+    () =>
+      onShellResize(() => {
+        const node = scroller();
+        if (node) holdFootRef.current(node.clientHeight, node.scrollTop);
+      }),
+    [],
+  );
 
   const desktop = useDesktop();
   // The rail eats the left edge of the window; the thread insets by
@@ -716,8 +754,17 @@ export default function ChatScreen() {
                   // never loads trapped beneath it.
                   { paddingTop: threadContentTop(desktop, insets.top) },
                 ]}
+                // Not 'on-drag' on the web: react-native-web cannot tell a
+                // drag from any other scroll, and dismisses on every one —
+                // including the list keeping its foot in view as the
+                // keyboard makes room, which took focus straight back off
+                // the composer the reader had just tapped (#202).
                 keyboardDismissMode={
-                  Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+                  Platform.OS === 'ios'
+                    ? 'interactive'
+                    : Platform.OS === 'web'
+                      ? 'none'
+                      : 'on-drag'
                 }
                 keyboardShouldPersistTaps="handled"
                 // Indicators are hidden by design, so none can ride under
@@ -731,6 +778,7 @@ export default function ChatScreen() {
                     layoutMeasurement.height -
                     contentOffset.y;
                   atBottom.current = fromBottom <= 160;
+                  listOffset.current = contentOffset.y;
                   setShowJumpToLatest(!atBottom.current);
                 }}
                 scrollEventThrottle={100}
@@ -745,13 +793,15 @@ export default function ChatScreen() {
                   // the newest turn would be left looking at the middle of
                   // it, with a "Latest" button offering to undo something
                   // they never did.
-                  const { height } = event.nativeEvent.layout;
-                  const shortened =
-                    listHeight.current > 0 && height < listHeight.current;
-                  listHeight.current = height;
-                  if (shortened && atBottom.current) {
-                    listRef.current?.scrollToEnd({ animated: false });
-                  }
+                  // On the web the keyboard's own reshape has usually been
+                  // answered already (`onShellResize`); this is what is
+                  // left — a window resize, a rotation, the eased
+                  // correction once the first keyboard is measured. The
+                  // element is read rather than the event, so both paths
+                  // measure the same box.
+                  const node = Platform.OS === 'web' ? scroller() : undefined;
+                  if (node) holdFoot(node.clientHeight, node.scrollTop);
+                  else holdFoot(event.nativeEvent.layout.height, listOffset.current);
                 }}
                 // The waiting line sits beneath the question that prompted
                 // it, at the foot of the thread. It carries the live
