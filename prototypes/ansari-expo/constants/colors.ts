@@ -346,6 +346,8 @@ const colors = {
      */
     glassRim: 'rgba(255,255,255,0.68)',
     glassLip: 'rgba(255,255,255,0.66)',
+    /** Web composer's top-edge highlight, drawn as an inset shadow. */
+    composerLip: 'rgba(255,255,255,0.7)',
     /**
      * The resting fill of a round glass button, which carries the
      * button's shape now that it draws no outline. Firmer than the
@@ -483,6 +485,7 @@ const colors = {
     glassBase: 'rgba(19,16,14,0.58)',
     glassRim: 'rgba(255,255,255,0.10)',
     glassLip: 'rgba(255,255,255,0.15)',
+    composerLip: 'rgba(255,255,255,0.06)',
     /**
      * The same disc after dark. Night's ambient shadow multiplies, so
      * it can only ever pull the page *down* — the worst case for a
