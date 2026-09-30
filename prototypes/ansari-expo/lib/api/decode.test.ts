@@ -386,7 +386,7 @@ describe('source documents (spec 168) — joined from /threads/{id}/documents', 
     expect(assistant.citations).toHaveLength(1);
     expect(assistant.citations[0]).toMatchObject({
       marker: 1,
-      reference: "Qur'an 20:14",
+      reference: "Qur'an Taha 20:14",
       url: 'https://quran.com/20/14',
     });
     // The kept marker parses as a footnote the answer UI can open.
@@ -486,7 +486,7 @@ describe('source documents (spec 168) — joined from /threads/{id}/documents', 
     };
     const assistant = answerOf(khushu, docsFor([entry]));
     expect(assistant.content).not.toBe(SAMPLE_ANSWER_CONTENT);
-    expect(assistant.citations[0]!.reference).toBe("Qur'an 20:14");
+    expect(assistant.citations[0]!.reference).toBe("Qur'an Taha 20:14");
     // …and falls back to the sample when the answer has none.
     expect(answerOf(khushu, docsFor([])).citations).toEqual(SAMPLE_CITATIONS);
   });
