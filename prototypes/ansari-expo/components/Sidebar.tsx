@@ -755,8 +755,11 @@ export function Sidebar({
                 // search to read — in which case the keyboard should
                 // get out of the way — or opening a conversation, which
                 // must work on the first tap rather than being spent
-                // dismissing the keyboard.
-                keyboardDismissMode="on-drag"
+                // dismissing the keyboard. Not on the web, where
+                // react-native-web dismisses on every scroll, not only a
+                // drag — the list clamping its offset as a search filters
+                // it shorter would blur the search mid-word (#202).
+                keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }: { item: Conversation }) => {
                   // A finger cannot hover, so a drawer's rows carry
