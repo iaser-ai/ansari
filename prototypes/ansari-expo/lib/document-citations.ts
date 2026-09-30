@@ -1,6 +1,7 @@
 import type { Citation } from '@/lib/api/types';
 import type { WireDocument } from '@/lib/api/wire-schemas';
 import { CITATIONS_SECTION, stripUnbackedCitations } from '@/lib/citations';
+import { surahName } from '@/lib/surah-names';
 
 /**
  * Real sources behind an answer (issue #161).
@@ -162,9 +163,12 @@ function toCitationFields(p: ParsedDocument): CitationFields {
   switch (p.kind) {
     case 'quran': {
       if (!json) return { ...rawFallback(doc), sourceType: 'quran' };
+      const name = p.verse && surahName(p.verse[0]);
       return {
         sourceType: 'quran',
-        reference: p.verse ? `Qur'an ${p.verse[0]}:${p.verse[1]}` : doc.title,
+        reference: p.verse
+          ? `Qur'an ${name ? `${name} ` : ''}${p.verse[0]}:${p.verse[1]}`
+          : doc.title,
         sourceTitle: "The Holy Qur'an",
         arabicText: str(json.ar),
         translationText: str(json.en) ?? '',

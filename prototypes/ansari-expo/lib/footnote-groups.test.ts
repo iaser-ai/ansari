@@ -40,6 +40,7 @@ describe('groupFootnotes', () => {
 describe('footnoteLabel', () => {
   it("drops the Qur'an prefix the heading already says", () => {
     expect(footnoteLabel(cite(1, 'quran', "Qur'an 5:6"))).toEqual({ reference: '5:6' });
+    expect(footnoteLabel(cite(1, 'quran', "Qur'an Al-Isra 17:78"))).toEqual({ reference: 'Al-Isra 17:78' });
   });
 
   it('gives a hadith its grade, not its chapter', () => {

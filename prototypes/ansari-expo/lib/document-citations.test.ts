@@ -58,7 +58,7 @@ describe('document → Citation field mapping', () => {
       id: 'm-doc-0',
       marker: 1,
       sourceType: 'quran',
-      reference: "Qur'an 20:14",
+      reference: "Qur'an Taha 20:14",
       sourceTitle: "The Holy Qur'an",
       arabicText: 'وَأَقِمِ ٱلصَّلَوٰةَ لِذِكْرِىٓ',
       translationText: 'And establish prayer for My remembrance.',
@@ -113,6 +113,17 @@ describe('document → Citation field mapping', () => {
       sourceTitle: 'Retrieved elsewhere',
       translationText: 'Passage.',
     });
+  });
+
+  it('names the surah from its number, before the verse', () => {
+    const refs = resolveCitations('x', [quran('17:78', 'a', 'b'), quran('114:1', 'a', 'b')], 'm')
+      .citations.map((c) => c.reference);
+    expect(refs).toEqual(["Qur'an Al-Isra 17:78", "Qur'an An-Nas 114:1"]);
+  });
+
+  it('keeps the bare numbers when the surah number is out of range', () => {
+    const [c] = resolveCitations('x', [quran('115:1', 'a', 'b')], 'm').citations;
+    expect(c!.reference).toBe("Qur'an 115:1");
   });
 
   it('sets no Qur\'an link when the title does not parse as surah:ayah', () => {
@@ -186,7 +197,7 @@ describe('resolving the model\'s inline markers', () => {
     );
     expect(citations.map((c) => [c.marker, c.reference])).toEqual([
       [1, 'Sahih al-Bukhari 528'],
-      [2, "Qur'an 20:14"],
+      [2, "Qur'an Taha 20:14"],
     ]);
   });
 
@@ -199,8 +210,8 @@ describe('resolving the model\'s inline markers', () => {
     );
     expect(content).toBe('Humility [1]. Remembrance [2]. Again humility [1].');
     expect(citations.map((c) => [c.marker, c.reference])).toEqual([
-      [1, "Qur'an 23:1"],
-      [2, "Qur'an 20:14"],
+      [1, "Qur'an Al-Mu'minun 23:1"],
+      [2, "Qur'an Taha 20:14"],
     ]);
   });
 
@@ -223,7 +234,7 @@ describe('resolving the model\'s inline markers', () => {
       'm',
     );
     expect(content).toBe('Wash. Remember [1].');
-    expect(citations[0]!.reference).toBe("Qur'an 20:14");
+    expect(citations[0]!.reference).toBe("Qur'an Taha 20:14");
   });
 
   it('treats an entry that names two documents as unresolved', () => {
@@ -293,7 +304,7 @@ describe('resolving the model\'s inline markers', () => {
     );
     expect(content).toBe('Remember. Wash.');
     expect(markers(content)).toEqual([]);
-    expect(citations.map((c) => c.reference)).toEqual(['Sahih al-Bukhari 528', "Qur'an 20:14"]);
+    expect(citations.map((c) => c.reference)).toEqual(['Sahih al-Bukhari 528', "Qur'an Taha 20:14"]);
   });
 
   it('falls back when no entry matches', () => {
