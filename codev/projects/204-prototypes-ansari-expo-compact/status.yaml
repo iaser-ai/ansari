@@ -1,7 +1,7 @@
 id: '204'
 title: prototypes-ansari-expo-compact
 protocol: pir
-phase: plan
+phase: implement
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -17,4 +17,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-09-30T06:34:37.530Z'
-updated_at: '2026-09-30T06:43:06.604Z'
+updated_at: '2026-09-30T06:43:12.809Z'
