@@ -1,0 +1,14 @@
+id: '208'
+title: prototypes-ansari-expo-pre-mig
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-09-30T12:32:24.743Z'
+updated_at: '2026-09-30T12:32:24.747Z'
