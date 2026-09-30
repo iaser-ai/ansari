@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   displayTool,
-  formatTraceLine,
+  sourceProgress,
   traceReducer,
   type TraceEntry,
 } from '@/lib/chat-trace';
@@ -109,52 +109,75 @@ describe('traceReducer', () => {
   });
 });
 
-describe('formatTraceLine', () => {
-  it('renders a pending line while awaiting the result', () => {
-    expect(formatTraceLine({ tool: 'hadith', pending: true })).toBe(
-      'Searching hadith…',
-    );
+describe('sourceProgress — per-call entries → the fixed source row', () => {
+  const states = (events: ChatStreamEvent[]) =>
+    Object.fromEntries(sourceProgress(reduce(events)).map((s) => [s.label, s.state]));
+
+  it('shows all four sources idle, in the prompt\'s tool order, before any tool event', () => {
+    expect(sourceProgress([])).toEqual([
+      { key: 'quran', label: "Qur'an", state: 'idle' },
+      { key: 'hadith', label: 'Hadith', state: 'idle' },
+      { key: 'mawsuah', label: 'Fiqh', state: 'idle' },
+      { key: 'tafsir encyclopedia', label: 'Tafsir', state: 'idle' },
+    ]);
   });
 
-  it('renders query and result count for a completed search', () => {
-    expect(
-      formatTraceLine({
-        tool: 'hadith',
-        query: 'patience',
-        resultCount: 12,
-        pending: false,
-      }),
-    ).toBe('Searching hadith for "patience" — 12 results');
+  it('marks a source searching while its call is in flight', () => {
+    expect(states([call('search_hadith')])).toEqual({
+      "Qur'an": 'idle',
+      Hadith: 'searching',
+      Tafsir: 'idle',
+      Fiqh: 'idle',
+    });
   });
 
-  it('reads honestly when a search finds nothing (never "0 results")', () => {
+  it('marks a source done once its call resolves — including a search that found nothing', () => {
     expect(
-      formatTraceLine({
-        tool: 'hadith',
-        query: 'patience',
-        resultCount: 0,
-        pending: false,
-      }),
-    ).toBe('no hadith found');
+      states([
+        call('search_quran'),
+        result('search_quran', 'mercy', 4),
+        call('search_mawsuah'),
+        result('search_mawsuah', 'riba', 0),
+      ]),
+    ).toMatchObject({ "Qur'an": 'done', Fiqh: 'done', Hadith: 'idle' });
   });
 
-  it('uses the singular for exactly one result', () => {
-    expect(
-      formatTraceLine({
-        tool: 'quran',
-        query: 'mercy',
-        resultCount: 1,
-        pending: false,
-      }),
-    ).toBe('Searching quran for "mercy" — 1 result');
+  it('keeps a source searching until every one of its calls has resolved', () => {
+    const open = [call('search_quran'), call('search_quran'), result('search_quran', 'a', 2)];
+    expect(states(open)["Qur'an"]).toBe('searching');
+    expect(states([...open, result('search_quran', 'b', 3)])["Qur'an"]).toBe('done');
   });
 
-  it('degrades gracefully when the tool name is missing', () => {
-    expect(formatTraceLine({ tool: 'the sources', pending: true })).toBe(
-      'Searching the sources…',
-    );
+  it('returns a finished source to searching when a later round searches it again', () => {
     expect(
-      formatTraceLine({ tool: 'the sources', resultCount: 0, pending: false }),
-    ).toBe('no results found');
+      states([call('search_hadith'), result('search_hadith', 'a', 1), call('search_hadith')])
+        .Hadith,
+    ).toBe('searching');
+  });
+
+  it('leaves no source stuck searching after a call/result name mismatch', () => {
+    // traceReducer's fallback re-labels the pending hadith entry as quran.
+    expect(states([call('search_hadith'), result('search_quran', 'mercy', 2)])).toEqual({
+      "Qur'an": 'done',
+      Hadith: 'idle',
+      Tafsir: 'idle',
+      Fiqh: 'idle',
+    });
+  });
+
+  it('appends a tool outside the catalogue rather than dropping it', () => {
+    const sources = sourceProgress(reduce([call('search_fatwa_archive')]));
+    expect(sources.map((s) => s.label)).toEqual([
+      "Qur'an",
+      'Hadith',
+      'Fiqh',
+      'Tafsir',
+      'Fatwa Archive',
+    ]);
+    expect(sources[4].state).toBe('searching');
+  });
+
+  it('lights no source for a nameless call', () => {
+    expect(sourceProgress(reduce([call()])).every((s) => s.state === 'idle')).toBe(true);
   });
 });

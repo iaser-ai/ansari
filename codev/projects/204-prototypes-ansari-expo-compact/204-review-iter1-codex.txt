@@ -1,0 +1,9 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core derivation and animation are sound, but the implementation does not enforce the approved two-line maximum at large Dynamic Type.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `ThinkingLine.tsx:80-92,205-215` uses unrestricted `flexWrap`; with five independently wrapped items and uncapped font scaling, the row can exceed two lines at large Dynamic Type, contrary to the plan and the review’s testing claim.
+- The review file inaccurately reports 9 new `sourceProgress` tests; there are 8. It also omits the planned native/VoiceOver verification from “How to Test Locally.”
