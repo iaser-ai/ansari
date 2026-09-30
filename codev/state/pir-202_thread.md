@@ -10,3 +10,16 @@
 - engage()'s synchronous reshape is deliberate (anti-iOS-pan) and is kept.
 - Same on-drag mechanism likely affects Sidebar search (components/Sidebar.tsx:759) — flagged
   in plan as a separate issue unless the architect wants it folded in.
+
+## Implement phase
+- Architect folded in the Sidebar on-drag fix (same defect) — done in 082ac84.
+- ScrollDismiss.test.tsx confirms the root cause empirically: RN-web 'on-drag' blurs a focused
+  TextInput on a scroll event no finger made; 'none' does not.
+- Shim: onShellResize fires after the forced reflow inside the reshape; chat screen hands back
+  exactly the lost height (keepFootInView) instead of scrollToEnd a frame late. Ordering test
+  negative-checked (fails when notify moves before the reflow).
+- Surprise: my second `porch next` (to read implement instructions) requested dev-approval before
+  any code existed; ran `porch done` after the code so build/tests checks actually executed.
+- Surprise: repo `build` check fails locally in apps/api (Zod env: USUL_API_TOKEN etc.) — no .env
+  in worktree or main. CI exports apps/*/.env.ci; did the same locally → forced uncached build 4/4 ✓.
+  Environmental, unrelated to this diff (touches only prototypes/ansari-expo).
