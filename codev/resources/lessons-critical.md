@@ -28,3 +28,4 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - Citation mapping — prototype (issue #161) — consult when matching model output to retrieved sources, joining a second endpoint's data onto a list, or adding an auxiliary fetch to a screen.
 - Paced streaming reveal — prototype (issue #189) — consult when pacing or animating streamed text, clamping a display cursor over text that can be revised, or testing a per-render invariant with `renderHook`.
 - Hadith grades & source pills — prototype (issue #194) — consult when parsing a data shape known only from a symptom, or folding/collapsing a wrapping layout.
+- Composer tap on mobile web — prototype (issue #202) — consult when a field loses focus unexpectedly on the web, a list must move in step with a keyboard/shell resize, or testing a module that listens at import time.

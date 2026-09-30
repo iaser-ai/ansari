@@ -103,3 +103,14 @@ See `codev/reviews/194-prototypes-ansari-expo-hadith-.md` for the full context.
 - **A live test answer can miss the path the bug report is about.** The staging answer used at `dev-approval` had 20 sources and no multi-graded hadith, so `(+N more)` was never seen live. Say which paths the manual pass did NOT cover rather than letting "tested on staging" imply that they were.
 - **Fold a wrapping layout by measured rows, not item count.** How many pills fit on a row depends on the column width and each label. Measure the offsets, clip at the top of row N+1, keep the hidden items mounted for measurement, and remove them from focus and the accessibility tree while they're out of sight. Before measuring, hold an estimated fold, so a long group doesn't flash open on mount.
 
+
+## Composer tap on mobile web — prototype (issue #202)
+
+See `codev/reviews/202-prototypes-ansari-expo-compose.md` for the full context.
+
+- **A cross-platform prop's name is not its behaviour on every platform.** `keyboardDismissMode="on-drag"` checks for a drag on Android. react-native-web has no drag signal and dismisses on *every* scroll event, so the app's own scroll-to-foot blurred the field that had just been tapped. When a focus bug looks like a timing mystery, grep the library for anything that calls `blur()`. A small jsdom test (focus the field, fire a scroll, assert `activeElement`) settles it in minutes.
+- **Trace a "suspect file" to the end of the chain before accepting the hypothesis in the issue.** The issue blamed a mid-gesture layout shift in the keyboard shim. That shift was deliberate (anti-iOS-pan) and harmless. The actual defects were two hops downstream: the list's late `onLayout` snap, and the library's blur on any scroll.
+- **On react-native-web, `onLayout` is a frame late** (a `ResizeObserver` callback wrapped in `setTimeout(0)`). Anything that must move *with* a layout change, not after it, needs a synchronous hook at the source of the change. Here that is `onShellResize`, fired after a forced reflow.
+- **Compensate a shrink by the height lost, not by snapping to the end.** `scrollToEnd` also swallows the reader's distance from the end (up to the 160px "at bottom" slack), which makes a second, larger movement.
+- **A module that registers listeners at import is testable under jsdom** if you stub `visualViewport` and `matchMedia` before a fresh `vi.resetModules()` import, and track `window.addEventListener` so each test removes what its copy added.
+- **Reading a phase's instructions with `porch next` can advance porch state.** A second `porch next` during implement requested `dev-approval` before any code existed. Run `porch done` after the work so the build and test checks really run.
