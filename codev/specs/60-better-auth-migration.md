@@ -3,7 +3,8 @@
 ## Metadata
 
 - **ID**: spec-2026-09-11-better-auth-migration
-- **Status**: draft (revised per PR #134 review)
+- **Status**: approved (PR #134); amended in PR #148 (legacy `/v2/users/*` compatibility layer,
+  `first_name` / `last_name` retained, `emailVerified` decided)
 - **Created**: 2026-09-11
 - **Source**: GitHub issue #60
 - **Depends on**: #59 (Better Auth scaffold in `apps/auth` + `packages/auth`)
@@ -28,10 +29,10 @@ How each legacy field is handled at migration — **value derivation**, not in-p
 | Area | Legacy (`users` + JWT) | Better Auth target | Migration handling |
 |------|------------------------|--------------------|--------------------|
 | User id | UUID | UUID (`generateId = "uuid"`) | Preserved on `INSERT … SELECT` |
-| Name | `firstName` + `lastName` (nullable) | single `name` (required) | See **Name derivation** below |
+| Name | `firstName` + `lastName` (nullable) | `name` (required, derived) **plus** `first_name` / `last_name` retained as `additionalFields` | `name` per **Name derivation** below; `first_name` / `last_name` copied as-is |
 | Password | `users.password_hash` | `account.password` (`providerId='credential'`) | Bcrypt hash copied; verified via dual hash hook |
-| Email verification | none | `emailVerified` + `verification` | Default/false for migrated rows unless policy adds verify later |
-| Custom columns | `isAdmin`, `systemKey`, `sessionVersion`, `source`, `registeredVia` | `additionalFields` where retained | **`system_key`, `source`, `registered_via` migrate**; **`is_admin` and `session_version` are dropped** (not carried forward) |
+| Email verification | none | `emailVerified` + `verification` | `true` for migrated rows (grandfathered — see below) |
+| Custom columns | `isAdmin`, `systemKey`, `sessionVersion`, `source`, `registeredVia` | `additionalFields` where retained | **`system_key`, `source`, `registered_via` migrate** (with `first_name` / `last_name` above); **`is_admin` and `session_version` are dropped** (not carried forward) |
 | Timestamps | `timestamptz` | `timestamp` (no tz) in scaffold | Phase 0 spike proves acceptable mapping or schema adjustment |
 | Sessions | `tokens` table | `session` table | `tokens` retired at cutover |
 
@@ -65,8 +66,8 @@ repoint** to Better Auth's user table (same UUID values). `tokens` is retired wi
   bcrypt 72-byte truncation behavior is inherited by the permanent bcrypt verify path).
 - **Admin**: `users.is_admin` DB flag; `scripts/grant-admin.ts` sets it out-of-band.
 - **System accounts**: `users.system_key` (`ai-skill`, `leaderboard`); resolved by key, not email.
-- **Clients**: e.g. `prototypes/ansari-expo` calls `/api/v2/users/*` today — cutover requires clients
-  that reach the new login path (precondition for “log in again”).
+- **Clients**: the released mobile build (`legacy/frontend-app`), `prototypes/ansari-expo`, and the admin
+  analytics page all call `/api/v2/users/*` today. See Q7 for how they keep working after cutover.
 
 ## Decision: Migrate to Better Auth architecture
 
@@ -128,8 +129,14 @@ For each legacy row, **`name`** at insert time:
 
 This satisfies Better Auth's NOT NULL `name` without altering the legacy table.
 
-**Migrated users:** `emailVerified = false` unless a later policy explicitly grandfathers verified
-emails (default for cutover: false).
+`name` stays Better Auth's canonical field. `first_name` and `last_name` are also carried over
+unchanged as `additionalFields`, because the legacy `/v2/users/*` responses (see Q7) return them
+separately and `register` accepts them separately. Nothing ever splits `name` back into parts —
+splitting on whitespace corrupts values like "Maria del Carmen Santos".
+
+**Migrated users:** `emailVerified = true`. They already proved control of the address by using the
+product, and leaving it `false` would lock the whole cohort out the day `requireEmailVerification` is
+switched on. (Decided in PR #148 review.)
 
 ### Cutover window — ordered operations
 
@@ -141,7 +148,8 @@ Single maintenance window; **no dual-run serving**. When the canonical Better Au
    `preferences`, `feedback`, `tokens` now reference `users_legacy.id`; still valid).
 3. **Create** empty Better Auth **`public.users`** (UUID PK, BA columns + `additionalFields`).
 4. **`INSERT … SELECT`** from `users_legacy` into `users` (id, email, derived `name`, timestamps,
-   `system_key`, `source`, `registered_via`; omit `is_admin`, `session_version`).
+   `first_name`, `last_name`, `system_key`, `source`, `registered_via`; omit `is_admin`,
+   `session_version`).
 5. **Backfill `account`** rows (`provider_id = 'credential'`, bcrypt copy from
    `users_legacy.password_hash`) with idempotent `ON CONFLICT` on `(user_id, provider_id)`.
 6. **`ALTER` FK constraints** on `threads`, `preferences`, `feedback` to reference **`users.id`**
@@ -215,10 +223,11 @@ Better Auth behavior and tests — do not port `tokens.rotatedAt` grace forward.
 
 **Decision:** `system_key` migrates as a server-owned `additionalField` (`input: false`). Lookup by
 `system_key`, never email; reserved addresses still blocked at registration. System rows keep their
-UUIDs through `INSERT … SELECT`.
+UUIDs through `INSERT … SELECT`. System accounts stay **non-login**: they get no `credential` row in
+`account`, even though `users_legacy.password_hash` is `NOT NULL` for them.
 
-Also migrate **`source`** and **`registered_via`** as documented additional fields where needed for
-attribution; do not migrate `session_version` or `is_admin`.
+Also migrate **`source`**, **`registered_via`**, **`first_name`** and **`last_name`** as additional
+fields; do not migrate `session_version` or `is_admin`.
 
 ### 4. Admin authorization
 
@@ -268,9 +277,19 @@ cutover approval.
 | Traffic | **No** production window where new users use BA and existing users use JWT |
 | Phasing | **Prepare → backfill → cutover → decommission** (implementation phases), not dual auth serving |
 | Rollback | Revert deploy / restore DB snapshot from cutover window — not “keep legacy path enabled” as steady state |
-| Clients | **Precondition:** Clients used at cutover must call the **new** auth endpoints (e.g. move off
-  `prototypes/ansari-expo` `/api/v2/users/*` before or as part of the same release). “Log in again”
-  is only achievable if the client reaches Better Auth (or the agreed proxy). |
+| Clients | New clients call Better Auth directly (`apps/auth`). Released mobile builds keep calling
+  `/api/v2/users/*`, which stays up as a compatibility layer over Better Auth (below). “Log in again”
+  works for both. |
+| Legacy `/v2/users/*` | Kept, reimplemented over Better Auth — no JWT, no `tokens`, no `session_version`. Same request and response shapes as today. Removed 90 days after cutover or at ≥ 95% new-client adoption, whichever comes first. |
+
+**Why the legacy endpoints stay.** The released iOS/Android build has `/users/login` and
+`/users/refresh_token` compiled in, and logs the user out whenever `refresh_token` returns non-OK.
+Deleting the routes would strand those users until a store release ships.
+
+**This is not dual auth.** There is one source of truth — Better Auth sessions. `/v2/users/*` is a
+second entry point that calls Better Auth and translates to the old JSON shape; it has its own tests
+and a deletion date. It does mean two auth surfaces are live at once (`/api/auth/*` on `apps/auth`,
+`/v2/users/*` on `apps/api`) until the removal trigger fires.
 
 **CORS:** Replace wildcard origin in `apps/api/next.config.ts` before credentialed cookie auth against
 `apps/api`; allowlist aligned with `packages/auth` `trustedOrigins` for web origins (custom schemes
@@ -285,7 +304,7 @@ per trustedOrigins limitation above).
 | System / registration guards | Keep behavior; BA fixtures |
 | Feedback / ownership | Keep |
 | `bcrypt-compat.test.ts` | Keep |
-| **New — required** | BA E2E; migrated-user bcrypt login; **bcrypt verify branch test (must fail if branch removed)**; origin test only if proven to reject wrong origins |
+| **New — required** | BA E2E; migrated-user bcrypt login; **bcrypt verify branch test (must fail if branch removed)**; contract tests pinning every legacy `/v2/users/*` response shape; origin test only if proven to reject wrong origins |
 
 **Safety bar:** Spec-4 invariants except those explicitly retired (`session_version`, `is_admin` column).
 
@@ -316,8 +335,9 @@ After cutover:
 4. User UUIDs unchanged; **FKs point at Better Auth user table** (`users` name via `modelName` if chosen).
 5. Admin via **admin plugin**; no `is_admin` column.
 6. System accounts via **`system_key`** additional field.
-7. JWT, `tokens`, `session_version`, `grant-admin.ts` **removed**.
-8. `users_legacy` exists only under retention rule, then dropped.
+7. JWT, `tokens`, `session_version`, `grant-admin.ts` **removed**. Legacy `/v2/users/*` served over
+   Better Auth until its removal trigger (Q7).
+8. `users_legacy` dropped only after **14d + row-count parity + no rollback + operator sign-off**.
 9. Env contract converged per section above.
 
 ## Phased outcomes
@@ -401,7 +421,7 @@ Fold auth into `apps/api` (`toNextJsHandler`); retire `apps/auth` service.
 |------|------------|
 | Mass lockout | Phase 0 spike; permanent dual verify; staging backfill |
 | FK repoint error | Staging cutover rehearsal; row-count audits |
-| Clients still on `v2/users/*` | Cutover precondition; same-release client updates |
+| Released mobile builds on `v2/users/*` | Compatibility layer over Better Auth with contract tests; removal trigger in Q7 |
 | Duplicate `account` rows | Unique `(user_id, provider_id)` + ON CONFLICT |
 | Wrong-origin auth on native | Do not rely on `trustedOrigins` for custom schemes on 1.6.27 |
 
