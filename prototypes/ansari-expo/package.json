@@ -57,7 +57,7 @@
     "react-native-web": "^0.21.0",
     "react-native-worklets": "0.5.1",
     "typescript": "~5.9.2",
-    "vitest": "^3.2.4",
+    "vitest": "^4.1.11",
     "zod": "^3.25.76",
     "zod-validation-error": "^3.4.0"
   },
