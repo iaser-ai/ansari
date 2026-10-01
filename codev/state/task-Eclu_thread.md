@@ -19,3 +19,5 @@
 - turbo lint/typecheck/test/build with both .env.ci files, --force: 16/16 tasks. api 854
   passed / 3 skipped, auth 8/8, lint 0 errors (7 pre-existing warnings), builds green.
 - Opening PR against develop; superseding #133 but leaving it open per instructions.
+- PR #210 opened. CI green: api, auth, frontend, gitleaks all pass. Not merged; #133 left
+  open. Architect notified.
