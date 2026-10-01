@@ -91,4 +91,54 @@ describe('maybeGenerateThreadName (Spec 3)', () => {
 
     expect(mockUpdateThread).not.toHaveBeenCalled();
   });
+  describe('title length cap (issue #67)', () => {
+    async function nameFor(response: string, question = 'What is the ruling on combining prayers while travelling?') {
+      mockFindMessagesByThread.mockResolvedValue([{ id: 'msg-1' }]);
+      mockCallGemini.mockResolvedValue({ text: response } as GeminiResponse);
+      mockUpdateThread.mockResolvedValue({});
+      const { maybeGenerateThreadName } = await import('../lib/ai/thread-naming');
+      await maybeGenerateThreadName('thread-1', 'user-1', question);
+      return mockUpdateThread.mock.calls[0][2].name as string;
+    }
+
+    it('caps a single-line response far longer than requested, on a word boundary with an ellipsis', async () => {
+      const long = 'Travellers may combine the Dhuhr and Asr prayers according to the majority of scholars while journeying';
+      const name = await nameFor(long);
+
+      expect(name.length).toBeLessThanOrEqual(60);
+      expect(name.endsWith('…')).toBe(true);
+      // Word boundary: everything before the ellipsis is a whole-word prefix of the response.
+      const body = name.slice(0, -1);
+      expect(long.startsWith(body)).toBe(true);
+      expect(long[body.length]).toBe(' ');
+    });
+
+    it('falls back to a truncated user question when the response is an answer, not a title', async () => {
+      const answer = 'Line one of a long answer.\n\nSecond paragraph of the answer.';
+      const name = await nameFor(answer, 'What is the ruling on combining prayers while travelling?');
+
+      expect(name).toBe('What is the ruling on combining prayers while travelling?');
+      expect(name).not.toContain('answer');
+    });
+
+    it('falls back to a capped user question when the response is over 3x the cap', async () => {
+      const answer = 'word '.repeat(60).trim();
+      const question = 'Please explain in great detail the history of the compilation of the Quran across the caliphates';
+      const name = await nameFor(answer, question);
+
+      expect(name.length).toBeLessThanOrEqual(60);
+      expect(name.startsWith('Please explain in great detail')).toBe(true);
+      expect(name).not.toContain('word word');
+    });
+
+    it('leaves a well-formed short title untouched', async () => {
+      expect(await nameFor('Combining Prayers While Travelling')).toBe('Combining Prayers While Travelling');
+    });
+
+    it('does not split a surrogate pair when truncating', async () => {
+      const name = await nameFor('😀'.repeat(100), 'q');
+      expect(Array.from(name).length).toBeLessThanOrEqual(60);
+      expect(name).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+    });
+  });
 });
