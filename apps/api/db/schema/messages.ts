@@ -7,7 +7,24 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string }
-  | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string };
+  | { type: 'document'; source: { type: string; media_type: string; data: string }; title: string; context?: string }
+  | ImagePlaceholderBlock;
+
+/** Image media types a chat message may attach (spec 211). */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
+
+/**
+ * Stands in for an image attached to a user message (spec 211). Image bytes are
+ * sent to the model for that turn only and NEVER stored — this block records
+ * only that an image was there, so the UI can show it and later turns can tell
+ * the model it is gone. It has no field that could hold image data.
+ */
+export interface ImagePlaceholderBlock {
+  type: 'image';
+  status: 'not_stored';
+  media_type: ImageMediaType;
+}
 
 // Tool dispatch records (spec 73). Persisted in the SEPARATE `tool_calls`
 // column — NEVER in `content` — so no API-serialization path can leak them to

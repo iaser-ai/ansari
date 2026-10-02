@@ -12,6 +12,7 @@ import {
   persistOrphanToolCalls,
 } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
+import { splitForWire } from '@/lib/attachments';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
@@ -25,16 +26,6 @@ import {
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-// Format message content for API response
-function formatMessageContent(content: ContentBlock[]): string | ContentBlock[] {
-  // If there's only one text block, return just the text
-  if (content.length === 1 && content[0].type === 'text') {
-    return content[0].text;
-  }
-  // Otherwise return the full array
-  return content;
-}
 
 // GET /api/v2/threads/[id] - Get thread with messages
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -61,14 +52,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
       source: thread.source,
       created_at: thread.createdAt?.toISOString(),
       updated_at: thread.updatedAt?.toISOString(),
-      messages: messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: formatMessageContent(m.content),
-        agent_name: m.agentName,
-        source: m.source,
-        created_at: m.createdAt?.toISOString(),
-      })),
+      messages: messages.map((m) => {
+        // Single text block → bare string (frozen contract); image placeholders
+        // ride in an additive `attachments` key, only when present (spec 211).
+        const { content, attachments } = splitForWire(m.content);
+        return {
+          id: m.id,
+          role: m.role,
+          content,
+          ...(attachments ? { attachments } : {}),
+          agent_name: m.agentName,
+          source: m.source,
+          created_at: m.createdAt?.toISOString(),
+        };
+      }),
     });
   } catch (error) {
     console.error('Get thread error:', error);
