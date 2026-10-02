@@ -78,9 +78,19 @@ import {
   getListConversationsQueryKey,
   useGetConversation,
   useSendMessage,
+  type Attachment,
   type Message,
 } from '@/lib/api';
 import { reconcileThread } from '@/lib/chat-reconcile';
+import {
+  toImageInputs,
+  toLocalAttachments,
+  type PickedImage,
+} from '@/lib/attachments';
+import {
+  clearOpeningImages,
+  peekOpeningImages,
+} from '@/lib/pending-attachments';
 import { traceReducer, type TraceEntry } from '@/lib/chat-trace';
 import { stripStreamingCitations } from '@/lib/citations';
 import { RADIUS, rounded } from '@/constants/radius';
@@ -125,6 +135,7 @@ function SendFailure({
   question,
   onRetry,
 }: {
+  /** How the notice names the question: its words in quotes, or its images. */
   question: string;
   onRetry: () => void;
 }) {
@@ -146,7 +157,7 @@ function SendFailure({
           style={[styles.failureText, { color: colors.mutedForeground }]}
           numberOfLines={2}
         >
-          “{question}” was not delivered. Check your connection, then retry.
+          {question} was not delivered. Check your connection, then retry.
         </Text>
       </View>
       <PressableScale
@@ -184,7 +195,12 @@ export default function ChatScreen() {
   // list and the panel anchors within it.
   const [sources, setSources] = useState<SourceRequest | null>(null);
   const sourceRequests = useRef(0);
-  const [failedQuestion, setFailedQuestion] = useState<string | null>(null);
+  // The question that failed, images included (spec 211): they are still in
+  // hand, so a retry can send them again.
+  const [failedQuestion, setFailedQuestion] = useState<{
+    text: string;
+    images: PickedImage[];
+  } | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const autoSent = useRef(false);
 
@@ -207,6 +223,26 @@ export default function ChatScreen() {
   // `landedFollowUp` / FOLLOWUP_KEY_PREFIX). The carried-in `q` never sets
   // this — it already has ECHO_ID.
   const [pendingFollowUp, setPendingFollowUp] = useState('');
+  const [pendingFollowUpAttachments, setPendingFollowUpAttachments] = useState<
+    Attachment[]
+  >([]);
+  // Thumbnails for the questions asked on this screen, by persisted id, so a
+  // question keeps its own images once its synthetic row hands off — the
+  // server's copy only knows that an image was there (spec 211).
+  const [localAttachments, setLocalAttachments] = useState<
+    Record<string, Attachment[]>
+  >({});
+  // The images the carried-in question was asked with on the home screen.
+  // Read once per conversation and kept for the screen's life; the stash is
+  // cleared when they are sent.
+  const openingImages = useMemo(
+    () => peekOpeningImages(conversationId),
+    [conversationId],
+  );
+  const openingAttachments = useMemo(
+    () => toLocalAttachments(openingImages),
+    [openingImages],
+  );
   const followUpKey = useRef('');
   const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>({});
@@ -329,7 +365,10 @@ export default function ChatScreen() {
         // A network error or a `type:"error"` SSE frame. The partial
         // `streamingText` is deliberately left on screen — the synthetic
         // bubble carries it above the failure notice.
-        setFailedQuestion(variables.data.content);
+        setFailedQuestion({
+          text: variables.data.content,
+          images: sentImages.current,
+        });
       },
     },
     // Drive the incremental render: append `text` deltas, fold tool events
@@ -363,7 +402,9 @@ export default function ChatScreen() {
   // Which is which cannot be inferred from the thread's contents — by
   // the time the carried-in question is sent it has already been drawn,
   // so the thread is not empty. Only the caller knows.
-  const send = (content: string, opening = false) => {
+  // The images of the question in flight, for a retry after a failure.
+  const sentImages = useRef<PickedImage[]>([]);
+  const send = (content: string, opening = false, images: PickedImage[] = []) => {
     // Require the detail query to have RESOLVED: the reconciler's baseline
     // is the persisted message count at send, and without loaded data we
     // cannot capture a real one (`?? 0` would read an unloaded thread as
@@ -383,7 +424,12 @@ export default function ChatScreen() {
     // The carried-in question already renders under ECHO_ID; only a
     // thread-typed follow-up needs the synthetic echo.
     setPendingFollowUp(opening ? '' : content);
-    sendMessage.mutate({ conversationId, data: { content } });
+    setPendingFollowUpAttachments(opening ? [] : toLocalAttachments(images));
+    sentImages.current = images;
+    sendMessage.mutate({
+      conversationId,
+      data: { content, images: toImageInputs(images) },
+    });
     // Scrolling now would race the waiting line's own layout. The
     // request is parked and spent when the list reports its new size.
     if (!opening) scrollPending.current = true;
@@ -394,15 +440,16 @@ export default function ChatScreen() {
   useEffect(() => {
     if (
       !autoSent.current &&
-      q &&
+      (q || openingImages.length > 0) &&
       conversationQuery.data &&
       conversationQuery.data.messages.length === 0
     ) {
       autoSent.current = true;
-      send(q, true);
+      send(q ?? '', true, openingImages);
+      clearOpeningImages(conversationId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, conversationQuery.data]);
+  }, [q, openingImages, conversationQuery.data]);
 
   // Arriving from the home screen the question is already in hand, so it
   // goes on the paper at once — no spinner standing in for it. The pure
@@ -416,12 +463,14 @@ export default function ChatScreen() {
       reconcileThread({
         serverMessages,
         q,
+        openingAttachments,
         conversationId,
         streamingText,
         revealedText,
         streamKey: streamKey.current,
         sentAtCount: sentAtCount.current,
         pendingFollowUp,
+        pendingFollowUpAttachments,
         followUpKey: followUpKey.current,
       }),
     // streamKey / followUpKey / sentAtCount are refs, current at each
@@ -430,10 +479,12 @@ export default function ChatScreen() {
     [
       serverMessages,
       q,
+      openingAttachments,
       conversationId,
       streamingText,
       revealedText,
       pendingFollowUp,
+      pendingFollowUpAttachments,
     ],
   );
 
@@ -501,12 +552,26 @@ export default function ChatScreen() {
       });
       drawn.current?.add(key);
       if (landedFollowUp) drawn.current?.add(followUpKey.current);
+      if (landedFollowUp && pendingFollowUpAttachments.length > 0) {
+        const followUpId = landedFollowUp.id;
+        setLocalAttachments((prev) => ({
+          ...prev,
+          [followUpId]: pendingFollowUpAttachments,
+        }));
+      }
       rawStreamText.current = '';
       setStreamingText('');
       setTrace([]);
       setPendingFollowUp('');
+      setPendingFollowUpAttachments([]);
     }
-  }, [streamingText, revealedText, landedAnswer, landedFollowUp]);
+  }, [
+    streamingText,
+    revealedText,
+    landedAnswer,
+    landedFollowUp,
+    pendingFollowUpAttachments,
+  ]);
 
   // The thread is waiting on an answer while a follow-up is in flight,
   // or while the question we arrived with has yet to be answered.
@@ -820,8 +885,16 @@ export default function ChatScreen() {
                     <GeneratingMark />
                   ) : failedQuestion ? (
                     <SendFailure
-                      question={failedQuestion}
-                      onRetry={() => send(failedQuestion)}
+                      question={
+                        failedQuestion.text
+                          ? `“${failedQuestion.text}”`
+                          : failedQuestion.images.length > 1
+                            ? 'Your images'
+                            : 'Your image'
+                      }
+                      onRetry={() =>
+                        send(failedQuestion.text, false, failedQuestion.images)
+                      }
                     />
                   ) : null
                 }
@@ -837,7 +910,10 @@ export default function ChatScreen() {
                     }
                   >
                     {item.role === 'user' ? (
-                      <ThreadQuestion text={item.content} />
+                      <ThreadQuestion
+                        text={item.content}
+                        attachments={localAttachments[item.id] ?? item.attachments}
+                      />
                     ) : (
                       <AnswerMessage
                         message={item}
@@ -897,7 +973,7 @@ export default function ChatScreen() {
               }
             >
               <ChatInput
-                onSend={(content: string) => send(content)}
+                onSend={(content, images) => send(content, false, images)}
                 sending={sendMessage.isPending}
                 placeholder="Ask a follow-up…"
                 // Disabled until the detail query resolves: `send()` needs
@@ -969,11 +1045,18 @@ export default function ChatScreen() {
  * selection menu takes over from there. The web has a cursor, no hold
  * menu, and nothing to arbitrate: the words are simply selectable.
  */
-function ThreadQuestion({ text }: { text: string }) {
+function ThreadQuestion({
+  text,
+  attachments,
+}: {
+  text: string;
+  attachments?: Attachment[];
+}) {
   const [selecting, setSelecting] = useState(Platform.OS === 'web');
   return (
     <AskedQuestion
       text={text}
+      attachments={attachments}
       selectable={selecting}
       onLongPress={
         Platform.OS === 'web'
