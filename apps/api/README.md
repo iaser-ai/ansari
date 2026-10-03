@@ -19,13 +19,15 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 |------|-----------|
 | Health | `GET /api/health` |
 | Auth & users | `POST /api/v2/users/register`, `login`, `logout`, `refresh_token`, `GET /api/v2/users/me`, password reset (`request_password_reset`, `reset_password`) |
-| Chat | `POST /api/v2/threads` (create), `POST /api/v2/threads/{id}` (send message, SSE stream), thread naming, sharing |
+| Chat | `POST /api/v2/threads` (create), `POST /api/v2/threads/{id}` (send message, raw-text stream), `POST /api/v2/threads/{id}/chat` (send message, SSE events; accepts up to 4 `images` that are used for that turn only and never stored, see below), thread naming, sharing |
 | Sources | `GET /api/v2/threads/{id}/documents` (owner-scoped, derived from stored tool records), `GET /api/v2/share/{id}/documents` (public, from the share snapshot): citable sources per answer, joined to the matching GET's `messages` by `message_index` |
 | Feedback & prefs | `POST /api/v2/feedback`, `GET/POST /api/v2/preferences` |
 | App support | `GET /api/v2/app-check` (version/maintenance gate) |
 | OpenAI-compat | `POST /api/v1/chat/completions` (bearer-token gated, for evaluation harnesses) |
 | MCP-style | `POST /api/v2/mcp-complete` (stateless completion for AI-skill integrations) |
 | Admin | `GET /api/v2/admin/stats`, `/admin/analytics` dashboard |
+
+**Image attachments.** `POST /api/v2/threads/{id}/chat` accepts `{ "message": "…", "images": [{ "media_type": "image/jpeg", "data": "<base64>" }] }`. Up to 4 images are allowed (png, jpeg or webp, ≤ 5 MB each), and `message` may be empty when images are present. The images are sent to the model for that turn only and are **never stored**. The thread keeps a placeholder, served on thread and share GET as an additive `attachments: [{ "type": "image", "status": "not_stored", "media_type": "…" }]` key on that message (its `content` stays a string). Later turns tell the model the image is no longer available. Invalid images get 422, a body over 16 MB gets 413, and images under `PRIMARY_BACKEND=inkling` get 422.
 
 Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing — compatible with hashes from the legacy Python backend).
 

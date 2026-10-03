@@ -5,8 +5,9 @@ import { NextRequest } from 'next/server';
  * Frozen thread-GET contract (spec 73) — the regression test that protects the
  * mobile API contract, which cannot be updated in the field.
  *
- * `formatMessageContent` returns a bare STRING iff `content` is exactly one text
- * block; every assistant message today is exactly that. Tool records live in a
+ * `splitForWire` (lib/attachments.ts) returns a bare STRING iff `content` is
+ * exactly one text block once image placeholders (spec 211) are moved out into
+ * the additive `attachments` key; every assistant message today is exactly that. Tool records live in a
  * separate column precisely so this stays true. Asserted on the SERIALIZED JSON
  * (key enumeration + typeof), through the real GET handler against pglite, with
  * the tool_calls column populated — and on the share snapshot, the second

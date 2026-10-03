@@ -1,6 +1,8 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import type { Attachment } from '@/lib/api';
 import { fonts } from '@/constants/colors';
 import { RADIUS, rounded } from '@/constants/radius';
 
@@ -27,10 +29,17 @@ import { RADIUS, rounded } from '@/constants/radius';
  */
 export function AskedQuestion({
   text,
+  attachments = [],
   selectable = false,
   onLongPress,
 }: {
   text: string;
+  /**
+   * The images the question was asked with (spec 211). A thumbnail while the
+   * picked image is still in hand; afterwards only a marker that one was
+   * there, because the image itself is never stored.
+   */
+  attachments?: Attachment[];
   /**
    * On the web this is simply whether the words can be dragged over. On
    * a phone it is a mode the hold menu switches on, because a
@@ -56,25 +65,99 @@ export function AskedQuestion({
       {text}
     </Text>
   );
+  const images =
+    attachments.length > 0 ? (
+      <View style={styles.images}>
+        {attachments.map((a, i) => (
+          <AttachmentTile key={i} attachment={a} />
+        ))}
+      </View>
+    ) : null;
+  // An image-only question has no words to set in a bubble.
+  if (!text) {
+    return <View style={styles.row}>{images}</View>;
+  }
   return (
-    <View style={styles.row}>
-      {/* A pressable only where there is something to press: a held
-          mouse button is not a gesture, and wrapping the bubble on the
-          web would put a pointer cursor over the reader's own words.
-          `accessible={false}` — this is one short line of what they
-          said, and a screen reader should hear it as that. */}
-      {onLongPress ? (
-        <Pressable onLongPress={onLongPress} accessible={false} style={bubble}>
-          {words}
-        </Pressable>
-      ) : (
-        <View style={bubble}>{words}</View>
-      )}
+    <View style={styles.column}>
+      {images}
+      <View style={styles.row}>
+        {/* A pressable only where there is something to press: a held
+            mouse button is not a gesture, and wrapping the bubble on the
+            web would put a pointer cursor over the reader's own words.
+            `accessible={false}` — this is one short line of what they
+            said, and a screen reader should hear it as that. */}
+        {onLongPress ? (
+          <Pressable onLongPress={onLongPress} accessible={false} style={bubble}>
+            {words}
+          </Pressable>
+        ) : (
+          <View style={bubble}>{words}</View>
+        )}
+      </View>
     </View>
   );
 }
 
+/**
+ * One attached image. With the picked image in hand it is a thumbnail;
+ * without it — any time after the question left this screen — it is a quiet
+ * tile that says plainly the image was not kept, so nobody goes looking for
+ * a picture that no longer exists.
+ */
+function AttachmentTile({ attachment }: { attachment: Attachment }) {
+  const colors = useColors();
+  const frame = [styles.tile, rounded(RADIUS.md)];
+  if (attachment.uri) {
+    return (
+      <Image
+        source={{ uri: attachment.uri }}
+        style={frame}
+        accessibilityLabel="Attached image"
+      />
+    );
+  }
+  return (
+    <View
+      style={[frame, styles.placeholder, { backgroundColor: colors.secondary }]}
+      accessible
+      accessibilityLabel="Attached image, not stored"
+    >
+      <Feather name="image" size={18} color={colors.mutedForeground} />
+      <Text style={[styles.placeholderText, { color: colors.mutedForeground }]}>
+        Not stored
+      </Text>
+    </View>
+  );
+}
+
+const TILE = 72;
+
 const styles = StyleSheet.create({
+  column: {
+    gap: 6,
+  },
+  images: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+    maxWidth: '84%',
+  },
+  tile: {
+    width: TILE,
+    height: TILE,
+    overflow: 'hidden',
+  },
+  placeholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  placeholderText: {
+    fontSize: 11,
+    fontFamily: fonts.bodyMedium,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

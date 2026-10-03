@@ -20,6 +20,6 @@ STARTER: replace the examples below with YOUR project's facts and arch.md sectio
 
 ## Map of arch.md (consult when…)
 - Authentication & Authorization — consult when touching login/register/refresh/logout/reset, tokens, admin/system access, or the JWT config.
-- Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, or the repetition guard.
+- Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, the repetition guard, or image attachments (bytes never stored; image turns Gemini-only).
 - Monorepo layout, build & deploy — consult when changing the workspace layout, `turbo.json`, env vars, Docker builds, CI task wiring, or Railway deploy config.
-- Prototype chat display (prototypes/ansari-expo) — consult when touching how answers render: citation markers/stripping, the streaming bubble, or the hand-off footer; or the web keyboard shim, `onShellResize`, and `keyboardDismissMode` on web lists.
+- Prototype chat display (prototypes/ansari-expo) — consult when touching how answers render: citation markers/stripping, the streaming bubble, the hand-off footer, or question image attachments; or the web keyboard shim, `onShellResize`, and `keyboardDismissMode` on web lists.

@@ -1,7 +1,9 @@
 import React, { useEffect, useId, useState } from 'react';
 import {
+  Image,
   PixelRatio,
   Platform,
+  Pressable,
   StyleSheet,
   TextInput,
   View,
@@ -9,6 +11,7 @@ import {
   type TextInputKeyPressEventData,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Feather } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -25,7 +28,16 @@ import { DURATION, EASE_OUT } from '@/constants/motion';
 import { COMPOSER_RADIUS, rounded } from '@/constants/radius';
 import { withAlpha } from '@/lib/color';
 import { composerShadow, type ComposerEdge } from '@/lib/composer-shadow';
-import { sendHaptic } from '@/lib/haptics';
+import { sendHaptic, tapHaptic } from '@/lib/haptics';
+import {
+  MAX_IMAGES,
+  addImages,
+  hasQuestion,
+  remainingSlots,
+  type PickedImage,
+} from '@/lib/attachments';
+import { pickImages } from '@/lib/pick-images';
+import { toast } from '@/lib/toast';
 import { selfInkedFocusId } from '@/lib/semantics';
 
 const liquidGlass = Platform.OS === 'ios' && isLiquidGlassAvailable();
@@ -293,7 +305,11 @@ export function ChatInput({
   disabled = false,
   shimmerSend = false,
 }: {
-  onSend: (text: string) => void;
+  /**
+   * The question: its words (trimmed, possibly empty) and the images picked
+   * for it (spec 211), at least one of the two non-empty.
+   */
+  onSend: (text: string, images: PickedImage[]) => void;
   sending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -311,6 +327,8 @@ export function ChatInput({
   const colors = useColors();
   const fieldKey = useId();
   const [text, setText] = useState('');
+  const [images, setImages] = useState<PickedImage[]>([]);
+  const [picking, setPicking] = useState(false);
   const [focused, setFocused] = useState(false);
   // Web autogrow: react-native-web's <textarea> keeps its browser
   // default height instead of sizing to content, so on web the bar
@@ -318,13 +336,42 @@ export function ChatInput({
   // button) up to the shared 110 cap. Native multiline autogrows on
   // its own.
   const [inputHeight, setInputHeight] = useState(42);
-  const canSend = text.trim().length > 0 && !sending && !disabled;
+  const canSend = hasQuestion(text, images) && !sending && !disabled && !picking;
+  const canAttach = remainingSlots(images.length) > 0 && !sending && !disabled && !picking;
 
   const submit = () => {
     if (!canSend) return;
     sendHaptic();
-    onSend(text.trim());
+    onSend(text.trim(), images);
     setText('');
+    setImages([]);
+  };
+
+  // Images are sent with this one question and never kept (spec 211), so
+  // they live in the composer only until it is sent.
+  const attach = async () => {
+    if (!canAttach) return;
+    tapHaptic();
+    setPicking(true);
+    try {
+      const result = await pickImages(images.length);
+      if (result.kind === 'denied') {
+        toast.error("Ansari can't see your photos", {
+          detail: 'Allow photo access in Settings to attach an image.',
+        });
+      } else if (result.kind === 'picked') {
+        setImages((current) => addImages(current, result.images));
+        if (result.skipped > 0) {
+          toast.error(
+            result.skipped === 1 ? 'One image was too large' : `${result.skipped} images were too large`,
+          );
+        }
+      }
+    } catch {
+      toast.error("Couldn't attach that image");
+    } finally {
+      setPicking(false);
+    }
   };
 
   // Web manners: Enter sends, Shift+Enter breaks the line. On web the
@@ -416,12 +463,53 @@ export function ChatInput({
     />
   );
 
+  const attachButton = (
+    <Pressable
+      onPress={attach}
+      disabled={!canAttach}
+      style={[styles.attach, !canAttach && styles.attachOff]}
+      accessibilityRole="button"
+      accessibilityLabel="Attach images"
+      accessibilityHint={`Up to ${MAX_IMAGES}. Images are not stored.`}
+      testID="chat-attach"
+    >
+      <Feather name="image" size={19} color={colors.mutedForeground} />
+    </Pressable>
+  );
+
+  // The picked images sit above the field, each with its own way out.
+  const strip =
+    images.length > 0 ? (
+      <View style={styles.strip}>
+        {images.map((img, i) => (
+          <View key={`${i}-${img.uri}`} style={styles.thumbWrap}>
+            <Image
+              source={{ uri: img.uri }}
+              style={[styles.thumb, rounded(10)]}
+              accessibilityLabel={`Attached image ${i + 1}`}
+            />
+            <Pressable
+              onPress={() => setImages((current) => current.filter((_, j) => j !== i))}
+              hitSlop={8}
+              style={[styles.remove, { backgroundColor: colors.foreground }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove image ${i + 1}`}
+            >
+              <Feather name="x" size={12} color={colors.background} />
+            </Pressable>
+          </View>
+        ))}
+      </View>
+    ) : null;
+
   // Field and send button share one bottom-aligned row, so the button
   // stays pinned to the corner while long questions grow the field
   // toward its cap.
   return (
     <ComposerSurface clear={clearGlass} focused={focused} disabled={disabled}>
+      {strip}
       <View style={styles.row}>
+        {attachButton}
         {field}
         {sendButton}
       </View>
@@ -493,6 +581,40 @@ const styles = StyleSheet.create({
     // Gecko, and only under about 350px — including any browser at 200%
     // zoom on a phone. The search field already carries this.
     ...(Platform.OS === 'web' ? ({ minWidth: 0 } as object) : {}),
+  },
+  // The same 42 as the send disc, so the row keeps one baseline.
+  attach: {
+    width: 32,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachOff: {
+    opacity: 0.4,
+  },
+  strip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingBottom: 10,
+  },
+  thumbWrap: {
+    position: 'relative',
+  },
+  thumb: {
+    width: 56,
+    height: 56,
+  },
+  remove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Web sizes the field against its tracked height; 11 + 20 + 11 keeps
   // a single line at exactly 42 — the send button's height.

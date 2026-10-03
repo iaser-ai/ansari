@@ -12,10 +12,17 @@ export async function maybeGenerateThreadName(
   threadId: string,
   userId: string,
   userMessage: string,
+  /** Used as-is when there is no text to summarize (an image-only message, spec 211). */
+  fallbackName?: string,
 ): Promise<void> {
   try {
     const messages = await findMessagesByThread(threadId);
     if (messages.length !== 1) {
+      return;
+    }
+
+    if (!userMessage.trim()) {
+      if (fallbackName) await updateThread(threadId, userId, { name: fallbackName });
       return;
     }
 

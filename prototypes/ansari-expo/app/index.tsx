@@ -56,6 +56,12 @@ import { withAlpha } from '@/lib/color';
 import { setAskExit } from '@/lib/askExit';
 import { tickHaptic } from '@/lib/haptics';
 import { toast } from '@/lib/toast';
+import {
+  hasQuestion,
+  toLocalAttachments,
+  type PickedImage,
+} from '@/lib/attachments';
+import { stashOpeningImages } from '@/lib/pending-attachments';
 import { heading } from '@/lib/semantics';
 import { useScreenLandmark } from '@/hooks/useScreenLandmark';
 import { AnsariMarkSpin } from '@/components/AnsariMarkSpin';
@@ -117,6 +123,7 @@ export default function HomeScreen() {
       // there would fade the greeting back in behind the arriving
       // thread, mid-dissolve.)
       setPendingQuestion(null);
+      setPendingImages([]);
       // The paper's ambient layer is listening for this: back on the
       // home screen, the shadow eases in again.
       setAskExit(false);
@@ -126,6 +133,10 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  // The images the pending question was asked with (spec 211). They cross to
+  // the thread through `lib/pending-attachments`, never through the route.
+  const [pendingImages, setPendingImages] = useState<PickedImage[]>([]);
+  const askedImages = useRef<PickedImage[]>([]);
 
   // The new symbol is portrait-oriented, so size it by height rather than
   // inheriting the old width-based logotype rule. Only the phone hero
@@ -416,6 +427,7 @@ export default function HomeScreen() {
         queryClient.invalidateQueries({
           queryKey: getListConversationsQueryKey(),
         });
+        stashOpeningImages(conversation.id, askedImages.current);
         const push = () =>
           router.push({
             pathname: '/chat/[id]',
@@ -427,6 +439,8 @@ export default function HomeScreen() {
       },
       onError: (_error, variables) => {
         setPendingQuestion(null);
+        setPendingImages([]);
+        const images = askedImages.current;
         // The hand-off is off: the page is staying here, so the grain
         // and the shadow come back with the greeting.
         setAskExit(false);
@@ -436,8 +450,8 @@ export default function HomeScreen() {
         const question = variables.data.title ?? '';
         toast.error("Couldn't start that question", {
           detail: 'Check your connection and ask again.',
-          action: question
-            ? { label: 'Try again', onPress: () => ask(question) }
+          action: hasQuestion(question, images)
+            ? { label: 'Try again', onPress: () => ask(question, images) }
             : undefined,
         });
       },
@@ -445,8 +459,9 @@ export default function HomeScreen() {
   });
 
   const askedAt = useRef(0);
-  const ask = (question: string) => {
-    if (pendingQuestion) return;
+  const ask = (question: string, images: PickedImage[] = []) => {
+    // `!== null`, not truthiness: an image-only question is pending as ''.
+    if (pendingQuestion !== null) return;
     // Let the keyboard go before the exit begins. The thread arrives
     // with nothing focused, so leaving it up here would mean handing
     // over between a keyboard-raised composer and a keyboard-down one
@@ -454,11 +469,15 @@ export default function HomeScreen() {
     closeKeyboard();
     askedAt.current = Date.now();
     setPendingQuestion(question);
+    setPendingImages(images);
+    askedImages.current = images;
     // The ambient shadow lives on the paper, above the screens, so it
     // has to hear about the exit from here — its fade runs against the
     // glide rather than starting late, at the cut.
     setAskExit(true);
-    createConversation.mutate({ data: { title: question } });
+    // An image-only question has no words to title the thread with; apps/api
+    // names it once the first message lands.
+    createConversation.mutate({ data: { title: question || undefined } });
   };
 
   const questions = useMemo(
@@ -827,7 +846,10 @@ export default function HomeScreen() {
               ]}
             >
               <Animated.View entering={QUESTION_ENTER}>
-                <AskedQuestion text={pendingQuestion ?? ''} />
+                <AskedQuestion
+                  text={pendingQuestion ?? ''}
+                  attachments={toLocalAttachments(pendingImages)}
+                />
               </Animated.View>
               <ThinkingLine />
             </View>
