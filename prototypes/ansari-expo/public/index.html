@@ -154,10 +154,20 @@
       corners itself, so anything left in the corners survives as a
       notch.
 
-      The `.ico` is declared without a `sizes` attribute because it is
-      not one size: it carries 16, 32 and 48 and the browser picks. The
-      192 beside it is the same picture at a size a high-DPI tab and an
-      Android home screen can use.
+      The tab itself, wherever the browser reads SVG favicons, is
+      `favicon.svg`: the bare mark on a transparent ground, inked
+      taupe-800 on a light tab strip and taupe-200 on a dark one by a
+      `prefers-color-scheme` query inside the file — which the browser
+      re-evaluates live, so the ink follows a theme switch without a
+      reload. The `.ico` and the 192 are the fallbacks for browsers
+      that do not.
+
+      The `.ico` carries 16, 32 and 48, but is declared `32x32`, not
+      `any` and not the full list: Chrome ranks an icon that claims
+      `any`, or an exact 16 and 32, above an SVG with no `sizes`, and
+      shows the `.ico` instead (checked against Chrome's own favicon
+      store, #230). The 192 is the same picture at a size a high-DPI
+      tab and an Android home screen can use.
 
       The manifest carries the name, the icons and the paper colour, so
       an Android reader who installs Ansari gets its name and mark
@@ -167,7 +177,8 @@
       spelling of the Apple line above it and is here to stop Chrome
       warning that the other one is deprecated — both are needed.
     -->
-    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
