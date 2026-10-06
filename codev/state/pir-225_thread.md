@@ -14,3 +14,7 @@
 - Negative-tested: S=0.6 fails the crush test; the old 0.45 bound fails portrait; a grade that ignores strength fails the new invariance test. All restore green.
 - typecheck clean, 389/389 tests pass.
 - Ungraded follow-up filed: #229.
+
+## Dev-approval feedback (2026-10-06)
+- Reviewer: day shadow looked unchanged. Measured: 0.3→0.345 moved frond-vs-wall contrast only 5.1→5.9 L* on stone-200 paper (<1 L*, invisible on a soft moving texture). Raised DAY_STRENGTH to 0.4 (~6.8 L*).
+- Dev-server gotcha: the 8225 server was launched with CI=1 (Metro "CI mode, reloads are disabled"), so it kept serving stale code after edits. Restarted without CI. Verify served values by grepping the bundle, not by trusting the tab.
