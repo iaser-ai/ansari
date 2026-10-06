@@ -48,10 +48,30 @@ const FOOTNOTE = /\[\d{1,4}\]/g;
 /** A Markdown link keeps its label; its destination is not prose. */
 const LINK = /\[([^\]]*)\]\([^)]*\)/g;
 /**
- * One reference at the very end of the line — `(2:255)`,
- * `(Qur'an 23:1)`, `(البقرة: ٢٥٥)` — with any trailing punctuation.
+ * One reference in parentheses at the very end of a line — `(2:255)`,
+ * `(Qur'an 23:1)`, `(البقرة: ٢٥٥)` — allowing only punctuation and
+ * source markers after it.
  */
-const TRAILING_REFERENCE = /\([^()]*\)[\s.,;:!?،؛]*$/u;
+const TRAILING_REFERENCE =
+  /\s*\(([^()]*)\)(?=[\s.,;:!?،؛]*(?:\[\d{1,4}\][\s.,;:!?،؛]*)*$)/u;
+
+/**
+ * A line with its trailing reference taken out, and the reference
+ * itself (without its parentheses), or null when it has none. The
+ * source markers after a reference stay on the line.
+ */
+export function splitTrailingReference(line: string): {
+  line: string;
+  reference: string | null;
+} {
+  const m = TRAILING_REFERENCE.exec(line);
+  const reference = m?.[1]?.trim();
+  if (!m || !reference) return { line, reference: null };
+  return {
+    line: line.slice(0, m.index) + line.slice(m.index + m[0].length),
+    reference,
+  };
+}
 
 /**
  * Is this line a passage of Arabic — a verse, a hadith's words — rather
@@ -66,11 +86,8 @@ const TRAILING_REFERENCE = /\([^()]*\)[\s.,;:!?،؛]*$/u;
  * lead-in right-to-left, which does not.
  */
 export function isArabicPassageLine(line: string): boolean {
-  const text = line
-    .replace(LINK, '$1')
-    .replace(FOOTNOTE, '')
-    .trimEnd()
-    .replace(TRAILING_REFERENCE, '');
+  const text = splitTrailingReference(line.replace(LINK, '$1'))
+    .line.replace(FOOTNOTE, '');
   const letters = text.match(LETTER)?.length ?? 0;
   const arabic = text.match(ARABIC_LETTER)?.length ?? 0;
   return arabic > 0 && arabic === letters;

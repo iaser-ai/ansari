@@ -11,3 +11,9 @@
 - jsdom quirk: cssstyle drops an inline `font-family: Amiri_400Regular` (accepts `Foo`), and RNW static styles are atomic classes getComputedStyle won't resolve; test reads the class's CSS rule instead. Moved the inline-run fontFamily into StyleSheet.
 - Negative test: removing the web `dir` pin fails 5/8 AnswerProse tests.
 - Visual check via temp uncommitted route `app/preview228.tsx` + headless Chrome CDP; before/after screenshots show the bug and the fix (light + dark).
+
+## Dev-approval feedback round 1 (architect visual review)
+- (1) Scripture quote is now a box: brass wash (accent 0.06) + brass hairline (0.32) at RADIUS.lg; ink-rule quotes unchanged.
+- (2) Trailing `(reference)` is lifted off the Arabic line (`splitTrailingReference` → `passage.reference`) and set beneath the verse+translation as a byline between two short brass rules.
+- (3) No round marker exists in the app: inline CitationChip and the Sources pills both use the brass superscript figure. The raw `[N]` in the first screenshots was an artifact of my preview passing no citations. Preview now uses SAMPLE_CITATIONS; chip style unchanged, and the point is raised with the architect rather than inventing a style.
+- (4) Verse and translation are centred together inside the box.

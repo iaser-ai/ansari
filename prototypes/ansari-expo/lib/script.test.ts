@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   answerDirection,
   isArabicPassageLine,
+  splitTrailingReference,
   isMostlyArabic,
   splitArabicRuns,
 } from '@/lib/script';
@@ -82,5 +83,33 @@ describe('splitArabicRuns', () => {
     expect(splitArabicRuns(TRANSLATION)).toEqual([
       { text: TRANSLATION, arabic: false },
     ]);
+  });
+});
+
+describe('splitTrailingReference', () => {
+  it('takes a reference in parentheses off the end of a line', () => {
+    expect(splitTrailingReference(`${AYAH} (Qur'an 23:1)`)).toEqual({
+      line: AYAH,
+      reference: "Qur'an 23:1",
+    });
+  });
+
+  it('keeps source markers and punctuation that follow the reference', () => {
+    expect(splitTrailingReference(`${AYAH} (23:1). [1]`)).toEqual({
+      line: `${AYAH}. [1]`,
+      reference: '23:1',
+    });
+  });
+
+  it('leaves a line whose parenthesis is not at the end alone', () => {
+    const line = `(${AYAH}) ${AYAH}`;
+    expect(splitTrailingReference(line)).toEqual({ line, reference: null });
+  });
+
+  it('ignores empty parentheses', () => {
+    expect(splitTrailingReference(`${AYAH} ()`)).toEqual({
+      line: `${AYAH} ()`,
+      reference: null,
+    });
   });
 });

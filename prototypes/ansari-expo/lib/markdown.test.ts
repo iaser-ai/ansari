@@ -293,6 +293,7 @@ describe('Arabic passages (issue #228)', () => {
     expect(block.type === 'quote' && block.blocks[0]).toEqual({
       type: 'passage',
       spans: [{ type: 'text', text: AYAH }],
+      reference: null,
     });
   });
 
@@ -316,6 +317,27 @@ describe('Arabic passages (issue #228)', () => {
         { type: 'text', text: `${AYAH} ` },
         { type: 'footnote', marker: 2, raw: '[2]' },
       ],
+      reference: null,
+    });
+  });
+
+  it('takes the trailing reference off the Arabic line, keeping markers', () => {
+    const block = onlyBlock(`${AYAH} (Qur'an 23:1) [2]\n${TRANSLATION}`);
+    expect(block.type === 'quote' && block.blocks[0]).toEqual({
+      type: 'passage',
+      spans: [
+        { type: 'text', text: `${AYAH} ` },
+        { type: 'footnote', marker: 2, raw: '[2]' },
+      ],
+      reference: [{ type: 'text', text: "Qur'an 23:1" }],
+    });
+  });
+
+  it('leaves a parenthesis that is not at the end of the line in place', () => {
+    const block = onlyBlock(`(${AYAH}) ${AYAH}`);
+    expect(block.type === 'quote' && block.blocks[0]).toMatchObject({
+      type: 'passage',
+      reference: null,
     });
   });
 
@@ -341,7 +363,7 @@ describe('Arabic passages (issue #228)', () => {
     ).toEqual(['paragraph']);
   });
 
-  it('keeps every character the reader wrote', () => {
+  it('keeps every character the reader wrote (bar a lifted reference)', () => {
     const source = `Allah says:\n${AYAH}\n${TRANSLATION}`;
     expect(textOf(parseAnswer(source))).toBe(
       `Allah says:${AYAH}${TRANSLATION}`,

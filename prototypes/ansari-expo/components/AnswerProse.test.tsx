@@ -42,6 +42,23 @@ function fontFamilyOf(el: Element): string {
   return '';
 }
 
+/** An element's text-align, from its inline style or its atomic class's rule. */
+function textAlignOf(el: HTMLElement): string {
+  if (el.style.textAlign) return el.style.textAlign;
+  const classes = Array.from(el.classList).filter((c) =>
+    c.startsWith('r-textAlign'),
+  );
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of Array.from(sheet.cssRules)) {
+      const m = /text-align:\s*([a-z]+)/.exec(rule.cssText);
+      if (m && classes.some((c) => rule.cssText.includes(`.${c}`))) {
+        return m[1]!;
+      }
+    }
+  }
+  return '';
+}
+
 /** The root text element (a block) whose text starts with `text`. */
 function blockStartingWith(container: HTMLElement, text: string): HTMLElement {
   const match = Array.from(container.querySelectorAll<HTMLElement>('[dir]')).find(
@@ -62,12 +79,22 @@ describe('AnswerProse direction (issue #228)', () => {
     expect(container.querySelector('[dir="auto"]')).toBeNull();
   });
 
-  it('sets the verse right-to-left, in Amiri', () => {
+  it('sets the verse right-to-left, in Amiri, centred with its translation', () => {
     const container = renderAnswer(`${AYAH}\n${TRANSLATION}`);
     const passage = blockStartingWith(container, AYAH);
     expect(passage.getAttribute('dir')).toBe('rtl');
     expect(fontFamilyOf(passage)).toContain(fonts.arabic);
-    expect(getComputedStyle(passage).textAlign).toBe('right');
+    expect(textAlignOf(passage)).toBe('center');
+    expect(textAlignOf(blockStartingWith(container, TRANSLATION))).toBe(
+      'center',
+    );
+  });
+
+  it('leaves prose outside scripture uncentred', () => {
+    const container = renderAnswer(`Allah says:\n${AYAH}\n${TRANSLATION}`);
+    expect(textAlignOf(blockStartingWith(container, 'Allah says'))).not.toBe(
+      'center',
+    );
   });
 
   it('pins plain English paragraphs, headings and list items to LTR', () => {
@@ -101,8 +128,8 @@ describe('AnswerProse direction (issue #228)', () => {
   });
 });
 
-describe('AnswerProse scripture quotation (issue #228)', () => {
-  it('gives a quoted verse the brass rule', () => {
+describe('AnswerProse scripture box (issue #228)', () => {
+  it('sets a quoted verse in the scripture box', () => {
     renderAnswer(`> ${AYAH}\n> ${TRANSLATION}`);
     expect(screen.getByTestId('answer-scripture')).toBeTruthy();
   });
@@ -110,6 +137,21 @@ describe('AnswerProse scripture quotation (issue #228)', () => {
   it('gives an unquoted verse the same treatment', () => {
     renderAnswer(`${AYAH}\n${TRANSLATION}`);
     expect(screen.getByTestId('answer-scripture')).toBeTruthy();
+  });
+
+  it('sets the trailing reference on its own line beneath the pair', () => {
+    renderAnswer(`${AYAH} (Qur'an 23:1)\n${TRANSLATION}`);
+    const reference = screen.getByTestId('answer-scripture-reference');
+    expect(reference.textContent).toBe("Qur'an 23:1");
+    // Taken off the Arabic line, and after the translation in the box.
+    const box = screen.getByTestId('answer-scripture');
+    expect(box.lastElementChild).toBe(reference);
+    expect(blockStartingWith(box, AYAH).textContent).toBe(AYAH);
+  });
+
+  it('draws no attribution when the verse carried no reference', () => {
+    renderAnswer(`${AYAH}\n${TRANSLATION}`);
+    expect(screen.queryByTestId('answer-scripture-reference')).toBeNull();
   });
 
   it('leaves a quotation with no Arabic in the ink rule', () => {

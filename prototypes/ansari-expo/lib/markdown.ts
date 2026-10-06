@@ -36,7 +36,7 @@
  * frame while it streams in, so for most of its life it *is* malformed.
  */
 
-import { isArabicPassageLine } from '@/lib/script';
+import { isArabicPassageLine, splitTrailingReference } from '@/lib/script';
 
 // ---------------------------------------------------------------------------
 // Tree
@@ -75,7 +75,15 @@ export type Block =
    * a hadith's words — lifted out of the paragraph it was written in so
    * it can be set as the source it is (see `isArabicPassageLine`).
    */
-  | { type: 'passage'; spans: Span[] }
+  | {
+      type: 'passage';
+      spans: Span[];
+      /**
+       * The reference written after it — `(Qur'an 20:14)` — taken off
+       * the Arabic line so it can be set as the passage's attribution.
+       */
+      reference: Span[] | null;
+    }
   | { type: 'codeBlock'; text: string }
   /** Every row is padded or truncated to the header's width. */
   | {
@@ -581,8 +589,15 @@ interface BlockOptions {
  */
 function liftPassages(lines: string[], options: BlockOptions): Block[] {
   const toBlock = (group: string[], passage: boolean): Block => {
-    const spans = parseInline(group.join('\n'));
-    return passage ? { type: 'passage', spans } : { type: 'paragraph', spans };
+    if (!passage) {
+      return { type: 'paragraph', spans: parseInline(group.join('\n')) };
+    }
+    const last = splitTrailingReference(group[group.length - 1]!);
+    return {
+      type: 'passage',
+      spans: parseInline([...group.slice(0, -1), last.line].join('\n')),
+      reference: last.reference === null ? null : parseInline(last.reference),
+    };
   };
 
   if (!options.lift || !lines.some(isArabicPassageLine)) {

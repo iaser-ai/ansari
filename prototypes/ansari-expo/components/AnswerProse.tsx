@@ -14,7 +14,7 @@ import { answerLeading, answerSize } from '@/constants/layout';
 import { withAlpha } from '@/lib/color';
 import { openExternalLink } from '@/lib/link';
 import { heading } from '@/lib/semantics';
-import { answerDirection, splitArabicRuns } from '@/lib/script';
+import { answerDirection, isMostlyArabic, splitArabicRuns } from '@/lib/script';
 import {
   parseAnswer,
   type Block,
@@ -50,13 +50,14 @@ import { RADIUS, rounded } from '@/constants/radius';
  *    signal.
  *  - Scripture is the exception, because it is what the answer stands
  *    on. A line written wholly in Arabic (a `passage`) is set the way
- *    the source folio sets it: Amiri, larger, right-aligned, with the
- *    open leading its marks need. The quotation holding it takes the
- *    folio's brass for its rule, and the translation beneath stays
- *    upright prose. The parser gives an unquoted verse a quotation of
- *    its own, so a verse looks the same however the answer wrote it.
- *    Shorter Arabic inside an English sentence is set in Amiri too, a
- *    step up so its letters stand level with Literata's.
+ *    the source folio sets it: Amiri, larger, with the open leading its
+ *    marks need. The quotation holding it becomes a box in the folio's
+ *    brass, with the verse and its upright translation centred as one
+ *    unit and any reference written after the verse set beneath them as
+ *    an attribution (`renderScripture`). The parser gives an unquoted
+ *    verse a quotation of its own, so a verse looks the same however the
+ *    answer wrote it. Shorter Arabic inside an English sentence is set
+ *    in Amiri too, a step up so its letters stand level with Literata's.
  *  - Code, the one thing on this page that is not prose, gets the one
  *    non-serif: a quiet monospaced run, tinted rather than boxed
  *    inline, and a soft slab for a fenced block.
@@ -120,6 +121,7 @@ export function AnswerProse({
     selectable,
     direction,
     script: direction === 'ltr' ? 'prose' : 'none',
+    centered: false,
   };
 
   return <>{renderBlocks(blocks, ctx, 0)}</>;
@@ -139,12 +141,15 @@ interface Ctx {
   direction: Direction;
   /**
    * How Arabic runs inside text are set: `prose` sets them in Amiri a
-   * step up, `passage` sets the Arabic in Amiri and anything else (a
-   * trailing reference) back in the prose face, and `none` leaves the
-   * text alone — an answer written in Arabic or Urdu is not scripture
-   * line by line, and Urdu is not set in a Naskh.
+   * step up, `passage` sets them in Amiri at the passage's own size
+   * (holding the face under emphasis, which would otherwise swap in
+   * Literata), and `none` leaves the text alone — an answer written in
+   * Arabic or Urdu is not scripture line by line, and Urdu is not set
+   * in a Naskh.
    */
   script: 'prose' | 'passage' | 'none';
+  /** Inside a scripture box, where the verse and its translation are centred as one. */
+  centered: boolean;
 }
 
 type Direction = 'ltr' | 'rtl';
@@ -266,21 +271,6 @@ function renderSpans(
                 >
                   {run.text}
                 </Text>
-              ) : ctx.script === 'passage' ? (
-                // A reference after a verse is the answer's own words,
-                // so it goes back to the answer's face and size.
-                <Text
-                  key={ri}
-                  style={[
-                    styles.paragraph,
-                    {
-                      fontSize: bodySize(ctx.desktop, ctx.width),
-                      color: ctx.colors.mutedForeground,
-                    },
-                  ]}
-                >
-                  {run.text}
-                </Text>
               ) : (
                 run.text
               ),
@@ -394,6 +384,7 @@ function renderBlock(
             styles.paragraph,
             { fontSize: size, lineHeight: leading, color: colors.foreground },
             pinned.style,
+            ctx.centered && styles.centered,
             !first &&
               (previous?.type === 'passage'
                 ? styles.translationSpacing
@@ -510,16 +501,17 @@ function renderBlock(
       );
 
     case 'quote': {
-      // A quotation that holds scripture takes the folio's brass for its
-      // rule; any other quotation keeps the ink one.
-      const scripture = block.blocks.some((child) => child.type === 'passage');
-      const rule = scripture
-        ? withAlpha(colors.accent, 0.7)
-        : withAlpha(colors.heroInk, 0.9);
+      const passages = block.blocks.filter(
+        (child): child is Extract<Block, { type: 'passage' }> =>
+          child.type === 'passage',
+      );
+      if (passages.length > 0) {
+        return renderScripture(block.blocks, passages, key, first, ctx, depth);
+      }
+      const rule = withAlpha(colors.heroInk, 0.9);
       return (
         <View
           key={key}
-          testID={scripture ? 'answer-scripture' : undefined}
           style={[
             rtl ? styles.quoteRtl : styles.quote,
             rtl ? { borderRightColor: rule } : { borderLeftColor: rule },
@@ -575,6 +567,97 @@ function renderBlock(
         />
       );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scripture
+// ---------------------------------------------------------------------------
+
+/**
+ * A quotation that holds scripture, set as a leaf of its own rather
+ * than as one more indented quote.
+ *
+ * It is a box — a faint brass wash inside a brass hairline, at a card's
+ * corner — because this is the one thing in an answer that is not the
+ * answer's own words, and a rule down one side said only "quoted". The
+ * verse and its translation are centred together, so the pair reads as
+ * a single unit, the way a verse is set at the head of a chapter. The
+ * reference that followed the Arabic is taken off its line and set
+ * beneath the pair as the box's attribution, between two short brass
+ * rules: the ornament row the folio opens its Arabic with, here closing
+ * the passage instead.
+ */
+function renderScripture(
+  blocks: Block[],
+  passages: Extract<Block, { type: 'passage' }>[],
+  key: React.Key,
+  first: boolean,
+  ctx: Ctx,
+  depth: number,
+): React.ReactNode {
+  const { colors } = ctx;
+  const references = passages.flatMap((p) => (p.reference ? [p.reference] : []));
+  return (
+    <View
+      key={key}
+      testID="answer-scripture"
+      style={[
+        styles.scripture,
+        {
+          backgroundColor: withAlpha(colors.accent, 0.06),
+          borderColor: withAlpha(colors.accent, 0.32),
+          ...rounded(RADIUS.lg),
+          marginTop: first ? 0 : 20,
+        },
+      ]}
+    >
+      {renderBlocks(blocks, { ...ctx, centered: true }, depth)}
+      {references.map((reference, i) => {
+        const pinned = pinDirection(
+          isMostlyArabic(plainText(reference)) ? 'rtl' : 'ltr',
+        );
+        return (
+          <View
+            key={`reference-${i}`}
+            style={styles.bylineRow}
+            testID="answer-scripture-reference"
+          >
+            <View
+              style={[styles.bylineRule, { backgroundColor: colors.accent }]}
+            />
+            <Text
+              selectable={ctx.selectable}
+              {...pinned.props}
+              style={[
+                styles.byline,
+                { color: colors.secondaryForeground },
+                pinned.style,
+              ]}
+            >
+              {pinned.mark}
+              {renderSpans(reference, { ...ctx, script: 'none' }, 13, null, true)}
+            </Text>
+            <View
+              style={[styles.bylineRule, { backgroundColor: colors.accent }]}
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** The characters a run of spans reads as, for deciding its direction. */
+function plainText(spans: Span[]): string {
+  return spans
+    .map((span) =>
+      span.type === 'text' || span.type === 'code'
+        ? span.text
+        : span.type === 'footnote'
+          ? span.raw
+          : plainText(span.spans),
+    )
+    .join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +798,38 @@ const styles = StyleSheet.create({
   // well above and below the line, hence the open leading.
   passage: {
     fontFamily: fonts.arabic,
-    textAlign: 'right',
+    textAlign: 'center',
+  },
+  centered: {
+    textAlign: 'center',
+  },
+  scripture: {
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 16,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    marginBottom: 5,
+  },
+  // The attribution: the folio's label voice — the serif with more ink,
+  // tracked out — between two short brass rules.
+  bylineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 14,
+  },
+  bylineRule: {
+    width: 18,
+    height: StyleSheet.hairlineWidth,
+    opacity: 0.7,
+  },
+  byline: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 13,
+    letterSpacing: 0.6,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   arabicRun: {
     fontFamily: fonts.arabic,
