@@ -25,6 +25,7 @@ export default defineConfig({
       'lib/**/*.test.{ts,tsx}',
       'components/**/*.test.{ts,tsx}',
       'hooks/**/*.test.{ts,tsx}',
+      'constants/**/*.test.{ts,tsx}',
     ],
   },
 });
