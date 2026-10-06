@@ -68,6 +68,22 @@ function textAlignOf(el: HTMLElement): string {
   return '';
 }
 
+/** A CSS property's value on an element, from its inline style or its atomic class's rule. */
+function cssOf(el: HTMLElement, property: string): string {
+  const inline = el.style.getPropertyValue(property);
+  if (inline) return inline;
+  const pattern = new RegExp(`(?:^|[;{\\s])${property}:\\s*([^;}]+)`);
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of Array.from(sheet.cssRules)) {
+      const m = pattern.exec(rule.cssText);
+      if (m && Array.from(el.classList).some((c) => rule.cssText.includes(`.${c}`))) {
+        return m[1]!.trim();
+      }
+    }
+  }
+  return '';
+}
+
 /** The root text element (a block) whose text starts with `text`. */
 function blockStartingWith(container: HTMLElement, text: string): HTMLElement {
   const match = Array.from(container.querySelectorAll<HTMLElement>('[dir]')).find(
@@ -96,6 +112,26 @@ describe('AnswerProse direction (issue #228)', () => {
     expect(textAlignOf(passage)).toBe('center');
     expect(textAlignOf(blockStartingWith(container, TRANSLATION))).toBe(
       'center',
+    );
+  });
+
+  it('balances the lines of the verse and its translation, and nothing else', () => {
+    const container = renderAnswer(`Allah says:\n${AYAH}\n${TRANSLATION}`);
+    expect(cssOf(blockStartingWith(container, AYAH), 'text-wrap')).toBe(
+      'balance',
+    );
+    expect(
+      cssOf(blockStartingWith(container, TRANSLATION), 'text-wrap'),
+    ).toBe('balance');
+    expect(
+      cssOf(blockStartingWith(container, 'Allah says'), 'text-wrap'),
+    ).toBe('');
+  });
+
+  it('never lets a verse number start a line', () => {
+    const container = renderAnswer('وَٱلْعَصْرِ ﴿١﴾\nBy time.');
+    expect(blockStartingWith(container, 'وَٱلْعَصْرِ').textContent).toBe(
+      'وَٱلْعَصْرِ\u00A0﴿١﴾',
     );
   });
 

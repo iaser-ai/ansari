@@ -588,20 +588,25 @@ interface BlockOptions {
  * (`Allah says:`) stays outside it, as prose.
  */
 function liftPassages(lines: string[], options: BlockOptions): Block[] {
-  const toBlock = (group: string[], passage: boolean): Block => {
+  // Each Arabic line is its own passage — usually one verse to a line —
+  // so each can be set (and its lines balanced) on its own; a block
+  // broken by newlines is one the line breaker cannot balance.
+  const toBlocks = (group: string[], passage: boolean): Block[] => {
     if (!passage) {
-      return { type: 'paragraph', spans: parseInline(group.join('\n')) };
+      return [{ type: 'paragraph', spans: parseInline(group.join('\n')) }];
     }
-    const last = splitTrailingReference(group[group.length - 1]!);
-    return {
-      type: 'passage',
-      spans: parseInline([...group.slice(0, -1), last.line].join('\n')),
-      reference: last.reference === null ? null : parseInline(last.reference),
-    };
+    return group.map((line) => {
+      const { line: text, reference } = splitTrailingReference(line);
+      return {
+        type: 'passage',
+        spans: parseInline(text),
+        reference: reference === null ? null : parseInline(reference),
+      };
+    });
   };
 
   if (!options.lift || !lines.some(isArabicPassageLine)) {
-    return [toBlock(lines, false)];
+    return toBlocks(lines, false);
   }
 
   const runs: Block[] = [];
@@ -610,13 +615,13 @@ function liftPassages(lines: string[], options: BlockOptions): Block[] {
   for (const line of lines) {
     const arabic = isArabicPassageLine(line);
     if (arabic !== passage) {
-      runs.push(toBlock(group, passage));
+      runs.push(...toBlocks(group, passage));
       group = [];
       passage = arabic;
     }
     group.push(line);
   }
-  runs.push(toBlock(group, passage));
+  runs.push(...toBlocks(group, passage));
 
   if (options.inQuote) return runs;
   const first = runs.findIndex((block) => block.type === 'passage');

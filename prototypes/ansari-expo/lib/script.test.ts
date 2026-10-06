@@ -19,6 +19,10 @@ describe('isArabicPassageLine', () => {
     ['a verse with an Arabic reference', `${AYAH} (المؤمنون: ١)`],
     ['a verse in bold', `**${AYAH}**`],
     ['a hadith in quotation marks', '«إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ»'],
+    // Arabic-Indic digits and Qur'anic marks are Arabic script but not
+    // letters; a verse carrying them is still wholly Arabic.
+    ['a verse with its ayah number', 'وَٱلْعَصْرِ ﴿١﴾'],
+    ['a verse with a Qur\'anic annotation mark', 'وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ'],
   ])('is true for %s', (_, line) => {
     expect(isArabicPassageLine(line)).toBe(true);
   });

@@ -192,6 +192,31 @@ function pinDirection(direction: Direction): {
 }
 
 /**
+ * Centred scripture is set with its lines balanced, so a verse or its
+ * translation never ends on one stranded word ("their / prayer."), in
+ * either script. Each platform has a line breaker that does exactly
+ * this, which is the only way it can be done for every width and
+ * every text rather than tuned for one: the web's `text-wrap: balance`
+ * evens the lengths of a block's lines, Android's `balanced` break
+ * strategy does the same, and iOS's `push-out` pulls a word down so the
+ * last line is never a lone word.
+ *
+ * Only centred text gets it. A centred block is read as a shape, so a
+ * short last line shows; left-aligned prose has a ragged right edge
+ * anyway, and evening a long answer's paragraphs would cost every one a
+ * narrower measure.
+ */
+const BALANCED_PROPS = {
+  textBreakStrategy: 'balanced',
+  lineBreakStrategyIOS: 'push-out',
+} as const;
+
+/** `text-wrap` is not in React Native's style types; react-native-web passes it through. */
+const BALANCED_STYLE = (Platform.OS === 'web'
+  ? { textWrap: 'balance' }
+  : null) as unknown as TextStyle | null;
+
+/**
  * Amiri's letters run small beside Literata's at the same nominal size,
  * so Arabic inside an English sentence is set this much larger to stand
  * level with the words around it.
@@ -372,13 +397,23 @@ const NO_WRAP = (Platform.OS === 'web'
   ? { whiteSpace: 'nowrap' }
   : null) as unknown as TextStyle | null;
 
+/**
+ * A verse's number (`﴿٣﴾`, or the end-of-ayah sign `۝`) belongs to the
+ * verse's last word, so the space between them is made unbreakable: a
+ * line must never begin with the number of the verse it just ended.
+ */
+function bindAyahNumbers(text: string): string {
+  return text.replace(/[ \t]+(?=[\uFD3E\uFD3F\u06DD])/g, '\u00A0');
+}
+
 /** A run of plain text, with any Arabic in it set in Amiri. */
 function renderText(
-  text: string,
+  raw: string,
   key: React.Key,
   ctx: Ctx,
   size: number,
 ): React.ReactNode {
+  const text = ctx.script === 'none' ? raw : bindAyahNumbers(raw);
   const runs = ctx.script === 'none' ? [] : splitArabicRuns(text);
   if (!runs.some((run) => run.arabic)) return <Text key={key}>{text}</Text>;
   return (
@@ -436,11 +471,13 @@ function renderBlock(
           key={key}
           selectable={ctx.selectable}
           {...pinned.props}
+          {...(ctx.centered ? BALANCED_PROPS : null)}
           style={[
             styles.paragraph,
             { fontSize: size, lineHeight: leading, color: colors.foreground },
             pinned.style,
             ctx.centered && styles.centered,
+            ctx.centered && BALANCED_STYLE,
             !first &&
               (previous?.type === 'passage'
                 ? styles.translationSpacing
@@ -460,13 +497,16 @@ function renderBlock(
           key={key}
           selectable={ctx.selectable}
           {...rtlPin.props}
+          {...BALANCED_PROPS}
           style={[
             styles.passage,
+            BALANCED_STYLE,
             {
               fontSize: passageSize,
               lineHeight: Math.round(passageSize * 1.9),
               color: colors.strongForeground,
-              marginTop: first ? 0 : 12,
+              // Consecutive verses sit line under line, as one passage.
+              marginTop: first || previous?.type === 'passage' ? 0 : 12,
             },
             rtlPin.style,
           ]}

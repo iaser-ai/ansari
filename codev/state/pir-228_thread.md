@@ -26,3 +26,9 @@
 - User asked for the citation number and title combined in an oval like the footer pills, pinned to the box's base with the border through its centre, tappable, and labelled by kind. Built as `ScripturePill`: opaque paper base plus a brass inset wash, so the hairline doesn't show through. Markers shown on the pill are suppressed inline in the box, and the pill replaces the written-reference byline (the byline stays as a fallback when nothing resolves).
 - `sourceKindLabel` was moved to lib/footnote-groups.ts and the folio uses it (it had its own SOURCE_LABEL map).
 - Near miss: a reanimated mock without `Easing` failed the whole AnswerProse test file at load, and the test count dropped 445→431 while my grep showed only "Tests N passed". Always check `Test Files` too.
+
+## Round 4: no orphan words; multi-verse example
+- User asked for no lone last words in Arabic or English, but only if it could be done systematically. It uses each platform's own line breaker on centred scripture text only: web `text-wrap: balance`, Android `textBreakStrategy="balanced"`, iOS `lineBreakStrategyIOS="push-out"`. Measured with Range rects over CDP at 340/360/390/420/720px: in every multi-line block the last line is at least 0.79 of the widest (before: "their prayer." under 0.2).
+- Chrome does not balance across forced newlines, so each Arabic line is now its own `passage` block (one verse per line), and a verse number `﴿N﴾`/`۝` is bound to its word with an NBSP.
+- Bug found by the multi-verse example: `isArabicPassageLine` counted Arabic-script chars (which include Arabic-Indic digits and Qur'anic marks) against letters, so any verse with `﴿١﴾` or `ۢ` failed to lift. Now it counts Arabic letters only. Negative-tested: the two new cases fail on the old regex.
+- Preview now has Al-'Asr (verses then translation) and Al-Ikhlas (verse/translation alternating).

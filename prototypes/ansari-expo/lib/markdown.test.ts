@@ -357,6 +357,25 @@ describe('Arabic passages (issue #228)', () => {
     ]);
   });
 
+  it('sets each line of a multi-verse passage as its own passage', () => {
+    const asr = 'وَٱلْعَصْرِ ﴿١﴾\nإِنَّ ٱلْإِنسَٰنَ لَفِى خُسْرٍ ﴿٢﴾ (103:2)';
+    const block = onlyBlock(`${asr}\n${TRANSLATION}`);
+    expect(shape([block])).toEqual([
+      { quote: ['passage', 'passage', 'paragraph'] },
+    ]);
+    // A reference is taken off the line it was written on.
+    expect(
+      block.type === 'quote' &&
+        block.blocks.map((b) => (b.type === 'passage' ? b.reference : 'n/a')),
+    ).toEqual([null, [{ type: 'text', text: '103:2' }], 'n/a']);
+  });
+
+  it('pairs each verse with its translation when they alternate', () => {
+    expect(
+      shape(parseAnswer(`${AYAH}\nOne.\n${AYAH}\nTwo. [1]`)),
+    ).toEqual([{ quote: ['passage', 'paragraph', 'passage', 'paragraph'] }]);
+  });
+
   it('lifts nothing when asked not to (an answer written in Arabic)', () => {
     expect(
       shape(parseAnswer(`${AYAH}\n${TRANSLATION}`, { lift: false })),

@@ -15,7 +15,13 @@
  */
 
 const LETTER = /\p{L}/gu;
-const ARABIC_LETTER = /\p{Script=Arabic}/gu;
+/**
+ * A *letter* in Arabic script. The script also holds Arabic-Indic
+ * digits (`١`, as in an ayah number `﴿١﴾`) and Qur'anic annotation marks
+ * (`ۢ`), which are not letters; counting them alongside letters made a
+ * numbered verse look like it had more Arabic than letters, and fail.
+ */
+const ARABIC_LETTER = /(?=\p{L})\p{Script=Arabic}/gu;
 
 /** The share of a text's letters that are in Arabic script (0 with no letters). */
 function arabicShare(text: string): number {
