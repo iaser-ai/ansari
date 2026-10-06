@@ -1,7 +1,7 @@
 id: '230'
 title: prototypes-ansari-expo-single-
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-06T22:12:13.637Z'
-updated_at: '2026-10-06T22:28:21.062Z'
+updated_at: '2026-10-06T22:28:22.574Z'
 pr_history:
   - phase: pr
     pr_number: 231
