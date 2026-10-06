@@ -1,0 +1,119 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+
+vi.mock('@/lib/haptics', () => ({ tapHaptic: () => {} }));
+
+import { fonts } from '@/constants/colors';
+import { AnswerProse } from '@/components/AnswerProse';
+
+afterEach(cleanup);
+
+const AYAH = 'قَدْ أَفْلَحَ ٱلْمُؤْمِنُونَ';
+const TRANSLATION = 'Successful indeed are the believers.';
+
+function renderAnswer(content: string) {
+  return render(
+    <AnswerProse
+      content={content}
+      byMarker={new Map()}
+      onCitationPress={() => {}}
+    />,
+  ).container;
+}
+
+/**
+ * The font family react-native-web gave an element. Static styles land
+ * as atomic classes in an injected stylesheet, which jsdom's computed
+ * style does not resolve (and jsdom's CSS parser rejects an unquoted
+ * `Amiri_400Regular` written inline), so the class's rule is read
+ * directly.
+ */
+function fontFamilyOf(el: Element): string {
+  const classes = Array.from(el.classList).filter((c) => c.startsWith('r-fontFamily'));
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of Array.from(sheet.cssRules)) {
+      if (classes.some((c) => rule.cssText.includes(`.${c}`))) {
+        return rule.cssText;
+      }
+    }
+  }
+  return '';
+}
+
+/** The root text element (a block) whose text starts with `text`. */
+function blockStartingWith(container: HTMLElement, text: string): HTMLElement {
+  const match = Array.from(container.querySelectorAll<HTMLElement>('[dir]')).find(
+    (el) => el.textContent?.startsWith(text),
+  );
+  if (!match) throw new Error(`no block starting with ${text}`);
+  return match;
+}
+
+describe('AnswerProse direction (issue #228)', () => {
+  it('pins a translation that shares a paragraph with its verse to LTR', () => {
+    // Before the fix this was ONE block opened by Arabic, rendered
+    // dir="auto", which the browser resolves to RTL for the English too.
+    const container = renderAnswer(`${AYAH}\n${TRANSLATION}`);
+    expect(blockStartingWith(container, TRANSLATION).getAttribute('dir')).toBe(
+      'ltr',
+    );
+    expect(container.querySelector('[dir="auto"]')).toBeNull();
+  });
+
+  it('sets the verse right-to-left, in Amiri', () => {
+    const container = renderAnswer(`${AYAH}\n${TRANSLATION}`);
+    const passage = blockStartingWith(container, AYAH);
+    expect(passage.getAttribute('dir')).toBe('rtl');
+    expect(fontFamilyOf(passage)).toContain(fonts.arabic);
+    expect(getComputedStyle(passage).textAlign).toBe('right');
+  });
+
+  it('pins plain English paragraphs, headings and list items to LTR', () => {
+    const container = renderAnswer('## Heading\n\nProse.\n\n- item');
+    for (const text of ['Heading', 'Prose.', 'item']) {
+      expect(blockStartingWith(container, text).getAttribute('dir')).toBe(
+        'ltr',
+      );
+    }
+  });
+
+  it('sets a short Arabic phrase inside English in Amiri, inline', () => {
+    const container = renderAnswer('Presence of heart (خشوع) in prayer.');
+    const paragraph = blockStartingWith(container, 'Presence');
+    expect(paragraph.getAttribute('dir')).toBe('ltr');
+    const run = Array.from(paragraph.querySelectorAll<HTMLElement>('*')).find(
+      (el) => el.textContent === 'خشوع',
+    );
+    expect(run && fontFamilyOf(run)).toContain(fonts.arabic);
+    expect(fontFamilyOf(paragraph)).not.toContain(fonts.arabic);
+  });
+
+  it('reads an answer written in Arabic right-to-left, without lifting', () => {
+    const container = renderAnswer(
+      'الخشوع في الصلاة هو حضور القلب.\n\n> ' + AYAH,
+    );
+    const roots = Array.from(container.querySelectorAll('[dir]'));
+    expect(roots.length).toBeGreaterThan(0);
+    expect(roots.every((el) => el.getAttribute('dir') === 'rtl')).toBe(true);
+    expect(screen.queryByTestId('answer-scripture')).toBeNull();
+  });
+});
+
+describe('AnswerProse scripture quotation (issue #228)', () => {
+  it('gives a quoted verse the brass rule', () => {
+    renderAnswer(`> ${AYAH}\n> ${TRANSLATION}`);
+    expect(screen.getByTestId('answer-scripture')).toBeTruthy();
+  });
+
+  it('gives an unquoted verse the same treatment', () => {
+    renderAnswer(`${AYAH}\n${TRANSLATION}`);
+    expect(screen.getByTestId('answer-scripture')).toBeTruthy();
+  });
+
+  it('leaves a quotation with no Arabic in the ink rule', () => {
+    renderAnswer('> A scholar once wrote this.');
+    expect(screen.queryByTestId('answer-scripture')).toBeNull();
+  });
+});

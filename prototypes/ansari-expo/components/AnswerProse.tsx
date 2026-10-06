@@ -257,12 +257,12 @@ function renderSpans(
               run.arabic ? (
                 <Text
                   key={ri}
-                  style={{
-                    fontFamily: fonts.arabic,
-                    ...(ctx.script === 'prose'
-                      ? { fontSize: size * ARABIC_INLINE_SCALE }
-                      : null),
-                  }}
+                  style={[
+                    styles.arabicRun,
+                    ctx.script === 'prose' && {
+                      fontSize: size * ARABIC_INLINE_SCALE,
+                    },
+                  ]}
                 >
                   {run.text}
                 </Text>
@@ -271,11 +271,13 @@ function renderSpans(
                 // so it goes back to the answer's face and size.
                 <Text
                   key={ri}
-                  style={{
-                    fontFamily: fonts.prose,
-                    fontSize: bodySize(ctx.desktop, ctx.width),
-                    color: ctx.colors.mutedForeground,
-                  }}
+                  style={[
+                    styles.paragraph,
+                    {
+                      fontSize: bodySize(ctx.desktop, ctx.width),
+                      color: ctx.colors.mutedForeground,
+                    },
+                  ]}
                 >
                   {run.text}
                 </Text>
@@ -714,6 +716,9 @@ const styles = StyleSheet.create({
   passage: {
     fontFamily: fonts.arabic,
     textAlign: 'right',
+  },
+  arabicRun: {
+    fontFamily: fonts.arabic,
   },
   // The space above a heading is what separates two sections; the small
   // space below is what binds the heading to its own paragraph.
