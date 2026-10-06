@@ -2,22 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 
-const {
-  ANSARI_MARK_PATH,
-  ANSARI_MARK_SHAPES,
-  ANSARI_MARK_VIEWBOX,
-} = await import('./ansariMark');
+const { ANSARI_MARK_PATH, ANSARI_MARK_SHAPES, ANSARI_MARK_VIEWBOX } =
+  await import('./ansariMark');
 
 /** Every absolute (x, y) pair a path visits, plus the bare V/H targets. */
 function points(d: string) {
   const xs: number[] = [];
   const ys: number[] = [];
   for (const [, command, args] of d.matchAll(/([MLCVHZ])([^MLCVHZ]*)/g)) {
-    const numbers = args.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    const numbers = args
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
     if (command === 'V') ys.push(...numbers);
     else if (command === 'H') xs.push(...numbers);
-    else
-      numbers.forEach((n, i) => (i % 2 === 0 ? xs : ys).push(n));
+    else numbers.forEach((n, i) => (i % 2 === 0 ? xs : ys).push(n));
   }
   return { xs, ys };
 }
