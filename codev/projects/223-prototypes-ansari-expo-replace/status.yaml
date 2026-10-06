@@ -1,7 +1,7 @@
 id: '223'
 title: prototypes-ansari-expo-replace
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: true
 history: []
 started_at: '2026-10-06T13:53:57.944Z'
-updated_at: '2026-10-06T14:26:47.634Z'
+updated_at: '2026-10-06T14:26:52.013Z'
 pr_history:
   - phase: review
     pr_number: 224
