@@ -51,6 +51,29 @@ export const LEAF_SHADOW_REACH = {
 } as const;
 
 /**
+ * Where to scroll the column so a source lands where the first one
+ * rests: below the same top padding, not flush against the edge.
+ *
+ * The column opens with air above its first leaf, and a source the
+ * reader asks for should arrive with that same air above it. Scrolled
+ * straight to its offset, the leaf would sit at the very top of the
+ * viewport with nothing to absorb a pixel of rounding, and its first
+ * line would tuck under the header's rule. The bottom of the column
+ * has its own allowance for this — the run-out — and this is the top's.
+ */
+export function stackScrollTarget(
+  offset: number,
+  contentStyle?: StyleProp<ViewStyle>,
+): number {
+  const { paddingTop, paddingVertical, padding } =
+    StyleSheet.flatten(contentStyle) ?? {};
+  const clearance = [paddingTop, paddingVertical, padding].find(
+    (value): value is number => typeof value === 'number',
+  );
+  return Math.max(0, offset - (clearance ?? LEAF_SHADOW_REACH.above));
+}
+
+/**
  * An answer's whole apparatus, in marker order, read as one column.
  *
  * Each source is its own leaf: a sheet of the palest paper in the app,
@@ -133,9 +156,12 @@ export function SourceStack({
         return;
       }
       pending.current = null;
-      scrollRef.current?.scrollTo({ y, animated: !reduced });
+      scrollRef.current?.scrollTo({
+        y: stackScrollTarget(y, contentStyle),
+        animated: !reduced,
+      });
     },
-    [reduced],
+    [reduced, contentStyle],
   );
 
   useEffect(() => {
