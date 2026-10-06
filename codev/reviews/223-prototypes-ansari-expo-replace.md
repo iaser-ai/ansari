@@ -74,6 +74,8 @@ This PR replaces the Ansari mark in `prototypes/ansari-expo` with the new three-
 - **Mark proportions.** The new mark is about 17% wider at the same height (aspect 0.88 vs 0.75). Every renderer derives its width from `ANSARI_MARK_ASPECT_RATIO`. In the screenshots, no header is crowded.
 - **Native launcher and splash images were not checked on a device.** They only change after a dev-client rebuild.
 
+- **3-way consultation (single pass).** Codex: APPROVE. Claude: APPROVE, with two comment nits, both fixed: `ThinkingLine.tsx` still said star/arcs, and one overlong line in the `index.html` comment. Gemini: skipped because the `agy` CLI is not installed on this machine, so porch recorded COMMENT and there is no Gemini review.
+
 ## How to Test Locally
 
 - **View diff**: VSCode sidebar → right-click builder pir-223 → **Review Diff**

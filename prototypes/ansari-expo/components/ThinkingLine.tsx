@@ -71,8 +71,8 @@ export function ThinkingLine({
       accessibilityLiveRegion="polite"
     >
       {/* Sized to the line of type it stands in, not to an icon slot:
-          the mark's height is the text's own em box, so its star sits
-          level with the ascenders and its arcs with the descenders,
+          the mark's height is the text's own em box, so its diamond sits
+          level with the ascenders and its wave with the descenders,
           and it reads as the first character of the line. */}
       <View style={styles.markSlot}>
         <AnsariMarkPulse height={MARK_HEIGHT} />
