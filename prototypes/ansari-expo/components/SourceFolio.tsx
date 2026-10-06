@@ -8,12 +8,7 @@ import { PressableScale } from '@/components/PressableScale';
 import { toSuperscript } from '@/components/CitationChip';
 import type { Citation } from '@/lib/api';
 import { titleWithoutGrades } from '@/lib/document-citations';
-
-const SOURCE_LABEL: Record<string, string> = {
-  quran: "Qur'an",
-  hadith: 'Hadith',
-  scholarly: 'Scholarly work',
-};
+import { sourceKindLabel } from '@/lib/footnote-groups';
 
 /**
  * One source, set as a page from the book it came from — the app's
@@ -47,7 +42,7 @@ export function SourceFolio({ citation }: { citation: Citation }) {
             put a second hue in the folio, where the brass is meant to
             be the only one. */}
         <Text style={[styles.kind, { color: colors.mutedForeground }]}>
-          {SOURCE_LABEL[citation.sourceType] ?? citation.sourceType}
+          {sourceKindLabel(citation.sourceType)}
         </Text>
         <Text style={[styles.reference, { color: colors.strongForeground }]}>
           <Text style={[styles.marker, { color: colors.accent }]}>

@@ -21,3 +21,8 @@
 ## Dev-approval feedback round 2: brass disc behind the inline marker
 - CitationChip: lining figure on a brass-tinted disc (accent 0.18, 18px); web = inline-flex span (stays selectable), native = inline View (nested Text can't take a radius).
 - Gotcha: an inline-flex disc is an atomic inline, and Chrome breaks before it even with U+2060 next to it, and wraps a space after it onto an empty line. That opened a gap under the paragraph. Measured with getClientRects over CDP, not by eye. Fix: AnswerProse sets the last word + chip in one `white-space: nowrap` run and drops the model's space before the marker.
+
+## Dev-approval feedback round 3: source pill on the box edge
+- User asked for the citation number and title combined in an oval like the footer pills, pinned to the box's base with the border through its centre, tappable, and labelled by kind. Built as `ScripturePill`: opaque paper base plus a brass inset wash, so the hairline doesn't show through. Markers shown on the pill are suppressed inline in the box, and the pill replaces the written-reference byline (the byline stays as a fallback when nothing resolves).
+- `sourceKindLabel` was moved to lib/footnote-groups.ts and the folio uses it (it had its own SOURCE_LABEL map).
+- Near miss: a reanimated mock without `Easing` failed the whole AnswerProse test file at load, and the test count dropped 445→431 while my grep showed only "Tests N passed". Always check `Test Files` too.

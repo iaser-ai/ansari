@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/haptics', () => ({ tapHaptic: () => {} }));
+// The scripture pill dips under the finger through reanimated, which is
+// Expo-native; a plain component stands in for its animated wrapper.
+vi.mock('react-native-reanimated', () => ({
+  default: { createAnimatedComponent: (component: unknown) => component },
+  Easing: { bezier: () => () => 0 },
+  cubicBezier: () => 'ease-out',
+  useReducedMotion: () => true,
+}));
 
 import { fonts } from '@/constants/colors';
 import { AnswerProse } from '@/components/AnswerProse';
@@ -204,5 +212,75 @@ describe('AnswerProse source markers (issue #228)', () => {
     const container = renderAnswer('Unbacked claim. [7]');
     expect(screen.queryByTestId('citation-chip-7')).toBeNull();
     expect(container.textContent).toBe('Unbacked claim. [7]');
+  });
+});
+
+describe('AnswerProse scripture source pill (issue #228)', () => {
+  const quran = {
+    id: 'q',
+    marker: 1,
+    sourceType: 'quran',
+    reference: "Qur'an 23:1",
+    sourceTitle: "Surah al-Mu'minun",
+    translationText: TRANSLATION,
+  } as Citation;
+  const hadith = {
+    id: 'h',
+    marker: 2,
+    sourceType: 'hadith',
+    reference: 'Sahih al-Bukhari 528',
+    sourceTitle: 'Sahih al-Bukhari',
+    translationText: 'Do you think…',
+    grade: 'Sahih',
+  } as Citation;
+
+  function renderWith(content: string, onCitationPress = vi.fn()) {
+    render(
+      <AnswerProse
+        content={content}
+        byMarker={new Map([[1, quran], [2, hadith]])}
+        onCitationPress={onCitationPress}
+      />,
+    );
+    return onCitationPress;
+  }
+
+  it('names the source, its kind and its number on the box', () => {
+    renderWith(`${AYAH}\n${TRANSLATION} [1]`);
+    const pill = screen.getByTestId('scripture-source-1');
+    // Qur'an's pill drops the "Qur'an" its kind label already says.
+    expect(pill.textContent).toBe("\u00B9\u2002Qur'an\u200223:1");
+    expect(screen.getByTestId('answer-scripture').contains(pill)).toBe(true);
+  });
+
+  it("labels a hadith as one, with its grade", () => {
+    renderWith(`${AYAH}\n"Do you think…" [2]`);
+    expect(screen.getByTestId('scripture-source-2').textContent).toBe(
+      '\u00B2\u2002Hadith\u2002Sahih al-Bukhari 528 · Sahih',
+    );
+  });
+
+  it('opens the source when tapped', () => {
+    const onPress = renderWith(`${AYAH}\n${TRANSLATION} [1]`);
+    fireEvent.click(screen.getByTestId('scripture-source-1'));
+    expect(onPress).toHaveBeenCalledWith(quran);
+  });
+
+  it('does not draw the marker again inside the box', () => {
+    renderWith(`${AYAH} [1]\n${TRANSLATION} [1]`);
+    expect(screen.queryByTestId('citation-chip-1')).toBeNull();
+    expect(screen.getAllByTestId('scripture-source-1')).toHaveLength(1);
+  });
+
+  it('takes the place of the written reference', () => {
+    renderWith(`${AYAH} (Qur'an 23:1)\n${TRANSLATION} [1]`);
+    expect(screen.getByTestId('scripture-source-1')).toBeTruthy();
+    expect(screen.queryByTestId('answer-scripture-reference')).toBeNull();
+  });
+
+  it('keeps the marker inline when it is outside a box', () => {
+    renderWith(`Prose that cites. [1]`);
+    expect(screen.getByTestId('citation-chip-1')).toBeTruthy();
+    expect(screen.queryByTestId('scripture-source-1')).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   useWindowDimensions,
   View,
   type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
@@ -23,7 +24,11 @@ import {
   type Span,
   type TableCell,
 } from '@/lib/markdown';
-import { CitationChip } from '@/components/CitationChip';
+import { CitationChip, toSuperscript } from '@/components/CitationChip';
+import { PressableScale } from '@/components/PressableScale';
+import { footnoteLabel, sourceKindLabel } from '@/lib/footnote-groups';
+import { tapHaptic } from '@/lib/haptics';
+import { isHovered } from '@/lib/web';
 import type { Citation } from '@/lib/api';
 import { RADIUS, rounded } from '@/constants/radius';
 
@@ -122,6 +127,7 @@ export function AnswerProse({
     direction,
     script: direction === 'ltr' ? 'prose' : 'none',
     centered: false,
+    pinnedMarkers: NO_MARKERS,
   };
 
   return <>{renderBlocks(blocks, ctx, 0)}</>;
@@ -150,6 +156,11 @@ interface Ctx {
   script: 'prose' | 'passage' | 'none';
   /** Inside a scripture box, where the verse and its translation are centred as one. */
   centered: boolean;
+  /**
+   * Markers whose source is shown on a scripture box's pill, and so are
+   * not drawn again inside the text the box holds.
+   */
+  pinnedMarkers: ReadonlySet<number>;
 }
 
 type Direction = 'ltr' | 'rtl';
@@ -316,6 +327,8 @@ function renderSpans(
       case 'footnote': {
         const citation = ctx.byMarker.get(span.marker);
         if (!citation) return <Text key={i}>{span.raw}</Text>;
+        // Shown on the pill at the foot of the scripture box instead.
+        if (ctx.pinnedMarkers.has(span.marker)) return null;
         // The marker's disc must never start a line of its own, away
         // from the words it cites. On the web it is an atomic inline,
         // which Chrome will break in front of whatever joiner stands
@@ -336,10 +349,16 @@ function renderSpans(
   });
 }
 
+const NO_MARKERS: ReadonlySet<number> = new Set();
+
 /** Is the span after `i` a source marker that resolves to a chip? */
 function citesNext(spans: Span[], i: number, ctx: Ctx): boolean {
   const next = spans[i + 1];
-  return next?.type === 'footnote' && ctx.byMarker.has(next.marker);
+  return (
+    next?.type === 'footnote' &&
+    ctx.byMarker.has(next.marker) &&
+    !ctx.pinnedMarkers.has(next.marker)
+  );
 }
 
 /** A text's last word (with its punctuation), and everything before it. */
@@ -618,11 +637,16 @@ function renderBlock(
  * corner — because this is the one thing in an answer that is not the
  * answer's own words, and a rule down one side said only "quoted". The
  * verse and its translation are centred together, so the pair reads as
- * a single unit, the way a verse is set at the head of a chapter. The
- * reference that followed the Arabic is taken off its line and set
- * beneath the pair as the box's attribution, between two short brass
- * rules: the ornament row the folio opens its Arabic with, here closing
- * the passage instead.
+ * a single unit, the way a verse is set at the head of a chapter.
+ *
+ * Its source is named on the box itself: each source the box's text
+ * cites becomes a pill sitting on the box's lower edge, its centre on
+ * the hairline — the source's number, what kind of source it is, and
+ * the reference, worded as the Sources pills at the foot of the answer
+ * word it. The pill opens the source, and the marker it replaces is not
+ * drawn again inside the text. A box citing nothing it can resolve
+ * falls back to the reference the answer wrote after the verse, set
+ * beneath the pair between two short brass rules.
  */
 function renderScripture(
   blocks: Block[],
@@ -633,7 +657,14 @@ function renderScripture(
   depth: number,
 ): React.ReactNode {
   const { colors } = ctx;
-  const references = passages.flatMap((p) => (p.reference ? [p.reference] : []));
+  const citations = markersIn(blocks).flatMap((marker) => {
+    const citation = ctx.byMarker.get(marker);
+    return citation ? [citation] : [];
+  });
+  const pinned = citations.length > 0;
+  const references = pinned
+    ? []
+    : passages.flatMap((p) => (p.reference ? [p.reference] : []));
   return (
     <View
       key={key}
@@ -646,11 +677,20 @@ function renderScripture(
           ...rounded(RADIUS.lg),
           marginTop: first ? 0 : 20,
         },
+        pinned && styles.scripturePinned,
       ]}
     >
-      {renderBlocks(blocks, { ...ctx, centered: true }, depth)}
+      {renderBlocks(
+        blocks,
+        {
+          ...ctx,
+          centered: true,
+          pinnedMarkers: new Set(citations.map((c) => c.marker)),
+        },
+        depth,
+      )}
       {references.map((reference, i) => {
-        const pinned = pinDirection(
+        const direction = pinDirection(
           isMostlyArabic(plainText(reference)) ? 'rtl' : 'ltr',
         );
         return (
@@ -664,14 +704,14 @@ function renderScripture(
             />
             <Text
               selectable={ctx.selectable}
-              {...pinned.props}
+              {...direction.props}
               style={[
                 styles.byline,
                 { color: colors.secondaryForeground },
-                pinned.style,
+                direction.style,
               ]}
             >
-              {pinned.mark}
+              {direction.mark}
               {renderSpans(reference, { ...ctx, script: 'none' }, 13, null, true)}
             </Text>
             <View
@@ -680,7 +720,133 @@ function renderScripture(
           </View>
         );
       })}
+      {pinned && (
+        <View style={styles.pillRow} pointerEvents="box-none">
+          {citations.map((citation) => (
+            <ScripturePill
+              key={citation.marker}
+              citation={citation}
+              onPress={ctx.onCitationPress}
+            />
+          ))}
+        </View>
+      )}
     </View>
+  );
+}
+
+/** Every source marker in a run of blocks, in order of first appearance. */
+function markersIn(blocks: Block[]): number[] {
+  const seen = new Set<number>();
+  const walkSpans = (spans: Span[]) => {
+    for (const span of spans) {
+      if (span.type === 'footnote') seen.add(span.marker);
+      else if (span.type === 'emphasis' || span.type === 'link') {
+        walkSpans(span.spans);
+      }
+    }
+  };
+  const walk = (list: Block[]) => {
+    for (const block of list) {
+      switch (block.type) {
+        case 'paragraph':
+        case 'heading':
+        case 'passage':
+          walkSpans(block.spans);
+          break;
+        case 'quote':
+          walk(block.blocks);
+          break;
+        case 'list':
+          for (const item of block.items) walk(item.blocks);
+          break;
+        case 'table':
+          for (const row of [block.head, ...block.rows]) {
+            for (const cell of row) walkSpans(cell.spans);
+          }
+          break;
+      }
+    }
+  };
+  walk(blocks);
+  return [...seen];
+}
+
+/** A scripture pill's height; the box's lower edge runs through its middle. */
+const PILL_HEIGHT = 30;
+
+/**
+ * The source of a scripture box, on the box's own edge.
+ *
+ * Set in the Sources pills' voice — the brass superior figure, then the
+ * reference — with the kind of source named between them in the
+ * folio's label voice, since here there is no group heading to say it.
+ * It has to cover the hairline it sits on, so it is opaque: the page's
+ * paper, with the box's brass washed over it a shade deeper, deepening
+ * again under the pointer and the finger.
+ */
+function ScripturePill({
+  citation,
+  onPress,
+}: {
+  citation: Citation;
+  onPress: (citation: Citation) => void;
+}) {
+  const colors = useColors();
+  const label = footnoteLabel(citation);
+  const kind = sourceKindLabel(citation.sourceType);
+  return (
+    <PressableScale
+      onPress={() => {
+        tapHaptic();
+        onPress(citation);
+      }}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={`Source ${citation.marker}: ${kind}, ${citation.reference}`}
+      style={(state) => [
+        styles.pill,
+        {
+          backgroundColor: colors.background,
+          borderColor: withAlpha(colors.accent, 0.55),
+        },
+        // The wash rides on top of the paper as a ring-less inner fill.
+        {
+          boxShadow: `inset 0 0 0 ${PILL_HEIGHT}px ${withAlpha(
+            colors.accent,
+            state.pressed ? 0.26 : isHovered(state) ? 0.18 : 0.1,
+          )}`,
+        } as ViewStyle,
+      ]}
+      testID={`scripture-source-${citation.marker}`}
+    >
+      <Text style={styles.pillText} numberOfLines={1} ellipsizeMode="tail">
+        <Text style={[styles.pillMarker, { color: colors.accent }]}>
+          {toSuperscript(citation.marker)}
+        </Text>
+        <Text style={[styles.pillKind, { color: colors.mutedForeground }]}>
+          {'\u2002'}
+          {kind}
+          {'\u2002'}
+        </Text>
+        <Text
+          style={[styles.pillReference, { color: colors.secondaryForeground }]}
+        >
+          {label.reference}
+        </Text>
+        {label.detail && (
+          <Text
+            style={[
+              styles.pillDetail,
+              { color: withAlpha(colors.secondaryForeground, 0.6) },
+            ]}
+          >
+            {' · '}
+            {label.detail}
+          </Text>
+        )}
+      </Text>
+    </PressableScale>
   );
 }
 
@@ -846,6 +1012,56 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
     paddingHorizontal: 20,
     marginBottom: 5,
+  },
+  // Room inside the box for the upper half of its pill, and outside it
+  // for the lower half.
+  scripturePinned: {
+    paddingBottom: 18 + PILL_HEIGHT / 2,
+    marginBottom: 5 + PILL_HEIGHT / 2,
+  },
+  // The pills ride the box's lower edge: the row is as tall as a pill
+  // and hangs half below the box, so the hairline runs through their
+  // middles.
+  pillRow: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: -PILL_HEIGHT / 2,
+    height: PILL_HEIGHT,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  pill: {
+    height: PILL_HEIGHT,
+    maxWidth: '100%',
+    flexShrink: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    ...rounded(RADIUS.pill),
+    cursor: 'pointer',
+  },
+  pillText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pillMarker: {
+    fontFamily: fonts.proseSemiBold,
+  },
+  // The folio's kind label: the serif with more ink, in capitals,
+  // tracked out.
+  pillKind: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 10.5,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  pillReference: {
+    fontFamily: fonts.proseMedium,
+  },
+  pillDetail: {
+    fontFamily: fonts.proseItalic,
   },
   // The attribution: the folio's label voice — the serif with more ink,
   // tracked out — between two short brass rules.

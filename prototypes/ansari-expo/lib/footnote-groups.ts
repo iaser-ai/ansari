@@ -40,6 +40,24 @@ export function groupFootnotes(citations: Citation[]): FootnoteGroup[] {
 }
 
 /**
+ * What kind of source a citation is, as one label: the word the folio
+ * heads a source with, and the word a scripture pill in an answer names
+ * it by.
+ */
+export function sourceKindLabel(sourceType: string): string {
+  switch (sourceType) {
+    case 'quran':
+      return "Qur'an";
+    case 'hadith':
+      return 'Hadith';
+    case 'scholarly':
+      return 'Scholarly work';
+    default:
+      return sourceType;
+  }
+}
+
+/**
  * What a pill says under its group's heading: the reference, and for a
  * hadith its grade — the first verdict, with a count of the rest.
  */
