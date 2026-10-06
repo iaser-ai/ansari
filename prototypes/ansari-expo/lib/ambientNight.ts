@@ -132,10 +132,10 @@ export const NIGHT_STRENGTH_UNGRADED = 1;
  *
  * At 0.3 the fronds sat ~5.1 L* below the wall on stone-200 paper and
  * were too faint to find. Small steps (0.345, then 0.4) were tried in
- * review and still read as faint on a soft, moving texture; 0.5 puts
- * the fronds ~8.5 L* below the wall, which is where they read.
+ * review and still read as faint on a soft, moving texture; 0.55 puts
+ * the fronds ~9.4 L* below the wall, which is where they read.
  */
-export const DAY_STRENGTH = 0.5;
+export const DAY_STRENGTH = 0.55;
 
 /**
  * Whether `mixBlendMode` is honoured, and so whether this layer can
