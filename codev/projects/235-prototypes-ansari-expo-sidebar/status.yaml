@@ -1,7 +1,7 @@
 id: '235'
 title: prototypes-ansari-expo-sidebar
 protocol: air
-phase: implement
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-06T22:48:29.362Z'
-updated_at: '2026-10-06T22:48:29.363Z'
+updated_at: '2026-10-06T22:49:37.806Z'
