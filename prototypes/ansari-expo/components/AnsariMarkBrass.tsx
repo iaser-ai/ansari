@@ -36,8 +36,8 @@ import {
  * identical outline.
  *
  * Everything below is tuned for the rail's real size — a 32 px tall
- * mark. At that size one unit of the artwork's 142-unit space is under
- * a quarter of a pixel, which is why the offsets look so small: the
+ * mark. At that size one unit of the artwork's 246-unit space is about
+ * an eighth of a pixel, which is why the offsets look so small: the
  * dark edge sits four tenths of a pixel down-right, the contact shadow
  * half a pixel, and the highlight is a sliver about a third of a pixel
  * wide. Anything larger stops being an emboss and becomes an outline
@@ -62,22 +62,22 @@ const { width: VB_W, height: VB_H } = ANSARI_MARK_VIEWBOX;
  * grows by this much and a matching negative margin pulls it back, so
  * the mark keeps the exact size and position it has in the brand row.
  */
-const BLEED = 8;
+const BLEED = 14;
 
 /** The size every offset below is quoted at: the rail's mark. */
 const BASE_HEIGHT = 32;
 
 /** Contact shadow: hugging the mark, not floating under it. */
-const SHADOW_DX = 2.2;
-const SHADOW_DY = 2.7;
-const SHADOW_BLUR = 1.8;
+const SHADOW_DX = 3.8;
+const SHADOW_DY = 4.7;
+const SHADOW_BLUR = 3.1;
 
 /** The lower-right dark-brass edge, and the upper-left edge highlight. */
-const EDGE_OFFSET = 1.7;
-const HIGHLIGHT_WIDTH = 1.6;
+const EDGE_OFFSET = 2.9;
+const HIGHLIGHT_WIDTH = 2.8;
 
 /** Grain cell size, as a frequency in the artwork's own units. */
-const GRAIN_FREQUENCY = 0.07;
+const GRAIN_FREQUENCY = 0.04;
 
 /**
  * Below this the mark is too small for the grain to be anything but
