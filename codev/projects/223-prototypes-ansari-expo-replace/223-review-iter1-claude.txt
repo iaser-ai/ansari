@@ -1,0 +1,37 @@
+I'll review the implementation against the plan. Let me start by reading the key files.Let me read the core implementation files.I've read the plan, every changed source file, the review doc, and verified the generated binaries. I did not modify anything in the tree.
+
+## What I verified
+
+**Vector swap (`constants/ansariMark.ts`)** — The three `d` strings are byte-identical to the SVG in issue #223, and the bottom→top source order is correctly remapped to visual order (diamond ← path 3, band ← path 2, wave ← path 1). viewBox is 216×246; `ANSARI_MARK_ASPECT_RATIO` is derived, and no renderer hard-codes width. `ANSARI_MARK_PATHS` is now cleanly derived from `ANSARI_MARK_SHAPES`, which removes the old source-order quirk as planned.
+
+**Brass constants** — Every number matches the plan's mechanical ×246/142 rescale exactly (BLEED 8→14, dx 2.2→3.8, dy 2.7→4.7, blur 1.8→3.1, edge 1.7→2.9, highlight 1.6→2.8, grain 0.07→0.04). The prose in `brassEmboss.ts` was recomputed consistently (at 32 px, 2.9 units ≈ 0.38 px — the "four tenths of a pixel" claim holds). `brassRelief()` is an exact extraction of the previous inline `Math.min(Math.sqrt(BASE_HEIGHT/height), 1.25)` — behavior-identical by reading, no mutation needed to confirm.
+
+**`AnsariMarkSpin.tsx` correctly left untouched** — the plan made this conditional on its constants being in artwork units. They aren't: `THICKNESS` is a fraction of `height` and `EDGE_REACH` is a unitless clamp on `tan(θ)`. The conditional resolves to "no change." Good judgment; the review file doesn't say this explicitly, which is the one gap in its otherwise thorough "Things to Look At."
+
+**Rasters** — I checked the binaries rather than trusting the summary. All nine PNG dimensions match the files they replace exactly (1024², 512², 192, 180, 1200×630). The `.ico` is structurally valid: type 1, 3 entries at 16/32/48, bpp 32, each payload a real PNG signature at the declared offset — so the pre-existing `index.html` claim that it "carries 16, 32 and 48" is now true, which was a plan item. Visually, `icon.png` is the new mark in brass on the palm-shadow paper, `splash-icon-dark.png` is correctly transparent-background dark brass, and the 48 px favicon knockout is legible.
+
+**Tests** — `vitest run constants/ansariMark.test.ts` passes (4 tests), `tsc --noEmit` clean. The ordering test is the load-bearing one (the pulse depends on array order meaning "down the mark") and the builder mutation-checked it. The `points()` parser only handles M/L/C/V/H/Z, but an unhandled command would produce `NaN` and fail loudly rather than pass silently — acceptable.
+
+**The vitest include-glob fix is a genuine catch**: `constants/**` was absent, so this test would have passed by never running.
+
+## Issues
+
+1. **Stale comment in `components/ThinkingLine.tsx:74-75`** — still reads "its **star** sits level with the ascenders and its **arcs** with the descenders." Those shapes no longer exist; it should be diamond/wave. The file is outside the changed-file list, but this is a direct consequence of the rename, and this project's own `lessons-critical.md` says to fix a documentation defect everywhere rather than partially. Two-word fix.
+
+2. **`public/index.html` comment reflow** — the new line "and the treatment each size can carry — the brass mark on palm-shadow paper where there is room" is unwrapped and now runs well past the ~70-col prose wrap of every line around it. Cosmetic, likely a prettier artifact (the builder logged exactly that hazard as a lesson).
+
+3. **Brass layer stack is now duplicated** (component JSX vs. SVG string in the script) with nothing tying them together. The review file flags this honestly and the numbers are shared, so a drift would be in layer structure only. Noted, not blocking.
+
+4. **Non-issues I checked before flagging**: Node type stripping requires ≥22.18 — root `package.json` declares `"node": ">=22.18.0"` and `.nvmrc` is `22`, so the script's requirement is already guaranteed. `sharp@^0.35.5` resolves and is installed. The prototype's gitignored lockfile is pre-existing policy, not introduced here.
+
+Nothing here blocks the human gate. The visual-judgment parts — emboss on the bolder silhouette, icon relief at 1024 px, header crowding from the ~17% wider mark — are exactly what the gate is for, and the review file points at them with screenshots.
+
+---
+VERDICT: APPROVE
+SUMMARY: Faithful, well-scoped implementation of the approved plan; paths match the issue verbatim, brass rescale is exactly as planned, rasters verified structurally sound — only two stale-comment nits remain.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `components/ThinkingLine.tsx:74-75` still describes the mark's "star" and "arcs"; should say diamond/wave (minor, outside changed-file list but caused by this rename)
+- `public/index.html` icon comment has one unwrapped overlong line inconsistent with the surrounding prose wrap (cosmetic)
+- Brass layer structure is duplicated between `AnsariMarkBrass.tsx` and `scripts/build-icons.mjs` with no test guarding drift (honestly disclosed in the review file; accepted)

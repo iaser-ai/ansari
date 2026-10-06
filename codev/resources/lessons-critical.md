@@ -30,3 +30,4 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - Hadith grades & source pills — prototype (issue #194) — consult when parsing a data shape known only from a symptom, or folding/collapsing a wrapping layout.
 - Composer tap on mobile web — prototype (issue #202) — consult when a field loses focus unexpectedly on the web, a list must move in step with a keyboard/shell resize, or testing a module that listens at import time.
 - Compact retrieval trace — prototype (issue #204) — consult when deriving a summary view over per-event records, giving one word of a line its own opacity, or a reviewer can't see a pushed fix in the dev server.
+- New Ansari logo — prototype (issue #223) — consult when changing an SVG mark or its viewBox, regenerating icon rasters, adding a test in a new directory, or taking screenshots without the Chrome extension.

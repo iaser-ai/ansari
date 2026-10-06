@@ -51,7 +51,7 @@ const RISE = DURATION.enter;
 const FALL = DURATION.exit;
 /**
  * One turn of the wave. Long enough that the last piece has gone dim
- * (STAGGER * 2 + RISE + FALL = 940ms) before the star lights again, so
+ * (STAGGER * 2 + RISE + FALL = 940ms) before the diamond lights again, so
  * the loop breathes instead of chattering — and the rest is what makes
  * the repeat seamless, since every piece both starts and ends the turn
  * at DIM.
@@ -108,10 +108,10 @@ export function AnsariMarkPulse({ height = 16 }: { height?: number }) {
   // Three pieces, three clocks, named rather than mapped: the artwork
   // hands its shapes over in a different order than the eye reads them,
   // and the whole point of the effect is the order.
-  const star = useLitPiece(0, still);
+  const diamond = useLitPiece(0, still);
   const band = useLitPiece(STAGGER, still);
-  const arcs = useLitPiece(STAGGER * 2, still);
-  const wave = [star, band, arcs];
+  const wave = useLitPiece(STAGGER * 2, still);
+  const pieces = [diamond, band, wave];
 
   const width = height * ANSARI_MARK_ASPECT_RATIO;
   const viewBox = `0 0 ${ANSARI_MARK_VIEWBOX.width} ${ANSARI_MARK_VIEWBOX.height}`;
@@ -129,7 +129,7 @@ export function AnsariMarkPulse({ height = 16 }: { height?: number }) {
       {ANSARI_MARK_SHAPES.map((shape, index) => (
         <Animated.View
           key={shape.name}
-          style={[StyleSheet.absoluteFill, wave[index]]}
+          style={[StyleSheet.absoluteFill, pieces[index]]}
         >
           <Svg width={width} height={height} viewBox={viewBox}>
             <Path d={shape.d} fill={ink} />
