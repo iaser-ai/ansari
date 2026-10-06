@@ -131,11 +131,11 @@ export const NIGHT_STRENGTH_UNGRADED = 1;
  * shadow it casts is linear in this opacity, so it scales directly.
  *
  * At 0.3 the fronds sat ~5.1 L* below the wall on stone-200 paper and
- * were too faint to find. A 15% step (0.345) moved that by under 1 L*,
- * which nobody could see on a soft, moving texture; 0.4 puts it at
- * ~6.8 L*, enough to read as a shadow without competing with the page.
+ * were too faint to find. Small steps (0.345, then 0.4) were tried in
+ * review and still read as faint on a soft, moving texture; 0.5 puts
+ * the fronds ~8.5 L* below the wall, which is where they read.
  */
-export const DAY_STRENGTH = 0.4;
+export const DAY_STRENGTH = 0.5;
 
 /**
  * Whether `mixBlendMode` is honoured, and so whether this layer can
