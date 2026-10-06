@@ -14,6 +14,7 @@ import { answerLeading, answerSize } from '@/constants/layout';
 import { withAlpha } from '@/lib/color';
 import { openExternalLink } from '@/lib/link';
 import { heading } from '@/lib/semantics';
+import { answerDirection, splitArabicRuns } from '@/lib/script';
 import {
   parseAnswer,
   type Block,
@@ -46,7 +47,16 @@ import { RADIUS, rounded } from '@/constants/radius';
  *  - A quotation is set the way a printed one is: indented behind a
  *    thin vertical rule, in the same face and size, with air above and
  *    below. No italics and no quotation marks — the indent is the
- *    signal, and scripture inside a quote is often already italicised.
+ *    signal.
+ *  - Scripture is the exception, because it is what the answer stands
+ *    on. A line written wholly in Arabic (a `passage`) is set the way
+ *    the source folio sets it: Amiri, larger, right-aligned, with the
+ *    open leading its marks need. The quotation holding it takes the
+ *    folio's brass for its rule, and the translation beneath stays
+ *    upright prose. The parser gives an unquoted verse a quotation of
+ *    its own, so a verse looks the same however the answer wrote it.
+ *    Shorter Arabic inside an English sentence is set in Amiri too, a
+ *    step up so its letters stand level with Literata's.
  *  - Code, the one thing on this page that is not prose, gets the one
  *    non-serif: a quiet monospaced run, tinted rather than boxed
  *    inline, and a soft slab for a fenced block.
@@ -62,6 +72,15 @@ import { RADIUS, rounded } from '@/constants/radius';
  * Paragraph rhythm is untouched from before Markdown existed here: the
  * same size, leading and 15pt gap, so an answer with no formatting in
  * it renders exactly as it always did.
+ *
+ * Direction: every block's base direction is set from the answer's
+ * (`answerDirection`) and never left to the platform. Left alone, a
+ * block takes its direction from its first letter — on the web too,
+ * where react-native-web gives a root <Text> `dir="auto"` — so a
+ * translation sharing a block with the Arabic it translates was set
+ * right-to-left. Arabic inside a left-to-right block still reads
+ * right-to-left within the line; that much the bidi algorithm does on
+ * its own once the block's direction is fixed.
  *
  * Text selection: `user-select` inherits on the web and a selectable
  * <Text> carries down to its children on native, so `selectable` on
@@ -86,7 +105,11 @@ export function AnswerProse({
   const colors = useColors();
   const desktop = useDesktop();
   const { width } = useWindowDimensions();
-  const blocks = useMemo(() => parseAnswer(content), [content]);
+  const direction = useMemo(() => answerDirection(content), [content]);
+  const blocks = useMemo(
+    () => parseAnswer(content, { lift: direction === 'ltr' }),
+    [content, direction],
+  );
 
   const ctx: Ctx = {
     colors,
@@ -95,11 +118,11 @@ export function AnswerProse({
     byMarker,
     onCitationPress,
     selectable,
+    direction,
+    script: direction === 'ltr' ? 'prose' : 'none',
   };
 
-  return (
-    <>{blocks.map((block, i) => renderBlock(block, i, i === 0, ctx, 0))}</>
-  );
+  return <>{renderBlocks(blocks, ctx, 0)}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +135,55 @@ interface Ctx {
   byMarker: Map<number, Citation>;
   onCitationPress: (citation: Citation) => void;
   selectable: boolean;
+  /** The answer's own direction, which every block is pinned to. */
+  direction: Direction;
+  /**
+   * How Arabic runs inside text are set: `prose` sets them in Amiri a
+   * step up, `passage` sets the Arabic in Amiri and anything else (a
+   * trailing reference) back in the prose face, and `none` leaves the
+   * text alone — an answer written in Arabic or Urdu is not scripture
+   * line by line, and Urdu is not set in a Naskh.
+   */
+  script: 'prose' | 'passage' | 'none';
 }
+
+type Direction = 'ltr' | 'rtl';
+
+/**
+ * What pins a root <Text> to a base direction, per platform.
+ *
+ * The web takes the `dir` attribute (react-native-web otherwise writes
+ * `dir="auto"`), iOS takes `writingDirection`, and Android takes
+ * neither, so there the block opens with an invisible directional mark,
+ * which its first-strong-character rule then reads. Copy and Share use
+ * the message's own text, so the mark never leaves the screen.
+ */
+function pinDirection(direction: Direction): {
+  props: object;
+  style: TextStyle | null;
+  mark: string | null;
+} {
+  return {
+    props: Platform.OS === 'web' ? { dir: direction } : {},
+    style: Platform.OS === 'ios' ? { writingDirection: direction } : null,
+    mark:
+      Platform.OS === 'android'
+        ? direction === 'ltr'
+          ? '\u200E'
+          : '\u200F'
+        : null,
+  };
+}
+
+/**
+ * Amiri's letters run small beside Literata's at the same nominal size,
+ * so Arabic inside an English sentence is set this much larger to stand
+ * level with the words around it.
+ */
+const ARABIC_INLINE_SCALE = 1.15;
+
+/** A passage is set this much above the prose, as the folio sets its Arabic. */
+const PASSAGE_SCALE = 1.35;
 
 /**
  * The em size an answer's body copy is set at, and its leading.
@@ -174,8 +245,47 @@ function renderSpans(
 ): React.ReactNode[] {
   return spans.map((span, i) => {
     switch (span.type) {
-      case 'text':
-        return <Text key={i}>{span.text}</Text>;
+      case 'text': {
+        const runs =
+          ctx.script === 'none' ? [] : splitArabicRuns(span.text);
+        if (!runs.some((run) => run.arabic)) {
+          return <Text key={i}>{span.text}</Text>;
+        }
+        return (
+          <Text key={i}>
+            {runs.map((run, ri) =>
+              run.arabic ? (
+                <Text
+                  key={ri}
+                  style={{
+                    fontFamily: fonts.arabic,
+                    ...(ctx.script === 'prose'
+                      ? { fontSize: size * ARABIC_INLINE_SCALE }
+                      : null),
+                  }}
+                >
+                  {run.text}
+                </Text>
+              ) : ctx.script === 'passage' ? (
+                // A reference after a verse is the answer's own words,
+                // so it goes back to the answer's face and size.
+                <Text
+                  key={ri}
+                  style={{
+                    fontFamily: fonts.prose,
+                    fontSize: bodySize(ctx.desktop, ctx.width),
+                    color: ctx.colors.mutedForeground,
+                  }}
+                >
+                  {run.text}
+                </Text>
+              ) : (
+                run.text
+              ),
+            )}
+          </Text>
+        );
+      }
 
       case 'emphasis': {
         const next = combine(emphasis, span.style);
@@ -250,16 +360,26 @@ function renderSpans(
 // Blocks
 // ---------------------------------------------------------------------------
 
+/** A run of sibling blocks, each knowing whether it opens the run and what it follows. */
+function renderBlocks(blocks: Block[], ctx: Ctx, depth: number) {
+  return blocks.map((block, i) =>
+    renderBlock(block, i, i === 0, ctx, depth, blocks[i - 1]),
+  );
+}
+
 function renderBlock(
   block: Block,
   key: React.Key,
   first: boolean,
   ctx: Ctx,
   depth: number,
+  previous?: Block,
 ): React.ReactNode {
   const { colors, desktop } = ctx;
   const size = bodySize(desktop, ctx.width);
   const leading = answerLeading(desktop, ctx.width);
+  const pinned = pinDirection(ctx.direction);
+  const rtl = ctx.direction === 'rtl';
 
   switch (block.type) {
     case 'paragraph':
@@ -267,15 +387,52 @@ function renderBlock(
         <Text
           key={key}
           selectable={ctx.selectable}
+          {...pinned.props}
           style={[
             styles.paragraph,
             { fontSize: size, lineHeight: leading, color: colors.foreground },
-            !first && styles.blockSpacing,
+            pinned.style,
+            !first &&
+              (previous?.type === 'passage'
+                ? styles.translationSpacing
+                : styles.blockSpacing),
           ]}
         >
+          {pinned.mark}
           {renderSpans(block.spans, ctx, size, null, false)}
         </Text>
       );
+
+    case 'passage': {
+      const passageSize = Math.round(size * PASSAGE_SCALE * 2) / 2;
+      const rtlPin = pinDirection('rtl');
+      return (
+        <Text
+          key={key}
+          selectable={ctx.selectable}
+          {...rtlPin.props}
+          style={[
+            styles.passage,
+            {
+              fontSize: passageSize,
+              lineHeight: Math.round(passageSize * 1.9),
+              color: colors.strongForeground,
+              marginTop: first ? 0 : 12,
+            },
+            rtlPin.style,
+          ]}
+        >
+          {rtlPin.mark}
+          {renderSpans(
+            block.spans,
+            { ...ctx, script: 'passage' },
+            passageSize,
+            null,
+            false,
+          )}
+        </Text>
+      );
+    }
 
     case 'heading': {
       const scale = HEADING_SCALE[block.level - 1] ?? 1;
@@ -291,6 +448,7 @@ function renderBlock(
           // which is no outline at all — a reader could not tell a
           // section from a sub-point, or skip one to reach the next.
           {...heading(block.level + 1)}
+          {...pinned.props}
           style={[
             styles.heading,
             {
@@ -299,8 +457,10 @@ function renderBlock(
               color: colors.strongForeground,
               marginTop: first ? 0 : 26,
             },
+            pinned.style,
           ]}
         >
+          {pinned.mark}
           {renderSpans(block.spans, ctx, headingSize, null, true)}
         </Text>
       );
@@ -310,11 +470,21 @@ function renderBlock(
       return (
         <View key={key} style={!first && styles.blockSpacing}>
           {block.items.map((item, i) => (
-            <View key={i} style={[styles.listRow, i > 0 && styles.listRowGap]}>
+            <View
+              key={i}
+              style={[
+                styles.listRow,
+                rtl && styles.listRowRtl,
+                i > 0 && styles.listRowGap,
+              ]}
+            >
               <Text
                 selectable={ctx.selectable}
+                {...pinned.props}
                 style={[
                   styles.listMarker,
+                  rtl && styles.listMarkerRtl,
+                  pinned.style,
                   {
                     fontSize: block.ordered ? size * 0.92 : size * 0.9,
                     lineHeight: leading,
@@ -330,34 +500,38 @@ function renderBlock(
                     : '\u2022'}
               </Text>
               <View style={styles.listContent}>
-                {item.blocks.map((child, ci) =>
-                  renderBlock(child, ci, ci === 0, ctx, depth + 1),
-                )}
+                {renderBlocks(item.blocks, ctx, depth + 1)}
               </View>
             </View>
           ))}
         </View>
       );
 
-    case 'quote':
+    case 'quote': {
+      // A quotation that holds scripture takes the folio's brass for its
+      // rule; any other quotation keeps the ink one.
+      const scripture = block.blocks.some((child) => child.type === 'passage');
+      const rule = scripture
+        ? withAlpha(colors.accent, 0.7)
+        : withAlpha(colors.heroInk, 0.9);
       return (
         <View
           key={key}
+          testID={scripture ? 'answer-scripture' : undefined}
           style={[
-            styles.quote,
-            {
-              borderLeftColor: withAlpha(colors.heroInk, 0.9),
-              marginTop: first ? 0 : 20,
-            },
+            rtl ? styles.quoteRtl : styles.quote,
+            rtl ? { borderRightColor: rule } : { borderLeftColor: rule },
+            { marginTop: first ? 0 : 20 },
           ]}
         >
-          {block.blocks.map((child, ci) =>
-            renderBlock(child, ci, ci === 0, ctx, depth),
-          )}
+          {renderBlocks(block.blocks, ctx, depth)}
         </View>
       );
+    }
 
-    case 'codeBlock':
+    case 'codeBlock': {
+      // Code reads left-to-right in an answer of either direction.
+      const code = pinDirection('ltr');
       return (
         <View
           key={key}
@@ -373,12 +547,19 @@ function renderBlock(
         >
           <Text
             selectable={ctx.selectable}
-            style={[styles.codeBlockText, { color: colors.foreground }]}
+            {...code.props}
+            style={[
+              styles.codeBlockText,
+              { color: colors.foreground },
+              code.style,
+            ]}
           >
+            {code.mark}
             {block.text}
           </Text>
         </View>
       );
+    }
 
     case 'table':
       return renderTable(block, key, first, ctx);
@@ -415,6 +596,7 @@ function renderTable(
 ): React.ReactNode {
   const { colors, desktop } = ctx;
   const size = tableSize(desktop, ctx.width);
+  const pinned = pinDirection(ctx.direction);
   const leading = Math.round(size * 1.5 * 2) / 2;
 
   // Three or more columns of prose will not survive a phone's measure:
@@ -430,7 +612,9 @@ function renderTable(
   ) => (
     <Text
       selectable={ctx.selectable}
+      {...pinned.props}
       style={[
+        pinned.style,
         styles.tableCellText,
         {
           fontSize: size,
@@ -445,6 +629,7 @@ function renderTable(
         },
       ]}
     >
+      {pinned.mark}
       {renderSpans(cell.spans, ctx, size, null, strong)}
     </Text>
   );
@@ -519,6 +704,17 @@ const styles = StyleSheet.create({
   blockSpacing: {
     marginTop: 15,
   },
+  // A translation belongs to the verse above it, as it does on the
+  // folio, so it sits close under it rather than a paragraph away.
+  translationSpacing: {
+    marginTop: 4,
+  },
+  // Scripture, in the face the folio sets it in. Amiri's marks reach
+  // well above and below the line, hence the open leading.
+  passage: {
+    fontFamily: fonts.arabic,
+    textAlign: 'right',
+  },
   // The space above a heading is what separates two sections; the small
   // space below is what binds the heading to its own paragraph.
   heading: {
@@ -540,12 +736,26 @@ const styles = StyleSheet.create({
     marginRight: 9,
     textAlign: 'right',
   },
+  // An answer that reads right-to-left hangs its markers on the right.
+  listRowRtl: {
+    flexDirection: 'row-reverse',
+  },
+  listMarkerRtl: {
+    marginRight: 0,
+    marginLeft: 9,
+    textAlign: 'left',
+  },
   listContent: {
     flex: 1,
   },
   quote: {
     borderLeftWidth: 2,
     paddingLeft: 16,
+    marginBottom: 5,
+  },
+  quoteRtl: {
+    borderRightWidth: 2,
+    paddingRight: 16,
     marginBottom: 5,
   },
   codeBlock: {
