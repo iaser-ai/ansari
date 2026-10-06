@@ -1,7 +1,7 @@
 id: '228'
 title: prototypes-ansari-expo-disting
 protocol: pir
-phase: plan
+phase: implement
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -17,4 +17,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-06T15:23:18.663Z'
-updated_at: '2026-10-06T15:26:30.980Z'
+updated_at: '2026-10-06T15:26:36.450Z'
