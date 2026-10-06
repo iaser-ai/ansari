@@ -251,32 +251,12 @@ function renderSpans(
   return spans.map((span, i) => {
     switch (span.type) {
       case 'text': {
-        const runs =
-          ctx.script === 'none' ? [] : splitArabicRuns(span.text);
-        if (!runs.some((run) => run.arabic)) {
-          return <Text key={i}>{span.text}</Text>;
-        }
-        return (
-          <Text key={i}>
-            {runs.map((run, ri) =>
-              run.arabic ? (
-                <Text
-                  key={ri}
-                  style={[
-                    styles.arabicRun,
-                    ctx.script === 'prose' && {
-                      fontSize: size * ARABIC_INLINE_SCALE,
-                    },
-                  ]}
-                >
-                  {run.text}
-                </Text>
-              ) : (
-                run.text
-              ),
-            )}
-          </Text>
-        );
+        // The last word before a source marker is set together with the
+        // marker (see the `footnote` case), so it is held back here.
+        const text = citesNext(spans, i, ctx)
+          ? splitLastWord(span.text).head
+          : span.text;
+        return renderText(text, i, ctx, size);
       }
 
       case 'emphasis': {
@@ -336,16 +316,73 @@ function renderSpans(
       case 'footnote': {
         const citation = ctx.byMarker.get(span.marker);
         if (!citation) return <Text key={i}>{span.raw}</Text>;
+        // The marker's disc must never start a line of its own, away
+        // from the words it cites. On the web it is an atomic inline,
+        // which Chrome will break in front of whatever joiner stands
+        // there, so the word before it and the chip are set in one
+        // unbreakable run. The space the answer wrote between them goes:
+        // the chip brings its own.
+        const before = spans[i - 1];
+        const word =
+          before?.type === 'text' ? splitLastWord(before.text).word : '';
         return (
-          <CitationChip
-            key={i}
-            citation={citation}
-            onPress={ctx.onCitationPress}
-          />
+          <Text key={i} style={NO_WRAP}>
+            {word && renderText(word, 'word', ctx, size)}
+            <CitationChip citation={citation} onPress={ctx.onCitationPress} />
+          </Text>
         );
       }
     }
   });
+}
+
+/** Is the span after `i` a source marker that resolves to a chip? */
+function citesNext(spans: Span[], i: number, ctx: Ctx): boolean {
+  const next = spans[i + 1];
+  return next?.type === 'footnote' && ctx.byMarker.has(next.marker);
+}
+
+/** A text's last word (with its punctuation), and everything before it. */
+function splitLastWord(text: string): { head: string; word: string } {
+  const m = /(\S*)\s*$/.exec(text)!;
+  return { head: text.slice(0, m.index), word: m[1]! };
+}
+
+/** `white-space: nowrap`, which React Native's style types do not carry. */
+const NO_WRAP = (Platform.OS === 'web'
+  ? { whiteSpace: 'nowrap' }
+  : null) as unknown as TextStyle | null;
+
+/** A run of plain text, with any Arabic in it set in Amiri. */
+function renderText(
+  text: string,
+  key: React.Key,
+  ctx: Ctx,
+  size: number,
+): React.ReactNode {
+  const runs = ctx.script === 'none' ? [] : splitArabicRuns(text);
+  if (!runs.some((run) => run.arabic)) return <Text key={key}>{text}</Text>;
+  return (
+    <Text key={key}>
+      {runs.map((run, ri) =>
+        run.arabic ? (
+          <Text
+            key={ri}
+            style={[
+              styles.arabicRun,
+              ctx.script === 'prose' && {
+                fontSize: size * ARABIC_INLINE_SCALE,
+              },
+            ]}
+          >
+            {run.text}
+          </Text>
+        ) : (
+          run.text
+        ),
+      )}
+    </Text>
+  );
 }
 
 // ---------------------------------------------------------------------------

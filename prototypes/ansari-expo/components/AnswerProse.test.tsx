@@ -7,6 +7,7 @@ vi.mock('@/lib/haptics', () => ({ tapHaptic: () => {} }));
 
 import { fonts } from '@/constants/colors';
 import { AnswerProse } from '@/components/AnswerProse';
+import type { Citation } from '@/lib/api';
 
 afterEach(cleanup);
 
@@ -157,5 +158,51 @@ describe('AnswerProse scripture box (issue #228)', () => {
   it('leaves a quotation with no Arabic in the ink rule', () => {
     renderAnswer('> A scholar once wrote this.');
     expect(screen.queryByTestId('answer-scripture')).toBeNull();
+  });
+});
+
+describe('AnswerProse source markers (issue #228)', () => {
+  const citation = {
+    id: 'c1',
+    marker: 1,
+    sourceType: 'quran',
+    reference: "Qur'an 23:1",
+    sourceTitle: "Surah al-Mu'minun",
+    translationText: TRANSLATION,
+  } as Citation;
+
+  function renderCited(content: string) {
+    render(
+      <AnswerProse
+        content={content}
+        byMarker={new Map([[1, citation]])}
+        onCitationPress={() => {}}
+      />,
+    );
+    return screen.getByTestId('citation-chip-1');
+  }
+
+  it('sets the marker as its number on a brass disc', () => {
+    renderCited('Successful are the believers. [1]');
+    const disc = screen.getByTestId('citation-disc-1');
+    expect(disc.textContent).toBe('1');
+    expect(disc.style.backgroundColor).not.toBe('');
+  });
+
+  it('binds the marker to the word before it, dropping the space between', () => {
+    const chip = renderCited('Successful are the believers. [1] And more.');
+    const run = chip.parentElement!;
+    expect(run.style.whiteSpace).toBe('nowrap');
+    expect(run.textContent?.startsWith('believers.')).toBe(true);
+    // The rest of the sentence is untouched, and no word is lost or doubled.
+    expect(run.parentElement!.textContent).toMatch(
+      /^Successful are the believers\.\u200A1\u2009 And more\.$/,
+    );
+  });
+
+  it('leaves an unresolved marker as its literal text', () => {
+    const container = renderAnswer('Unbacked claim. [7]');
+    expect(screen.queryByTestId('citation-chip-7')).toBeNull();
+    expect(container.textContent).toBe('Unbacked claim. [7]');
   });
 });

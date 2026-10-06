@@ -17,3 +17,7 @@
 - (2) Trailing `(reference)` is lifted off the Arabic line (`splitTrailingReference` → `passage.reference`) and set beneath the verse+translation as a byline between two short brass rules.
 - (3) No round marker exists in the app: inline CitationChip and the Sources pills both use the brass superscript figure. The raw `[N]` in the first screenshots was an artifact of my preview passing no citations. Preview now uses SAMPLE_CITATIONS; chip style unchanged, and the point is raised with the architect rather than inventing a style.
 - (4) Verse and translation are centred together inside the box.
+
+## Dev-approval feedback round 2: brass disc behind the inline marker
+- CitationChip: lining figure on a brass-tinted disc (accent 0.18, 18px); web = inline-flex span (stays selectable), native = inline View (nested Text can't take a radius).
+- Gotcha: an inline-flex disc is an atomic inline, and Chrome breaks before it even with U+2060 next to it, and wraps a space after it onto an empty line. That opened a gap under the paragraph. Measured with getClientRects over CDP, not by eye. Fix: AnswerProse sets the last word + chip in one `white-space: nowrap` run and drops the model's space before the marker.
