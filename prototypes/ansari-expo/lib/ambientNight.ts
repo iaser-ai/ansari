@@ -128,10 +128,14 @@ export const NIGHT_STRENGTH_UNGRADED = 1;
 
 /**
  * Daylight: the clip laid straight onto the paper as ink, no blend. The
- * shadow it casts is linear in this opacity, so it scales directly —
- * 0.345 is 15% more than the 0.3 it used to be.
+ * shadow it casts is linear in this opacity, so it scales directly.
+ *
+ * At 0.3 the fronds sat ~5.1 L* below the wall on stone-200 paper and
+ * were too faint to find. A 15% step (0.345) moved that by under 1 L*,
+ * which nobody could see on a soft, moving texture; 0.4 puts it at
+ * ~6.8 L*, enough to read as a shadow without competing with the page.
  */
-export const DAY_STRENGTH = 0.345;
+export const DAY_STRENGTH = 0.4;
 
 /**
  * Whether `mixBlendMode` is honoured, and so whether this layer can
