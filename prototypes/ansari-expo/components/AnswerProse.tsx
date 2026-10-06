@@ -24,7 +24,7 @@ import {
   type Span,
   type TableCell,
 } from '@/lib/markdown';
-import { CitationChip, toSuperscript } from '@/components/CitationChip';
+import { CitationChip } from '@/components/CitationChip';
 import { PressableScale } from '@/components/PressableScale';
 import { footnoteLabel, sourceKindLabel } from '@/lib/footnote-groups';
 import { tapHaptic } from '@/lib/haptics';
@@ -778,9 +778,11 @@ const PILL_HEIGHT = 30;
 /**
  * The source of a scripture box, on the box's own edge.
  *
- * Set in the Sources pills' voice — the brass superior figure, then the
- * reference — with the kind of source named between them in the
- * folio's label voice, since here there is no group heading to say it.
+ * Set in the Sources pills' voice — a brass number, then the reference
+ * — with the kind of source named between them in the folio's label
+ * voice, since here there is no group heading to say it. The number is
+ * a lining figure at the label's size rather than a superior one, so it
+ * and the kind read as one label.
  * It has to cover the hairline it sits on, so it is opaque: the page's
  * paper, with the box's brass washed over it a shade deeper, deepening
  * again under the pointer and the finger.
@@ -822,7 +824,7 @@ function ScripturePill({
     >
       <Text style={styles.pillText} numberOfLines={1} ellipsizeMode="tail">
         <Text style={[styles.pillMarker, { color: colors.accent }]}>
-          {toSuperscript(citation.marker)}
+          {citation.marker}
         </Text>
         <Text style={[styles.pillKind, { color: colors.mutedForeground }]}>
           {'\u2002'}
@@ -1046,8 +1048,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  // Level with the kind label beside it — same face, size and tracking —
+  // so the number and the word read as one label, not a footnote mark
+  // hanging off it.
   pillMarker: {
-    fontFamily: fonts.proseSemiBold,
+    fontFamily: fonts.displayMedium,
+    fontSize: 10.5,
+    letterSpacing: 1,
   },
   // The folio's kind label: the serif with more ink, in capitals,
   // tracked out.

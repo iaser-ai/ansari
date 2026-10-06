@@ -249,14 +249,14 @@ describe('AnswerProse scripture source pill (issue #228)', () => {
     renderWith(`${AYAH}\n${TRANSLATION} [1]`);
     const pill = screen.getByTestId('scripture-source-1');
     // Qur'an's pill drops the "Qur'an" its kind label already says.
-    expect(pill.textContent).toBe("\u00B9\u2002Qur'an\u200223:1");
+    expect(pill.textContent).toBe("1\u2002Qur'an\u200223:1");
     expect(screen.getByTestId('answer-scripture').contains(pill)).toBe(true);
   });
 
   it("labels a hadith as one, with its grade", () => {
     renderWith(`${AYAH}\n"Do you think…" [2]`);
     expect(screen.getByTestId('scripture-source-2').textContent).toBe(
-      '\u00B2\u2002Hadith\u2002Sahih al-Bukhari 528 · Sahih',
+      '2\u2002Hadith\u2002Sahih al-Bukhari 528 · Sahih',
     );
   });
 
