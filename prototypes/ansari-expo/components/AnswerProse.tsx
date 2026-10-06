@@ -505,8 +505,11 @@ function renderBlock(
               fontSize: passageSize,
               lineHeight: Math.round(passageSize * 1.9),
               color: colors.strongForeground,
-              // Consecutive verses sit line under line, as one passage.
-              marginTop: first || previous?.type === 'passage' ? 0 : 12,
+              // Consecutive verses sit line under line, as one passage;
+              // a verse after a translation starts the next pair, so the
+              // gap above it is wider than the one binding a verse to
+              // its own translation below.
+              marginTop: first || previous?.type === 'passage' ? 0 : 20,
             },
             rtlPin.style,
           ]}

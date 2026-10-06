@@ -32,3 +32,7 @@
 - Chrome does not balance across forced newlines, so each Arabic line is now its own `passage` block (one verse per line), and a verse number `﴿N﴾`/`۝` is bound to its word with an NBSP.
 - Bug found by the multi-verse example: `isArabicPassageLine` counted Arabic-script chars (which include Arabic-Indic digits and Qur'anic marks) against letters, so any verse with `﴿١﴾` or `ۢ` failed to lift. Now it counts Arabic letters only. Negative-tested: the two new cases fail on the old regex.
 - Preview now has Al-'Asr (verses then translation) and Al-Ikhlas (verse/translation alternating).
+
+## Round 5: tie each translation to its verse
+- The renderer already pairs verses when the model writes them alternating (Arabic line, then its translation). It can't split one combined translation back into verses: nothing in the English marks verse ends. User chose a prompt change as a separate PR, filed as #234 (apps/api facilitator prompt, cross-boundary, needs @amrmelsayed + @waleedkadous). This PR stays prototype-only.
+- Renderer: the gap above a verse that follows a translation widened 12→20, so pairs read as pairs. Preview Al-'Asr now written verse by verse.
