@@ -1008,9 +1008,11 @@ const styles = StyleSheet.create({
   centered: {
     textAlign: 'center',
   },
+  // More air above than below: Amiri's marks climb high above the
+  // letters, and at the box's head they crowded the hairline.
   scripture: {
     borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 16,
+    paddingTop: 26,
     paddingBottom: 18,
     paddingHorizontal: 20,
     marginBottom: 5,
