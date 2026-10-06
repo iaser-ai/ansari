@@ -6,3 +6,11 @@
 - Proposal: DAY 0.3→0.345; NIGHT_DEPTH 0.58→0.517; NIGHT_STRENGTH 0.6→0.7 (needed ≥0.61 to avoid crushing portrait min).
 - Conflict flagged for human: 15% deeper at night puts the frond mass at/below night.well, and the well test (deepest > 0.45) must be retuned to 0.38. Fallback D≈0.55.
 - Ungraded path (iOS, Android 29–30) is already at opacity 1; not darkenable via constants → follow-up issue.
+
+## Implement phase (2026-10-06)
+- Architect approved the recommendation: full 15% at night, well bound 0.45→0.38.
+- Applied DAY 0.345, NIGHT_DEPTH 0.517, NIGHT_STRENGTH 0.7. Doc comments rewritten: NIGHT_STRENGTH is not a darkness knob.
+- nightGrade() got an optional `strength` param (defaults to NIGHT_STRENGTH) so a test can pin S-invariance against the real function, not a re-derivation.
+- Negative-tested: S=0.6 fails the crush test; the old 0.45 bound fails portrait; a grade that ignores strength fails the new invariance test. All restore green.
+- typecheck clean, 389/389 tests pass.
+- Ungraded follow-up filed: #229.
