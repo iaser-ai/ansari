@@ -33,6 +33,7 @@ function textOf(nodes: Span[] | Block[]): string {
           return textOf(node.spans);
         case 'paragraph':
         case 'heading':
+        case 'passage':
           return textOf(node.spans);
         case 'quote':
           return textOf(node.blocks);
@@ -273,6 +274,119 @@ describe('quotes', () => {
 
   it('ends at a blank line', () => {
     expect(parseAnswer('> quoted\n\nnot quoted').map((b) => b.type)).toEqual(['quote', 'paragraph']);
+  });
+});
+
+describe('Arabic passages (issue #228)', () => {
+  const AYAH = 'قَدْ أَفْلَحَ ٱلْمُؤْمِنُونَ';
+  const TRANSLATION = 'Successful indeed are the believers [1]';
+
+  /** A block tree reduced to its shape: types, nested. */
+  const shape = (blocks: Block[]): unknown[] =>
+    blocks.map((b) =>
+      b.type === 'quote' ? { quote: shape(b.blocks) } : b.type,
+    );
+
+  it('lifts the verse out of a quoted verse-and-translation paragraph', () => {
+    const block = onlyBlock(`> ${AYAH}\n> ${TRANSLATION}`);
+    expect(shape([block])).toEqual([{ quote: ['passage', 'paragraph'] }]);
+    expect(block.type === 'quote' && block.blocks[0]).toEqual({
+      type: 'passage',
+      spans: [{ type: 'text', text: AYAH }],
+      reference: null,
+    });
+  });
+
+  it('gives an unquoted verse the same quotation a quoted one has', () => {
+    expect(shape(parseAnswer(`${AYAH}\n${TRANSLATION}`))).toEqual(
+      shape(parseAnswer(`> ${AYAH}\n> ${TRANSLATION}`)),
+    );
+  });
+
+  it('leaves a lead-in before the verse outside the quotation', () => {
+    expect(
+      shape(parseAnswer(`Allah says:\n${AYAH}\n${TRANSLATION}`)),
+    ).toEqual(['paragraph', { quote: ['passage', 'paragraph'] }]);
+  });
+
+  it('keeps footnote markers inside a passage', () => {
+    const block = onlyBlock(`${AYAH} [2]`);
+    expect(block.type === 'quote' && block.blocks[0]).toEqual({
+      type: 'passage',
+      spans: [
+        { type: 'text', text: `${AYAH} ` },
+        { type: 'footnote', marker: 2, raw: '[2]' },
+      ],
+      reference: null,
+    });
+  });
+
+  it('takes the trailing reference off the Arabic line, keeping markers', () => {
+    const block = onlyBlock(`${AYAH} (Qur'an 23:1) [2]\n${TRANSLATION}`);
+    expect(block.type === 'quote' && block.blocks[0]).toEqual({
+      type: 'passage',
+      spans: [
+        { type: 'text', text: `${AYAH} ` },
+        { type: 'footnote', marker: 2, raw: '[2]' },
+      ],
+      reference: [{ type: 'text', text: "Qur'an 23:1" }],
+    });
+  });
+
+  it('leaves a parenthesis that is not at the end of the line in place', () => {
+    const block = onlyBlock(`(${AYAH}) ${AYAH}`);
+    expect(block.type === 'quote' && block.blocks[0]).toMatchObject({
+      type: 'passage',
+      reference: null,
+    });
+  });
+
+  it('lifts a verse inside a list item', () => {
+    const [list] = parseAnswer(`- ${AYAH}\n- plain item`);
+    expect(list?.type === 'list' && shape(list.items[0]!.blocks)).toEqual([
+      { quote: ['passage'] },
+    ]);
+    expect(list?.type === 'list' && shape(list.items[1]!.blocks)).toEqual([
+      'paragraph',
+    ]);
+  });
+
+  it('leaves an Arabic phrase inside an English sentence in its paragraph', () => {
+    expect(shape(parseAnswer(`Allah says: ${AYAH} [1]`))).toEqual([
+      'paragraph',
+    ]);
+  });
+
+  it('sets each line of a multi-verse passage as its own passage', () => {
+    const asr = 'وَٱلْعَصْرِ ﴿١﴾\nإِنَّ ٱلْإِنسَٰنَ لَفِى خُسْرٍ ﴿٢﴾ (103:2)';
+    const block = onlyBlock(`${asr}\n${TRANSLATION}`);
+    expect(shape([block])).toEqual([
+      { quote: ['passage', 'passage', 'paragraph'] },
+    ]);
+    // A reference is taken off the line it was written on.
+    expect(
+      block.type === 'quote' &&
+        block.blocks.map((b) => (b.type === 'passage' ? b.reference : 'n/a')),
+    ).toEqual([null, [{ type: 'text', text: '103:2' }], 'n/a']);
+  });
+
+  it('pairs each verse with its translation when they alternate', () => {
+    expect(
+      shape(parseAnswer(`${AYAH}\nOne.\n${AYAH}\nTwo. [1]`)),
+    ).toEqual([{ quote: ['passage', 'paragraph', 'passage', 'paragraph'] }]);
+  });
+
+  it('lifts nothing when asked not to (an answer written in Arabic)', () => {
+    expect(
+      shape(parseAnswer(`${AYAH}\n${TRANSLATION}`, { lift: false })),
+    ).toEqual(['paragraph']);
+  });
+
+  it('keeps every character the reader wrote (bar a lifted reference)', () => {
+    const source = `Allah says:\n${AYAH}\n${TRANSLATION}`;
+    expect(textOf(parseAnswer(source))).toBe(
+      `Allah says:${AYAH}${TRANSLATION}`,
+    );
   });
 });
 

@@ -36,6 +36,8 @@
  * frame while it streams in, so for most of its life it *is* malformed.
  */
 
+import { isArabicPassageLine, splitTrailingReference } from '@/lib/script';
+
 // ---------------------------------------------------------------------------
 // Tree
 // ---------------------------------------------------------------------------
@@ -68,6 +70,20 @@ export type Block =
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; spans: Span[] }
   | { type: 'list'; ordered: boolean; start: number; items: ListItem[] }
   | { type: 'quote'; blocks: Block[] }
+  /**
+   * A line, or run of lines, written wholly in Arabic script — a verse,
+   * a hadith's words — lifted out of the paragraph it was written in so
+   * it can be set as the source it is (see `isArabicPassageLine`).
+   */
+  | {
+      type: 'passage';
+      spans: Span[];
+      /**
+       * The reference written after it — `(Qur'an 20:14)` — taken off
+       * the Arabic line so it can be set as the passage's attribution.
+       */
+      reference: Span[] | null;
+    }
   | { type: 'codeBlock'; text: string }
   /** Every row is padded or truncated to the header's width. */
   | {
@@ -547,6 +563,74 @@ function parseTable(
   };
 }
 
+/** What a run of lines is being parsed inside of, and what it may do. */
+interface BlockOptions {
+  /** Lift Arabic lines into `passage` blocks (off for an answer written in Arabic). */
+  lift: boolean;
+  /** Already inside a quotation, so a lifted passage needs no quote of its own. */
+  inQuote: boolean;
+}
+
+/**
+ * A paragraph's lines, with any Arabic passage in them lifted out.
+ *
+ * The facilitator writes a verse the way a printed answer does: the
+ * Arabic on its own line and the translation on the next, often with no
+ * `>` at all. Left as one paragraph that is one block of text, and a
+ * block opened by Arabic is read right-to-left as a whole — translation
+ * included. So each run of Arabic lines becomes a `passage` and each run
+ * of other lines stays a paragraph.
+ *
+ * A passage is set the same whether or not the answer remembered to
+ * quote it: outside a quotation, everything from the first passage to
+ * the end of the paragraph — the verse and the translation written with
+ * it — is wrapped in a `quote` of its own. A lead-in before the verse
+ * (`Allah says:`) stays outside it, as prose.
+ */
+function liftPassages(lines: string[], options: BlockOptions): Block[] {
+  // Each Arabic line is its own passage — usually one verse to a line —
+  // so each can be set (and its lines balanced) on its own; a block
+  // broken by newlines is one the line breaker cannot balance.
+  const toBlocks = (group: string[], passage: boolean): Block[] => {
+    if (!passage) {
+      return [{ type: 'paragraph', spans: parseInline(group.join('\n')) }];
+    }
+    return group.map((line) => {
+      const { line: text, reference } = splitTrailingReference(line);
+      return {
+        type: 'passage',
+        spans: parseInline(text),
+        reference: reference === null ? null : parseInline(reference),
+      };
+    });
+  };
+
+  if (!options.lift || !lines.some(isArabicPassageLine)) {
+    return toBlocks(lines, false);
+  }
+
+  const runs: Block[] = [];
+  let group: string[] = [];
+  let passage = isArabicPassageLine(lines[0]!);
+  for (const line of lines) {
+    const arabic = isArabicPassageLine(line);
+    if (arabic !== passage) {
+      runs.push(...toBlocks(group, passage));
+      group = [];
+      passage = arabic;
+    }
+    group.push(line);
+  }
+  runs.push(...toBlocks(group, passage));
+
+  if (options.inQuote) return runs;
+  const first = runs.findIndex((block) => block.type === 'passage');
+  return [
+    ...runs.slice(0, first),
+    { type: 'quote', blocks: runs.slice(first) },
+  ];
+}
+
 function findFence(lines: string[], start: number, fence: string): number {
   const char = fence[0]!;
   const closing = new RegExp(
@@ -561,6 +645,7 @@ function findFence(lines: string[], start: number, fence: string): number {
 function parseList(
   lines: string[],
   from: number,
+  options: BlockOptions,
 ): { block: Block; next: number } | null {
   const first = matchListMarker(lines[from]!);
   if (!first || first.indent > 3) return null;
@@ -621,13 +706,13 @@ function parseList(
       type: 'list',
       ordered: first.ordered,
       start: first.ordered ? Math.max(first.number, 0) : 1,
-      items: groups.map((group) => ({ blocks: parseBlocks(group) })),
+      items: groups.map((group) => ({ blocks: parseBlocks(group, options) })),
     },
     next: i,
   };
 }
 
-function parseBlocks(lines: string[]): Block[] {
+function parseBlocks(lines: string[], options: BlockOptions): Block[] {
   const blocks: Block[] = [];
   let i = 0;
 
@@ -684,7 +769,10 @@ function parseBlocks(lines: string[]): Block[] {
         inner.push(l.replace(QUOTE, ''));
         i++;
       }
-      blocks.push({ type: 'quote', blocks: parseBlocks(inner) });
+      blocks.push({
+        type: 'quote',
+        blocks: parseBlocks(inner, { ...options, inQuote: true }),
+      });
       continue;
     }
 
@@ -695,7 +783,7 @@ function parseBlocks(lines: string[]): Block[] {
       continue;
     }
 
-    const list = parseList(lines, i);
+    const list = parseList(lines, i, options);
     if (list) {
       blocks.push(list.block);
       i = list.next;
@@ -715,16 +803,22 @@ function parseBlocks(lines: string[]): Block[] {
       paragraph.push(lines[i]!);
       i++;
     }
-    blocks.push({
-      type: 'paragraph',
-      spans: parseInline(paragraph.join('\n')),
-    });
+    blocks.push(...liftPassages(paragraph, options));
   }
 
   return blocks;
 }
 
-/** Parse an answer's Markdown source into blocks. */
-export function parseAnswer(source: string): Block[] {
-  return parseBlocks(source.split(/\r\n|\r|\n/));
+/**
+ * Parse an answer's Markdown source into blocks.
+ *
+ * `lift: false` leaves Arabic lines in their paragraphs. That is the
+ * setting for an answer *written* in Arabic or Urdu, where every line
+ * is Arabic script and lifting them all would honour nothing.
+ */
+export function parseAnswer(
+  source: string,
+  { lift = true }: { lift?: boolean } = {},
+): Block[] {
+  return parseBlocks(source.split(/\r\n|\r|\n/), { lift, inQuote: false });
 }

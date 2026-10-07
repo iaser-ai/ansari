@@ -2,6 +2,7 @@ import type { Citation } from '@/lib/api/types';
 import type { WireDocument } from '@/lib/api/wire-schemas';
 import { CITATIONS_SECTION, stripUnbackedCitations } from '@/lib/citations';
 import { surahName } from '@/lib/surah-names';
+import { isMostlyArabic } from '@/lib/script';
 
 /**
  * Real sources behind an answer (issue #161).
@@ -91,13 +92,6 @@ function parseDocument(doc: WireDocument): ParsedDocument {
     parsed.page = PAGE.exec(doc.title)?.[1];
   }
   return parsed;
-}
-
-/** More than half the letters are Arabic script. */
-function isMostlyArabic(text: string): boolean {
-  const letters = text.match(/\p{L}/gu)?.length ?? 0;
-  const arabic = text.match(/\p{Script=Arabic}/gu)?.length ?? 0;
-  return letters > 0 && arabic / letters > 0.5;
 }
 
 /** A tafsir/mawsuah passage, with its optional leading `Chapter: …` line. */
