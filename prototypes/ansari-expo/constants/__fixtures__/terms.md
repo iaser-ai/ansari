@@ -1,6 +1,6 @@
 Ansari Terms of Service
 
-Effective Date: 2026-10-07
+Effective Date: 2026-10-06
 
 By accessing or using the Ansari digital assistant, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use Ansari.
 

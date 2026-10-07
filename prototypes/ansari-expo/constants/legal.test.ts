@@ -11,8 +11,10 @@ import {
 } from '@/constants/legal';
 
 // Legal text is reproduced, not written (#241). The fixtures are the two
-// documents exactly as they were supplied in the issue; each page's data
-// is read back into the same lines and must match them one for one.
+// documents exactly as they were supplied in the issue — with the one
+// change made on instruction at review, the effective date moved from
+// 2026-10-07 to 2026-10-06 — and each page's data is read back into the
+// same lines and must match them one for one.
 //
 // Two differences are allowed, and both are spelled out here rather than
 // hidden in the comparison: the Privacy Policy's title carries a `# `
@@ -70,10 +72,10 @@ describe('legal text is the supplied text, verbatim', () => {
     expect(fixture('terms.md').split(EDITOR_NOTE)).toHaveLength(2);
   });
 
-  it('is in force from 2026-10-07', () => {
-    expect(EFFECTIVE_DATE).toBe('2026-10-07');
-    expect(fixture('terms.md')).toContain('Effective Date: 2026-10-07');
-    expect(fixture('privacy.md')).toContain('Effective Date: 2026-10-07');
+  it('is in force from 2026-10-06', () => {
+    expect(EFFECTIVE_DATE).toBe('2026-10-06');
+    expect(fixture('terms.md')).toContain('Effective Date: 2026-10-06');
+    expect(fixture('privacy.md')).toContain('Effective Date: 2026-10-06');
   });
 
   // The comparison is only evidence if it can fail.

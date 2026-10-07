@@ -39,6 +39,7 @@ import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
 import { GlassCircleButton } from '@/components/GlassCircleButton';
 import { HeaderBar } from '@/components/HeaderBar';
 import {
+  AskAnsariButton,
   InlineLink,
   Ornament,
   Para,
@@ -226,13 +227,11 @@ export default function AboutScreen() {
                   { color: withAlpha(colors.foreground, 0.78) },
                 ]}
               >
-                An assistant for understanding Islam and practising it better —
-                answering from the Qur&apos;an and the Sunnah, and showing you
+                An assistant for understanding Islam and practising it better.
+                It answers from the Qur&apos;an and the Sunnah, and shows you
                 what it drew on.
               </Text>
             </View>
-
-            <Ornament />
 
             <Section title="What Ansari is" desktop={desktop}>
               <Para desktop={desktop} first>
@@ -261,8 +260,8 @@ export default function AboutScreen() {
 
             <Section title="How it has been checked" desktop={desktop}>
               <Para desktop={desktop} first>
-                BATIK — a hundred-question test of Islamic knowledge, drawn from
-                the first 2,500 questions readers actually asked — is the
+                BATIK, a hundred-question test of Islamic knowledge drawn from
+                the first 2,500 questions readers actually asked, is the
                 standing measure, and Ansari now answers all of it correctly. It
                 has sat the final exams of two Darul Qasim courses, on the
                 Qur&apos;an and on theology, with no access to the course
@@ -280,7 +279,7 @@ export default function AboutScreen() {
               <Para desktop={desktop}>
                 So Ansari can be wrong, and it is better to assume it might be.
                 If an answer looks off, tell it you want to flag the answer and
-                a person will read the conversation — or write to{' '}
+                a person will read the conversation. You can also write to{' '}
                 <InlineLink
                   onPress={() => openEmail(FEEDBACK_EMAIL)}
                   label={`Email ${FEEDBACK_EMAIL}`}
@@ -313,9 +312,9 @@ export default function AboutScreen() {
             <Section title="What it costs" desktop={desktop}>
               <Para desktop={desktop} first>
                 Nothing, and there is nothing to sign up for. Serving an answer
-                is not free — each exchange costs a few cents of model time —
-                but that is carried by the people who build Ansari rather than
-                by the person asking.
+                is not free: each exchange costs a few cents of model time. That
+                cost is carried by the people who build Ansari rather than by
+                the person asking.
               </Para>
             </Section>
 
@@ -328,9 +327,9 @@ export default function AboutScreen() {
                 >
                   {FEEDBACK_EMAIL}
                 </InlineLink>
-                , which is read daily. The long version of all of this —
-                everything Ansari can do, and the full results behind the
-                testing — is at{' '}
+                , which is read daily. The long version of all of this,
+                including everything Ansari can do and the full results behind
+                the testing, is at{' '}
                 <InlineLink onPress={() => openExternalLink(DOCS_URL)}>
                   docs.ansari.chat
                 </InlineLink>
@@ -369,22 +368,7 @@ export default function AboutScreen() {
               style={[styles.closingRule, { backgroundColor: colors.border }]}
             />
 
-            <Pressable
-              onPress={goBack}
-              accessibilityRole="link"
-              accessibilityLabel="Back to asking Ansari a question"
-              testID="about-back-to-ask"
-              style={(state) => [
-                styles.closingLink,
-                { opacity: state.pressed ? 0.55 : isHovered(state) ? 1 : 0.8 },
-              ]}
-            >
-              <Text
-                style={[styles.closingText, { color: colors.strongForeground }]}
-              >
-                Ask Ansari a question
-              </Text>
-            </Pressable>
+            <AskAnsariButton onPress={goBack} testID="about-back-to-ask" />
           </Animated.View>
         </ScrollView>
       </Animated.View>
@@ -481,21 +465,22 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     textAlign: 'center',
   },
-  // The standfirst is chrome, not reading copy: the serif's italic,
-  // the same voice the greeting is set in, held to a shorter measure
-  // than the prose below so it reads as a caption to the title.
+  // The standfirst is a caption to the title, not reading copy: the
+  // reading voice's light italic rather than the display's heavier
+  // one, so it sits under the name instead of competing with it, held
+  // to a shorter measure than the prose below.
   standfirst: {
     maxWidth: 400,
     fontSize: 16,
     lineHeight: 25,
-    fontFamily: fonts.displayItalic,
+    fontFamily: fonts.proseItalic,
     textAlign: 'center',
   },
   standfirstDesktop: {
     maxWidth: 440,
     fontSize: 17,
     lineHeight: 27,
-    fontFamily: fonts.displayItalic,
+    fontFamily: fonts.proseItalic,
     textAlign: 'center',
   },
   appendixNote: {
@@ -539,14 +524,14 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     fontFamily: fonts.proseMedium,
   },
-  // The venue takes the chrome voice's italic — the same treatment a
-  // source title gets in an answer's footnotes — so the kind of thing
-  // an entry is reads differently from the title without a label.
+  // The venue takes the reading voice's light italic, the same caption
+  // voice as the standfirst, so the kind of thing an entry is reads
+  // differently from the title without a label.
   entryVenue: {
     marginTop: 3,
     fontSize: 14,
     lineHeight: 21,
-    fontFamily: fonts.displayItalic,
+    fontFamily: fonts.proseItalic,
   },
   entryDescription: {
     marginTop: 5,
@@ -560,16 +545,5 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 36,
     marginBottom: 26,
-  },
-  closingLink: {
-    alignSelf: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    cursor: 'pointer',
-  },
-  closingText: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontFamily: fonts.displayMedium,
   },
 });

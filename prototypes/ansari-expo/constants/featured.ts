@@ -40,7 +40,7 @@ export interface FeaturedItem {
 export const FEATURED: readonly FeaturedItem[] = [
   {
     title: 'The New AI Empires',
-    venue: 'The Thinking Muslim — podcast',
+    venue: 'The Thinking Muslim, podcast',
     description:
       "An hour with Ansari's author on who is shaping the world's AI, and what that does to education, politics and religious authority.",
     date: '2026-07-17',
@@ -48,7 +48,7 @@ export const FEATURED: readonly FeaturedItem[] = [
   },
   {
     title: 'Ansari: A Retrieval-Grounded Islamic AI Assistant',
-    venue: 'arXiv — paper, with Elsayed, Al Nahas and Haress',
+    venue: 'arXiv, paper with Elsayed, Al Nahas and Haress',
     description:
       'The technical account: how Ansari is built and deployed, and what 140,000 conversations taught the people running it.',
     date: '2026-06-30',
@@ -56,7 +56,7 @@ export const FEATURED: readonly FeaturedItem[] = [
   },
   {
     title: 'Islam and AI',
-    venue: 'Belief in the Future — podcast, hosted by DZ Kalman',
+    venue: 'Belief in the Future, podcast hosted by DZ Kalman',
     description:
       'A conversation about how a faith without a single authority is settling on its norms for AI, with the maker of Ansari.',
     date: '2026-06-26',
@@ -64,15 +64,15 @@ export const FEATURED: readonly FeaturedItem[] = [
   },
   {
     title: 'How Islam Helps Us Think and Work in the Age of AI',
-    venue: 'Productive Muslim — essay, with Mohammed Faris',
+    venue: 'Productive Muslim, essay with Mohammed Faris',
     description:
-      "Working with AI as something entrusted to you, and giving part of the time it frees back to the ummah — Ansari as one author's example.",
+      "Working with AI as something entrusted to you, and giving part of the time it frees back to the ummah, with Ansari as one author's example.",
     date: '2026-05-04',
     href: 'https://productivemuslim.com/age-of-ai/',
   },
   {
     title: 'Faith and Algorithms',
-    venue: 'MuslimMatters — essay',
+    venue: 'MuslimMatters, essay',
     description:
       'An argument for an Islamic ethics of AI, which takes Ansari as its worked example of the principles in code.',
     date: '2025-12-30',
@@ -80,7 +80,7 @@ export const FEATURED: readonly FeaturedItem[] = [
   },
   {
     title: 'Lessons learned building a practical AI assistant',
-    venue: 'Medium — written by Waleed Kadous',
+    venue: 'Medium, written by Waleed Kadous',
     description:
       'An early account of the first year of Ansari: what it was for, what surprised him, and what he would do differently.',
     date: '2024-02-29',
@@ -89,7 +89,7 @@ export const FEATURED: readonly FeaturedItem[] = [
   {
     title: 'Ansari: Practical experiences with an LLM-based Islamic Assistant',
     venue:
-      'IMAN 2023, the International Conference on Islamic Applications in Computer Science and Technologies — conference talk',
+      'IMAN 2023, the International Conference on Islamic Applications in Computer Science and Technologies, conference talk',
     description:
       "Slides from Ansari's first conference talk: how it was assembled, and what its first months of questions showed.",
     date: '2023-12-04',

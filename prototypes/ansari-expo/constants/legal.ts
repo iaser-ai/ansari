@@ -14,7 +14,7 @@
  * part where a span of text is a link.
  */
 
-export const EFFECTIVE_DATE = '2026-10-07';
+export const EFFECTIVE_DATE = '2026-10-06';
 export const FEEDBACK_EMAIL = 'feedback@askansari.ai';
 
 /** A span of a paragraph: plain words, an in-app link, or an address. */

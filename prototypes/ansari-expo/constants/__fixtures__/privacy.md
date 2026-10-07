@@ -1,6 +1,6 @@
 # Ansari Privacy Policy
 
-Effective Date: 2026-10-07
+Effective Date: 2026-10-06
 
 This Privacy Policy describes how Ansari collects, uses, and discloses your information.
 

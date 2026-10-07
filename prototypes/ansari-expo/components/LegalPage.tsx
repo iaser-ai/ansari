@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,10 +28,14 @@ import type { LegalBlock, LegalDoc, LegalInline } from '@/constants/legal';
 import { withAlpha } from '@/lib/color';
 import { openEmail } from '@/lib/link';
 import { heading } from '@/lib/semantics';
-import { isHovered } from '@/lib/web';
 import { GlassCircleButton } from '@/components/GlassCircleButton';
 import { HeaderBar } from '@/components/HeaderBar';
-import { InlineLink, Ornament, Para, Section } from '@/components/ReadingPage';
+import {
+  AskAnsariButton,
+  InlineLink,
+  Para,
+  Section,
+} from '@/components/ReadingPage';
 
 // The same single settle the About page makes — see `app/about.tsx`.
 const PAGE_ENTER = FadeIn.duration(DURATION.enter)
@@ -209,8 +212,6 @@ export function LegalPage({
               </Text>
             </View>
 
-            <Ornament />
-
             <Blocks blocks={doc.preamble} desktop={desktop} />
 
             {doc.sections.map((section) => (
@@ -227,22 +228,7 @@ export function LegalPage({
               style={[styles.closingRule, { backgroundColor: colors.border }]}
             />
 
-            <Pressable
-              onPress={goBack}
-              accessibilityRole="link"
-              accessibilityLabel="Back to asking Ansari a question"
-              testID="legal-back-to-ask"
-              style={(state) => [
-                styles.closingLink,
-                { opacity: state.pressed ? 0.55 : isHovered(state) ? 1 : 0.8 },
-              ]}
-            >
-              <Text
-                style={[styles.closingText, { color: colors.strongForeground }]}
-              >
-                Ask Ansari a question
-              </Text>
-            </Pressable>
+            <AskAnsariButton onPress={goBack} testID="legal-back-to-ask" />
           </Animated.View>
         </ScrollView>
       </Animated.View>
@@ -314,9 +300,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 0,
   },
+  // The air the folio ornament used to stand in, kept as air: the
+  // first words of the document start a section's break below the date.
   masthead: {
     alignItems: 'center',
     gap: 10,
+    marginBottom: 34,
   },
   title: {
     fontSize: 28,
@@ -335,7 +324,7 @@ const styles = StyleSheet.create({
   effective: {
     fontSize: 15,
     lineHeight: 23,
-    fontFamily: fonts.displayItalic,
+    fontFamily: fonts.proseItalic,
     textAlign: 'center',
   },
   blockGap: {
@@ -363,16 +352,5 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 36,
     marginBottom: 26,
-  },
-  closingLink: {
-    alignSelf: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    cursor: 'pointer',
-  },
-  closingText: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontFamily: fonts.displayMedium,
   },
 });

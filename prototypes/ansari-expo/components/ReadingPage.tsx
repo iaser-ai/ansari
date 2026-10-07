@@ -6,11 +6,15 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { answerLeading, answerSize } from '@/constants/layout';
+import { RADIUS, rounded } from '@/constants/radius';
 import { withAlpha } from '@/lib/color';
 import { heading } from '@/lib/semantics';
+import { isHovered } from '@/lib/web';
+import { PressableScale } from '@/components/PressableScale';
 
 /**
  * The parts a long-form reading page is set from — About, and the Terms
@@ -58,10 +62,9 @@ export function InlineLink({
 
 /**
  * The break between passages: the illuminated folio's own ornament,
- * held to a hand's width in the middle of the measure. Used to open a
- * page under its masthead, and on About to close the prose before the
- * appendix — never between every section, where it would stop being an
- * ornament and become a divider.
+ * held to a hand's width in the middle of the measure. Used once, on
+ * About, to close the prose before the appendix — never between every
+ * section, where it would stop being an ornament and become a divider.
  */
 export function Ornament() {
   const colors = useColors();
@@ -154,6 +157,45 @@ export function Para({
   );
 }
 
+/**
+ * The way out at the foot of a reading page: the rail's own "Ask
+ * Ansari" button, at a size the end of a long column can carry. A
+ * filled control rather than a line of type, so the one thing the page
+ * asks of the reader at its end reads as something to press.
+ */
+export function AskAnsariButton({
+  onPress,
+  testID,
+}: {
+  onPress: () => void;
+  testID: string;
+}) {
+  const colors = useColors();
+  return (
+    <PressableScale
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Ask Ansari a question"
+      testID={testID}
+      style={(state) => [
+        styles.askButton,
+        {
+          backgroundColor: withAlpha(
+            colors.foreground,
+            isHovered(state) ? 0.2 : 0.12,
+          ),
+          opacity: state.pressed ? 0.7 : 1,
+        },
+      ]}
+    >
+      <Feather name="plus" size={17} color={colors.foreground} />
+      <Text style={[styles.askButtonText, { color: colors.foreground }]}>
+        Ask Ansari a question
+      </Text>
+    </PressableScale>
+  );
+}
+
 const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
@@ -209,5 +251,19 @@ const styles = StyleSheet.create({
   },
   inlineLink: {
     textDecorationLine: 'underline',
+  },
+  askButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 46,
+    paddingHorizontal: 22,
+    ...rounded(RADIUS.md),
+    cursor: 'pointer',
+  },
+  askButtonText: {
+    fontSize: 15,
+    fontFamily: fonts.bodyMedium,
   },
 });
