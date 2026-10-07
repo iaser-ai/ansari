@@ -18,7 +18,7 @@ The rail's Terms and Privacy links used to show a system alert with one placehol
 - `prototypes/ansari-expo/constants/featured.ts` (+8 / -8): em-dashes removed from venues and descriptions
 - `prototypes/ansari-expo/components/Sidebar.tsx` (+11 / -18): Terms/Privacy push routes; placeholder `showNotice` calls removed
 - `prototypes/ansari-expo/app/_layout.tsx` (+8 / -4): Stack screens and grain-free reading routes
-- `prototypes/ansari-expo/components/SidebarLegalLinks.test.ts` (+52 / -0), `lib/about-copy.test.ts` (+30 / -0), `lib/page-metadata.test.ts` (+4 / -0)
+- `prototypes/ansari-expo/components/LegalPage.test.tsx` (new, render test), `components/SidebarLegalLinks.test.ts` (+52 / -0), `lib/about-copy.test.ts` (+30 / -0), `lib/page-metadata.test.ts` (+4 / -0)
 - `codev/resources/arch.md` (+2 / -0), `codev/resources/arch-critical.md` (+1 / -1), `codev/resources/lessons-learned.md` (+9 / -0)
 - `codev/plans/241-prototypes-ansari-expo-replace.md`, `codev/state/pir-241_thread.md`, `codev/projects/241-…/status.yaml`
 
@@ -32,7 +32,7 @@ The rail's Terms and Privacy links used to show a system alert with one placehol
 ## Test Results
 
 - `tsc --noEmit`: ✓ pass
-- `vitest run`: ✓ pass (35 → 37 files, 518 tests, 18 new)
+- `vitest run`: ✓ pass (35 → 38 files, 523 tests, 23 new)
 - porch `build` / `tests` checks: ✓ pass
 - Manual verification in headless Chrome over CDP:
   - Desktop 1280×900: the rail's Terms link goes to `/terms` with no dialog. The tab reads "Terms of Service · Ansari" and all 16 section headings render. The inline "Privacy Policy" link goes to `/privacy`, and the rail's Privacy link goes to `/privacy`. About's "Ask Ansari a question" button returns to `/`.
@@ -66,6 +66,16 @@ The rail's Terms and Privacy links used to show a system alert with one placehol
 - **About was refactored.** Its layout components moved without edits. The only structural change is that "Recently featured" uses `SectionHeading`. All other visual differences on About are the ones requested in review.
 - **The Ask button is on all three pages.** The request was for About, but the legal pages close the same way, so they share `AskAnsariButton`.
 - About still has one ornament, before "Recently featured". Only the ornament under the title was asked to go.
+
+### 3-way consultation (single pass)
+
+- **Codex: APPROVE.**
+- **Claude: APPROVE.** It diffed the fixtures against the issue's markdown blocks and found them byte-identical apart from the date. Its notes and what I did with them:
+  - *No render test for `LegalPage`.* Fixed: `components/LegalPage.test.tsx` renders it through react-native-web. It checks the title, the date, every heading, that the `/privacy` link has the link role and navigates, the email link, one bullet per list item, and the closing button.
+  - *The effective date (2026-10-06) contradicts the issue (2026-10-07).* This was the reviewer's instruction at `dev-approval`. **Please confirm it once at the `pr` gate**, since it is a legal effective date.
+  - *The em-dash removal changes visible copy on About and in `featured.ts`.* This was done on instruction and is listed above.
+  - *Bullet markers are not selectable on the web, unlike answer bullets.* Left as is: this only affects copy-paste, and the bullet is decoration.
+- **Gemini: skipped.** The `agy` CLI is not installed on this machine, so this lane gave no verdict.
 
 ## How to Test Locally
 

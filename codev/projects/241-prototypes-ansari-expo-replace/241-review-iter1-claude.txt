@@ -1,0 +1,33 @@
+I'll read the implementation files from disk.Read everything from disk, plus the issue body, and verified mechanically. No files were modified.
+
+## Verification performed
+
+**Verbatim fidelity (the central risk) — proven, not asserted.** I extracted both ` ```markdown ` blocks from issue #241 and diffed them against `constants/__fixtures__/{terms,privacy}.md`: **byte-identical** after substituting the effective date. So the fixture is a faithful copy of the source, and `legal.test.ts` then holds `constants/legal.ts` to that fixture line for line, with both allowed differences (`# ` on the Privacy title, the editor's note that became a link) named in the test rather than buried in the comparison. The negative cases are real — changed character, dropped clause, list item turned into a paragraph — so the check can fail. The `JSON.stringify(TERMS)).not.toContain('privacy.md')` assertion pins the issue's "link, not a relative file" instruction.
+
+**Build/tests**: `npx tsc --noEmit` clean; the four relevant suites pass (38 tests).
+
+**Plan adherence**: every "Files to Change" entry is changed, and nothing structural beyond them. The About refactor is a genuine move — I compared `components/ReadingPage.tsx` against `origin/develop:app/about.tsx` and the primitives are unchanged apart from `SectionHeading` being extracted and the review-requested edits. The list treatment claims check out: `minWidth: 17`, `marginRight: 9`, `0.62` marker alpha, `marginTop: 7` row gap all match `AnswerProse.tsx:581-1162` exactly, so bullets on the Privacy page will match bullets in an answer. `showNotice` is gone from Sidebar but still used by `lib/link.ts` — not left dead. I confirmed `AccountChrome.tsx` has no Terms/Privacy triggers, matching the plan's finding (the issue asked for this check).
+
+**Not a new bug**: `AskAnsariButton onPress={goBack}` looks like a label/behavior mismatch, but `git show origin/develop:app/about.tsx` shows the pre-existing "Ask Ansari a question" link already called `goBack`. Inherited, consistent, out of scope.
+
+## Notes for the human gate
+
+- **Effective date is 2026-10-06; the issue specified 2026-10-07** ("confirmed with the user"). The thread and review both record this as a reviewer instruction at `dev-approval` round 1, and the fixture moved with the data. It's a legal effective date, so worth one explicit confirmation before merge — it's the one fact in the PR that contradicts the issue on purpose.
+- **`LegalPage.tsx` (356 lines of new rendering code) has no automated test.** All new coverage is source-scan or data-equality. This repo does have a render harness (`@testing-library/react-native` in six component tests), so a smoke test — renders every section heading, the `/privacy` link carries a link role, a list row renders its marker — would be idiomatic and cheap. Mitigated for now by the headless-Chrome pass and the human's approval of the running build, which is why this is a comment rather than a blocker.
+- **Mild scope creep, human-directed**: em-dash removal in `about.tsx` and `constants/featured.ts` changes visible venue copy ("The Thinking Muslim — podcast" → "The Thinking Muslim, podcast"). Outside #241, instructed at review, and disclosed in the review file. Fine, but a PR reader should know the About page's words changed.
+- **Trivia**: list markers in `LegalPage` aren't `selectable`, while `AnswerProse` markers are (`selectable={ctx.selectable}`) — copying a bulleted clause on web drops the bullet.
+- **Two email addresses now coexist** (`feedback@askansari.ai` in legal text, `feedback@ansari.chat` on About). Correctly kept verbatim; the review file already flags that someone should decide.
+
+Cross-platform: iOS/Android unrun, honestly disclosed, and nothing in the new code is platform-specific beyond the `Platform.OS === 'web'` `<Head>` guard — low risk.
+
+---
+VERDICT: APPROVE
+SUMMARY: Verbatim legal text proven byte-identical to the issue, plan followed closely, tsc and tests green; only gap is no render test for LegalPage and a human-instructed date change worth confirming.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Effective date is 2026-10-06 vs the issue's explicit 2026-10-07 — reviewer-instructed and documented, but confirm once before merge since it's a legal effective date.
+- `components/LegalPage.tsx` has no render test despite an existing `@testing-library/react-native` harness in this package; all new tests are source-scan/data-equality.
+- Human-directed scope creep: em-dash removal changes visible About/featured copy outside #241 (disclosed in the review file).
+- Cosmetic: list markers not `selectable` on web, unlike `AnswerProse`.
