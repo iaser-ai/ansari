@@ -32,7 +32,7 @@ The rail's Terms and Privacy links used to show a system alert with one placehol
 ## Test Results
 
 - `tsc --noEmit`: ✓ pass
-- `vitest run`: ✓ pass (35 → 38 files, 523 tests, 23 new)
+- `vitest run`: ✓ pass (37 files, 523 tests; 4 new test files)
 - porch `build` / `tests` checks: ✓ pass
 - Manual verification in headless Chrome over CDP:
   - Desktop 1280×900: the rail's Terms link goes to `/terms` with no dialog. The tab reads "Terms of Service · Ansari" and all 16 section headings render. The inline "Privacy Policy" link goes to `/privacy`, and the rail's Privacy link goes to `/privacy`. About's "Ask Ansari a question" button returns to `/`.
