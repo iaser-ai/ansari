@@ -160,3 +160,12 @@ See `codev/reviews/228-prototypes-ansari-expo-disting.md` for the full context.
 - **A test file that fails to load hides from a grep for "Tests N passed".** An incomplete `react-native-reanimated` mock (no `Easing`) failed the whole `AnswerProse` suite at import, and the count quietly dropped from 445 to 431. Watch `Test Files` as well as the test count after adding a mock or an import.
 - **The renderer cannot recover structure the model didn't write.** One combined translation of three verses can't be split back into verses. Fix the output format at the prompt (#234) instead of guessing in the renderer.
 - **The `porch next` trap hit a fourth builder.** Reading the implement prompt with `porch next` recorded `dev-approval` as requested before any code existed.
+
+## Legal pages — prototype (issue #241)
+
+See `codev/reviews/241-prototypes-ansari-expo-replace.md` for the full context.
+
+- **Verbatim text is a fixture-equality test, not a careful copy.** Keep the supplied source unchanged as a fixture, generate the structured data from it once, then check it in. Compare the data read back into lines against the fixture, and list every allowed difference by name in the test (here: a `# ` on one title, and an editor's note that became a link). Prove the check fails on a changed character, a dropped clause and a list item turned into a paragraph.
+- **A "verbatim" fact can still change at review.** The effective date was confirmed in the issue and then moved by a day at `dev-approval`. Change the fixture with the data and record why in the test, or the fixture stops being the source of truth.
+- **A source-scan test reads literals, so keep the literal where it scans.** `page-metadata.test.ts` finds `<title>` text in route files. A shared page component with `<title>{headTitle}</title>` would have matched the scan while asserting nothing, so each route owns its `<Head>`.
+- **`porch` resolves the project from the worktree root.** Run from a package subdirectory, `porch next` answers "Project not found", which looks like lost state. `cd` to the worktree root first.
