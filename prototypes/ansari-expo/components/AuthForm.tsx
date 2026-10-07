@@ -183,7 +183,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       {Platform.OS === 'web' && (
         <Head>
           <title>
-            {isRegister ? 'Create your account — Ansari' : 'Log in — Ansari'}
+            {isRegister ? 'Create your account · Ansari' : 'Log in · Ansari'}
           </title>
         </Head>
       )}

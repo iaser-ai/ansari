@@ -523,7 +523,7 @@ export default function HomeScreen() {
       <View style={styles.flex} {...screenLandmark}>
         {Platform.OS === 'web' && (
           <Head>
-            <title>Ansari — Ask about the Qur&apos;an and Sunnah</title>
+            <title>Ansari · Ask about the Qur&apos;an and Sunnah</title>
             <meta
               name="description"
               content="Ask Ansari about the Qur'an and Sunnah. Every answer cites its sources, so you can open the original text and verify."
