@@ -1,0 +1,30 @@
+id: '241'
+title: prototypes-ansari-expo-replace
+protocol: pir
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-10-07T11:43:41.063Z'
+    approved_at: '2026-10-07T12:01:10.247Z'
+  dev-approval:
+    status: approved
+    requested_at: '2026-10-07T12:07:12.534Z'
+    approved_at: '2026-10-07T12:13:49.124Z'
+  pr:
+    status: approved
+    requested_at: '2026-10-07T12:22:15.796Z'
+    approved_at: '2026-10-07T12:45:04.269Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-07T11:41:33.151Z'
+updated_at: '2026-10-07T14:00:23.016Z'
+pr_history:
+  - phase: review
+    pr_number: 242
+    branch: builder/pir-241
+    created_at: '2026-10-07T12:17:40.114Z'
+pr_ready_for_human: false

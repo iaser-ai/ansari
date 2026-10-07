@@ -215,14 +215,16 @@ function AppFrame({ children }: { children: React.ReactNode }) {
     leaving ||
     authRoute ||
     path.startsWith('/chat') ||
-    path.startsWith('/about');
+    path.startsWith('/about') ||
+    path.startsWith('/terms') ||
+    path.startsWith('/privacy');
 
   return (
     <PaperBackground
       // Grain is a texture for an empty page; under a full column of
-      // body text — an answer or the About page — it competes with the
-      // letterforms. The paper fades between the two rather than
-      // cutting — see `PaperBackground`.
+      // body text — an answer, About, Terms or Privacy — it competes
+      // with the letterforms. The paper fades between the two rather
+      // than cutting — see `PaperBackground`.
       grain={!reading}
     >
       {/* The palm shadow is cast *on* the paper, so it hangs here with
@@ -292,6 +294,8 @@ function RootLayoutNav() {
         <Stack.Screen name="index" />
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="about" />
+        <Stack.Screen name="terms" />
+        <Stack.Screen name="privacy" />
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
       </Stack>
