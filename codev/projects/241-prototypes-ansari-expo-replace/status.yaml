@@ -21,10 +21,12 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-07T11:41:33.151Z'
-updated_at: '2026-10-07T14:00:23.016Z'
+updated_at: '2026-10-07T14:04:42.809Z'
 pr_history:
   - phase: review
     pr_number: 242
     branch: builder/pir-241
     created_at: '2026-10-07T12:17:40.114Z'
+    merged: true
+    merged_at: '2026-10-07T14:04:42.809Z'
 pr_ready_for_human: false
