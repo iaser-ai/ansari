@@ -478,7 +478,7 @@ export default function HomeScreen() {
     />
   ));
 
-  // Each suggestion reads as a trending search: a small trend mark,
+  // Each suggestion reads as a sample to explore: a small compass mark,
   // then the question. The rows' left edge lines up exactly with the
   // text inside the composer (card inset 16 + card padding 12 + field
   // padding 10 = 38).
@@ -953,7 +953,7 @@ function SuggestionChip({
 const CHIP_PLACEHOLDER_WIDTHS = [156, 198, 124] as const;
 
 /**
- * A desktop suggestion: a trend mark and the question, inked brighter
+ * A desktop suggestion: a compass mark and the question, inked brighter
  * under the pointer. Both the mark and the label take the same ink, so
  * hover is held here rather than read inside a style callback — and the
  * line dips under a press like every other unglassed control.
@@ -973,12 +973,12 @@ function SuggestionLine({
       onPress={() => onPress(question)}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      // Named by the question it carries; the trend mark beside it is
+      // Named by the question it carries; the compass mark beside it is
       // ornament and adds nothing when read aloud.
       accessibilityRole="button"
       style={styles.line}
     >
-      <Feather name="trending-up" size={15} color={ink} />
+      <Feather name="compass" size={15} color={ink} />
       <Text numberOfLines={1} style={[styles.lineText, { color: ink }]}>
         {question}
       </Text>
