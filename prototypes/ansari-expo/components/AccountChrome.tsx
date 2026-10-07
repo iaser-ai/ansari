@@ -7,6 +7,7 @@ import { useSourcePanelEdge } from '@/hooks/useSourcePanel';
 import { fonts } from '@/constants/colors';
 import { isHovered } from '@/lib/web';
 import { useAuth } from '@/lib/auth/context';
+import { openAuthSheet } from '@/lib/authSheet';
 
 /**
  * Account chrome: the way in, kept in the top-right corner where a
@@ -16,9 +17,9 @@ import { useAuth } from '@/lib/auth/context';
  * Nothing scrolls under this corner and nothing competes with it, so a
  * panel here would only be a box drawn around two links.
  *
- * Signed out it offers "Log in" / "Sign up", both opening the real auth
- * screen — Ansari works without an account, so this is an optional add-on,
- * not a gate. Signed in it shows the name and a way out.
+ * Signed out it offers "Log in" / "Sign up", both raising the sign-in
+ * sheet over the page the reader is on (`AuthSheet`) — Ansari works
+ * without an account, so this is an optional add-on, not a gate. Signed in it shows the name and a way out.
  *
  * Desktop only, like the rail: phones reach the same actions from the
  * rail's drawer, and two competing sets of chrome on a small screen is
@@ -72,7 +73,7 @@ export function AccountChrome() {
       ) : (
         <>
           <Pressable
-            onPress={() => router.push('/login')}
+            onPress={() => openAuthSheet('login')}
             accessibilityRole="button"
             testID="login-button"
             style={(state) => [
@@ -86,7 +87,7 @@ export function AccountChrome() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push('/register')}
+            onPress={() => openAuthSheet('register')}
             accessibilityRole="button"
             testID="signup-button"
             style={(state) => [

@@ -16,7 +16,8 @@ const TITLE_SOURCES = [
   'app/terms.tsx',
   'app/privacy.tsx',
   'app/chat/[id].tsx',
-  'components/AuthForm.tsx',
+  // Signing in is a sheet over the page now (`AuthSheet`), not a page,
+  // so it leaves the tab's title alone and has none of its own.
 ];
 
 function titleBlocks(source: string): string[] {
@@ -45,13 +46,12 @@ describe('page titles', () => {
     const titles = TITLE_SOURCES.flatMap((f) => titleBlocks(read(f))).join('\n');
     expect(titles).toContain('Ansari · Ask about the Qur&apos;an and Sunnah');
     expect(titles).toContain('${threadTitle} · Ansari');
-    expect(titles).toContain("'Log in · Ansari'");
     expect(titles).toContain('Terms of Service · Ansari');
     expect(titles).toContain('Privacy Policy · Ansari');
   });
 
   it('the scan sees an em-dash when one is there', () => {
-    expect(titleBlocks('<title>Log in — Ansari</title>')[0]).toContain('—');
+    expect(titleBlocks('<title>Terms of Service — Ansari</title>')[0]).toContain('—');
   });
 
   it('names the web app plainly, without a version number', () => {
