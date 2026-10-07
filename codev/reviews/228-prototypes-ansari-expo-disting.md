@@ -59,6 +59,7 @@ Lines written wholly in Arabic are lifted out of the prose and set as scripture.
   - iOS (`writingDirection`, `lineBreakStrategyIOS`, the inline `View` disc)
   - Android (the LRM mark, `textBreakStrategy`)
   - The pill's `boxShadow` inset wash, which needs the new architecture (Expo 54 default)
+  - Android clipping of the pill. `pillRow` hangs half outside the box (`bottom: -PILL_HEIGHT/2`), and Android has a history of clipping absolutely-positioned children that overflow a parent with a background and radius.
 
 ## Architecture Updates
 
@@ -85,6 +86,15 @@ Lines written wholly in Arabic are lifted out of the prose and set as scripture.
 - **HOT** `codev/resources/lessons-critical.md`: the map was at its 12-topic cap. #65 and #189 (both streaming render) were merged into one map line, and #228 was added. Both cold sections are unchanged. No new critical lesson: the test-count lesson is an instance of the existing "prefer loud failures" rule.
 
 ## Things to Look At During PR Review
+
+- **The widest visual change is not scripture-specific.** `CitationChip`'s inline `[N]` marker changes in EVERY answer: a brass superscript figure becomes a brass figure on a brass-tinted disc, bound to its preceding word. The human requested and approved this at `dev-approval`; it goes beyond the plan's text.
+- **3-way consultation:**
+  - Codex: APPROVE.
+  - Claude: APPROVE, with documentation notes, folded in here.
+  - Gemini: skipped, because its CLI is not installed; this is non-blocking.
+  - Claude's two cosmetic asymmetries are left as is:
+    - A lead-in written *inside* a `>` quote is centred into the box with the verse.
+    - A non-reference trailing parenthetical such as `(see note)` on an Arabic line would be lifted to the byline.
 
 - **Script detection is strict on purpose** (`isArabicPassageLine`). A line is lifted only when every letter is Arabic, ignoring `[N]` and one trailing `(reference)`. `Allah says: قَدْ…` therefore stays English prose. The safe failure is Arabic left inline in an LTR paragraph, which still reads correctly.
 - **An unquoted verse is wrapped in a `quote` by the parser** (`liftPassages`), so a verse looks the same whether or not the model wrote `>`. A lead-in before the first Arabic line stays outside the box.
