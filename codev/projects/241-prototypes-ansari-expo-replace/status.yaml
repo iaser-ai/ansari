@@ -1,7 +1,7 @@
 id: '241'
 title: prototypes-ansari-expo-replace
 protocol: pir
-phase: plan
+phase: implement
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -17,4 +17,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-07T11:41:33.151Z'
-updated_at: '2026-10-07T12:01:10.251Z'
+updated_at: '2026-10-07T12:01:12.715Z'
