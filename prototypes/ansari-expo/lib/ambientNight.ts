@@ -25,8 +25,9 @@
  *
  * The difficulty is headroom. The page (`night.page`) and the well
  * beneath it (`night.well`) are barely three L* apart, so a night shadow
- * has roughly a third of the range daylight enjoys. There is no room to
- * be tasteful about it: the deepest frond has to spend nearly all of it.
+ * has a fraction of the range daylight enjoys. There is no room to be
+ * tasteful about it: the frond mass spends all of it, reaching the well,
+ * and the shadow's core goes a little past (see NIGHT_DEPTH).
  * ---------------------------------------------------------------------
  */
 

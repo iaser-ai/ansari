@@ -18,3 +18,7 @@
 ## Dev-approval feedback (2026-10-06)
 - Reviewer: day shadow looked unchanged. Measured: 0.3→0.345 moved frond-vs-wall contrast only 5.1→5.9 L* on stone-200 paper (<1 L*, invisible on a soft moving texture). Raised DAY_STRENGTH to 0.4 (~6.8 L*).
 - Dev-server gotcha: the 8225 server was launched with CI=1 (Metro "CI mode, reloads are disabled"), so it kept serving stale code after edits. Restarted without CI. Verify served values by grepping the bundle, not by trusting the tab.
+
+## Review phase (2026-10-06)
+- Reviewer settled day at 0.6 after four rounds (0.4, 0.5, 0.55, 0.6). PR #236 opened against develop.
+- 3-way: Claude APPROVE, Codex COMMENT (2× day deviation, disclosed), Gemini skipped (agy CLI missing). Added a day band test (0.45–0.7) and fixed the module header's well framing. Test count is 399 after the develop merge (389 before).

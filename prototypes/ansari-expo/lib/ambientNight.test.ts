@@ -103,6 +103,16 @@ describe('a platform that cannot subtract draws nothing', () => {
     }
   });
 
+  it('keeps daylight in the band review settled on', () => {
+    // The day assertion above compares the constant to itself, so it
+    // would pass at any value. This one pins the intent: at 0.3–0.4 the
+    // fronds were too faint to find (#225), and well above 0.6 the
+    // layer stops being felt more than seen and starts to compete with
+    // the page.
+    expect(DAY_STRENGTH).toBeGreaterThanOrEqual(0.45);
+    expect(DAY_STRENGTH).toBeLessThanOrEqual(0.7);
+  });
+
   it('reports the two capabilities separately', () => {
     // They are not the same gate: Android 29 and 30 can blend but cannot
     // filter, and iOS can blend but implements only brightness/opacity.

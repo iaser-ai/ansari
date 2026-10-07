@@ -1,0 +1,50 @@
+I'll read the actual files from disk to review this implementation.Now the review file, plan, and project state:Let me verify the math numerically and check the remaining changed files plus the untouched consumer.Math checks out on every assertion. Now the governance doc edits and the consumer that applies these values:One line in the grep output looks malformed (`/ Nothing to draw` with a single slash). Let me verify it directly, since that file is outside the PR scope and should be untouched:I verified the implementation by reading all changed files and recomputing the composite math independently rather than running the builder's test suite (the worktree is live; my numeric check covers every assertion in the changed test file).
+
+## Plan adherence
+
+| Plan item | Status |
+|---|---|
+| `NIGHT_DEPTH` 0.58 → 0.517 | ✅ exact |
+| `NIGHT_STRENGTH` 0.6 → 0.7 | ✅ exact |
+| Doc comments rewritten (depth/strength/day) | ✅ all three |
+| Well bound 0.45 → 0.38 + rationale | ✅ |
+| New S-invariance test | ✅ and done well |
+| Follow-up issue for ungraded path | ✅ #229, linked |
+| No change to `AmbientVideo.tsx` | ✅ verified (empty three-dot diff; the `/ Nothing to draw` line I saw in a grep was a display artifact — file reads correctly) |
+| `DAY_STRENGTH` 0.3 → 0.345 | ⚠️ landed at **0.6** |
+
+No scope creep: the only files beyond the plan are the protocol-required plan/review/thread/status and governance docs.
+
+## Math verification (all independently confirmed)
+
+- Portrait: wall → `1.000000` exactly, frond → `0.517000` exactly, core → `0.4065` (plan predicted 0.407), crush margin `0.152 > 0.02`, `brightness 0.660 ≤ 1`.
+- Landscape: wall `1.000000`, frond `0.517000`, core `0.5062`, crush `0.295`, `brightness 0.615 ≤ 1`.
+- `deepest > 0.38` holds on both; portrait margin is `0.0265`.
+- Never-lightens sweep: max multiplier `1.000000000` over the full 0–1 range.
+- **The new invariance test is sound**: max |Δm| between S=0.65 and S=0.9 across the entire `[frond, wall]` range is `6.66e-16`, so the `1e-6` tolerance is honest and the test will catch a grade that ignores its `strength` argument. Varying strength through the real `nightGrade(clip, strength)` rather than re-deriving the algebra is the right call.
+
+## The day deviation
+
+`DAY_STRENGTH` is 0.6 — twice the original, not the planned ×1.15. This is **human-directed and prominently disclosed**: four commits each labeled "per review", the first bullet of "Things to Look At", and the constant's own doc comment records the rejected 0.345 and 0.4 so the next reader doesn't re-litigate it. The review file also flags, against its own interest, that `dev-approval` was recorded (`479119e`) *before* those rounds and that acceptance of 0.6 was given in-pane rather than through a second gate. That honesty is the right handling — the `pr` gate human is the same person, so it resolves there. Flagging only so the final approver knows the value they're signing is 2× the approved plan.
+
+## Comments (non-blocking)
+
+1. **Every test added or retuned guards the night path; the constant that actually doubled has no numeric guard.** The sole day assertion is `expect(t).toEqual({ kind: 'day', opacity: DAY_STRENGTH })`, which is tautological — it passes identically at 0.95, where the near-white clip would flatten the paper and the layer would stop being "felt more than seen". Night gets three bounds (well, crush, invariance) precisely because its value is load-bearing; day's now is too. A one-line ceiling (`expect(DAY_STRENGTH).toBeLessThanOrEqual(0.7)`) or a frond-vs-wall ΔL* range check would pin the new intent the same way.
+2. **Production applies the grade through the rounded CSS string** (`brightness(0.660) contrast(5.56)`), while the tests assert against the unrounded numeric fields. Measured drift at the frond anchor: 0.5175 (portrait) / 0.5166 (landscape) vs 0.517 exact — negligible, and pre-existing, not introduced here. Worth knowing the anchors aren't bit-exact in the browser.
+3. **Doc nit**: the module header (lines 26–29) still frames the well as the bound the shadow spends itself against, which the body comments now correctly supersede. And `Test Results` says 398 tests while the thread says 389 — presumably pre- vs post-`develop`-merge, but two committed docs disagree.
+
+## Review file
+
+Follows the template and is accurate. "Things to Look At" is genuinely honest rather than decorative (gate wrinkle, well bound, iOS no-change). "How to Test Locally" is actionable: exact `afx dev` command, port fallback, the `CI=1` stale-bundle gotcha, and three concrete checks across both schemes and desktop width. PIR platform coverage is explicit — iOS and Android 29–30 dark mode are stated as unchanged with the reason and a follow-up, which is exactly what a cross-platform visual change needs to tell a human reviewer.
+
+---
+VERDICT: APPROVE
+SUMMARY: Night half implements the plan exactly with verified math and a well-constructed invariance test; the day value deviates 2× from plan but was human-directed and prominently disclosed, leaving only non-blocking suggestions.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- `DAY_STRENGTH` is 0.6, not the planned 0.345 — reviewer-directed over four rounds and disclosed in the review file, but the final approver should note dev-approval was recorded before those rounds.
+- No numeric guard on the day path: the only day assertion is tautological, so the constant that doubled would pass at any value including 1.0. A one-line ceiling or ΔL* bound would match the rigor the night path gets.
+- Minor: production uses the rounded CSS filter string while tests assert unrounded values (drift <0.001, pre-existing); module header still frames the well as the shadow's bound; test count differs between review file (398) and thread (389).
