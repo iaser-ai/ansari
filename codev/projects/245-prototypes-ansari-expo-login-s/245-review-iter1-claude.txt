@@ -1,0 +1,53 @@
+I'll start by reading the plan, review file, and the implementation files from disk.I've read the plan, the review file, and every implementation file from disk, plus the shell/keyboard contract that the new hook depends on.
+
+## Plan Adherence
+
+Every item in the plan's "Files to Change" is present and does what the plan said:
+
+- **`lib/authSheet.ts`** mirrors the `messageActions` idiom exactly; `setAuthSheetMode` correctly refuses to open a closed sheet (`if (!mode) return`), and `publish` de-dupes identical values.
+- **`AuthSheet.tsx`** carries `Field` and the form logic over unchanged (same validation strings, same `register({email,password,firstName,lastName})` shape, same guest reuse), adds Apple-before-Google with per-platform dress and real SVG marks, and switches face in place via the store — no navigation.
+- **Entry points** are all rewired, and `grep` confirms **zero remaining `router.push('/login'|'/register')`** anywhere in the prototype. `router` is still legitimately imported in `AccountChrome` (sign-out, line 58) and `Sidebar`, so no dead imports.
+- **Sidebar's deferred open** is correct and better than it looks: because the store is module-level, the `setTimeout` firing after the drawer (and `Sidebar`) unmounts still raises the sheet rather than warning on a dead component.
+- **Route shims** redirect to `/` with the right face; `Stack.Screen name="login|register"` entries are kept, and `authRoute` is fully removed from `AppFrame`.
+
+**Scope addition — justified, not creep.** `components/Sheet.tsx` and `hooks/useShellFrame.ts` aren't in the plan's file list, but the plan's Risks section pre-authorized exactly this ("If this needs a change to `Sheet` itself, it would be an opt-in prop so the sources and actions sheets are untouched"), and that's what landed.
+
+I verified the "no-op when off" claim **by reading rather than by mutating the tree**: with `fitToShell` false, `useShellFrame` returns `null` → `screenHeight` falls back to `windowHeight`, the `shell && {...}` style entry evaluates to `false` (ignored in an RN style array), the scroll-into-view effect returns at its first guard, and `sheetCap` is unchanged. `SourcePanel` and `MessageActionSheet` pass no such prop, so they are untouched. I also confirmed `useShellFrame`'s assumption holds: `public/index.html:451` sets `height: 100dvh` on the shell and `useKeyboard.web.ts:166-168` writes `document.body.style.height`, and `onShellResize` is exported from **both** the `.web.ts` and native `useKeyboard.ts` (line 32), so the unconditional import is safe on native.
+
+## Code Quality
+
+No bugs found in the paths that matter. Submit guards on `submitting`, both failure paths reset `submitting` and surface the message, and `reset()` on `onExited` clears the password so it never outlives the card. One theoretical edge: `submitting` is only cleared by `reset()`, so reopening inside the exit window after a *successful* submit would show a disabled button — but after success the reader is signed in and no trigger is rendered, so it isn't reachable.
+
+Two cosmetic nits, neither enforced (there's no prettier config or lint script in this package): the `AccountChrome` doc comment now has one unwrapped run-on line, and the rewritten `page-metadata.test.ts` assertion is left long.
+
+## Test Coverage
+
+16 new tests, and they cover the plan's test list faithfully — including document-order assertions for Apple→Google→fields, "pressing a provider calls no auth function", trimming (`'  reader@example.com '` → `login('reader@example.com', ...)`), and the failure path keeping the sheet up.
+
+The gap: `AuthSheet.test.tsx` mocks `@/components/Sheet` wholesale, so **nothing automated exercises the real `Sheet`, `fitToShell`, or `useShellFrame`** — the riskiest new code, and the part that fixed two real simulator bugs. `Sheet` had no test before this PR either, but `useShellFrame`'s sibling `hooks/useKeyboard.web.ts` *does* have a jsdom test (`useKeyboard.web.test.ts`) that stubs `document.body.style` and `visualViewport` — the precedent for testing this hook already exists in the repo. The manual simulator verification is documented in detail, so this is a note, not a blocker.
+
+## Missing Update (the one actionable item)
+
+`prototypes/ansari-expo/README.md` still points readers at the file this PR deletes, in two places:
+
+- line ~30: "`app/login.tsx` / `app/register.tsx` are back, rebuilt in the dark-mode token language (`components/AuthForm.tsx`)"
+- line ~123: "the login / register screens (`components/AuthForm.tsx`) are an optional upgrade to a real account"
+
+Both now name a nonexistent file and describe sign-in as a page. I'm aware the file list is the canonical scope — I'm raising this as a *missing* change caused by the deletion, not as an unrelated file. The repo's own always-on lesson ("fix a documentation defect everywhere, not just where you are already editing") makes this the standard here, and it's a two-line edit.
+
+## Review File Quality
+
+Strong, and notably honest where it would have been easy not to be: it names the native-iOS path as **not verified**, proves the crash predates the branch at the merge-base, discloses that `4617fea` landed *after* the human dev-approval, and lists the contestable design calls (guest demoted to a text link, two dark buttons competing in light mode, the inline note instead of a toast) rather than burying them. "How to Test Locally" is specific enough to act on, including the `CI=1` stale-Metro warning. For a cross-platform PIR it does what's required: it tells the human exactly which phone behaviors to check and which platform was never exercised.
+
+Two small drifts the review file doesn't mention (codex's iter-1 review caught the same, non-blocking): the mode switch renders *before* "continue as a guest" where the plan had them the other way, and the face cross-fade is on the title and name row rather than the whole body.
+
+---
+VERDICT: COMMENT
+SUMMARY: Faithful, well-tested implementation with an honest review file; one stale README reference to the deleted AuthForm and no automated coverage for the new fitToShell/useShellFrame path.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `prototypes/ansari-expo/README.md` (lines ~30 and ~123) still references the deleted `components/AuthForm.tsx` and describes sign-in as a full page — two-line fix, and the repo's own "fix docs everywhere" lesson applies.
+- No automated coverage for `fitToShell` / `useShellFrame` / the real `Sheet`: `AuthSheet.test.tsx` mocks `Sheet` entirely. Verified by reading that the prop is a true no-op when off, and `hooks/useKeyboard.web.test.ts` is an existing jsdom precedent for testing this hook if you want it.
+- Undocumented minor plan drift: mode-switch renders before "continue as a guest" (plan had guest first), and the face cross-fade covers only the title and name row rather than the full body.
+- Cosmetic only, not enforced (no prettier/lint config in this package): one unwrapped run-on comment line in `AccountChrome.tsx`, one long assertion line in `page-metadata.test.ts`.

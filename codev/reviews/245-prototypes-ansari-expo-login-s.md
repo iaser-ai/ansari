@@ -14,6 +14,7 @@ In `prototypes/ansari-expo`, signing in no longer navigates to a full-page `/log
 - `codev/resources/lessons-critical.md` (+1 / -1)
 - `codev/resources/lessons-learned.md` (+10 / -0)
 - `codev/state/pir-245_thread.md` (+8 / -0)
+- `prototypes/ansari-expo/README.md` (+8 / -5)
 - `prototypes/ansari-expo/app/_layout.tsx` (+7 / -7)
 - `prototypes/ansari-expo/app/login.tsx` (+13 / -3)
 - `prototypes/ansari-expo/app/register.tsx` (+11 / -3)
@@ -25,6 +26,7 @@ In `prototypes/ansari-expo`, signing in no longer navigates to a full-page `/log
 - `prototypes/ansari-expo/components/Sheet.tsx` (+40 / -2)
 - `prototypes/ansari-expo/components/Sidebar.tsx` (+11 / -2)
 - `prototypes/ansari-expo/hooks/useShellFrame.ts` (+64 / -0)
+- `prototypes/ansari-expo/hooks/useShellFrame.test.ts` (+101 / -0)
 - `prototypes/ansari-expo/lib/authSheet.test.ts` (+46 / -0)
 - `prototypes/ansari-expo/lib/authSheet.ts` (+54 / -0)
 - `prototypes/ansari-expo/lib/page-metadata.test.ts` (+3 / -3)
@@ -36,12 +38,13 @@ In `prototypes/ansari-expo`, signing in no longer navigates to a full-page `/log
 - `834e2f7` [PIR #245] feat: sign in as an in-place sheet with Apple/Google options (UI only)
 - `4617fea` [PIR #245] fix: auth sheet stands in the web shell (above Safari's toolbar and the keyboard)
 - `5006164` [PIR #245] thread: simulator verification notes
-- (this commit) [PIR #245] Review + retrospective
+- `e80ff57` [PIR #245] Review + retrospective
+- (this commit) [PIR #245] Address consultation: README, useShellFrame tests
 
 ## Test Results
 
 - `pnpm typecheck` (prototype): ✓ pass
-- `pnpm test` (prototype): ✓ 542 pass. 16 are new: `components/AuthSheet.test.tsx` (11) and `lib/authSheet.test.ts` (5). `lib/page-metadata.test.ts` no longer scans the deleted `AuthForm` title.
+- `pnpm test` (prototype): ✓ 549 pass. 23 are new: `components/AuthSheet.test.tsx` (11), `hooks/useShellFrame.test.ts` (7) and `lib/authSheet.test.ts` (5). Breaking the hook's `transitionend` listener fails the matching test, as it should. `lib/page-metadata.test.ts` no longer scans the deleted `AuthForm` title.
 - Porch `build` / `tests` checks: ✓
 - **Desktop web (headless Chrome over CDP):** the dialog in light and dark mode; both corner links and the rail's "Log in" open it; the mode switch keeps the URL unchanged; Escape closes it and focus moves into the card; `/login` and `/register` land on `/` with the sheet open.
 - **Mobile Safari (iOS 18.4 Simulator, iPhone 16, software keyboard, real taps via idb):**
@@ -67,6 +70,18 @@ In `prototypes/ansari-expo`, signing in no longer navigates to a full-page `/log
   - proving the base launches before blaming the PR for a native crash, along with the signing/entitlement and `RCT_jsLocation` recipes;
   - `expo prebuild` silently editing `app.json` and `package.json`.
 - **HOT** `codev/resources/lessons-critical.md`: the hot map is at its 12-topic cap, so the #202 map line was extended to cover #245 ("verifying anything on mobile web…", "a dev server seems to ignore your edits") rather than adding a 13th topic.
+
+## Consultation (3-way, single pass)
+
+- **Gemini: COMMENT, skipped.** The `agy` CLI isn't installed on this machine, so no review happened.
+- **Codex: COMMENT, no blocking issues.** It noted two small departures from the plan (below).
+- **Claude: COMMENT, no blocking issues.** Addressed in this PR:
+  - `prototypes/ansari-expo/README.md` still named the deleted `AuthForm.tsx` and described sign-in as a page. Fixed in all three places.
+  - Nothing automated exercised `useShellFrame`. Added `hooks/useShellFrame.test.ts` (7 jsdom tests, negative-tested).
+  - Not addressed: the real `Sheet` with `fitToShell` still has no automated test; `Sheet` had none before this PR. It is covered by the simulator pass above.
+- **Plan drift both reviewers noted (kept, non-blocking):**
+  - The mode switch sits above "continue as a guest", where the plan listed guest first.
+  - Switching faces fades in only the title and name row, rather than cross-fading the whole body. A full-body `FadeOut` would overlap two forms inside a sheet whose height re-measures.
 
 ## Things to Look At During PR Review
 
