@@ -11,11 +11,14 @@
  * one photographic ingredient is the palm-shadow paper the mark sits on
  * where there is room for paper to read (`assets/icon-source/`).
  *
- * Two treatments, by size:
+ * Three treatments:
  *   - the brass mark on palm-shadow paper, wherever the paper can read;
  *   - a brass tile with the mark knocked out in white for the `.ico`,
  *     where 16 px leaves no room for paper, relief or a gradient on the
- *     mark itself — only for a silhouette against a field.
+ *     mark itself — only for a silhouette against a field;
+ *   - the bare mark in a single ink for `favicon.svg`, the tab icon of
+ *     every browser that reads SVG favicons, the ink following the
+ *     reader's light or dark theme (see `themedFaviconSvg`).
  *
  * Every file is full-bleed: each platform applies its own shape, and iOS
  * in particular rounds the corners itself, so anything left in the
@@ -46,9 +49,8 @@ registerHooks({
 });
 
 const { brass } = await import(join(ROOT, 'constants/colors.ts'));
-const { ANSARI_MARK_PATH, ANSARI_MARK_VIEWBOX } = await import(
-  join(ROOT, 'constants/ansariMark.ts')
-);
+const { ANSARI_MARK_PATH, ANSARI_MARK_SHAPES, ANSARI_MARK_VIEWBOX } =
+  await import(join(ROOT, 'constants/ansariMark.ts'));
 const {
   BRASS_BLEED,
   BRASS_EDGE,
@@ -188,6 +190,35 @@ async function knockoutTile(size, markShare) {
 }
 
 /**
+ * Tailwind v4's `taupe-800` and `taupe-200`, converted from the palette's
+ * OKLCH to sRGB hex: the mark's ink on a light tab strip and a dark one.
+ */
+const FAVICON_INK = { light: '#2B2422', dark: '#E8E4E3' };
+
+/**
+ * The SVG favicon: the mark's three pieces on a transparent ground, inked
+ * by an embedded `prefers-color-scheme` query. The query is resolved when
+ * the browser rasterises the icon, not live: Chrome keeps that bitmap
+ * across a theme switch, so `public/index.html` re-links the SVG when the
+ * scheme flips to make it rasterise again (#232).
+ */
+function themedFaviconSvg() {
+  const paths = ANSARI_MARK_SHAPES.map(
+    (shape) => `  <path d="${shape.d}"/>`,
+  ).join('\n');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VB_W} ${VB_H}">
+  <style>
+    path { fill: ${FAVICON_INK.light}; }
+    @media (prefers-color-scheme: dark) {
+      path { fill: ${FAVICON_INK.dark}; }
+    }
+  </style>
+${paths}
+</svg>
+`;
+}
+
+/**
  * An `.ico` holding PNG images, which every browser that still asks for
  * `/favicon.ico` reads: a 6-byte header, a 16-byte directory entry per
  * image, then the images.
@@ -324,6 +355,9 @@ const favicon = ico(
 );
 writeFileSync(join(ROOT, 'public/favicon.ico'), favicon);
 console.log('wrote public/favicon.ico');
+
+writeFileSync(join(ROOT, 'public/favicon.svg'), themedFaviconSvg());
+console.log('wrote public/favicon.svg');
 
 // Read back once so a silently empty write fails loudly here, not in a
 // browser tab weeks later.
