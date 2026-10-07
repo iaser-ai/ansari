@@ -642,7 +642,7 @@ export default function ChatScreen() {
       <Animated.View style={[styles.flex, backSlide]}>
         {Platform.OS === 'web' && (
           <Head>
-            <title>{threadTitle ? `${threadTitle} — Ansari` : 'Ansari'}</title>
+            <title>{threadTitle ? `${threadTitle} · Ansari` : 'Ansari'}</title>
           </Head>
         )}
         {/* The inset is animated, so it sits on a wrapper of its own: the

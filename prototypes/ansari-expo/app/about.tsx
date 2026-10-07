@@ -291,7 +291,7 @@ export default function AboutScreen() {
     <>
       {Platform.OS === 'web' && (
         <Head>
-          <title>About Ansari — how it answers, and who builds it</title>
+          <title>About Ansari · How it answers, and who builds it</title>
           <meta
             name="description"
             content="Ansari is a free, open-source assistant that answers from the Qur'an and Sunnah and cites its sources. How it works, how it has been checked, who builds it, and what has been written about it."
