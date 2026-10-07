@@ -345,6 +345,7 @@ export function AuthSheet() {
       dialogStyle={styles.dialog}
       accessibilityViewIsModal
       accessibilityLabel={title}
+      fitToShell
       header={header}
     >
       <ScrollView
