@@ -18,8 +18,6 @@ import { useDesktop } from '@/hooks/useDesktop';
 import { useSidebarInset } from '@/hooks/useSidebarCollapsed';
 import { fonts } from '@/constants/colors';
 import {
-  answerLeading,
-  answerSize,
   barContentTop,
   headerBarHeight,
   phoneGutter,
@@ -40,6 +38,13 @@ import { useScreenLandmark } from '@/hooks/useScreenLandmark';
 import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
 import { GlassCircleButton } from '@/components/GlassCircleButton';
 import { HeaderBar } from '@/components/HeaderBar';
+import {
+  InlineLink,
+  Ornament,
+  Para,
+  Section,
+  SectionHeading,
+} from '@/components/ReadingPage';
 
 const FEEDBACK_EMAIL = 'feedback@ansari.chat';
 const DOCS_URL = 'https://docs.ansari.chat/';
@@ -53,126 +58,6 @@ const PROJECT_URL = 'https://github.com/ansari-project';
 const PAGE_ENTER = FadeIn.duration(DURATION.enter)
   .easing(EASE_OUT)
   .reduceMotion(ReduceMotion.System);
-
-/**
- * A word or two of prose that leaves the page.
- *
- * A nested `<Text>` rather than a control: these sit inside sentences,
- * and a pressable wrapped around a phrase would break the line it lives
- * in. react-native-web gives anything with a link role a tab stop of
- * its own, so the keyboard reaches each one and the app's focus ring
- * draws around it.
- */
-function InlineLink({
-  children,
-  onPress,
-  label,
-}: {
-  children: string;
-  onPress: () => void;
-  label?: string;
-}) {
-  const colors = useColors();
-  return (
-    <Text
-      accessibilityRole="link"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={[
-        styles.inlineLink,
-        {
-          color: colors.strongForeground,
-          textDecorationColor: withAlpha(colors.foreground, 0.4),
-        },
-      ]}
-    >
-      {children}
-    </Text>
-  );
-}
-
-/**
- * The break between passages: the illuminated folio's own ornament,
- * held to a hand's width in the middle of the measure. Used twice — to
- * open the page under the masthead, and to close the prose before the
- * appendix — rather than between every section, where it would stop
- * being an ornament and become a divider.
- */
-function Ornament() {
-  const colors = useColors();
-  return (
-    <View
-      style={styles.ornamentRow}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      <View style={[styles.ornamentRule, { backgroundColor: colors.accent }]} />
-      <Text style={[styles.ornament, { color: colors.accent }]}>۝</Text>
-      <View style={[styles.ornamentRule, { backgroundColor: colors.accent }]} />
-    </View>
-  );
-}
-
-function Section({
-  title,
-  children,
-  desktop,
-}: {
-  title: string;
-  children: React.ReactNode;
-  desktop: boolean;
-}) {
-  const colors = useColors();
-  return (
-    <View style={desktop ? styles.sectionDesktop : styles.section}>
-      {/* Second level: the masthead above carries the page's name, and
-          these are its parts. A flat "header" role made the outline one
-          long row of peers with no page title in it. */}
-      <Text
-        {...heading(2)}
-        style={[
-          desktop ? styles.headingDesktop : styles.heading,
-          { color: colors.strongForeground },
-        ]}
-      >
-        {title}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-function Para({
-  children,
-  desktop,
-  first,
-}: {
-  children: React.ReactNode;
-  desktop: boolean;
-  first?: boolean;
-}) {
-  const colors = useColors();
-  // The About page is a reading page, so it is set at the reading
-  // page's size — including the step down the smallest phones take,
-  // which is decided in one place for every column of prose in the app.
-  const { width } = useWindowDimensions();
-  return (
-    <Text
-      selectable={Platform.OS === 'web'}
-      style={[
-        desktop ? styles.proseDesktop : styles.prose,
-        {
-          fontSize: answerSize(desktop, width),
-          lineHeight: answerLeading(desktop, width),
-        },
-        { color: colors.foreground },
-        !first && styles.paraGap,
-      ]}
-    >
-      {children}
-    </Text>
-  );
-}
 
 /**
  * One entry in the appendix, set the way a bibliography is: the year
@@ -456,15 +341,9 @@ export default function AboutScreen() {
             <Ornament />
 
             <View>
-              <Text
-                {...heading(2)}
-                style={[
-                  desktop ? styles.headingDesktop : styles.heading,
-                  { color: colors.strongForeground },
-                ]}
-              >
+              <SectionHeading desktop={desktop}>
                 Recently featured
-              </Text>
+              </SectionHeading>
               <Text
                 style={[
                   styles.appendixNote,
@@ -618,61 +497,6 @@ const styles = StyleSheet.create({
     lineHeight: 27,
     fontFamily: fonts.displayItalic,
     textAlign: 'center',
-  },
-  ornamentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    gap: 12,
-    width: 172,
-    marginVertical: 34,
-  },
-  ornamentRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    opacity: 0.6,
-  },
-  ornament: {
-    fontSize: 18,
-    lineHeight: 24,
-  },
-  // Sections are parted by air. The space above a heading is what makes
-  // the break; the small space below binds the heading to its own text.
-  section: {
-    marginTop: 34,
-  },
-  sectionDesktop: {
-    marginTop: 40,
-  },
-  heading: {
-    fontSize: 18,
-    lineHeight: 25,
-    fontFamily: fonts.displayMedium,
-    marginBottom: 9,
-  },
-  headingDesktop: {
-    fontSize: 19,
-    lineHeight: 26,
-    fontFamily: fonts.displayMedium,
-    marginBottom: 10,
-  },
-  // The answer's own setting, exactly: Literata Light at a book size
-  // with open leading, straight on the paper.
-  prose: {
-    fontSize: 17,
-    lineHeight: 28.5,
-    fontFamily: fonts.prose,
-  },
-  proseDesktop: {
-    fontSize: 18,
-    lineHeight: 30.5,
-    fontFamily: fonts.prose,
-  },
-  paraGap: {
-    marginTop: 15,
-  },
-  inlineLink: {
-    textDecorationLine: 'underline',
   },
   appendixNote: {
     fontSize: 15,

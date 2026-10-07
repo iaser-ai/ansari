@@ -13,6 +13,8 @@ const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
 const TITLE_SOURCES = [
   'app/index.tsx',
   'app/about.tsx',
+  'app/terms.tsx',
+  'app/privacy.tsx',
   'app/chat/[id].tsx',
   'components/AuthForm.tsx',
 ];
@@ -44,6 +46,8 @@ describe('page titles', () => {
     expect(titles).toContain('Ansari · Ask about the Qur&apos;an and Sunnah');
     expect(titles).toContain('${threadTitle} · Ansari');
     expect(titles).toContain("'Log in · Ansari'");
+    expect(titles).toContain('Terms of Service · Ansari');
+    expect(titles).toContain('Privacy Policy · Ansari');
   });
 
   it('the scan sees an em-dash when one is there', () => {
