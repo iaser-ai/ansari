@@ -25,8 +25,9 @@
  *
  * The difficulty is headroom. The page (`night.page`) and the well
  * beneath it (`night.well`) are barely three L* apart, so a night shadow
- * has roughly a third of the range daylight enjoys. There is no room to
- * be tasteful about it: the deepest frond has to spend nearly all of it.
+ * has a fraction of the range daylight enjoys. There is no room to be
+ * tasteful about it: the frond mass spends all of it, reaching the well,
+ * and the shadow's core goes a little past (see NIGHT_DEPTH).
  * ---------------------------------------------------------------------
  */
 
@@ -83,26 +84,40 @@ export const NIGHT_SOURCE: Record<
 
 /**
  * What the body of the frond pattern — the `frond` anchor — multiplies
- * the page down to. `night.well` is 0.53–0.57 of `night.page` channel
- * for channel, so 0.58 lands that mass of shadow just above the well,
- * the floor of the room and about as far as the page can travel. It
- * reads as ~2.9 L* of shadow, against the ~4.7 L* daylight gets; less
- * than day, but day has the range.
+ * the page down to, and the one number that sets how dark the night
+ * shadow is. Between the wall and the frond the composite works out to
+ * `1 − (1 − NIGHT_DEPTH)·(wall − v)/(wall − frond)`, so the depth of the
+ * shadow at every tone in that range is proportional to
+ * `1 − NIGHT_DEPTH`.
  *
- * The darkest half-percent (`min`) continues past this to roughly the
- * well itself. That tail is the shadow's core and it should be the
- * deepest thing on screen; the test keeps it from going further and
- * crushing.
+ * `night.well` is 0.53–0.57 of `night.page` channel for channel. The
+ * shadow used to stop just above it, at 0.58, and read as too faint;
+ * 0.517 is 15% more depth (0.42 → 0.483), which lands the frond mass at
+ * the well and lets the core go a little past it. That is deliberate:
+ * the well was a reference point, not a limit, and what actually
+ * protects the shadow — detail in its darkest fronds — is held by the
+ * test against the filter's clamp.
+ *
+ * The darkest half-percent (`min`) continues past this. That tail is the
+ * shadow's core and it should be the deepest thing on screen; the test
+ * keeps it from running toward black or crushing.
  */
-export const NIGHT_DEPTH = 0.58;
+export const NIGHT_DEPTH = 0.517;
 
 /**
- * Layer opacity at night, and the knob to turn if the shadow wants to be
- * quieter. It scales the whole grade — the grade solves for it, so the
- * deepest frond stays at NIGHT_DEPTH whatever this is set to. Held below
- * 1 so there is somewhere to go in both directions.
+ * Layer opacity at night. This is not a darkness knob: the grade solves
+ * for it, so it cancels out of the composite everywhere between the wall
+ * and the frond — 99.5% of the clip — and turning it changes nothing
+ * there. To make the shadow deeper or quieter, move NIGHT_DEPTH.
+ *
+ * What it does govern is the tail below the frond. A lower strength
+ * means a lower floor for the grade, and the clip's darkest pixels,
+ * extrapolated past the frond anchor, run into the filter's clamp at
+ * zero and flatten. At NIGHT_DEPTH 0.517 that happens below ~0.61; 0.7
+ * keeps the portrait core well clear of it. Held below 1 so there is
+ * somewhere to go in both directions.
  */
-export const NIGHT_STRENGTH = 0.6;
+export const NIGHT_STRENGTH = 0.7;
 
 /**
  * Strength for the ungraded night path. Multiply can only ever darken,
@@ -112,8 +127,16 @@ export const NIGHT_STRENGTH = 0.6;
  */
 export const NIGHT_STRENGTH_UNGRADED = 1;
 
-/** Daylight, unchanged: the clip laid straight onto the paper as ink. */
-export const DAY_STRENGTH = 0.3;
+/**
+ * Daylight: the clip laid straight onto the paper as ink, no blend. The
+ * shadow it casts is linear in this opacity, so it scales directly.
+ *
+ * At 0.3 the fronds sat ~5.1 L* below the wall on stone-200 paper and
+ * were too faint to find. Small steps (0.345, then 0.4) were tried in
+ * review and still read as faint on a soft, moving texture; 0.6 puts
+ * the fronds ~10.2 L* below the wall, which is where they read.
+ */
+export const DAY_STRENGTH = 0.6;
 
 /**
  * Whether `mixBlendMode` is honoured, and so whether this layer can
@@ -203,9 +226,12 @@ export type Grade = { brightness: number; contrast: number; css: string };
  * before the contrast could stretch it, and the map would silently stop
  * meeting its anchors. The test pins this.
  */
-export function nightGrade(clip: Clip): Grade {
+export function nightGrade(
+  clip: Clip,
+  strength: number = NIGHT_STRENGTH,
+): Grade {
   const { frond, wall } = NIGHT_SOURCE[clip];
-  const floor = 1 - (1 - NIGHT_DEPTH) / NIGHT_STRENGTH;
+  const floor = 1 - (1 - NIGHT_DEPTH) / strength;
   const slope = (1 - floor) / (wall - frond);
   const contrast = 2 * slope * wall - 1;
   const brightness = slope / contrast;
