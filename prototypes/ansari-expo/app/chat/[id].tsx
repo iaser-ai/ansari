@@ -31,6 +31,7 @@ import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
 import { onShellResize, useKeyboardProgress } from '@/hooks/useKeyboard';
 import { keepFootInView } from '@/lib/keyboard';
+import { createThreadFollow } from '@/lib/thread-follow';
 import { useRevealedText } from '@/hooks/useRevealedText';
 import { useSidebarInset } from '@/hooks/useSidebarCollapsed';
 import { openSidebarDrawer } from '@/hooks/useSidebarDrawer';
@@ -214,17 +215,12 @@ export default function ChatScreen() {
   const streamKey = useRef('');
   const sentAtCount = useRef<number | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
-  // A scroll to the foot of the thread, asked for before the content
-  // that justifies it has been laid out, and spent once it has.
-  const scrollPending = useRef(false);
-  // Whether the reader is reading the newest turn. Starts false so that
-  // opening an existing conversation lands at its beginning rather than
-  // jumping to the end of the last answer.
-  const atBottom = useRef(false);
+  // Whether the reader is on the newest turn, and whether the thread is
+  // following it down as it grows (see lib/thread-follow.ts). Its offset
+  // is the one last reported, for native, where the list cannot be asked
+  // for it; the web reads it off the element instead.
+  const [follow] = useState(createThreadFollow);
   const listHeight = useRef(0);
-  // The offset as last reported, for native, where the list cannot be
-  // asked for it; the web reads it off the element instead.
-  const listOffset = useRef(0);
 
   // A shorter list keeps its offset, so a reader on the newest turn
   // would find its last lines slid under the composer: hand back
@@ -234,7 +230,7 @@ export default function ChatScreen() {
       previousHeight: listHeight.current,
       height,
       offset,
-      atBottom: atBottom.current,
+      atBottom: follow.atBottom,
     });
     listHeight.current = height;
     if (next !== null) {
@@ -385,8 +381,10 @@ export default function ChatScreen() {
     setPendingFollowUp(opening ? '' : content);
     sendMessage.mutate({ conversationId, data: { content } });
     // Scrolling now would race the waiting line's own layout. The
-    // request is parked and spent when the list reports its new size.
-    if (!opening) scrollPending.current = true;
+    // thread follows instead: each size the list reports from here —
+    // the question, the waiting line, every chunk of the answer — is
+    // answered with a scroll to its foot, until the reader scrolls away.
+    if (!opening) follow.follow();
   };
 
   // Auto-send the question passed from the home screen, exactly once,
@@ -569,6 +567,7 @@ export default function ChatScreen() {
   // desktop, the frosted bar on a phone, the browser tab on both.
   const threadTitle = conversationQuery.data?.title || q || '';
   const jumpToLatest = () => {
+    follow.follow();
     listRef.current?.scrollToEnd({ animated: true });
     setShowJumpToLatest(false);
   };
@@ -773,19 +772,38 @@ export default function ChatScreen() {
                 onScroll={(event) => {
                   const { contentOffset, contentSize, layoutMeasurement } =
                     event.nativeEvent;
-                  const fromBottom =
-                    contentSize.height -
-                    layoutMeasurement.height -
-                    contentOffset.y;
-                  atBottom.current = fromBottom <= 160;
-                  listOffset.current = contentOffset.y;
-                  setShowJumpToLatest(!atBottom.current);
+                  setShowJumpToLatest(
+                    follow.scrolled({
+                      offset: contentOffset.y,
+                      contentHeight: contentSize.height,
+                      viewportHeight: layoutMeasurement.height,
+                    }),
+                  );
                 }}
                 scrollEventThrottle={100}
-                onContentSizeChange={() => {
-                  if (!scrollPending.current) return;
-                  scrollPending.current = false;
-                  listRef.current?.scrollToEnd({ animated: true });
+                // Growth moves the foot without any scroll event saying so,
+                // so it is where the thread follows a turn being written —
+                // and where a reader not following learns they have been
+                // left behind.
+                onContentSizeChange={(_width, height) => {
+                  const node = Platform.OS === 'web' ? scroller() : undefined;
+                  const { scrollToEnd, showJump } = follow.grew(
+                    node
+                      ? {
+                          offset: node.scrollTop,
+                          contentHeight: node.scrollHeight,
+                          viewportHeight: node.clientHeight,
+                        }
+                      : {
+                          offset: follow.offset,
+                          contentHeight: height,
+                          viewportHeight: listHeight.current,
+                        },
+                  );
+                  if (scrollToEnd) {
+                    listRef.current?.scrollToEnd({ animated: true });
+                  }
+                  setShowJumpToLatest(showJump);
                 }}
                 onLayout={(event) => {
                   // The keyboard opening (and a window resize, and rotation)
@@ -801,7 +819,7 @@ export default function ChatScreen() {
                   // measure the same box.
                   const node = Platform.OS === 'web' ? scroller() : undefined;
                   if (node) holdFoot(node.clientHeight, node.scrollTop);
-                  else holdFoot(event.nativeEvent.layout.height, listOffset.current);
+                  else holdFoot(event.nativeEvent.layout.height, follow.offset);
                 }}
                 // The waiting line sits beneath the question that prompted
                 // it, at the foot of the thread. It carries the live
