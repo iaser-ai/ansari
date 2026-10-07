@@ -82,6 +82,7 @@ import {
   type Message,
 } from '@/lib/api';
 import { reconcileThread } from '@/lib/chat-reconcile';
+import { answerWait } from '@/lib/chat-wait';
 import { traceReducer, type TraceEntry } from '@/lib/chat-trace';
 import { stripStreamingCitations } from '@/lib/citations';
 import { RADIUS, rounded } from '@/constants/radius';
@@ -506,15 +507,21 @@ export default function ChatScreen() {
     }
   }, [streamingText, revealedText, landedAnswer, landedFollowUp]);
 
-  // The thread is waiting on an answer while a follow-up is in flight,
-  // or while the question we arrived with has yet to be answered.
+  // The thread is waiting on an answer while a send is in flight, or
+  // while the question we arrived with is about to be sent. A thread that
+  // already ends on an unanswered question is offered a retry instead —
+  // it is never auto-sent, so a waiting line there would wait forever.
   const lastMessage = messages[messages.length - 1];
-  const awaitingAnswer =
-    sendMessage.isPending ||
-    (!!q &&
-      !sendMessage.isError &&
-      !conversationQuery.isError &&
-      lastMessage?.role === 'user');
+  const { awaitingAnswer, unansweredQuestion } = answerWait({
+    q,
+    serverMessages,
+    lastRole: lastMessage?.role,
+    sentThisSession: sentAtCount.current !== null,
+    sendPending: sendMessage.isPending,
+    sendFailed: sendMessage.isError,
+    threadFailed: conversationQuery.isError,
+  });
+  const retryQuestion = failedQuestion ?? unansweredQuestion;
 
   // Said out loud, because nothing else says it.
   //
@@ -836,10 +843,10 @@ export default function ChatScreen() {
                     <ThinkingLine animate={!carriedInWait} trace={trace} />
                   ) : revealedText && !failedQuestion ? (
                     <GeneratingMark />
-                  ) : failedQuestion ? (
+                  ) : retryQuestion ? (
                     <SendFailure
-                      question={failedQuestion}
-                      onRetry={() => send(failedQuestion)}
+                      question={retryQuestion}
+                      onRetry={() => send(retryQuestion)}
                     />
                   ) : null
                 }
