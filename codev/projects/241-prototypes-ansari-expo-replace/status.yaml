@@ -1,0 +1,18 @@
+id: '241'
+title: prototypes-ansari-expo-replace
+protocol: pir
+phase: plan
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: pending
+  dev-approval:
+    status: pending
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-07T11:41:33.151Z'
+updated_at: '2026-10-07T11:41:33.155Z'
