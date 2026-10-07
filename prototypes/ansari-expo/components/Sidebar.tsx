@@ -32,6 +32,7 @@ import { tapHaptic } from '@/lib/haptics';
 import { confirmDestructive, showNotice } from '@/lib/notice';
 import { isHovered } from '@/lib/web';
 import { landmark } from '@/lib/semantics';
+import { railSectionLabel } from '@/lib/rail-search';
 import { useAuth } from '@/lib/auth/context';
 import { SearchField } from '@/components/SearchField';
 import { Placeholder, PlaceholderLine } from '@/components/Placeholder';
@@ -701,6 +702,7 @@ export function Sidebar({
                 onChangeText={setQuery}
                 placeholder="Search"
                 accessibilityLabel="Search questions"
+                onClear={() => setQuery('')}
                 style={styles.searchFieldReset}
               />
             </Animated.View>
@@ -719,7 +721,7 @@ export function Sidebar({
             <Text
               style={[styles.sectionLabel, { color: colors.mutedForeground }]}
             >
-              Questions
+              {railSectionLabel(query)}
             </Text>
 
             {conversationsQuery.isLoading ? (

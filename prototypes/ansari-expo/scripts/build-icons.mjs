@@ -18,7 +18,7 @@
  *     mark itself — only for a silhouette against a field;
  *   - the bare mark in a single ink for `favicon.svg`, the tab icon of
  *     every browser that reads SVG favicons, the ink following the
- *     reader's light or dark theme live (see `themedFaviconSvg`).
+ *     reader's light or dark theme (see `themedFaviconSvg`).
  *
  * Every file is full-bleed: each platform applies its own shape, and iOS
  * in particular rounds the corners itself, so anything left in the
@@ -197,10 +197,10 @@ const FAVICON_INK = { light: '#2B2422', dark: '#E8E4E3' };
 
 /**
  * The SVG favicon: the mark's three pieces on a transparent ground, inked
- * by an embedded `prefers-color-scheme` query. A browser treats an SVG
- * favicon as a live document, so the ink re-resolves the moment the
- * system theme flips with the tab already open — which a pair of rasters
- * swapped by `<link media>` does not do.
+ * by an embedded `prefers-color-scheme` query. The query is resolved when
+ * the browser rasterises the icon, not live: Chrome keeps that bitmap
+ * across a theme switch, so `public/index.html` re-links the SVG when the
+ * scheme flips to make it rasterise again (#232).
  */
 function themedFaviconSvg() {
   const paths = ANSARI_MARK_SHAPES.map(

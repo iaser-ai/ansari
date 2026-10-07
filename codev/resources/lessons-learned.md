@@ -139,6 +139,15 @@ See `codev/reviews/223-prototypes-ansari-expo-replace.md` for the full context.
 - **`npx prettier` without a project config rewrites the house style.** It switched every quote to double and reflowed unrelated lines. Pass `--single-quote` (the prototype's style) and check `git diff --stat` for churn before committing.
 - **The `porch next` trap from #202/#204 hit a third builder.** Reading the implement prompt with `porch next` right after plan approval recorded `dev-approval` as requested before any code existed.
 
+## Ambient shadow strength — prototype (issue #225)
+
+See `codev/reviews/225-prototypes-ansari-expo-ambient.md` for the full context.
+
+- **Size a perceptual change in ΔL*, not in percent of a constant.** "15% darker" on an already faint effect moved frond-vs-wall contrast by 0.8 L* (5.1 → 5.9). That is invisible on a soft, moving texture, and it took four review rounds to land at twice the original opacity (0.3 → 0.6, ~10 L*). Before proposing a number, compute the ΔL* it buys against the real background colour; a step under ~1.5 L* will not be seen.
+- **Prove a documented knob moves the output before turning it.** `NIGHT_STRENGTH` was commented as "the knob to turn", but the grade solves for it, so it cancels out of the composite across 99.5% of the clip. Write the composite algebraically (or sweep it numerically through the module's own `pageMultiplier`), then pin the invariance in a test so the next retune reaches for the right constant.
+- **Headroom caps what "darker" can mean.** On the near-black night page, the full useful range is ~2.4 L* (page → well), so night got its 15% and nothing more was worth taking.
+- **The #204 dev-server lessons recurred**, even though the hot map pointed to them: a server started with `CI=1` kept serving stale code across edits, and porch's `build` check failed on apps/api env validation until `apps/*/.env.ci` was loaded. When a reviewer says "looks the same", grep the served bundle for the new literal first.
+
 ## Scripture in answer prose — prototype (issue #228)
 
 See `codev/reviews/228-prototypes-ansari-expo-disting.md` for the full context.

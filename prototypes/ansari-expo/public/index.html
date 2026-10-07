@@ -157,10 +157,8 @@
       The tab itself, wherever the browser reads SVG favicons, is
       `favicon.svg`: the bare mark on a transparent ground, inked
       taupe-800 on a light tab strip and taupe-200 on a dark one by a
-      `prefers-color-scheme` query inside the file — which the browser
-      re-evaluates live, so the ink follows a theme switch without a
-      reload. The `.ico` and the 192 are the fallbacks for browsers
-      that do not.
+      `prefers-color-scheme` query inside the file. The `.ico` and the
+      192 are the fallbacks for browsers that do not read SVG.
 
       The `.ico` carries 16, 32 and 48, but is declared `32x32`, not
       `any` and not the full list: Chrome ranks an icon that claims
@@ -181,6 +179,44 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!--
+      The query inside `favicon.svg` is resolved once, when the browser
+      rasterises the icon, and not again: Chrome keeps that bitmap for as
+      long as the `<link>` is unchanged, so a tab open across a system
+      theme switch keeps the old ink until a reload (#232). So when the
+      scheme flips, the SVG link is replaced with a copy whose URL names
+      the new scheme. A new element is a new candidate, which Chrome
+      fetches and rasterises again under the scheme now in force, and a
+      URL per scheme means a bitmap cached under one ink is never served
+      for the other. The copy keeps the original's place among the
+      links, so it outranks the `.ico` exactly as the original does.
+    -->
+    <script id="ansari-favicon-scheme">
+      (function () {
+        try {
+          var query = window.matchMedia('(prefers-color-scheme: dark)');
+          var repaint = function () {
+            var link = document.querySelector(
+              'link[rel="icon"][type="image/svg+xml"]',
+            );
+            if (!link) return;
+            var fresh = link.cloneNode();
+            fresh.setAttribute(
+              'href',
+              '/favicon.svg?scheme=' + (query.matches ? 'dark' : 'light'),
+            );
+            link.replaceWith(fresh);
+          };
+          if (query.addEventListener) {
+            query.addEventListener('change', repaint);
+          } else {
+            query.addListener(repaint);
+          }
+        } catch (error) {
+          // No `matchMedia`: the icon keeps the ink it loaded with.
+        }
+      })();
+    </script>
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="Ansari" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

@@ -103,6 +103,16 @@ describe('a platform that cannot subtract draws nothing', () => {
     }
   });
 
+  it('keeps daylight in the band review settled on', () => {
+    // The day assertion above compares the constant to itself, so it
+    // would pass at any value. This one pins the intent: at 0.3–0.4 the
+    // fronds were too faint to find (#225), and well above 0.6 the
+    // layer stops being felt more than seen and starts to compete with
+    // the page.
+    expect(DAY_STRENGTH).toBeGreaterThanOrEqual(0.45);
+    expect(DAY_STRENGTH).toBeLessThanOrEqual(0.7);
+  });
+
   it('reports the two capabilities separately', () => {
     // They are not the same gate: Android 29 and 30 can blend but cannot
     // filter, and iOS can blend but implements only brightness/opacity.
@@ -168,14 +178,15 @@ describe('the grade hits the tones it was measured against', () => {
       expect(nightGrade(clip).brightness <= 1).toBe(true);
     });
 
-    it(`bottoms out at the well, not past it (${clip})`, () => {
+    it(`bottoms out near the well, not toward black (${clip})`, () => {
       // The darkest half-percent sits below the `frond` anchor, so it
       // lands deeper than NIGHT_DEPTH — that tail is the shadow's core
-      // and should be the deepest thing on screen. The band below keeps
-      // it near night.well rather than letting it run toward black,
-      // and keeps the two clips in the same neighbourhood so the
-      // desktop layer reads like the phone one rather than a paler or
-      // heavier copy.
+      // and should be the deepest thing on screen. It is allowed a
+      // little past night.well (0.53–0.57 of the page) since #225
+      // deepened the shadow; the band below keeps it from running on
+      // toward black, and keeps the two clips in the same neighbourhood
+      // so the desktop layer reads like the phone one rather than a
+      // paler or heavier copy.
       const grade = nightGrade(clip);
       const deepest = pageMultiplier(
         NIGHT_SOURCE[clip].min,
@@ -183,7 +194,20 @@ describe('the grade hits the tones it was measured against', () => {
         grade,
       );
       expect(deepest < NIGHT_DEPTH, `the core (x${deepest.toFixed(3)}) must be deeper than the frond mass`).toBe(true);
-      expect(deepest > 0.45, `the core ran past the well toward black (x${deepest.toFixed(3)})`).toBe(true);
+      expect(deepest > 0.38, `the core ran past the well toward black (x${deepest.toFixed(3)})`).toBe(true);
+    });
+
+    it(`takes its depth from NIGHT_DEPTH, not the layer strength (${clip})`, () => {
+      // The grade solves for the strength, so between the wall and the
+      // frond the composite does not depend on it at all. Pinned so a
+      // retune that wants a darker shadow reaches for NIGHT_DEPTH, and
+      // doesn't turn NIGHT_STRENGTH and see nothing happen.
+      const { frond, wall } = NIGHT_SOURCE[clip];
+      const at = (luma: number, strength: number) =>
+        pageMultiplier(luma, strength, nightGrade(clip, strength));
+      for (const luma of [frond, (frond + wall) / 2, wall]) {
+        expect(Math.abs(at(luma, 0.65) - at(luma, 0.9)) < 1e-6, `luma ${luma.toFixed(3)} moved with strength`).toBe(true);
+      }
     });
 
     it(`keeps detail in the darkest fronds (${clip})`, () => {

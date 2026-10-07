@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 
@@ -91,5 +91,106 @@ describe('the favicon links', () => {
     expect(
       head.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href'),
     ).toBe('/apple-touch-icon.png');
+  });
+});
+
+describe('the favicon’s scheme listener', () => {
+  const source =
+    head.querySelector('script#ansari-favicon-scheme')?.textContent ?? '';
+
+  /** The real head, with the listener run against a scheme we control. */
+  function boot({ legacy = false } = {}) {
+    document.head.innerHTML = head.innerHTML;
+    let onChange: (() => void) | undefined;
+    const query = {
+      matches: false,
+      addEventListener: legacy
+        ? undefined
+        : (type: string, listener: () => void) => {
+            expect(type).toBe('change');
+            onChange = listener;
+          },
+      addListener: (listener: () => void) => {
+        onChange = listener;
+      },
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((media: string) => {
+        expect(media).toBe('(prefers-color-scheme: dark)');
+        return query;
+      }),
+    );
+    new Function(source)();
+    return {
+      flip(dark: boolean) {
+        query.matches = dark;
+        onChange?.();
+      },
+      svgLink: () =>
+        document.head.querySelector('link[rel="icon"][type="image/svg+xml"]'),
+      iconHrefs: () =>
+        Array.from(document.head.querySelectorAll('link[rel="icon"]')).map(
+          (l) => l.getAttribute('href'),
+        ),
+    };
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('is in the document shell', () => {
+    expect(source).toContain('prefers-color-scheme: dark');
+  });
+
+  it('leaves the icon alone until the scheme actually changes', () => {
+    const page = boot();
+    expect(page.svgLink()?.getAttribute('href')).toBe('/favicon.svg');
+  });
+
+  // Chrome only rasterises the SVG again for a new candidate; setting the
+  // same element's `href` to a URL it has already drawn would not do.
+  it('replaces the SVG link with one naming the new scheme on each flip', () => {
+    const page = boot();
+    const original = page.svgLink();
+
+    page.flip(true);
+    const dark = page.svgLink();
+    expect(dark).not.toBe(original);
+    expect(original?.isConnected).toBe(false);
+    expect(dark?.getAttribute('href')).toBe('/favicon.svg?scheme=dark');
+
+    page.flip(false);
+    const light = page.svgLink();
+    expect(light).not.toBe(dark);
+    expect(light?.getAttribute('href')).toBe('/favicon.svg?scheme=light');
+  });
+
+  it('keeps exactly one SVG icon, in its place, with its attributes', () => {
+    const page = boot();
+    const before = page.iconHrefs();
+    page.flip(true);
+    expect(
+      document.head.querySelectorAll('link[rel="icon"][type="image/svg+xml"]'),
+    ).toHaveLength(1);
+    expect(page.svgLink()?.hasAttribute('sizes')).toBe(false);
+    expect(page.iconHrefs()).toEqual(
+      before.map((href) =>
+        href === '/favicon.svg' ? '/favicon.svg?scheme=dark' : href,
+      ),
+    );
+  });
+
+  it('falls back to `addListener` where `addEventListener` is missing', () => {
+    const page = boot({ legacy: true });
+    page.flip(true);
+    expect(page.svgLink()?.getAttribute('href')).toBe(
+      '/favicon.svg?scheme=dark',
+    );
+  });
+
+  it('does nothing, and does not throw, without `matchMedia`', () => {
+    document.head.innerHTML = head.innerHTML;
+    vi.stubGlobal('matchMedia', undefined);
+    expect(() => new Function(source)()).not.toThrow();
   });
 });
