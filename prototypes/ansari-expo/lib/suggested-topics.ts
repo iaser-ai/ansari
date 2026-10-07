@@ -10,11 +10,14 @@ import type { SuggestedTopic } from '@/lib/api/types';
  */
 export const SUGGESTED_TOPICS: SuggestedTopic[] = [
   {
-    topic: 'Prayer',
+    // Leads both the desktop's three sample lines and the phone's chip
+    // shelf: a core practice, a contemporary fiqh question, and an
+    // open door for anyone, wherever they stand in their faith.
+    topic: 'To get you started',
     questions: [
       'How do I perform wudu correctly?',
-      'What should I recite in the different parts of salah?',
-      'Can I combine prayers when travelling?',
+      'Is investing in cryptocurrency permissible in Islam?',
+      'What’s one small step I can take to strengthen my faith?',
     ],
   },
   {
