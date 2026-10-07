@@ -32,13 +32,17 @@ describe('suggested topics', () => {
   });
 });
 
-// A source scan: the mark is a Feather glyph name inside a component that
-// only renders on the home screen, and nothing behind the list is a trend.
-describe('suggestion line mark', () => {
+// A source scan: the sample lines are plain text in a component that only
+// renders on the home screen, with nothing drawn beside the question.
+describe('suggestion line', () => {
   const source = readFileSync(path.resolve(__dirname, '..', 'app/index.tsx'), 'utf8');
+  const start = source.indexOf('function SuggestionLine(');
+  const body = source.slice(start, source.indexOf('\n}\n', start));
 
-  it('draws a compass, not a trend line', () => {
-    expect(source).toMatch(/<Feather name="compass"/);
+  it('carries the question alone, with no icon', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(body).toMatch(/\{question\}/);
+    expect(body).not.toMatch(/<Feather\b/);
     expect(source).not.toMatch(/trending-up/);
   });
 });
