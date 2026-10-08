@@ -13,10 +13,12 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-08T13:43:59.633Z'
-updated_at: '2026-10-08T13:55:10.683Z'
+updated_at: '2026-10-08T13:58:53.898Z'
 pr_history:
   - phase: pr
     pr_number: 255
     branch: builder/air-253
     created_at: '2026-10-08T13:45:12.433Z'
+    merged: true
+    merged_at: '2026-10-08T13:58:53.895Z'
 pr_ready_for_human: false
