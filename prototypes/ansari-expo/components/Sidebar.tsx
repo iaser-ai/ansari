@@ -34,6 +34,7 @@ import { isHovered } from '@/lib/web';
 import { landmark } from '@/lib/semantics';
 import { railSectionLabel } from '@/lib/rail-search';
 import { useAuth } from '@/lib/auth/context';
+import { openAuthSheet } from '@/lib/authSheet';
 import { SearchField } from '@/components/SearchField';
 import { Placeholder, PlaceholderLine } from '@/components/Placeholder';
 import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
@@ -273,9 +274,17 @@ export function Sidebar({
     );
   };
 
+  // The sign-in sheet rises over the page rather than replacing it. On
+  // a phone the rail is itself an overlay on its way out, and a modal
+  // raised under one still leaving is two overlays fighting for the
+  // screen — so the sheet waits for the drawer to finish going.
   const goToLogin = () => {
-    onNavigate?.();
-    router.push('/login');
+    if (onNavigate) {
+      onNavigate();
+      setTimeout(() => openAuthSheet('login'), DURATION.exit);
+    } else {
+      openAuthSheet('login');
+    }
   };
 
   const signOut = async () => {

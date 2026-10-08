@@ -36,6 +36,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { useDesktop } from '@/hooks/useDesktop';
 import { useOverlayFocus } from '@/hooks/useOverlayFocus';
+import { useShellFrame } from '@/hooks/useShellFrame';
 import {
   DURATION,
   EASE_SHEET,
@@ -93,6 +94,7 @@ export function Sheet({
   dialogStyle,
   accessibilityLabel,
   accessibilityViewIsModal,
+  fitToShell = false,
 }: {
   /** Whether the sheet should be on screen. */
   open: boolean;
@@ -110,12 +112,21 @@ export function Sheet({
   dialogStyle?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
   accessibilityViewIsModal?: boolean;
+  /**
+   * Stand in the web shell's rectangle rather than the whole window —
+   * above a phone browser's toolbar, and above the keyboard while one of
+   * the sheet's own fields has focus (see `useShellFrame`). For a sheet
+   * that holds fields; a no-op on native.
+   */
+  fitToShell?: boolean;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const desktop = useDesktop();
   const reduced = useReducedMotion();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
+  const shell = useShellFrame(fitToShell);
+  const screenHeight = shell?.height ?? windowHeight;
 
   const [mounted, setMounted] = useState(false);
   const entered = useRef(false);
@@ -139,6 +150,22 @@ export function Sheet({
   // "close" rectangle has been let out of the sheet in every way that
   // matters.
   const overlayID = useOverlayFocus(open, onClose);
+
+  // The shell shortens around a keyboard *after* the field that raised
+  // it took focus, so the field can be left below the fold of a card
+  // that has just become shorter. Once the card stands in the new
+  // rectangle, bring whatever has focus inside it back into view.
+  useEffect(() => {
+    if (!shell || !overlayID) return;
+    const frame = requestAnimationFrame(() => {
+      const card = document.getElementById(overlayID);
+      const focused = document.activeElement;
+      if (card && focused instanceof HTMLElement && card.contains(focused)) {
+        focused.scrollIntoView({ block: 'center' });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shell, overlayID]);
 
   const finishExit = useCallback(() => {
     measured.current = 0;
@@ -329,7 +356,18 @@ export function Sheet({
     >
       {/* A modal is its own view hierarchy on native, outside the root
           view the app set up, so gestures inside it need their own. */}
-      <GestureHandlerRootView style={styles.root}>
+      <GestureHandlerRootView
+        style={[
+          styles.root,
+          shell && {
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: shell.top,
+            height: shell.height,
+          },
+        ]}
+      >
         <Animated.View
           style={[
             styles.backdrop,
