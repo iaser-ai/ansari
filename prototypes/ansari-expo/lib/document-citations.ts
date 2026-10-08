@@ -1,6 +1,11 @@
 import type { Citation } from '@/lib/api/types';
 import type { WireDocument } from '@/lib/api/wire-schemas';
-import { CITATIONS_SECTION, stripUnbackedCitations } from '@/lib/citations';
+import {
+  CITATIONS_SECTION,
+  LK_ID,
+  stripInlineCitationMetadata,
+  stripUnbackedCitations,
+} from '@/lib/citations';
 import { surahName } from '@/lib/surah-names';
 import { isMostlyArabic } from '@/lib/script';
 
@@ -278,9 +283,7 @@ function matchEntry(entry: string, docs: ParsedDocument[]): number | null {
     return hits.length === 1 ? hits[0]! : null;
   };
 
-  // Real ids carry a `-1` segment for books without sub-chapters
-  // (`4_6_-1_1597`), so `-` is part of the token.
-  const lkId = /\bLK id[ \t]*:?[ \t]*([A-Za-z0-9_-]+)/i.exec(entry)?.[1];
+  const lkId = LK_ID.exec(entry)?.[1];
   if (lkId) return only((p) => p.kind === 'hadith' && p.lkId === lkId);
 
   if (/qur['’`ʼ]?an|\bsurah?\b/i.test(entry)) {
@@ -360,7 +363,7 @@ export function resolveCitations(
     };
   }
 
-  const body = content.slice(0, section!.index).trimEnd();
+  const body = stripInlineCitationMetadata(content.slice(0, section!.index).trimEnd());
   const order: number[] = []; // document indexes, by first inline appearance
   const text = body.replace(INLINE_MARKER, (_match, space: string, n: string) => {
     const index = resolved.get(Number(n));
