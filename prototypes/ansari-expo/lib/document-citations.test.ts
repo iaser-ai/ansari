@@ -407,3 +407,29 @@ describe('a hadith graded several times (issue #194)', () => {
     expect(titleWithoutGrades(single!)).toBe('Times of the Prayers · Grade: Sahih');
   });
 });
+
+describe('LK ids the model wrote into the answer body (issue #251)', () => {
+  it('scrubs them while keeping the markers that resolve', () => {
+    const { content, citations } = resolveCitations(
+      'Hadith (Sahih Bukhari) — "If there was a river…" (LK id 2_9_6_528) [1]\n' +
+        '- Ibn Maja — "Patience is at the first shock." (LK id 4_6_-1_1597) [2]\n\n' +
+        'Citations:\n[1] Sahih al-Bukhari (LK id 2_9_6_528)\n[2] Ibn Maja (LK id 4_6_-1_1597)\n',
+      [H_528, hadith('4_6_-1_1597', '1597')],
+      'm',
+    );
+    expect(content).toBe(
+      'Hadith (Sahih Bukhari) — "If there was a river…" [1]\n' +
+        '- Ibn Maja — "Patience is at the first shock." [2]',
+    );
+    expect(citations.map((c) => c.marker)).toEqual([1, 2]);
+  });
+
+  it('scrubs them when nothing resolves', () => {
+    const { content } = resolveCitations(
+      'Be regular (LK id 9_9_-1_9) [1].',
+      [H_528],
+      'm',
+    );
+    expect(content).toBe('Be regular.');
+  });
+});
