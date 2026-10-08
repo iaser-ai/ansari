@@ -73,10 +73,11 @@ export interface StoredSession {
   /**
    * True for an auto-provisioned guest session (see `context.tsx` /
    * `lib/auth/guest`). The UI shows the "sign in" upsell rather than a
-   * "log out" affordance for a guest. Absent in blobs written before this
-   * field existed → inferred from the guest registration name
-   * (`GUEST_FIRST_NAME`/`GUEST_LAST_NAME` in `lib/auth/guest`), since every
-   * guest account carries it and a real account almost never will.
+   * "log out" affordance for a guest. On load, the guest registration name
+   * (`GUEST_FIRST_NAME`/`GUEST_LAST_NAME` in `lib/auth/guest`) also marks a
+   * guest whatever the stored flag says — absent (pre-field blobs, #208) or a
+   * stale literal `false` (#253) — since every guest account carries that
+   * name and a real account almost never will.
    */
   isGuest: boolean;
 }
@@ -100,8 +101,12 @@ export async function loadSession(): Promise<StoredSession | null> {
       };
       firstName = parsed.firstName ?? '';
       lastName = parsed.lastName ?? '';
+      // The guest registration name is authoritative, not merely a fallback
+      // for a missing key: a stale blob can carry a literal `isGuest: false`
+      // (#253), which `??` would keep. A real account registered as exactly
+      // "Welcome Guest" would read as a guest; we accept that edge case.
       isGuest =
-        parsed.isGuest ??
+        parsed.isGuest === true ||
         (firstName === GUEST_FIRST_NAME && lastName === GUEST_LAST_NAME);
     } catch {
       // corrupt name blob is non-fatal
