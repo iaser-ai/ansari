@@ -1,0 +1,14 @@
+id: '253'
+title: prototypes-ansari-expo-a-stale
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-08T13:43:59.633Z'
+updated_at: '2026-10-08T13:43:59.637Z'
