@@ -1,7 +1,7 @@
 id: '253'
 title: prototypes-ansari-expo-a-stale
 protocol: air
-phase: implement
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-08T13:43:59.633Z'
-updated_at: '2026-10-08T13:43:59.637Z'
+updated_at: '2026-10-08T13:44:50.614Z'
