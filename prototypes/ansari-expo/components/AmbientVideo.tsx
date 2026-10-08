@@ -60,10 +60,13 @@ const desktopPosterSource = require('@/assets/video/ambient-shadow-desktop-poste
  * `canPlayType` cannot express the question that actually matters.
  *
  * A browser is asked about `codecs="vp9"` and answers for VP9 in
- * general; the portrait clip is VP9 *Profile 1*, 4:4:4 chroma, which
- * Apple's decoders do not implement at all. Safari on iOS learned to
- * say yes to WebM, so from that release onwards a phone was handed a
- * file it had just claimed it could play and then could not decode —
+ * general; the portrait clip was once VP9 *Profile 1*, 4:4:4 chroma,
+ * which Apple's decoders do not implement at all. (Both WebMs are
+ * Profile 0 now — see `scripts/retime-ambient.sh` — but the next encode
+ * could as easily drift, and nothing here would notice.) Safari on iOS
+ * learned to say yes to WebM, so from that release onwards a phone was
+ * handed a file it had just claimed it could play and then could not
+ * decode —
  * and what a reader saw was the poster underneath, a palm shadow that
  * never moved. There is no profile string precise enough to have caught
  * that, and there would be no way to know when the next one is wrong.
@@ -117,88 +120,44 @@ function connectionAllowsVideo(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// The breath. Every number that shapes the shadow's rhythm lives here.
+// The pace.
 //
-// One "breath" is: swell into a drift pass across the wall, ease back down,
-// creep through a lull, and swell again — where the cycle used to stop dead
-// for twelve seconds. The shadow never comes to a standstill; the lull is a
-// slowing, not a stop.
+// The clip plays at exactly 1.0x and nothing ever changes its rate. The
+// speed the shadow crosses the wall at is baked into the file instead.
 //
-// The speeds sit closer together than the idea first suggests, and the
-// reason is the source. Read the note on CREEP_RATE before widening the
-// gap: a slower rate does not soften a step, it only makes the steps rarer,
-// so a dramatic lull is also a visibly stuttering one. The rhythm here is
-// two unhurried passes of the clip at slightly different speeds, not a
-// sprint followed by a crawl.
+// That is the cure for a judder that only a phone showed (issue #254).
+// The layer used to play a 30 fps file at 8/11 speed, which put ~21.8
+// source frames a second in front of a 60 Hz display: a number that does
+// not divide the refresh, so frames were held for an irregular mix of two
+// and three refreshes and the drift surged and hesitated several times a
+// second. Measured in mobile Safari with `requestVideoFrameCallback`:
+// 233 frames held for three refreshes and 21 for two at 8/11, against 352
+// of 354 held for exactly two at 1.0x. A desktop hides the difference; a
+// phone does not.
 //
-// The clips are ~8.3s at 30 fps, cross-faded end-to-start, so the player
-// loops them itself and the cycle never seeks: a rewind by hand would hitch
-// now that the wrap happens while the picture is moving.
-//
-// That 8.1s is a *retimed* master. The shadow used to move at exactly the
-// speed it does now, but it got there by playing a 4.5s / 24 fps clip at
-// 0.55x, which is another way of saying only thirteen distinct frames
-// reached the screen each second — and on a phone that is not slow motion,
-// it is stepping. The slowness was moved out of the player and into the
-// file: the clips were retimed by 20/11 with motion interpolation filling
-// in the frames the rate used to skip, so the drift pass is now plain 1.0x
-// playback of a 30 fps file. Same speed on the wall, two and a quarter
-// times the frames, and the busiest phase asks nothing of the decoder at
-// all. Anything that changes these rates must retime the clips to match,
+// So the slowness lives in the file. The clips are retimed by 11/8 with
+// motion interpolation (`scripts/retime-ambient.sh`, which holds the
+// procedure), so plain playback moves the shadow exactly as fast as the
+// old 8/11 did, with every presented frame a real one. They are ~11.4s at
+// 30 fps, cross-faded end-to-start and interpolated across the wrap, so
+// the player loops them itself and nothing ever seeks once the layer is
+// up. Anything that changes PLAYBACK_RATE must retime the clips to match,
 // or the shadow changes speed.
 //
-// The retime was run over a doubled copy of each clip and cut at one
-// loop's worth of frames, which is worth repeating if they are ever
-// re-exported: it stops the interpolator running out of source pairs and
-// truncating the tail of the cross-fade, and it puts an interpolated
-// glide across the wrap, so the loop point is now softer than it was in
-// the originals rather than a cut made twice as conspicuous by the
-// smoother motion either side of it.
+// There used to be a "breath" here as well — a JS-timer cycle that ramped
+// the rate between 8/11 and 1.0 every ~16.6s. It never ran: its effect
+// gated on a flag it did not list as a dependency, so it bailed out once
+// before the fade and was never asked again, and the opening 8/11 was the
+// only rate any reader saw. Making it run would have meant ~25 live
+// `playbackRate` writes per ramp, each one a resync of the media pipeline
+// mid-decode, which is the opposite of smooth. The look that was signed
+// off is the steady pace, and that is what the retime preserves.
 // ---------------------------------------------------------------------------
 
-/** Drift speed: the clip's own, which the retime above made the right one.
- *  A single pass reads as a breath of light crossing a wall rather than a
- *  clip playing (~8s per pass), and at 1.0x the browser presents all 30 of
- *  the file's frames per second and never resamples the timeline. */
-const DRIFT_RATE = 1;
-/** The speed the lull is spent at, and the number this whole file is most
- *  sensitive to.
- *
- *  Multiply it by the file's 30 fps and you have the frames per second
- *  actually reaching the screen — and the trap is that a slower rate does
- *  not make each step smaller. A step is always one source frame of
- *  movement; a lower rate only spaces the steps further apart, which if
- *  anything makes each one easier to see. Judged by eye against the old
- *  24 fps master, in what it presented: ~2.4 fps stepped, ~6 fps still
- *  stepped, and leaning on the layer's own drift to cover it did not
- *  rescue it either — a drift strong enough to stand in for the clip is
- *  strong enough to be seen turning around. Nothing much under ~15 fps
- *  presented is fluid on its own, and ~13 was the jitter that prompted
- *  the retime.
- *
- *  So the lull is a genuine slowing rather than a crawl: 8/11 of the pass
- *  is ~22 fps, close enough to it to stay liquid, far enough below to read
- *  as the shadow easing off. The rhythm comes from the *shape* — a swell,
- *  a long slack stretch, a swell — not from the size of the gap. */
-const CREEP_RATE = 8 / 11;
-/** Wall-clock lengths of the four phases. Shorter and more even than the
- *  original pass-then-twelve-second-hold: at these speeds the clip gets
- *  through roughly two of its own loops per breath, which is the rhythm
- *  the layer is meant to have — unhurried, not a sprint and a stall.
- *  Deceleration is the longer ramp because a swell can arrive faster than
- *  it may leave. */
-const RAMP_IN_MS = 2000;
-const DRIFT_MS = 5000;
-const RAMP_OUT_MS = 2600;
-const CREEP_MS = 7000;
-/** How often the cycle nudges the playback rate while ramping, and the
- *  smallest change worth writing — every write to `playbackRate` makes the
- *  player resync, so tiny ones only cost frame pacing. Outside the two
- *  ramps the rate is never written at all. */
-const TICK_MS = 100;
-/** Scaled with the rates above, so the retime did not quietly buy the
- *  player two-thirds more resyncs per ramp for the same ramp. */
-const RATE_EPSILON = 0.027;
+/** The one playback rate. The clip's own speed is the right one — see
+ *  above — and 1.0x is the only rate at which the browser presents every
+ *  source frame without resampling the timeline. */
+const PLAYBACK_RATE = 1;
 
 // ---------------------------------------------------------------------------
 // The masking drift.
@@ -215,8 +174,8 @@ const RATE_EPSILON = 0.027;
 //
 // It translates and nothing else: a pure translation is the one transform
 // a compositor can replay without re-rasterising the video underneath it,
-// and an animated scale showed up as extra dropped frames during the fast
-// pass for a breath no one could see.
+// and an animated scale showed up as extra dropped frames for a swell no
+// one could see.
 // ---------------------------------------------------------------------------
 
 /** Overscale, so the pan can never drag an edge into view. 4.5% of
@@ -231,14 +190,10 @@ const MASK_SCALE = 1.09;
 const MASK_PAN_X = 7;
 const MASK_PAN_Y = 5;
 /** One full figure of the drift. It has to stay clear of a whole-number
- *  ratio against both of the other rhythms on this layer, or the eye is
- *  handed a beat to learn: the breath cycle below is 16.6s and the clip
- *  loops every 8.3s. 27s is 1.63 breaths and 3.27 loops, clear of both a
- *  whole and a half multiple of either. (It used to be 33s, against a
- *  stale note claiming 21.4s for the breath — which was in fact 1.99
- *  breaths and 4.06 loops, very nearly in step with each.) Vertical runs
- *  at twice the frequency, so the path is a slow figure eight rather
- *  than a line. */
+ *  ratio against the other rhythm on this layer, or the eye is handed a
+ *  beat to learn: the clip loops every ~11.4s, and 27s is 2.38 loops,
+ *  clear of both a whole and a half multiple. Vertical runs at twice the
+ *  frequency, so the path is a slow figure eight rather than a line. */
 const MASK_PERIOD_MS = 27000;
 
 /**
@@ -275,8 +230,6 @@ const maskDrift = {
   // the very stillness this exists to prevent.
   animationTimingFunction: 'linear',
 } as const;
-
-const smoothstep = (p: number) => p * p * (3 - 2 * p);
 
 /**
  * Whether the page is done with everything that actually matters.
@@ -575,7 +528,7 @@ function useClipBuffered(
 
       // The decision itself is the player's own reading, so it does not
       // rest on expo-video's DOM staying as it is. `bufferedPosition` is
-      // the end of the buffered range holding the playhead; the cycle
+      // the end of the buffered range holding the playhead; the warm-up
       // never seeks and the file arrives in order, so reaching the
       // duration means the whole clip is held.
       const { bufferedPosition, duration } = player;
@@ -608,25 +561,25 @@ function useClipBuffered(
  */
 function AmbientVideoPlayer({ source }: { source: number }) {
   const player = useVideoPlayer(source, (p) => {
-    // The player owns the wrap. Once the layer is up the cycle below only
-    // ever changes speed, so the clip runs through its end and must come
-    // back to the start on its own: seeking mid-motion would hitch. The
-    // one seek this file performs happens before any of that, while there
-    // is nothing on screen — see `primed` below.
+    // The player owns the wrap: the clip runs through its end and comes
+    // back to the start on its own, since seeking mid-motion would hitch.
+    // The one seek this file performs happens before the layer is up,
+    // while there is nothing on screen — see `primed` below.
     //
-    // This opening rate is load-bearing on the web in a way it should not
-    // be: see the note on the cycle's opening phase further down.
+    // The rate is set once, here, and never again (see PLAYBACK_RATE). It
+    // is written rather than left to the default so no player can start
+    // at anything else.
     p.loop = true;
     p.muted = true;
-    p.playbackRate = CREEP_RATE;
+    p.playbackRate = PLAYBACK_RATE;
   });
 
   const { status } = useEvent(player, 'statusChange', {
     status: player.status,
   });
 
-  // Backgrounding stops the cycle entirely — no timers, no ramps, no
-  // decode — and coming back to the foreground starts a fresh breath.
+  // Backgrounding stops playback entirely — no decode — and coming back
+  // to the foreground plays on from wherever the clip was.
   const [foreground, setForeground] = useState(
     () => AppState.currentState !== 'background',
   );
@@ -641,10 +594,9 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // counts as ready for good. The loop seek at the end of the clip drops
   // the element back to "loading" for a few milliseconds, and a live
   // `status === 'readyToPlay'` check turned that flicker into a full
-  // teardown and restart of the cycle below — the breath began again at
-  // every wrap and the lull never lasted more than a second or two.
+  // teardown and restart of playback below at every wrap.
   // A real failure is the one status worth listening to: without this the
-  // latch above would keep the cycle ticking, and the watchdog retrying,
+  // latch above would keep playback wanted, and the watchdog retrying,
   // against a player that has nothing left to give.
   //
   // Playing counts as ready even if the status never says so. A phone
@@ -668,8 +620,8 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // sits on its metadata, the layer stays invisible, and the poster is
   // left standing in as a shadow that never moves. Chromium hides this
   // completely by buffering ahead unasked and reporting ready with no
-  // prompting, which is why the preview has always looked right. So the
-  // cycle starts on anything that is not an outright error and lets the
+  // prompting, which is why the preview has always looked right. So
+  // playback starts on anything that is not an outright error and lets the
   // clip prove itself by running; the fade below is still held back
   // until it does, so nothing appears before there is a picture.
   const live = (Platform.OS === 'web' || ready) && status !== 'error';
@@ -679,7 +631,7 @@ function AmbientVideoPlayer({ source }: { source: number }) {
 
   // Warm-up. On the web a browser fetches nothing until something asks it
   // to play, so the clip is run purely to pull itself in — invisibly, and
-  // before the breath cycle owns it. However it looks while it does that
+  // before playback proper owns it. However it looks while it does that
   // is nobody's business: the layer is at zero.
   useEffect(() => {
     if (Platform.OS !== 'web' || !foreground || clipBuffered) return;
@@ -717,118 +669,38 @@ function AmbientVideoPlayer({ source }: { source: number }) {
     return () => clearTimeout(handle);
   }, [clipBuffered, primed, player]);
 
-  // And the breath does not begin until the fade has finished, so the clip
-  // holds its first frame for the whole dissolve and starts moving only
-  // once it is the only thing on screen. Nothing about the arrival asks
+  // And the clip does not move until the fade has finished, so it holds
+  // its first frame for the whole dissolve and starts moving only once it
+  // is the only thing on screen. Nothing about the arrival asks
   // the eye to follow two changes at once.
   const [running, setRunning] = useState(false);
 
   // What the watchdog and the resume handler below should be enforcing at
   // any given moment: the clip is meant to be running during the warm-up
-  // and once the breath has begun, and is deliberately stopped in between
+  // and once the fade has finished, and is deliberately stopped in between
   // while it waits on its first frame.
   const wantPlaying = running || (Platform.OS === 'web' && !clipBuffered);
 
-  // The breath cycle. One effect owns every timer, so unmounting,
-  // dismissing the layer, or backgrounding the app tears all of them
-  // down together and remounting starts exactly one new cycle.
+  // Playback, once the fade has finished. `running` is a dependency here
+  // like everything else the effect reads: the breath cycle this replaced
+  // gated on it without listing it, so it bailed out once before the fade
+  // and never ran at all. Unmounting, dismissing the layer, or
+  // backgrounding the app pauses the clip; coming back plays it on.
   useEffect(() => {
     if (!live || !foreground || !running) return;
-
-    let cancelled = false;
-    // Opens on the crawl and ramps up, which is also the speed the clip is
-    // built at rest — and on the web that opening rate is, in practice,
-    // the only rate there is.
-    //
-    // Measured over twenty-four seconds in a browser: the element reports
-    // one constant playback rate and advances at exactly that rate through
-    // three loops. None of the ramps below reach it. Whether the ticker is
-    // being torn down or the writes are simply not forwarded is not yet
-    // known, and it is not this task's to answer — but it means the rate
-    // set here is the rate a reader on the web actually sees, for as long
-    // as they look. Opening on anything else silently rescales the whole
-    // ambient layer. Opening it at the drift speed, briefly, made the
-    // shadow travel 1.4x faster than the pass that was signed off.
-    let phase: 'rampIn' | 'drift' | 'rampOut' | 'creep' = 'rampIn';
-    let phaseStart = Date.now();
-
-    let lastRate = -1;
-    const setRate = (rate: number, force = false) => {
-      if (!force && Math.abs(rate - lastRate) < RATE_EPSILON) return;
-      lastRate = rate;
-      try {
-        player.playbackRate = rate;
-      } catch {
-        // Player released mid-tick — the cleanup below is on its way.
-      }
-    };
-
-    const enter = (next: typeof phase) => {
-      phase = next;
-      phaseStart = Date.now();
-    };
-
-    const tick = () => {
-      if (cancelled) return;
-      const elapsed = Date.now() - phaseStart;
-
-      switch (phase) {
-        case 'rampIn': {
-          const p = Math.min(1, elapsed / RAMP_IN_MS);
-          // The last step lands exactly on the drift speed, so the pass
-          // holds the documented rate rather than wherever epsilon stopped.
-          setRate(
-            CREEP_RATE + (DRIFT_RATE - CREEP_RATE) * smoothstep(p),
-            p >= 1,
-          );
-          if (p >= 1) enter('drift');
-          break;
-        }
-        case 'drift':
-          // Nothing to write: the rate stands until the pass is spent.
-          if (elapsed >= DRIFT_MS) enter('rampOut');
-          break;
-        case 'rampOut': {
-          const p = Math.min(1, elapsed / RAMP_OUT_MS);
-          // Likewise lands exactly on the crawl, so the twelve seconds
-          // that follow are spent at one rate and never touched again.
-          setRate(
-            DRIFT_RATE - (DRIFT_RATE - CREEP_RATE) * smoothstep(p),
-            p >= 1,
-          );
-          if (p >= 1) enter('creep');
-          break;
-        }
-        case 'creep':
-          // The whole lull passes without a single write to the player:
-          // a resync in the middle of a crawl is exactly what judders.
-          if (elapsed >= CREEP_MS) enter('rampIn');
-          break;
-      }
-    };
-
-    // Start on the speed the opening phase above runs at, and from here
-    // on never seek: the clip is a shadow on a wall, and wherever it
-    // happens to run to is where it belongs.
-    lastRate = CREEP_RATE;
     try {
-      player.playbackRate = CREEP_RATE;
       player.play();
     } catch {
       // Released player — nothing left to drive.
     }
-    const ticker = setInterval(tick, TICK_MS);
-
     return () => {
-      cancelled = true;
-      clearInterval(ticker);
       try {
         player.pause();
       } catch {
         // Released — nothing to stop.
       }
     };
-  }, [live, foreground, player]);
+  }, [live, foreground, running, player]);
 
   // Watchdog: the system can pause a muted ambient player behind our
   // back (audio-session interruptions around the keyboard on iOS,
@@ -867,7 +739,7 @@ function AmbientVideoPlayer({ source }: { source: number }) {
 
   // The video only appears once it can play, the browser holds the whole
   // clip, and it is back on the poster's frame; on error it stays
-  // invisible and the poster/paper carry the screen alone. The breath is
+  // invisible and the poster/paper carry the screen alone. Playback is
   // released at the end of the fade, not the start of it.
   const fadeIn = useSharedValue(0);
   useEffect(() => {
