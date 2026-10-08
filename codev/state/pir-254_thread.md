@@ -13,3 +13,8 @@
 - Breath ticker deleted; rate set once to 1.0. New `AmbientVideo.test.tsx` (4 tests) negative-tested: fails on the old code and on old-code-with-the-dep-fixed.
 - Tests: act() only re-renders at its end, so fake-timer advancing had to step in 10 ms increments or the 600 ms video-wanted timer was never registered.
 - Real app check: headless Chrome over CDP shows the served clip is the 11.37 s one at rate 1, playing, zero rate writes in 8 s; Simulator screenshots show the shadow moving.
+
+## dev-approval round 1 — FAILED on a real iPhone (light + dark)
+- Architect tested on a real iPhone: still jittery in both modes. This rules out the dark-mode blend as the cause, and shows the Simulator's rVFC cadence is not evidence for this class of bug (its video goes through the Mac's decode and compositing path).
+- The phone's developer tunnel is down (last connected 2026-06), so I can't attach Safari Web Inspector. Instead I built a self-reporting harness, served on one port (scratchpad, not committed): `/diag` runs 5 isolated cases (old 0.727x / new 1.0x / new + drift / drift over a still poster / old + drift), and `/` serves the production web export with a probe injected. A `/dev-on` cookie routes to the Metro dev server with the same probe, to separate dev overhead from the fix. Every page POSTs its rAF + requestVideoFrameCallback timings back. Asked the architect for screen recordings too, since the compositor-only drift can't be measured from JS.
+- Waiting on real-device numbers before touching code or re-requesting dev-approval.
