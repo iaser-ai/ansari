@@ -73,7 +73,7 @@ describe('saveSession — web storage failures are loud', () => {
  * Defaulting it to `false` rendered a guest as a real account ("Welcome Guest"
  * with a "Log out" button), so the guest registration name decides instead.
  */
-describe('loadSession — isGuest for blobs without the key', () => {
+describe('loadSession — isGuest inference from the stored blob', () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
   afterEach(() => {
@@ -112,10 +112,20 @@ describe('loadSession — isGuest for blobs without the key', () => {
     expect((await loadSession())?.isGuest).toBe(false);
   });
 
-  it('an explicit isGuest wins over the name', async () => {
-    storeNameBlob({ firstName: 'Welcome', lastName: 'Guest', isGuest: false });
-    expect((await loadSession())?.isGuest).toBe(false);
+  it('an explicit isGuest: true wins over a non-guest name', async () => {
     storeNameBlob({ firstName: 'Test', lastName: 'User', isGuest: true });
+    expect((await loadSession())?.isGuest).toBe(true);
+  });
+
+  it('an explicit isGuest: false on a non-guest name stays a real account', async () => {
+    storeNameBlob({ firstName: 'Test', lastName: 'User', isGuest: false });
+    expect((await loadSession())?.isGuest).toBe(false);
+  });
+
+  // Issue #253: a stale blob with a LITERAL `isGuest: false` and the guest
+  // registration name must still load as a guest — `??` kept the `false`.
+  it('rescues a stale literal isGuest: false on the guest name', async () => {
+    storeNameBlob({ firstName: 'Welcome', lastName: 'Guest', isGuest: false });
     expect((await loadSession())?.isGuest).toBe(true);
   });
 });
