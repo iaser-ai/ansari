@@ -1,0 +1,30 @@
+id: '254'
+title: prototypes-ansari-expo-jittery
+protocol: pir
+phase: review
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: approved
+    requested_at: '2026-10-08T13:46:37.278Z'
+    approved_at: '2026-10-08T13:47:33.746Z'
+  dev-approval:
+    status: approved
+    requested_at: '2026-10-08T14:14:46.879Z'
+    approved_at: '2026-10-10T12:38:29.296Z'
+  pr:
+    status: approved
+    requested_at: '2026-10-10T12:48:09.784Z'
+    approved_at: '2026-10-10T12:51:02.205Z'
+iteration: 1
+build_complete: true
+history: []
+started_at: '2026-10-08T13:44:32.454Z'
+updated_at: '2026-10-10T12:51:02.207Z'
+pr_history:
+  - phase: review
+    pr_number: 256
+    branch: builder/pir-254
+    created_at: '2026-10-10T12:40:27.984Z'
+pr_ready_for_human: false

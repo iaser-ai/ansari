@@ -9,15 +9,10 @@ import {
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useEvent } from 'expo';
-import Animated, {
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { useReducedMotion } from 'react-native-reanimated';
 import { useScheme } from '@/hooks/useScheme';
 import { useDesktop } from '@/hooks/useDesktop';
-import { AMBIENT, EASE_IN_OUT, EASE_OUT } from '@/constants/motion';
+import { AMBIENT, EASE_IN_OUT_CSS, EASE_OUT_CSS } from '@/constants/motion';
 import { ambientTreatment, videoSurfaceType } from '@/lib/ambientNight';
 
 // Two encodings of the same clip, because no single one plays
@@ -60,10 +55,13 @@ const desktopPosterSource = require('@/assets/video/ambient-shadow-desktop-poste
  * `canPlayType` cannot express the question that actually matters.
  *
  * A browser is asked about `codecs="vp9"` and answers for VP9 in
- * general; the portrait clip is VP9 *Profile 1*, 4:4:4 chroma, which
- * Apple's decoders do not implement at all. Safari on iOS learned to
- * say yes to WebM, so from that release onwards a phone was handed a
- * file it had just claimed it could play and then could not decode —
+ * general; the portrait clip was once VP9 *Profile 1*, 4:4:4 chroma,
+ * which Apple's decoders do not implement at all. (Both WebMs are
+ * Profile 0 now — see `scripts/retime-ambient.sh` — but the next encode
+ * could as easily drift, and nothing here would notice.) Safari on iOS
+ * learned to say yes to WebM, so from that release onwards a phone was
+ * handed a file it had just claimed it could play and then could not
+ * decode —
  * and what a reader saw was the poster underneath, a palm shadow that
  * never moved. There is no profile string precise enough to have caught
  * that, and there would be no way to know when the next one is wrong.
@@ -117,88 +115,44 @@ function connectionAllowsVideo(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// The breath. Every number that shapes the shadow's rhythm lives here.
+// The pace.
 //
-// One "breath" is: swell into a drift pass across the wall, ease back down,
-// creep through a lull, and swell again — where the cycle used to stop dead
-// for twelve seconds. The shadow never comes to a standstill; the lull is a
-// slowing, not a stop.
+// The clip plays at exactly 1.0x and nothing ever changes its rate. The
+// speed the shadow crosses the wall at is baked into the file instead.
 //
-// The speeds sit closer together than the idea first suggests, and the
-// reason is the source. Read the note on CREEP_RATE before widening the
-// gap: a slower rate does not soften a step, it only makes the steps rarer,
-// so a dramatic lull is also a visibly stuttering one. The rhythm here is
-// two unhurried passes of the clip at slightly different speeds, not a
-// sprint followed by a crawl.
+// That is the cure for a judder that only a phone showed (issue #254).
+// The layer used to play a 30 fps file at 8/11 speed, which put ~21.8
+// source frames a second in front of a 60 Hz display: a number that does
+// not divide the refresh, so frames were held for an irregular mix of two
+// and three refreshes and the drift surged and hesitated several times a
+// second. Measured in mobile Safari with `requestVideoFrameCallback`:
+// 233 frames held for three refreshes and 21 for two at 8/11, against 352
+// of 354 held for exactly two at 1.0x. A desktop hides the difference; a
+// phone does not.
 //
-// The clips are ~8.3s at 30 fps, cross-faded end-to-start, so the player
-// loops them itself and the cycle never seeks: a rewind by hand would hitch
-// now that the wrap happens while the picture is moving.
-//
-// That 8.1s is a *retimed* master. The shadow used to move at exactly the
-// speed it does now, but it got there by playing a 4.5s / 24 fps clip at
-// 0.55x, which is another way of saying only thirteen distinct frames
-// reached the screen each second — and on a phone that is not slow motion,
-// it is stepping. The slowness was moved out of the player and into the
-// file: the clips were retimed by 20/11 with motion interpolation filling
-// in the frames the rate used to skip, so the drift pass is now plain 1.0x
-// playback of a 30 fps file. Same speed on the wall, two and a quarter
-// times the frames, and the busiest phase asks nothing of the decoder at
-// all. Anything that changes these rates must retime the clips to match,
+// So the slowness lives in the file. The clips are retimed by 11/8 with
+// motion interpolation (`scripts/retime-ambient.sh`, which holds the
+// procedure), so plain playback moves the shadow exactly as fast as the
+// old 8/11 did, with every presented frame a real one. They are ~11.4s at
+// 30 fps, cross-faded end-to-start and interpolated across the wrap, so
+// the player loops them itself and nothing ever seeks once the layer is
+// up. Anything that changes PLAYBACK_RATE must retime the clips to match,
 // or the shadow changes speed.
 //
-// The retime was run over a doubled copy of each clip and cut at one
-// loop's worth of frames, which is worth repeating if they are ever
-// re-exported: it stops the interpolator running out of source pairs and
-// truncating the tail of the cross-fade, and it puts an interpolated
-// glide across the wrap, so the loop point is now softer than it was in
-// the originals rather than a cut made twice as conspicuous by the
-// smoother motion either side of it.
+// There used to be a "breath" here as well — a JS-timer cycle that ramped
+// the rate between 8/11 and 1.0 every ~16.6s. It never ran: its effect
+// gated on a flag it did not list as a dependency, so it bailed out once
+// before the fade and was never asked again, and the opening 8/11 was the
+// only rate any reader saw. Making it run would have meant ~25 live
+// `playbackRate` writes per ramp, each one a resync of the media pipeline
+// mid-decode, which is the opposite of smooth. The look that was signed
+// off is the steady pace, and that is what the retime preserves.
 // ---------------------------------------------------------------------------
 
-/** Drift speed: the clip's own, which the retime above made the right one.
- *  A single pass reads as a breath of light crossing a wall rather than a
- *  clip playing (~8s per pass), and at 1.0x the browser presents all 30 of
- *  the file's frames per second and never resamples the timeline. */
-const DRIFT_RATE = 1;
-/** The speed the lull is spent at, and the number this whole file is most
- *  sensitive to.
- *
- *  Multiply it by the file's 30 fps and you have the frames per second
- *  actually reaching the screen — and the trap is that a slower rate does
- *  not make each step smaller. A step is always one source frame of
- *  movement; a lower rate only spaces the steps further apart, which if
- *  anything makes each one easier to see. Judged by eye against the old
- *  24 fps master, in what it presented: ~2.4 fps stepped, ~6 fps still
- *  stepped, and leaning on the layer's own drift to cover it did not
- *  rescue it either — a drift strong enough to stand in for the clip is
- *  strong enough to be seen turning around. Nothing much under ~15 fps
- *  presented is fluid on its own, and ~13 was the jitter that prompted
- *  the retime.
- *
- *  So the lull is a genuine slowing rather than a crawl: 8/11 of the pass
- *  is ~22 fps, close enough to it to stay liquid, far enough below to read
- *  as the shadow easing off. The rhythm comes from the *shape* — a swell,
- *  a long slack stretch, a swell — not from the size of the gap. */
-const CREEP_RATE = 8 / 11;
-/** Wall-clock lengths of the four phases. Shorter and more even than the
- *  original pass-then-twelve-second-hold: at these speeds the clip gets
- *  through roughly two of its own loops per breath, which is the rhythm
- *  the layer is meant to have — unhurried, not a sprint and a stall.
- *  Deceleration is the longer ramp because a swell can arrive faster than
- *  it may leave. */
-const RAMP_IN_MS = 2000;
-const DRIFT_MS = 5000;
-const RAMP_OUT_MS = 2600;
-const CREEP_MS = 7000;
-/** How often the cycle nudges the playback rate while ramping, and the
- *  smallest change worth writing — every write to `playbackRate` makes the
- *  player resync, so tiny ones only cost frame pacing. Outside the two
- *  ramps the rate is never written at all. */
-const TICK_MS = 100;
-/** Scaled with the rates above, so the retime did not quietly buy the
- *  player two-thirds more resyncs per ramp for the same ramp. */
-const RATE_EPSILON = 0.027;
+/** The one playback rate. The clip's own speed is the right one — see
+ *  above — and 1.0x is the only rate at which the browser presents every
+ *  source frame without resampling the timeline. */
+const PLAYBACK_RATE = 1;
 
 // ---------------------------------------------------------------------------
 // The masking drift.
@@ -215,8 +169,8 @@ const RATE_EPSILON = 0.027;
 //
 // It translates and nothing else: a pure translation is the one transform
 // a compositor can replay without re-rasterising the video underneath it,
-// and an animated scale showed up as extra dropped frames during the fast
-// pass for a breath no one could see.
+// and an animated scale showed up as extra dropped frames for a swell no
+// one could see.
 // ---------------------------------------------------------------------------
 
 /** Overscale, so the pan can never drag an edge into view. 4.5% of
@@ -231,14 +185,10 @@ const MASK_SCALE = 1.09;
 const MASK_PAN_X = 7;
 const MASK_PAN_Y = 5;
 /** One full figure of the drift. It has to stay clear of a whole-number
- *  ratio against both of the other rhythms on this layer, or the eye is
- *  handed a beat to learn: the breath cycle below is 16.6s and the clip
- *  loops every 8.3s. 27s is 1.63 breaths and 3.27 loops, clear of both a
- *  whole and a half multiple of either. (It used to be 33s, against a
- *  stale note claiming 21.4s for the breath — which was in fact 1.99
- *  breaths and 4.06 loops, very nearly in step with each.) Vertical runs
- *  at twice the frequency, so the path is a slow figure eight rather
- *  than a line. */
+ *  ratio against the other rhythm on this layer, or the eye is handed a
+ *  beat to learn: the clip loops every ~11.4s, and 27s is 2.38 loops,
+ *  clear of both a whole and a half multiple. Vertical runs at twice the
+ *  frequency, so the path is a slow figure eight rather than a line. */
 const MASK_PERIOD_MS = 27000;
 
 /**
@@ -276,8 +226,6 @@ const maskDrift = {
   animationTimingFunction: 'linear',
 } as const;
 
-const smoothstep = (p: number) => p * p * (3 - 2 * p);
-
 /**
  * Whether the page is done with everything that actually matters.
  *
@@ -289,15 +237,18 @@ const smoothstep = (p: number) => p * p * (3 - 2 * p);
  * costs the page real time to deliver something nobody asked for. What
  * a reader sees for that is a sequence of layers assembling.
  *
- * So it waits for the load event and then for an idle moment, and the
- * first screen gets the machine to itself. On a page that never goes
- * idle the timeout brings it in anyway.
+ * So it waits for the load event, then for the page's fonts, then for an
+ * idle moment, and the first screen gets the machine to itself. On a
+ * page that never goes idle the timeout brings it in anyway.
  *
  * Native has no such notion and no bundle to fetch over the wire: there
  * the app is already up by the time this mounts, so it is settled from
  * the first frame and the video's own short delay below is the only
  * wait.
  */
+/** The idle moment, on a browser that cannot report one. */
+const SETTLE_FALLBACK_MS = 250;
+
 function usePageSettled(): boolean {
   const [settled, setSettled] = useState(Platform.OS !== 'web');
 
@@ -316,7 +267,10 @@ function usePageSettled(): boolean {
       cancelIdleCallback?: (handle: number) => void;
     };
 
-    const settle = () => {
+    const settle = async () => {
+      // A font that lands mid-fade reflows the words over the shadow while
+      // it is surfacing. `fonts.ready` resolves at once if none is pending.
+      await document.fonts?.ready.catch(() => undefined);
       if (cancelled) return;
       if (idleWindow.requestIdleCallback) {
         idle = idleWindow.requestIdleCallback(
@@ -326,12 +280,14 @@ function usePageSettled(): boolean {
           { timeout: AMBIENT.settleIdle },
         );
       } else {
-        // Safari shipped `requestIdleCallback` late enough that a phone
-        // in the field may still not have it; one frame past load is
-        // close enough to the same moment.
+        // Safari does not ship `requestIdleCallback`, so on an iPhone this
+        // is the path every reader takes. One frame past load proved too
+        // soon there: the shadow arrived while the first screen was still
+        // painting, and the fade dropped frames with it (issue #254). A
+        // short beat lets the page's own first work finish.
         timer = setTimeout(() => {
           if (!cancelled) setSettled(true);
-        }, 100);
+        }, SETTLE_FALLBACK_MS);
       }
     };
 
@@ -381,13 +337,13 @@ const edgeFade = {
  * heavily compressed monochrome clip that drifts under the sunlit-paper
  * surface. It is felt more than seen — low opacity, muted, no controls.
  *
- * The layer is strictly additive: the paper background paints first and
- * a tiny poster still stands in immediately, so nothing blocks first
- * paint — but the layer as a whole eases up to its ambient strength
- * rather than snapping in with the still. The video mounts a beat
- * later, fades in only once the whole clip is buffered, and if it
- * errors (or reduced
- * motion / data saver is on) the screen simply keeps the paper. When
+ * The layer is strictly additive: the paper paints first and nothing
+ * here blocks it. The shadow then arrives as one event — nothing at all
+ * until the page has settled and the clip is fully buffered, rewound to
+ * the poster's frame and already moving, then a single fade of the
+ * whole layer to its ambient strength. Where no clip is coming (reduced
+ * motion, data saver, a player error) the poster arrives in that same
+ * fade instead, as a still. When
  * `dismissed` flips on (first prompt sent, or the screen loses focus to
  * a conversation) the whole layer fades out and the player is torn
  * down; when it flips back off — the reader returned to the home
@@ -431,58 +387,71 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
       : null;
 
   // Nothing here starts until the page has stopped working — see
-  // `usePageSettled`. On web that is the load event plus an idle
-  // moment; on native it is true from the first frame.
+  // `usePageSettled`. On web that is the load event, the fonts and an
+  // idle moment; on native it is true from the first frame.
   const settled = usePageSettled();
 
-  // And then the video waits a little longer still, behind its own
-  // poster (a ~9 KB still), so the layer's arrival is one fade of a
-  // finished picture rather than a still that is swapped for a clip
-  // while the reader is watching it.
+  // And then the video waits a little longer still, so its download and
+  // decode do not compete with the page's last work either.
+  const videoExpected =
+    settled && !silent && !reducedMotion && connectionAllowsVideo();
   const [videoWanted, setVideoWanted] = useState(false);
   useEffect(() => {
-    if (!settled || silent || reducedMotion || !connectionAllowsVideo()) return;
+    if (!videoExpected) return;
     const handle = setTimeout(() => setVideoWanted(true), 600);
     return () => clearTimeout(handle);
-  }, [settled, silent, reducedMotion]);
+  }, [videoExpected]);
+
+  // What the player has to say about itself: nothing yet, ready to be
+  // seen (buffered, on the poster's frame, moving), or failed — in which
+  // case the poster arrives alone.
+  const [clip, setClip] = useState<ClipState>('pending');
+
+  // And a deadline on hearing it. A phone can neither load the clip nor
+  // report an error — iOS Low Power Mode refuses muted autoplay and
+  // defers the fetch, and expo-video only reports ready once frames are
+  // held — and a layer waiting on that would never show at all, poster
+  // included. So past the deadline the poster arrives alone, as it does
+  // for a failure. A clip that comes good later (a tap can start it)
+  // still takes over: it surfaces on the very frame the poster shows.
+  useEffect(() => {
+    if (!videoWanted || dismissed || clip !== 'pending') return;
+    const handle = setTimeout(
+      () => setClip((now) => (now === 'pending' ? 'failed' : now)),
+      ARRIVAL_DEADLINE_MS,
+    );
+    return () => clearTimeout(handle);
+  }, [videoWanted, dismissed, clip]);
 
   // Once the fade-out finishes, unmount everything so the decoder and
   // texture are released while a conversation is on screen; coming
-  // back remounts and fades in again.
+  // back remounts the player, which has to earn its arrival again.
   const [gone, setGone] = useState(false);
   useEffect(() => {
     if (!dismissed) {
       setGone(false);
       return;
     }
+    setClip('pending');
     const handle = setTimeout(() => setGone(true), 500);
     return () => clearTimeout(handle);
   }, [dismissed]);
 
-  // Starts at zero so first arrival is a ramp to ambient strength, not a
-  // pop; returning from a conversation runs the very same ramp.
-  const layerFade = useSharedValue(0);
-  useEffect(() => {
-    // Ambient, so it keeps its long durations (see AMBIENT). The
-    // arrival is eased at both ends rather than front-loaded: over
-    // nearly a second, a strong ease-out would put most of the light on
-    // the paper in the first few frames and read as a switch being
-    // thrown. Dismissal is a real exit and takes the app's exit curve.
-    // Held at nothing until the page is done working. This is what
-    // moves the shadow out of the load and into the moment after it.
-    if (!settled) return;
-    layerFade.set(
-      withTiming(dismissed ? 0 : 1, {
-        duration: dismissed ? AMBIENT.layerOut : AMBIENT.layerIn,
-        easing: dismissed ? EASE_OUT : EASE_IN_OUT,
-      }),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dismissed, settled]);
-  const layerStyle = useAnimatedStyle(() => ({
-    opacity: layerFade.get() * ambientOpacity,
-  }));
-
+  // The one fade (see AMBIENT.layerIn). Held at nothing until the page
+  // is done working and, where a clip is coming, until it is ready —
+  // so the poster never shows first and then gives way to the clip.
+  // Eased at both ends on the way in, so there is no frame where the
+  // shadow appears; dismissal is a real exit and takes the exit curve.
+  const shown =
+    settled && !dismissed && (videoExpected ? clip !== 'pending' : true);
+  // Reanimated's CSS transition props, which its typings will not let
+  // share a style array with the plain view styles around them.
+  const layerFade = {
+    opacity: shown ? ambientOpacity : 0,
+    transitionProperty: 'opacity',
+    transitionDuration: `${shown ? AMBIENT.layerIn : AMBIENT.layerOut}ms`,
+    transitionTimingFunction: shown ? EASE_IN_OUT_CSS : EASE_OUT_CSS,
+  } as unknown as ViewStyle;
   if (gone || silent) return null;
 
   return (
@@ -493,7 +462,7 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
         // Outside the drifting wrapper below, so the fade stays put
         // against the glass while the picture moves under it.
         Platform.OS === 'web' && !desktop ? edgeFade : null,
-        layerStyle,
+        layerFade,
       ]}
       pointerEvents="none"
     >
@@ -512,7 +481,15 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
           contentFit="cover"
           transition={0}
         />
-        {videoWanted && !dismissed && <AmbientVideoPlayer source={source} />}
+        {videoWanted && !dismissed && (
+          <AmbientVideoPlayer
+            // A new source (crossing the desktop breakpoint) is a new
+            // player, which has to earn its arrival like the first.
+            key={source}
+            source={source}
+            onSettle={setClip}
+          />
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -527,6 +504,13 @@ const BUFFER_EPSILON_S = 0.1;
  *  stalls — must not cost the reader the shadow entirely; a clip that
  *  arrives late and hitches once is still better than a still. */
 const BUFFER_WAIT_MAX_MS = 8000;
+/** How long, from asking for the clip, the layer waits to hear from the
+ *  player before bringing the poster in alone. Past the buffer wait, so
+ *  a slow fetch that does complete still arrives as the moving clip. */
+const ARRIVAL_DEADLINE_MS = BUFFER_WAIT_MAX_MS + 2000;
+
+/** Where the clip stands, as the layer sees it. */
+type ClipState = 'pending' | 'ready' | 'failed';
 const BUFFER_POLL_MS = 200;
 /** Long enough for a rewound frame to be decoded and painted before
  *  anything starts dissolving toward it. */
@@ -575,7 +559,7 @@ function useClipBuffered(
 
       // The decision itself is the player's own reading, so it does not
       // rest on expo-video's DOM staying as it is. `bufferedPosition` is
-      // the end of the buffered range holding the playhead; the cycle
+      // the end of the buffered range holding the playhead; the warm-up
       // never seeks and the file arrives in order, so reaching the
       // duration means the whole clip is held.
       const { bufferedPosition, duration } = player;
@@ -605,28 +589,37 @@ function useClipBuffered(
  * Mounted only once the screen is interactive and the reader hasn't
  * opted out. Unmounting releases the player via useVideoPlayer's own
  * cleanup, which stops decode work the moment the layer is dismissed.
+ *
+ * It never shows itself: it says when it is ready to be seen — or that
+ * it never will be — and the layer above runs the one fade.
  */
-function AmbientVideoPlayer({ source }: { source: number }) {
+function AmbientVideoPlayer({
+  source,
+  onSettle,
+}: {
+  source: number;
+  onSettle: (state: Exclude<ClipState, 'pending'>) => void;
+}) {
   const player = useVideoPlayer(source, (p) => {
-    // The player owns the wrap. Once the layer is up the cycle below only
-    // ever changes speed, so the clip runs through its end and must come
-    // back to the start on its own: seeking mid-motion would hitch. The
-    // one seek this file performs happens before any of that, while there
-    // is nothing on screen — see `primed` below.
+    // The player owns the wrap: the clip runs through its end and comes
+    // back to the start on its own, since seeking mid-motion would hitch.
+    // The one seek this file performs happens before the layer is up,
+    // while there is nothing on screen — see `primed` below.
     //
-    // This opening rate is load-bearing on the web in a way it should not
-    // be: see the note on the cycle's opening phase further down.
+    // The rate is set once, here, and never again (see PLAYBACK_RATE). It
+    // is written rather than left to the default so no player can start
+    // at anything else.
     p.loop = true;
     p.muted = true;
-    p.playbackRate = CREEP_RATE;
+    p.playbackRate = PLAYBACK_RATE;
   });
 
   const { status } = useEvent(player, 'statusChange', {
     status: player.status,
   });
 
-  // Backgrounding stops the cycle entirely — no timers, no ramps, no
-  // decode — and coming back to the foreground starts a fresh breath.
+  // Backgrounding stops playback entirely — no decode — and coming back
+  // to the foreground plays on from wherever the clip was.
   const [foreground, setForeground] = useState(
     () => AppState.currentState !== 'background',
   );
@@ -641,10 +634,9 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // counts as ready for good. The loop seek at the end of the clip drops
   // the element back to "loading" for a few milliseconds, and a live
   // `status === 'readyToPlay'` check turned that flicker into a full
-  // teardown and restart of the cycle below — the breath began again at
-  // every wrap and the lull never lasted more than a second or two.
+  // teardown and restart of playback below at every wrap.
   // A real failure is the one status worth listening to: without this the
-  // latch above would keep the cycle ticking, and the watchdog retrying,
+  // latch above would keep playback wanted, and the watchdog retrying,
   // against a player that has nothing left to give.
   //
   // Playing counts as ready even if the status never says so. A phone
@@ -668,18 +660,25 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // sits on its metadata, the layer stays invisible, and the poster is
   // left standing in as a shadow that never moves. Chromium hides this
   // completely by buffering ahead unasked and reporting ready with no
-  // prompting, which is why the preview has always looked right. So the
-  // cycle starts on anything that is not an outright error and lets the
-  // clip prove itself by running; the fade below is still held back
+  // prompting, which is why the preview has always looked right. So
+  // playback starts on anything that is not an outright error and lets the
+  // clip prove itself by running; the layer's fade is still held back
   // until it does, so nothing appears before there is a picture.
-  const live = (Platform.OS === 'web' || ready) && status !== 'error';
+  // A failure is latched like readiness is: a player that has errored is
+  // done, whatever it reports afterwards, and never counts as ready —
+  // not even when the buffer wait times out and primes it regardless.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (status === 'error') setFailed(true);
+  }, [status]);
+  const live = (Platform.OS === 'web' || ready) && !failed;
 
   const hostRef = useRef<View>(null);
   const clipBuffered = useClipBuffered(player, hostRef);
 
   // Warm-up. On the web a browser fetches nothing until something asks it
   // to play, so the clip is run purely to pull itself in — invisibly, and
-  // before the breath cycle owns it. However it looks while it does that
+  // before playback proper owns it. However it looks while it does that
   // is nobody's business: the layer is at zero.
   useEffect(() => {
     if (Platform.OS !== 'web' || !foreground || clipBuffered) return;
@@ -692,18 +691,16 @@ function AmbientVideoPlayer({ source }: { source: number }) {
 
   // Then it is stopped and wound back to the frame the poster is showing.
   //
-  // This is what makes the fade invisible. The poster *is* the clip's
-  // first frame, so a dissolve between the two is a dissolve between
-  // identical pictures — but only while the clip is actually sitting on
-  // that frame. Revealing it wherever the warm-up happened to leave it
-  // meant cross-fading a still against a picture a second further on, and
-  // a soft shadow blended over a copy of itself at a different position
-  // reads precisely like the video jumping or starting again. Which is
-  // what it was.
+  // The poster *is* the clip's first frame, so the clip arrives exactly
+  // where the still underneath it is, and the reduced-motion and error
+  // paths show the same picture the clip starts from. Left wherever the
+  // warm-up happened to stop, the shadow would surface already a second
+  // into its pass — and if the clip ever failed after that, fall back to
+  // a still a second behind it.
   //
   // Seeking is safe here for the same reason the warm-up is: nothing is on
   // screen. The wait afterwards is for that frame to be decoded and
-  // painted before anything begins dissolving toward it.
+  // painted before the layer begins to fade up over it.
   const [primed, setPrimed] = useState(false);
   useEffect(() => {
     if (!clipBuffered || primed) return;
@@ -717,118 +714,48 @@ function AmbientVideoPlayer({ source }: { source: number }) {
     return () => clearTimeout(handle);
   }, [clipBuffered, primed, player]);
 
-  // And the breath does not begin until the fade has finished, so the clip
-  // holds its first frame for the whole dissolve and starts moving only
-  // once it is the only thing on screen. Nothing about the arrival asks
-  // the eye to follow two changes at once.
-  const [running, setRunning] = useState(false);
+  // Ready to be seen: able to play, holding the whole clip, back on the
+  // poster's frame, and not failed. From here it moves — and it moves
+  // from the first frame of the layer's fade, so the shadow surfaces
+  // already drifting rather than as a still that then lurches into
+  // motion. A failure after this point takes it away again, and the
+  // poster underneath carries the layer.
+  const running = ready && primed && !failed;
+
+  // Tell the layer.
+  useEffect(() => {
+    if (running) onSettle('ready');
+  }, [running, onSettle]);
+  useEffect(() => {
+    if (failed) onSettle('failed');
+  }, [failed, onSettle]);
 
   // What the watchdog and the resume handler below should be enforcing at
   // any given moment: the clip is meant to be running during the warm-up
-  // and once the breath has begun, and is deliberately stopped in between
-  // while it waits on its first frame.
+  // and once it is ready to be seen, and is deliberately stopped in
+  // between while it waits on its first frame.
   const wantPlaying = running || (Platform.OS === 'web' && !clipBuffered);
 
-  // The breath cycle. One effect owns every timer, so unmounting,
-  // dismissing the layer, or backgrounding the app tears all of them
-  // down together and remounting starts exactly one new cycle.
+  // Playback, once the clip is ready to be seen. `running` is a dependency
+  // here like everything else the effect reads: the breath cycle this
+  // replaced gated on it without listing it, so it bailed out once before
+  // the fade and never ran at all. Unmounting, dismissing the layer, or
+  // backgrounding the app pauses the clip; coming back plays it on.
   useEffect(() => {
     if (!live || !foreground || !running) return;
-
-    let cancelled = false;
-    // Opens on the crawl and ramps up, which is also the speed the clip is
-    // built at rest — and on the web that opening rate is, in practice,
-    // the only rate there is.
-    //
-    // Measured over twenty-four seconds in a browser: the element reports
-    // one constant playback rate and advances at exactly that rate through
-    // three loops. None of the ramps below reach it. Whether the ticker is
-    // being torn down or the writes are simply not forwarded is not yet
-    // known, and it is not this task's to answer — but it means the rate
-    // set here is the rate a reader on the web actually sees, for as long
-    // as they look. Opening on anything else silently rescales the whole
-    // ambient layer. Opening it at the drift speed, briefly, made the
-    // shadow travel 1.4x faster than the pass that was signed off.
-    let phase: 'rampIn' | 'drift' | 'rampOut' | 'creep' = 'rampIn';
-    let phaseStart = Date.now();
-
-    let lastRate = -1;
-    const setRate = (rate: number, force = false) => {
-      if (!force && Math.abs(rate - lastRate) < RATE_EPSILON) return;
-      lastRate = rate;
-      try {
-        player.playbackRate = rate;
-      } catch {
-        // Player released mid-tick — the cleanup below is on its way.
-      }
-    };
-
-    const enter = (next: typeof phase) => {
-      phase = next;
-      phaseStart = Date.now();
-    };
-
-    const tick = () => {
-      if (cancelled) return;
-      const elapsed = Date.now() - phaseStart;
-
-      switch (phase) {
-        case 'rampIn': {
-          const p = Math.min(1, elapsed / RAMP_IN_MS);
-          // The last step lands exactly on the drift speed, so the pass
-          // holds the documented rate rather than wherever epsilon stopped.
-          setRate(
-            CREEP_RATE + (DRIFT_RATE - CREEP_RATE) * smoothstep(p),
-            p >= 1,
-          );
-          if (p >= 1) enter('drift');
-          break;
-        }
-        case 'drift':
-          // Nothing to write: the rate stands until the pass is spent.
-          if (elapsed >= DRIFT_MS) enter('rampOut');
-          break;
-        case 'rampOut': {
-          const p = Math.min(1, elapsed / RAMP_OUT_MS);
-          // Likewise lands exactly on the crawl, so the twelve seconds
-          // that follow are spent at one rate and never touched again.
-          setRate(
-            DRIFT_RATE - (DRIFT_RATE - CREEP_RATE) * smoothstep(p),
-            p >= 1,
-          );
-          if (p >= 1) enter('creep');
-          break;
-        }
-        case 'creep':
-          // The whole lull passes without a single write to the player:
-          // a resync in the middle of a crawl is exactly what judders.
-          if (elapsed >= CREEP_MS) enter('rampIn');
-          break;
-      }
-    };
-
-    // Start on the speed the opening phase above runs at, and from here
-    // on never seek: the clip is a shadow on a wall, and wherever it
-    // happens to run to is where it belongs.
-    lastRate = CREEP_RATE;
     try {
-      player.playbackRate = CREEP_RATE;
       player.play();
     } catch {
       // Released player — nothing left to drive.
     }
-    const ticker = setInterval(tick, TICK_MS);
-
     return () => {
-      cancelled = true;
-      clearInterval(ticker);
       try {
         player.pause();
       } catch {
         // Released — nothing to stop.
       }
     };
-  }, [live, foreground, player]);
+  }, [live, foreground, running, player]);
 
   // Watchdog: the system can pause a muted ambient player behind our
   // back (audio-session interruptions around the keyboard on iOS,
@@ -837,7 +764,7 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // a stall: start it again. `wantPlaying` is what stops this fighting
   // the one pause that is deliberate — the rewind onto the poster's
   // frame, which the watchdog would otherwise undo a quarter of a second
-  // later, leaving the fade to dissolve against a moving picture again.
+  // later, before that frame was ever painted.
   useEffect(() => {
     if (isPlaying || !live || !foreground || !wantPlaying) return;
     const handle = setTimeout(() => {
@@ -852,8 +779,12 @@ function AmbientVideoPlayer({ source }: { source: number }) {
 
   // Web autoplay policies reject play() until a user gesture; retry on
   // the first touch so the drift still comes alive in strict contexts.
+  // Kept armed while the clip has never managed to play at all: after
+  // the buffer wait gives up on such a clip nothing else is still
+  // trying, and a tap is the one thing that can still start it.
+  const awaitingGesture = Platform.OS === 'web' && !ready && !failed;
   useEffect(() => {
-    if (Platform.OS !== 'web' || !wantPlaying) return;
+    if (Platform.OS !== 'web' || !(wantPlaying || awaitingGesture)) return;
     const resume = () => {
       try {
         if (!player.playing) player.play();
@@ -863,21 +794,13 @@ function AmbientVideoPlayer({ source }: { source: number }) {
     };
     document.addEventListener('pointerdown', resume, { passive: true });
     return () => document.removeEventListener('pointerdown', resume);
-  }, [player, wantPlaying]);
+  }, [player, wantPlaying, awaitingGesture]);
 
-  // The video only appears once it can play, the browser holds the whole
-  // clip, and it is back on the poster's frame; on error it stays
-  // invisible and the poster/paper carry the screen alone. The breath is
-  // released at the end of the fade, not the start of it.
-  const fadeIn = useSharedValue(0);
-  useEffect(() => {
-    if (!ready || !primed) return;
-    fadeIn.set(withTiming(1, { duration: AMBIENT.videoIn, easing: EASE_OUT }));
-    const handle = setTimeout(() => setRunning(true), AMBIENT.videoIn);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, primed]);
-  const videoStyle = useAnimatedStyle(() => ({ opacity: fadeIn.get() }));
+  // Hidden until it is ready to be seen, so a clip mid-warm-up never
+  // shows through the poster — and hidden again for good the moment it
+  // fails, leaving the poster to carry the layer alone. No fade of its
+  // own: on arrival the layer above is still at nothing while this flips.
+  const videoStyle = { opacity: running ? 1 : 0 };
 
   return (
     <Animated.View

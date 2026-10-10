@@ -1,0 +1,40 @@
+I'll start by reading the key files from disk.Now let me verify cross-references and the asset/test claims.I read the implementation, the test file, `motion.ts`, the retime script, the review file, the plan, the docs diff, the previous `AmbientVideo.tsx` on `origin/develop`, and `expo-video`'s web player. I also independently probed the four re-encoded clips.
+
+## Verified against the actual tree
+
+- **Assets match every claim.** `ffprobe` on all four: 341 frames, 30/1 fps, 11.3667 s, H.264 **Main @ L4.0** (`avc1.4D4028`, exactly what `webPrefersMp4` probes), VP9 **Profile 0**, `yuv420p`. 248 × 11/8 = 341 ✓, and 341 at 1.0× = the old 248-at-0.727× duration, so on-wall speed is preserved as the plan promised. The corrected "Profile 1 / 4:4:4" comment is genuinely corrected.
+- **Plan adherence is complete.** Every "Files to Change" entry is changed; the rate is written once (`PLAYBACK_RATE = 1`) in setup; the breath ticker, `smoothstep`, `DRIFT_RATE`/`CREEP_RATE`, `TICK_MS` are gone (grep: no remaining users anywhere); the `MASK_PERIOD_MS` beat-rule comment is re-derived for the 11.4 s loop; `retime-ambient.sh` is reproducible and warns against re-running over its own output. The arrival rework is scope the plan's Revision section records as reviewer-approved.
+- **The dependency-bug regression test is real, not vacuous.** `advance(UNTIL_READY - 10)` → not playing; `advance(10)` → exactly one new `play()`. The watchdog can't account for it (250 ms later), so this fails on the old code and on old-code-with-`running`-added. `rateWrites === [1]` likewise fails on old code (`[0.727]`).
+- **Docs are accurate and fixed in both tiers**, including the #202/#245 Simulator advice. `PERFORMANCE.md` mentions the layer but is already banner-marked stale — no action needed.
+
+## Findings
+
+**1. The arrival gate has no deadline, and the poster can now be lost entirely (main issue).**
+
+`shown = settled && !dismissed && (videoExpected ? clip !== 'pending' : true)`, and `clip` leaves `'pending'` only via `onReady` (`ready && primed`) or `onFail` (`status === 'error'`). On web, `ready` needs `status === 'readyToPlay'` or `isPlaying`. I checked `expo-video/build/VideoPlayer.web.js:356-363`: `readyToPlay` is set only from `oncanplay` with `readyState >= 3` — i.e. it requires actual data. So in a context where the browser neither loads data nor errors, nothing ever resolves:
+
+- iOS Low Power Mode suppresses muted inline autoplay *and* defers preload, so `play()` is rejected (silently — the rejection is a promise, not a throw, so the `catch` at `:655-659` can't see it) and `el.preload = 'auto'` doesn't force the fetch.
+- `useClipBuffered` times out at 8 s and sets `buffered` anyway, so `primed` arrives — but `ready` never does.
+- After that timeout `wantPlaying = running || (web && !clipBuffered)` becomes `false`, which also switches off both the watchdog and the `pointerdown` gesture retry. So a tap after 8 s can no longer rescue it.
+
+Result: on such a phone the whole layer — poster included — never appears. On `origin/develop` the poster came up at settle regardless of the player (its docstring: "a tiny poster still stands in immediately"). Every other wait in this file is capped (settle idle, buffer wait, seek settle); readiness is the one that isn't. A cheap fix in keeping with the design: one arrival deadline that flips `clip` to `'failed'` (poster alone in the same single fade), and/or keep the web `pointerdown` retry armed once `clipBuffered` is true. The review file's "can take longer… capped at 8 s by `BUFFER_WAIT_MAX_MS`" bullet understates this — it isn't only later, it can be never.
+
+**2. The `onFail` test doesn't exercise the failure path** (settled by reading, not by running anything). In `brings the poster in alone when the player fails`, `FakePlayer.play()` sets `playing = true` regardless of `status`, so the warm-up latches `ready`, `primed` lands at 1250 ms, `running` goes true and `onReady` fires — `clip` ends as `'ready'`, not `'failed'`. The `layerOpacity === DAY_STRENGTH` assertion is therefore satisfied by the success path and would still pass with `onFail` deleted. (`expect(player.playing).toBe(false)` *is* genuine — `live` is false so the play effect never runs.) Make `play()` a no-op when `status === 'error'` and additionally assert the inner video host stays at opacity 0; that pins the real behavior. Relatedly, the comment at `:768-771` ("on error it stays hidden for good") holds only because no frames ever arrive to latch `ready` — worth saying so, since `running` is latched and an error *after* arrival leaves the video view at opacity 1 on a frozen frame.
+
+**3. Minor: `clip` isn't reset when `source` changes.** Crossing the desktop breakpoint swaps `source` without remounting `AmbientVideoPlayer`, and `ready`/`primed` stay latched — so the new, unbuffered clip is shown at opacity 1 immediately while the layer stays visible. Rare (window resize), and arguably no worse than before; a `key={source}` on the player would make it re-earn its arrival.
+
+**4. Nit:** `onReadyRef.current = onReady` is a render-phase ref write, and this prototype has `experiments.reactCompiler: true` (`app.json:44`). The compiler bails out of optimizing components that mutate refs during render, so `AmbientVideoPlayer` silently opts out. Assigning inside the effects (or `useEffect(() => { ref.current = cb })`) keeps it compilable. No correctness impact.
+
+Nothing here blocks a human from testing this in a browser or on a phone, and the on-device blind A/B already happened — so I'd proceed, with item 1 as a decision for the human (fix now vs. a follow-up issue) and item 2 as a cheap test tightening.
+
+---
+VERDICT: COMMENT
+SUMMARY: Plan faithfully implemented and asset claims independently verified; the new arrival gate lacks a deadline (a phone that never loads the clip now loses the poster too), and the `onFail` test passes via the success path.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- No deadline on `clip === 'pending'`: web `readyToPlay` needs `readyState >= 3` (verified in expo-video's web player), so where autoplay and preload are both suppressed (iOS Low Power Mode) nothing resolves, `wantPlaying` goes false after the 8 s buffer timeout and disarms the watchdog + gesture retry, and the entire layer — poster included — never appears, where `develop` showed the poster.
+- `brings the poster in alone when the player fails` is vacuous: `FakePlayer.play()` ignores `status`, so `ready` latches, `clip` ends `'ready'` not `'failed'`, and the assertion would pass with `onFail` removed.
+- `clip`/`ready`/`primed` are not reset when `source` changes across the desktop breakpoint, so a fresh unbuffered clip is shown at full opacity immediately (minor).
+- Render-phase ref writes (`onReadyRef.current = onReady`) make `AmbientVideoPlayer` opt out of the React Compiler, which is enabled in this prototype (nit).
