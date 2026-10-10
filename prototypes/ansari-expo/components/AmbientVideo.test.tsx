@@ -14,7 +14,7 @@ vi.mock('react-native-reanimated', async () => {
     Easing: { bezier: () => () => 0 },
     ReduceMotion: { System: 'system' },
     cubicBezier: () => 'ease-out',
-    useReducedMotion: () => false,
+    useReducedMotion: () => reducedMotion,
     useSharedValue: (initial: number) => {
       let value = initial;
       return { get: () => value, set: (v: number) => (value = v) };
@@ -65,6 +65,7 @@ class FakePlayer {
 }
 
 let player: FakePlayer;
+let reducedMotion = false;
 
 vi.mock('expo-video', () => ({
   useVideoPlayer: (_source: unknown, setup: (p: FakePlayer) => void) => {
@@ -87,7 +88,7 @@ vi.mock('expo', () => ({
   },
 }));
 
-import { AMBIENT } from '@/constants/motion';
+import { DAY_STRENGTH } from '@/lib/ambientNight';
 
 // The component `require`s its clips the way Metro wants them. Under Node
 // that is a real CommonJS require, which knows neither the `@/` alias nor
@@ -110,9 +111,10 @@ for (const ext of assetExtensions) {
 }
 const { AmbientVideo } = await import('@/components/AmbientVideo');
 
-/** Page settle (one idle-less frame), the video's own beat, a buffer poll,
- *  the rewind's settle, and the fade — everything before playback. */
-const UNTIL_FADE_ENDS = 100 + 600 + 200 + 200 + AMBIENT.videoIn;
+/** Page settle (jsdom has no idle callback), the video's own beat, a
+ *  buffer poll, and the rewind's settle — everything before the clip is
+ *  ready to be seen. */
+const UNTIL_READY = 250 + 600 + 200 + 200;
 
 /** Moves the clock in small steps, each in its own `act`: React only
  *  re-renders when an `act` ends, so a timer a re-render would register
@@ -129,7 +131,12 @@ const advance = async (ms: number) => {
 beforeEach(() => {
   vi.useFakeTimers();
   player = new FakePlayer();
+  reducedMotion = false;
 });
+
+/** The layer itself: the outermost view, which wears the fade. */
+const layerOpacity = (container: HTMLElement) =>
+  Number((container.firstElementChild as HTMLElement).style.opacity);
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -138,30 +145,30 @@ afterEach(() => {
 describe('AmbientVideo — playback pace (issue #254)', () => {
   it('sets the rate to 1.0 once and never writes it again', async () => {
     render(<AmbientVideo dismissed={false} />);
-    await advance(UNTIL_FADE_ENDS + 60_000);
+    await advance(UNTIL_READY + 60_000);
 
     expect(player.rateWrites).toEqual([1]);
     expect(player.playing).toBe(true);
   });
 
-  it('starts the clip the moment the fade ends, without the watchdog', async () => {
+  it('starts the clip the moment it is ready, without the watchdog', async () => {
     render(<AmbientVideo dismissed={false} />);
-    // Up to the frame before the fade ends: warmed, rewound, and held.
-    await advance(UNTIL_FADE_ENDS - 1);
+    // Up to the frame before it is ready: warmed, rewound, and held.
+    await advance(UNTIL_READY - 10);
     expect(player.playing).toBe(false);
     const before = player.playCalls;
 
     // The effect that owns playback must re-run when `running` flips. The
     // watchdog would also start a stopped clip, but only 250ms later — so
     // a play inside that window can only have come from the effect.
-    await advance(1);
+    await advance(10);
     expect(player.playCalls).toBe(before + 1);
     expect(player.playing).toBe(true);
   });
 
   it('leaves no timer running once the clip is playing', async () => {
     render(<AmbientVideo dismissed={false} />);
-    await advance(UNTIL_FADE_ENDS + 1_000);
+    await advance(UNTIL_READY + 1_000);
 
     expect(player.playing).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
@@ -169,11 +176,65 @@ describe('AmbientVideo — playback pace (issue #254)', () => {
 
   it('pauses the clip when the layer is dismissed', async () => {
     const { rerender } = render(<AmbientVideo dismissed={false} />);
-    await advance(UNTIL_FADE_ENDS + 1_000);
+    await advance(UNTIL_READY + 1_000);
     expect(player.playing).toBe(true);
 
     rerender(<AmbientVideo dismissed />);
     await advance(0);
     expect(player.playing).toBe(false);
+  });
+});
+
+describe('AmbientVideo — arrival (issue #254)', () => {
+  it('shows nothing — not even the poster — until the clip is ready', async () => {
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    await advance(UNTIL_READY - 10);
+    expect(layerOpacity(container)).toBe(0);
+
+    // Then the whole layer comes up in one fade, with the clip already
+    // moving under it.
+    await advance(10);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+    expect(player.playing).toBe(true);
+  });
+
+  it('fades as a CSS transition, eased in and out', async () => {
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    await advance(UNTIL_READY);
+    const layer = container.firstElementChild as HTMLElement;
+    expect(layer.style.transitionProperty).toBe('opacity');
+    expect(layer.style.transitionDuration).toBe('1200ms');
+  });
+
+  it('brings the poster in alone when the player fails', async () => {
+    player.status = 'error';
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    await advance(UNTIL_READY + 1_000);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+    expect(player.playing).toBe(false);
+  });
+
+  it('brings the poster in alone under reduced motion, with no player', async () => {
+    reducedMotion = true;
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    await advance(250);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+    expect(player.playCalls).toBe(0);
+  });
+
+  it('fades out on dismissal and waits for the clip again on return', async () => {
+    const { container, rerender } = render(<AmbientVideo dismissed={false} />);
+    await advance(UNTIL_READY + 1_000);
+    rerender(<AmbientVideo dismissed />);
+    await advance(0);
+    expect(layerOpacity(container)).toBe(0);
+
+    await advance(1_000);
+    player = new FakePlayer();
+    rerender(<AmbientVideo dismissed={false} />);
+    await advance(10);
+    expect(layerOpacity(container)).toBe(0);
+    await advance(UNTIL_READY);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
   });
 });

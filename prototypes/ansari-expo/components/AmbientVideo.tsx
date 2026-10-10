@@ -9,15 +9,10 @@ import {
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useEvent } from 'expo';
-import Animated, {
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { useReducedMotion } from 'react-native-reanimated';
 import { useScheme } from '@/hooks/useScheme';
 import { useDesktop } from '@/hooks/useDesktop';
-import { AMBIENT, EASE_IN_OUT, EASE_OUT } from '@/constants/motion';
+import { AMBIENT, EASE_IN_OUT_CSS, EASE_OUT_CSS } from '@/constants/motion';
 import { ambientTreatment, videoSurfaceType } from '@/lib/ambientNight';
 
 // Two encodings of the same clip, because no single one plays
@@ -242,15 +237,18 @@ const maskDrift = {
  * costs the page real time to deliver something nobody asked for. What
  * a reader sees for that is a sequence of layers assembling.
  *
- * So it waits for the load event and then for an idle moment, and the
- * first screen gets the machine to itself. On a page that never goes
- * idle the timeout brings it in anyway.
+ * So it waits for the load event, then for the page's fonts, then for an
+ * idle moment, and the first screen gets the machine to itself. On a
+ * page that never goes idle the timeout brings it in anyway.
  *
  * Native has no such notion and no bundle to fetch over the wire: there
  * the app is already up by the time this mounts, so it is settled from
  * the first frame and the video's own short delay below is the only
  * wait.
  */
+/** The idle moment, on a browser that cannot report one. */
+const SETTLE_FALLBACK_MS = 250;
+
 function usePageSettled(): boolean {
   const [settled, setSettled] = useState(Platform.OS !== 'web');
 
@@ -269,7 +267,10 @@ function usePageSettled(): boolean {
       cancelIdleCallback?: (handle: number) => void;
     };
 
-    const settle = () => {
+    const settle = async () => {
+      // A font that lands mid-fade reflows the words over the shadow while
+      // it is surfacing. `fonts.ready` resolves at once if none is pending.
+      await document.fonts?.ready.catch(() => undefined);
       if (cancelled) return;
       if (idleWindow.requestIdleCallback) {
         idle = idleWindow.requestIdleCallback(
@@ -279,12 +280,14 @@ function usePageSettled(): boolean {
           { timeout: AMBIENT.settleIdle },
         );
       } else {
-        // Safari shipped `requestIdleCallback` late enough that a phone
-        // in the field may still not have it; one frame past load is
-        // close enough to the same moment.
+        // Safari does not ship `requestIdleCallback`, so on an iPhone this
+        // is the path every reader takes. One frame past load proved too
+        // soon there: the shadow arrived while the first screen was still
+        // painting, and the fade dropped frames with it (issue #254). A
+        // short beat lets the page's own first work finish.
         timer = setTimeout(() => {
           if (!cancelled) setSettled(true);
-        }, 100);
+        }, SETTLE_FALLBACK_MS);
       }
     };
 
@@ -334,13 +337,13 @@ const edgeFade = {
  * heavily compressed monochrome clip that drifts under the sunlit-paper
  * surface. It is felt more than seen — low opacity, muted, no controls.
  *
- * The layer is strictly additive: the paper background paints first and
- * a tiny poster still stands in immediately, so nothing blocks first
- * paint — but the layer as a whole eases up to its ambient strength
- * rather than snapping in with the still. The video mounts a beat
- * later, fades in only once the whole clip is buffered, and if it
- * errors (or reduced
- * motion / data saver is on) the screen simply keeps the paper. When
+ * The layer is strictly additive: the paper paints first and nothing
+ * here blocks it. The shadow then arrives as one event — nothing at all
+ * until the page has settled and the clip is fully buffered, rewound to
+ * the poster's frame and already moving, then a single fade of the
+ * whole layer to its ambient strength. Where no clip is coming (reduced
+ * motion, data saver, a player error) the poster arrives in that same
+ * fade instead, as a still. When
  * `dismissed` flips on (first prompt sent, or the screen loses focus to
  * a conversation) the whole layer fades out and the player is torn
  * down; when it flips back off — the reader returned to the home
@@ -384,58 +387,55 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
       : null;
 
   // Nothing here starts until the page has stopped working — see
-  // `usePageSettled`. On web that is the load event plus an idle
-  // moment; on native it is true from the first frame.
+  // `usePageSettled`. On web that is the load event, the fonts and an
+  // idle moment; on native it is true from the first frame.
   const settled = usePageSettled();
 
-  // And then the video waits a little longer still, behind its own
-  // poster (a ~9 KB still), so the layer's arrival is one fade of a
-  // finished picture rather than a still that is swapped for a clip
-  // while the reader is watching it.
+  // And then the video waits a little longer still, so its download and
+  // decode do not compete with the page's last work either.
+  const videoExpected =
+    settled && !silent && !reducedMotion && connectionAllowsVideo();
   const [videoWanted, setVideoWanted] = useState(false);
   useEffect(() => {
-    if (!settled || silent || reducedMotion || !connectionAllowsVideo()) return;
+    if (!videoExpected) return;
     const handle = setTimeout(() => setVideoWanted(true), 600);
     return () => clearTimeout(handle);
-  }, [settled, silent, reducedMotion]);
+  }, [videoExpected]);
+
+  // What the player has to say about itself: nothing yet, ready to be
+  // seen (buffered, on the poster's frame, moving), or failed — in which
+  // case the poster arrives alone.
+  const [clip, setClip] = useState<'pending' | 'ready' | 'failed'>('pending');
 
   // Once the fade-out finishes, unmount everything so the decoder and
   // texture are released while a conversation is on screen; coming
-  // back remounts and fades in again.
+  // back remounts the player, which has to earn its arrival again.
   const [gone, setGone] = useState(false);
   useEffect(() => {
     if (!dismissed) {
       setGone(false);
       return;
     }
+    setClip('pending');
     const handle = setTimeout(() => setGone(true), 500);
     return () => clearTimeout(handle);
   }, [dismissed]);
 
-  // Starts at zero so first arrival is a ramp to ambient strength, not a
-  // pop; returning from a conversation runs the very same ramp.
-  const layerFade = useSharedValue(0);
-  useEffect(() => {
-    // Ambient, so it keeps its long durations (see AMBIENT). The
-    // arrival is eased at both ends rather than front-loaded: over
-    // nearly a second, a strong ease-out would put most of the light on
-    // the paper in the first few frames and read as a switch being
-    // thrown. Dismissal is a real exit and takes the app's exit curve.
-    // Held at nothing until the page is done working. This is what
-    // moves the shadow out of the load and into the moment after it.
-    if (!settled) return;
-    layerFade.set(
-      withTiming(dismissed ? 0 : 1, {
-        duration: dismissed ? AMBIENT.layerOut : AMBIENT.layerIn,
-        easing: dismissed ? EASE_OUT : EASE_IN_OUT,
-      }),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dismissed, settled]);
-  const layerStyle = useAnimatedStyle(() => ({
-    opacity: layerFade.get() * ambientOpacity,
-  }));
-
+  // The one fade (see AMBIENT.layerIn). Held at nothing until the page
+  // is done working and, where a clip is coming, until it is ready —
+  // so the poster never shows first and then gives way to the clip.
+  // Eased at both ends on the way in, so there is no frame where the
+  // shadow appears; dismissal is a real exit and takes the exit curve.
+  const shown =
+    settled && !dismissed && (videoExpected ? clip !== 'pending' : true);
+  // Reanimated's CSS transition props, which its typings will not let
+  // share a style array with the plain view styles around them.
+  const layerFade = {
+    opacity: shown ? ambientOpacity : 0,
+    transitionProperty: 'opacity',
+    transitionDuration: `${shown ? AMBIENT.layerIn : AMBIENT.layerOut}ms`,
+    transitionTimingFunction: shown ? EASE_IN_OUT_CSS : EASE_OUT_CSS,
+  } as unknown as ViewStyle;
   if (gone || silent) return null;
 
   return (
@@ -446,7 +446,7 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
         // Outside the drifting wrapper below, so the fade stays put
         // against the glass while the picture moves under it.
         Platform.OS === 'web' && !desktop ? edgeFade : null,
-        layerStyle,
+        layerFade,
       ]}
       pointerEvents="none"
     >
@@ -465,7 +465,13 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
           contentFit="cover"
           transition={0}
         />
-        {videoWanted && !dismissed && <AmbientVideoPlayer source={source} />}
+        {videoWanted && !dismissed && (
+          <AmbientVideoPlayer
+            source={source}
+            onReady={() => setClip('ready')}
+            onFail={() => setClip('failed')}
+          />
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -558,8 +564,19 @@ function useClipBuffered(
  * Mounted only once the screen is interactive and the reader hasn't
  * opted out. Unmounting releases the player via useVideoPlayer's own
  * cleanup, which stops decode work the moment the layer is dismissed.
+ *
+ * It never shows itself: it says when it is ready to be seen — or that
+ * it never will be — and the layer above runs the one fade.
  */
-function AmbientVideoPlayer({ source }: { source: number }) {
+function AmbientVideoPlayer({
+  source,
+  onReady,
+  onFail,
+}: {
+  source: number;
+  onReady: () => void;
+  onFail: () => void;
+}) {
   const player = useVideoPlayer(source, (p) => {
     // The player owns the wrap: the clip runs through its end and comes
     // back to the start on its own, since seeking mid-motion would hitch.
@@ -622,7 +639,7 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // completely by buffering ahead unasked and reporting ready with no
   // prompting, which is why the preview has always looked right. So
   // playback starts on anything that is not an outright error and lets the
-  // clip prove itself by running; the fade below is still held back
+  // clip prove itself by running; the layer's fade is still held back
   // until it does, so nothing appears before there is a picture.
   const live = (Platform.OS === 'web' || ready) && status !== 'error';
 
@@ -644,18 +661,16 @@ function AmbientVideoPlayer({ source }: { source: number }) {
 
   // Then it is stopped and wound back to the frame the poster is showing.
   //
-  // This is what makes the fade invisible. The poster *is* the clip's
-  // first frame, so a dissolve between the two is a dissolve between
-  // identical pictures — but only while the clip is actually sitting on
-  // that frame. Revealing it wherever the warm-up happened to leave it
-  // meant cross-fading a still against a picture a second further on, and
-  // a soft shadow blended over a copy of itself at a different position
-  // reads precisely like the video jumping or starting again. Which is
-  // what it was.
+  // The poster *is* the clip's first frame, so the clip arrives exactly
+  // where the still underneath it is, and the reduced-motion and error
+  // paths show the same picture the clip starts from. Left wherever the
+  // warm-up happened to stop, the shadow would surface already a second
+  // into its pass — and if the clip ever failed after that, fall back to
+  // a still a second behind it.
   //
   // Seeking is safe here for the same reason the warm-up is: nothing is on
   // screen. The wait afterwards is for that frame to be decoded and
-  // painted before anything begins dissolving toward it.
+  // painted before the layer begins to fade up over it.
   const [primed, setPrimed] = useState(false);
   useEffect(() => {
     if (!clipBuffered || primed) return;
@@ -669,22 +684,35 @@ function AmbientVideoPlayer({ source }: { source: number }) {
     return () => clearTimeout(handle);
   }, [clipBuffered, primed, player]);
 
-  // And the clip does not move until the fade has finished, so it holds
-  // its first frame for the whole dissolve and starts moving only once it
-  // is the only thing on screen. Nothing about the arrival asks
-  // the eye to follow two changes at once.
-  const [running, setRunning] = useState(false);
+  // Ready to be seen: able to play, holding the whole clip, and back on
+  // the poster's frame. From here it moves — and it moves from the first
+  // frame of the layer's fade, so the shadow surfaces already drifting
+  // rather than surfacing as a still that then lurches into motion.
+  const running = ready && primed;
+
+  // Tell the layer. Read through refs, so a parent re-render handing down
+  // fresh callbacks is not mistaken for news.
+  const onReadyRef = useRef(onReady);
+  const onFailRef = useRef(onFail);
+  onReadyRef.current = onReady;
+  onFailRef.current = onFail;
+  useEffect(() => {
+    if (running) onReadyRef.current();
+  }, [running]);
+  useEffect(() => {
+    if (status === 'error') onFailRef.current();
+  }, [status]);
 
   // What the watchdog and the resume handler below should be enforcing at
   // any given moment: the clip is meant to be running during the warm-up
-  // and once the fade has finished, and is deliberately stopped in between
-  // while it waits on its first frame.
+  // and once it is ready to be seen, and is deliberately stopped in
+  // between while it waits on its first frame.
   const wantPlaying = running || (Platform.OS === 'web' && !clipBuffered);
 
-  // Playback, once the fade has finished. `running` is a dependency here
-  // like everything else the effect reads: the breath cycle this replaced
-  // gated on it without listing it, so it bailed out once before the fade
-  // and never ran at all. Unmounting, dismissing the layer, or
+  // Playback, once the clip is ready to be seen. `running` is a dependency
+  // here like everything else the effect reads: the breath cycle this
+  // replaced gated on it without listing it, so it bailed out once before
+  // the fade and never ran at all. Unmounting, dismissing the layer, or
   // backgrounding the app pauses the clip; coming back plays it on.
   useEffect(() => {
     if (!live || !foreground || !running) return;
@@ -709,7 +737,7 @@ function AmbientVideoPlayer({ source }: { source: number }) {
   // a stall: start it again. `wantPlaying` is what stops this fighting
   // the one pause that is deliberate — the rewind onto the poster's
   // frame, which the watchdog would otherwise undo a quarter of a second
-  // later, leaving the fade to dissolve against a moving picture again.
+  // later, before that frame was ever painted.
   useEffect(() => {
     if (isPlaying || !live || !foreground || !wantPlaying) return;
     const handle = setTimeout(() => {
@@ -737,19 +765,11 @@ function AmbientVideoPlayer({ source }: { source: number }) {
     return () => document.removeEventListener('pointerdown', resume);
   }, [player, wantPlaying]);
 
-  // The video only appears once it can play, the browser holds the whole
-  // clip, and it is back on the poster's frame; on error it stays
-  // invisible and the poster/paper carry the screen alone. Playback is
-  // released at the end of the fade, not the start of it.
-  const fadeIn = useSharedValue(0);
-  useEffect(() => {
-    if (!ready || !primed) return;
-    fadeIn.set(withTiming(1, { duration: AMBIENT.videoIn, easing: EASE_OUT }));
-    const handle = setTimeout(() => setRunning(true), AMBIENT.videoIn);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, primed]);
-  const videoStyle = useAnimatedStyle(() => ({ opacity: fadeIn.get() }));
+  // Hidden until it is ready to be seen, so a clip mid-warm-up never
+  // shows through the poster — and on error it stays hidden for good,
+  // leaving the poster to carry the layer alone. No fade of its own:
+  // while this flips, the layer above is still at nothing.
+  const videoStyle = { opacity: running ? 1 : 0 };
 
   return (
     <Animated.View

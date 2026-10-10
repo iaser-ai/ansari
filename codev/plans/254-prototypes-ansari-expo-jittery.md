@@ -91,3 +91,19 @@ That would make the breath run as designed. But it would turn on the very ramps 
   - Expect: the shadow drifts at the same pace as before, with no rhythmic stepping and no speed surges.
   - Background the tab, return, and check it still plays and stays smooth (this is the path that used to switch the ramps on).
 - **Cross-platform:** iOS / Android native use the same MP4 and the same rate-1.0 path. If a simulator or emulator is available I'll run a quick smoke check that it plays and loops without a hitch at the wrap. Desktop web is checked against the landscape clip.
+
+## Revision — after dev-approval round 1 (2026-10-10)
+
+Real-iPhone testing (a self-reporting harness, not the Simulator) changed the picture:
+
+- **The rate fix works as designed but was not what the reader saw.** On the phone, the old clip at 0.727× presents unevenly (~21.6 fps, mixed 2/3-refresh holds), and the new clip at 1.0× presents evenly (99% held exactly 2 refreshes). By eye, though, isolated cases with the old and the new clip both looked fine, and a blind A/B of production builds (new vs `develop`) looked "very similar, maybe the new one smoother".
+- **The visible jitter is the arrival.** Both builds looked "even more jittery on initial load, then a bit smoother". A frame-by-frame arrival recording on the phone showed the shadow arriving in stages during the page's own load: the poster fades in (0.6–1.3 s), then the video fades in over it (1.6–2.5 s), then the clip starts moving abruptly (2.7–3.1 s). The fades are JS-driven (Reanimated `withTiming` on web), and they drop frames while the page is still busy. Safari has no `requestIdleCallback`, so "page settled" fell back to one frame after load.
+- **The dark-mode blend was ruled out:** light and dark looked equally affected.
+
+**Approved scope addition (reviewer, in chat): rework the arrival, and keep the clip change.**
+
+1. The layer shows nothing, not even the poster, until the page is loaded, its fonts are ready and an idle moment has passed (250 ms fallback on Safari), **and** the clip is fully buffered, rewound to the poster's frame and decoded.
+2. The poster and the video then arrive in **one** fade (`AMBIENT.layerIn`, 1200 ms, eased in and out). The separate video fade (`AMBIENT.videoIn`) is removed.
+3. The clip starts moving at the start of that fade, so the shadow surfaces already drifting instead of starting abruptly afterwards.
+4. The fade is a CSS transition (Reanimated CSS props, as in `PressableScale`), so main-thread work cannot make it hitch.
+5. Where no clip is coming (reduced motion, data saver, player error), the poster arrives in the same single fade as a still.

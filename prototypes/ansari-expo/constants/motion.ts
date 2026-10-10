@@ -46,6 +46,9 @@ export const EASE_SHEET = Easing.bezier(0.32, 0.72, 0, 1);
  */
 export const EASE_OUT_CSS = cubicBezier(0.23, 1, 0.32, 1);
 
+/** EASE_IN_OUT in the CSS form, for the same reason. */
+export const EASE_IN_OUT_CSS = cubicBezier(0.77, 0, 0.175, 1);
+
 /**
  * The duration scale. Four steps, and a reason to reach for each:
  *
@@ -246,17 +249,18 @@ export const SCREEN_FADE_MS = 260;
  */
 export const AMBIENT = {
   /**
-   * The shadow layer arriving over the paper.
+   * The shadow layer arriving over the paper — the only fade it has.
    *
-   * Long, and deliberately so: the layer no longer starts until the
-   * page has finished loading and gone idle, so it is never racing the
-   * first screen and can afford to take its time. Slower actually reads
-   * as *fewer* layers here — what makes an arrival feel like a stage in
-   * a loading sequence is its edge, not its length, and eased at both
-   * ends over most of a second there is no frame where the shadow can
-   * be said to have appeared.
+   * It runs once everything is ready: the page loaded and idle, its fonts
+   * in, and the clip fully buffered, rewound to its first frame and
+   * already moving. Poster and video arrive together in this one fade,
+   * so there is no still that appears first and then gives way to a clip
+   * (issue #254: on a phone that sequence read as the shadow stuttering
+   * in). Long, and eased at both ends, so there is no frame where the
+   * shadow can be said to have appeared. It runs as a CSS transition, so
+   * a page still busy with its own work cannot make it hitch.
    */
-  layerIn: 800,
+  layerIn: 1200,
   /**
    * How long the layer will wait for an idle moment after load before
    * giving up and arriving anyway. A page that never goes idle is still
@@ -265,22 +269,4 @@ export const AMBIENT = {
   settleIdle: 2000,
   /** The layer dismissed — quicker, so the paper is ready to be read. */
   layerOut: 420,
-  /**
-   * The video itself surfacing over its own poster.
-   *
-   * It is held back until the whole clip is buffered rather than merely
-   * playable, and the clip is then stopped and wound back to the frame
-   * the poster is showing, so this dissolves between two copies of the
-   * same picture. There is nothing to reveal, in other words — only a
-   * still that has to start moving without a moment where it can be said
-   * to have started, and it does not begin moving until this is spent.
-   * That wants an ambient length, close to the layer's own arrival, not
-   * an interface one.
-   *
-   * Left to reveal wherever the download happened to leave the playhead,
-   * this cross-faded a still against a picture a second further on, and
-   * a soft-edged shadow blended over an offset copy of itself reads as
-   * the video jumping.
-   */
-  videoIn: 1100,
 } as const;
