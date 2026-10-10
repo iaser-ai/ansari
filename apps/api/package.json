@@ -43,7 +43,7 @@
     "react-email": "^6.11.0",
     "recharts": "^3.7.0",
     "resend": "^6.9.3",
-    "zod": "^4.3.5"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
