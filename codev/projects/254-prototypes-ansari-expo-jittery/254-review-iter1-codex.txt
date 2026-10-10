@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The primary cadence and arrival changes align with the plan, but late player failures do not correctly fall back to the poster.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `AmbientVideo.tsx:691,700,703,772`: `ready` is latched, and `running` ignores `status === 'error'`. If a player fails after becoming ready, the video remains at opacity 1; after a pre-prime failure, the buffer timeout can later set `primed`, fire `onReady`, and expose the failed video. This contradicts the required poster-only error fallback and the nearby comment. Include non-error status in readiness/visibility and add a test that emits an error after readiness rather than only starting in the error state.
