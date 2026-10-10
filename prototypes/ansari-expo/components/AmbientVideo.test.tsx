@@ -40,14 +40,31 @@ class FakePlayer {
   currentTime = 0;
   rateWrites: number[] = [];
   playCalls = 0;
+  /** A player that never loads and never errors (iOS Low Power Mode). */
+  inert = false;
   private listeners = new Set<(playing: boolean) => void>();
+  private statusListeners = new Set<(status: string) => void>();
 
   set playbackRate(rate: number) {
     this.rateWrites.push(rate);
   }
   play() {
     this.playCalls += 1;
+    // A failed or inert element accepts the call and plays nothing.
+    if (this.status === 'error' || this.inert) return;
     this.setPlaying(true);
+  }
+  /** The element errors, wherever it had got to. */
+  fail() {
+    this.status = 'error';
+    this.setPlaying(false);
+    this.statusListeners.forEach((fn) => fn('error'));
+  }
+  onStatus(fn: (status: string) => void) {
+    this.statusListeners.add(fn);
+    return () => {
+      this.statusListeners.delete(fn);
+    };
   }
   pause() {
     this.setPlaying(false);
@@ -81,6 +98,7 @@ vi.mock('expo', () => ({
   useEvent: (p: FakePlayer, name: string, initial: object) => {
     const [value, setValue] = useState(initial);
     useEffect(() => {
+      if (name === 'statusChange') return p.onStatus((status) => setValue({ status }));
       if (name !== 'playingChange') return;
       return p.onPlaying((isPlaying) => setValue({ isPlaying }));
     }, [p, name]);
@@ -137,6 +155,13 @@ beforeEach(() => {
 /** The layer itself: the outermost view, which wears the fade. */
 const layerOpacity = (container: HTMLElement) =>
   Number((container.firstElementChild as HTMLElement).style.opacity);
+/** The video's own host inside the drifting wrapper (the poster is
+ *  mocked to nothing, so it is the wrapper's only child). */
+const videoOpacity = (container: HTMLElement) =>
+  Number(
+    (container.firstElementChild?.firstElementChild?.lastElementChild as HTMLElement)
+      .style.opacity,
+  );
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -209,9 +234,60 @@ describe('AmbientVideo — arrival (issue #254)', () => {
   it('brings the poster in alone when the player fails', async () => {
     player.status = 'error';
     const { container } = render(<AmbientVideo dismissed={false} />);
-    await advance(UNTIL_READY + 1_000);
+    // Past the buffer wait, which primes even a clip it never heard from:
+    // the failure must still keep that clip from counting as ready.
+    await advance(UNTIL_READY + 9_000);
     expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+    expect(videoOpacity(container)).toBe(0);
     expect(player.playing).toBe(false);
+  });
+
+  it('never shows a clip that failed mid-warm-up, even once the buffer wait primes it', async () => {
+    player.bufferedPosition = 0;
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    // Settle and the video's beat: the warm-up has it playing, which
+    // latches readiness. Then it errors before the buffer is whole.
+    await advance(250 + 600 + 100);
+    expect(player.playing).toBe(true);
+    await act(async () => player.fail());
+
+    // The buffer wait gives up and primes it anyway.
+    await advance(9_000);
+    expect(videoOpacity(container)).toBe(0);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+  });
+
+  it('hides the video again, leaving the poster, when it fails after arriving', async () => {
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    await advance(UNTIL_READY);
+    expect(videoOpacity(container)).toBe(1);
+
+    await act(async () => player.fail());
+    await advance(10);
+    expect(videoOpacity(container)).toBe(0);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+  });
+
+  it('brings the poster in by the deadline when the clip never loads', async () => {
+    player.inert = true;
+    player.status = 'loading';
+    player.bufferedPosition = 0;
+    const { container } = render(<AmbientVideo dismissed={false} />);
+    // Settle and the video's own beat, then the full deadline.
+    await advance(250 + 600 + 10_000 - 10);
+    expect(layerOpacity(container)).toBe(0);
+    await advance(10);
+    expect(layerOpacity(container)).toBe(DAY_STRENGTH);
+    expect(videoOpacity(container)).toBe(0);
+
+    // A tap can still bring the clip to life, on the poster's own frame.
+    player.inert = false;
+    await act(async () => {
+      document.dispatchEvent(new Event('pointerdown'));
+    });
+    await advance(10);
+    expect(player.playing).toBe(true);
+    expect(videoOpacity(container)).toBe(1);
   });
 
   it('brings the poster in alone under reduced motion, with no player', async () => {

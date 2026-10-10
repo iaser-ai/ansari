@@ -39,10 +39,11 @@ On a phone, the ambient palm shadow looked jittery, worst while the page was loa
 ## Test Results
 
 - `tsc --noEmit`: ✓ pass
-- `vitest run` (prototype): ✓ 44 files, 603 tests. 9 of them are new, in `AmbientVideo.test.tsx`.
+- `vitest run` (prototype): ✓ 44 files, 606 tests. 12 of them are new, in `AmbientVideo.test.tsx`.
 - **Negative-tested:**
   - The pace tests fail on the original code, and also on the original code with the missing dependency added (which switches the ramps on).
   - The arrival tests fail 6 of 9 on the round-1 code.
+  - The three failure-path tests added after the consultation (failure mid-warm-up, failure after arrival, a clip that never loads) all fail on the pre-fix code.
 - **Assets:**
   - All four clips are 341 frames at 30 fps (~11.37 s). MP4 is H.264 Main @ L4.0, WebM is VP9 Profile 0.
   - At matching timestamps they are nearly identical to the originals (SSIM 0.992 portrait, 0.995 desktop), and frame 0 still matches the poster with zero offset.
@@ -82,9 +83,9 @@ On a phone, the ambient palm shadow looked jittery, worst while the page was loa
 
 - **The scope grew at dev-approval, with the reviewer's approval.** The approved plan fixed the playback rate only. Real-device testing showed the visible problem was the arrival, so the plan has a "Revision" section recording the added arrival rework.
 - **The breath cycle is deleted, not repaired.** It had never run (the missing dependency), so what readers saw and approved was the steady pace. Switching it on would have meant about 25 live `playbackRate` writes per ramp, plus a faster pass nobody had signed off.
-- **The new arrival can take longer.** The layer now waits for the whole clip to download (capped at 8 s by `BUFFER_WAIT_MAX_MS`) before anything shows. On a slow network the shadow therefore appears later than the old poster-first arrival did. That's deliberate ("emerge once everything is ready"), but worth knowing.
+- **The new arrival can take longer.** The layer waits for the whole clip to download before anything shows, so on a slow network the shadow appears later than the old poster-first arrival did. That's deliberate ("emerge once everything is ready"). `ARRIVAL_DEADLINE_MS` (10 s from asking for the clip) caps it: if the player has neither become ready nor failed by then, the poster arrives alone in the same single fade.
 - **`layerFade` is cast to `ViewStyle`,** because Reanimated's typings won't let its CSS transition props share a style array with plain view styles. That follows the existing `edgeFade` cast.
-- **Callbacks are read through refs** (`onReadyRef`/`onFailRef`), so a parent re-render handing down fresh arrow functions doesn't re-fire readiness.
+- **The player reports through one `onSettle` prop,** and the parent passes its stable `setClip` setter. There are no render-phase ref writes, which would make the React Compiler skip the component.
 - **`AMBIENT.videoIn` is gone,** and `AMBIENT.layerIn` went from 800 to 1200 ms because it is now the only fade.
 - **The settle step's Safari fallback** went from 100 to 250 ms, plus a wait for `document.fonts.ready`. Safari has no `requestIdleCallback`, so every iPhone reader takes the fallback path.
 - **The portrait MP4's loop wrap** is the clip's largest frame-to-frame step (1.82 against a 1.41 maximum elsewhere). The shipped original had the same (1.77). It's codec noise between the last frame and the keyframe, not motion; the lossless intermediate's wrap is 1.31.
@@ -101,3 +102,14 @@ On a phone, the ambient palm shadow looked jittery, worst while the page was loa
   - Send a prompt, then return home. The layer should fade out, and on return arrive again the same single-fade way.
   - With Reduce Motion on: the still poster fades in once, and no video loads.
   - `cd prototypes/ansari-expo && npx vitest run components/AmbientVideo.test.tsx`
+
+## Consultation (PR review, single pass)
+
+- **Gemini:** skipped. The `agy` CLI isn't installed, so no review ran.
+- **Codex: REQUEST_CHANGES. Fixed.** Readiness was latched and `running` ignored `status === 'error'`. A clip that failed after arriving stayed visible on a frozen frame, and one that failed mid-warm-up could still be reported ready once the buffer wait primed it. Failure is now latched in the player; a failed clip is never `running`, so the video hides and the poster carries the layer. Regression tests cover both cases and fail on the pre-fix code.
+- **Claude: COMMENT. All four points addressed.**
+  1. **No arrival deadline.** A player that neither loads nor errors (iOS Low Power Mode blocks muted autoplay) left the whole layer, poster included, invisible forever. Added `ARRIVAL_DEADLINE_MS`, which brings the poster in alone. The tap-to-play retry also stays armed while the clip has never played, so a tap can still start it later, on the poster's own frame. Covered by a test.
+  2. **The failure test passed through the success path.** The fake player now refuses to play once failed, and the test asserts the video host stays hidden.
+  3. **No remount on a source change.** The player is now keyed on `source`, so crossing the desktop breakpoint makes it earn its arrival again.
+  4. **Render-phase ref writes.** Replaced by the stable `setClip` setter (the `onSettle` change above).
+

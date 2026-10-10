@@ -405,7 +405,23 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
   // What the player has to say about itself: nothing yet, ready to be
   // seen (buffered, on the poster's frame, moving), or failed — in which
   // case the poster arrives alone.
-  const [clip, setClip] = useState<'pending' | 'ready' | 'failed'>('pending');
+  const [clip, setClip] = useState<ClipState>('pending');
+
+  // And a deadline on hearing it. A phone can neither load the clip nor
+  // report an error — iOS Low Power Mode refuses muted autoplay and
+  // defers the fetch, and expo-video only reports ready once frames are
+  // held — and a layer waiting on that would never show at all, poster
+  // included. So past the deadline the poster arrives alone, as it does
+  // for a failure. A clip that comes good later (a tap can start it)
+  // still takes over: it surfaces on the very frame the poster shows.
+  useEffect(() => {
+    if (!videoWanted || dismissed || clip !== 'pending') return;
+    const handle = setTimeout(
+      () => setClip((now) => (now === 'pending' ? 'failed' : now)),
+      ARRIVAL_DEADLINE_MS,
+    );
+    return () => clearTimeout(handle);
+  }, [videoWanted, dismissed, clip]);
 
   // Once the fade-out finishes, unmount everything so the decoder and
   // texture are released while a conversation is on screen; coming
@@ -467,9 +483,11 @@ export function AmbientVideo({ dismissed }: { dismissed: boolean }) {
         />
         {videoWanted && !dismissed && (
           <AmbientVideoPlayer
+            // A new source (crossing the desktop breakpoint) is a new
+            // player, which has to earn its arrival like the first.
+            key={source}
             source={source}
-            onReady={() => setClip('ready')}
-            onFail={() => setClip('failed')}
+            onSettle={setClip}
           />
         )}
       </Animated.View>
@@ -486,6 +504,13 @@ const BUFFER_EPSILON_S = 0.1;
  *  stalls — must not cost the reader the shadow entirely; a clip that
  *  arrives late and hitches once is still better than a still. */
 const BUFFER_WAIT_MAX_MS = 8000;
+/** How long, from asking for the clip, the layer waits to hear from the
+ *  player before bringing the poster in alone. Past the buffer wait, so
+ *  a slow fetch that does complete still arrives as the moving clip. */
+const ARRIVAL_DEADLINE_MS = BUFFER_WAIT_MAX_MS + 2000;
+
+/** Where the clip stands, as the layer sees it. */
+type ClipState = 'pending' | 'ready' | 'failed';
 const BUFFER_POLL_MS = 200;
 /** Long enough for a rewound frame to be decoded and painted before
  *  anything starts dissolving toward it. */
@@ -570,12 +595,10 @@ function useClipBuffered(
  */
 function AmbientVideoPlayer({
   source,
-  onReady,
-  onFail,
+  onSettle,
 }: {
   source: number;
-  onReady: () => void;
-  onFail: () => void;
+  onSettle: (state: Exclude<ClipState, 'pending'>) => void;
 }) {
   const player = useVideoPlayer(source, (p) => {
     // The player owns the wrap: the clip runs through its end and comes
@@ -641,7 +664,14 @@ function AmbientVideoPlayer({
   // playback starts on anything that is not an outright error and lets the
   // clip prove itself by running; the layer's fade is still held back
   // until it does, so nothing appears before there is a picture.
-  const live = (Platform.OS === 'web' || ready) && status !== 'error';
+  // A failure is latched like readiness is: a player that has errored is
+  // done, whatever it reports afterwards, and never counts as ready —
+  // not even when the buffer wait times out and primes it regardless.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (status === 'error') setFailed(true);
+  }, [status]);
+  const live = (Platform.OS === 'web' || ready) && !failed;
 
   const hostRef = useRef<View>(null);
   const clipBuffered = useClipBuffered(player, hostRef);
@@ -684,24 +714,21 @@ function AmbientVideoPlayer({
     return () => clearTimeout(handle);
   }, [clipBuffered, primed, player]);
 
-  // Ready to be seen: able to play, holding the whole clip, and back on
-  // the poster's frame. From here it moves — and it moves from the first
-  // frame of the layer's fade, so the shadow surfaces already drifting
-  // rather than surfacing as a still that then lurches into motion.
-  const running = ready && primed;
+  // Ready to be seen: able to play, holding the whole clip, back on the
+  // poster's frame, and not failed. From here it moves — and it moves
+  // from the first frame of the layer's fade, so the shadow surfaces
+  // already drifting rather than as a still that then lurches into
+  // motion. A failure after this point takes it away again, and the
+  // poster underneath carries the layer.
+  const running = ready && primed && !failed;
 
-  // Tell the layer. Read through refs, so a parent re-render handing down
-  // fresh callbacks is not mistaken for news.
-  const onReadyRef = useRef(onReady);
-  const onFailRef = useRef(onFail);
-  onReadyRef.current = onReady;
-  onFailRef.current = onFail;
+  // Tell the layer.
   useEffect(() => {
-    if (running) onReadyRef.current();
-  }, [running]);
+    if (running) onSettle('ready');
+  }, [running, onSettle]);
   useEffect(() => {
-    if (status === 'error') onFailRef.current();
-  }, [status]);
+    if (failed) onSettle('failed');
+  }, [failed, onSettle]);
 
   // What the watchdog and the resume handler below should be enforcing at
   // any given moment: the clip is meant to be running during the warm-up
@@ -752,8 +779,12 @@ function AmbientVideoPlayer({
 
   // Web autoplay policies reject play() until a user gesture; retry on
   // the first touch so the drift still comes alive in strict contexts.
+  // Kept armed while the clip has never managed to play at all: after
+  // the buffer wait gives up on such a clip nothing else is still
+  // trying, and a tap is the one thing that can still start it.
+  const awaitingGesture = Platform.OS === 'web' && !ready && !failed;
   useEffect(() => {
-    if (Platform.OS !== 'web' || !wantPlaying) return;
+    if (Platform.OS !== 'web' || !(wantPlaying || awaitingGesture)) return;
     const resume = () => {
       try {
         if (!player.playing) player.play();
@@ -763,12 +794,12 @@ function AmbientVideoPlayer({
     };
     document.addEventListener('pointerdown', resume, { passive: true });
     return () => document.removeEventListener('pointerdown', resume);
-  }, [player, wantPlaying]);
+  }, [player, wantPlaying, awaitingGesture]);
 
   // Hidden until it is ready to be seen, so a clip mid-warm-up never
-  // shows through the poster — and on error it stays hidden for good,
-  // leaving the poster to carry the layer alone. No fade of its own:
-  // while this flips, the layer above is still at nothing.
+  // shows through the poster — and hidden again for good the moment it
+  // fails, leaving the poster to carry the layer alone. No fade of its
+  // own: on arrival the layer above is still at nothing while this flips.
   const videoStyle = { opacity: running ? 1 : 0 };
 
   return (
