@@ -24,3 +24,8 @@
 - Real iPhone (iOS 18.7, Safari 27): video cadence is even at 1.0x and uneven at 0.727x, as predicted, but by eye both the isolated cases and a blind A/B of production builds looked about the same. The visible problem was the ARRIVAL: three stages (poster fade, video fade, abrupt start of motion) running JS-driven while the page was still loading.
 - The reviewer approved the arrival rework and keeping the clip change. The arrival is now a single CSS-transition fade once everything is ready, with the clip already moving. AMBIENT.videoIn removed; layerIn raised to 1200 ms; settle waits for fonts, with a 250 ms fallback on Safari (no rIC).
 - Test gotcha: with Reanimated mocked, react-native-web reads a numeric transitionDuration as px. Pass explicit 'NNNms' strings.
+
+## Review phase
+- dev-approval approved after a blind A/B on the phone (the reviewer picked the new build: "arrives smoother, one clean fade").
+- Review written. Arch: cold paragraph plus a hot map wording change. Lessons: cold section; the hot "real user path" lesson sharpened rather than added (cap 10); the #225 map entry merged with #254 (map cap 12). The Simulator advice in the #202/#245 lesson is now scoped to layout and input in both tiers.
+- PR targets develop (origin/HEAD), not main as porch's template default says.
