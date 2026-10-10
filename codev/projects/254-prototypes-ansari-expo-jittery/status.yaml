@@ -1,7 +1,7 @@
 id: '254'
 title: prototypes-ansari-expo-jittery
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: true
 history: []
 started_at: '2026-10-08T13:44:32.454Z'
-updated_at: '2026-10-10T12:51:02.207Z'
+updated_at: '2026-10-10T16:18:07.457Z'
 pr_history:
   - phase: review
     pr_number: 256
