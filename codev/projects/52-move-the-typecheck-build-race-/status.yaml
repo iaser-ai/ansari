@@ -1,0 +1,14 @@
+id: '52'
+title: move-the-typecheck-build-race-
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-11T16:55:06.277Z'
+updated_at: '2026-10-11T16:55:06.278Z'
