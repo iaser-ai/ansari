@@ -36,3 +36,7 @@
 - BUILDER MISTAKE: `porch done 52 --merged 286` was chained after the merge command without
   checking its exit status, so porch recorded PR #286 as merged and moved to `verified` while the
   PR is still OPEN. Not advanced further. Needs `porch rollback` (or architect's call) to correct.
+- Architect chose rollback: ran `porch rollback 52 pr` (verified → pr), gate back to pending and
+  re-requested. Residue: status.yaml `pr_history` still shows `merged: true` for #286 — rollback
+  does not clear it and builders must not hand-edit status.yaml. PR is still OPEN; a maintainer
+  with write access must merge it (regular merge commit).
