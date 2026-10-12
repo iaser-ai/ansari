@@ -24,3 +24,15 @@
   17-22): `tests/eslint-env-guard.test.ts` (5s test timeout), `@ansari/auth` pglite `beforeAll`
   (10s hook timeout), and on one run pglite/gemini suites. Same command passes on a quieter
   machine; none involve this change. No tests were skipped or edited.
+
+## pr / merge (2026-10-12)
+
+- PR #286 opened against develop; CI green (api, auth, frontend, gitleaks); pr gate approved by
+  the human (relayed by architect), `porch approve 52 pr` run by builder.
+- MERGE BLOCKED: `gh pr merge 286 --merge` → "the base branch policy prohibits the merge". The
+  `rajamohamedml` account has pull-only permission on iaser-ai/ansari (push=false, admin=false);
+  recent develop PRs, including this account's #258, were merged by `amrmelsayed`. Did not use
+  `--admin` or `--auto`.
+- BUILDER MISTAKE: `porch done 52 --merged 286` was chained after the merge command without
+  checking its exit status, so porch recorded PR #286 as merged and moved to `verified` while the
+  PR is still OPEN. Not advanced further. Needs `porch rollback` (or architect's call) to correct.
