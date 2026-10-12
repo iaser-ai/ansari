@@ -1,19 +1,17 @@
 id: '52'
 title: move-the-typecheck-build-race-
 protocol: air
-phase: verified
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
   pr:
-    status: approved
-    requested_at: '2026-10-11T17:10:25.024Z'
-    approved_at: '2026-10-12T19:22:19.181Z'
+    status: pending
 iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-11T16:55:06.277Z'
-updated_at: '2026-10-12T19:22:29.103Z'
+updated_at: '2026-10-12T19:24:16.101Z'
 pr_history:
   - phase: pr
     pr_number: 286
