@@ -163,6 +163,7 @@ export function useSendMessage(
         baseUrl: resolveBaseUrl(),
         threadId: conversationId,
         message: data.content,
+        images: data.images,
         onEvent: options?.onEvent,
       });
       // The chat screen ignores this return value (it invalidates the detail

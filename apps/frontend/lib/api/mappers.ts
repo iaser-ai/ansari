@@ -122,6 +122,10 @@ export function mapMessage(
     citations,
     safety: null, // null by design — apps/api emits no safety signal
     createdAt: msg.created_at ?? '',
+    // Placeholders only — apps/api never stores the image itself (spec 211).
+    ...(msg.attachments?.length
+      ? { attachments: msg.attachments.map((a) => ({ mediaType: a.media_type })) }
+      : {}),
   };
 }
 

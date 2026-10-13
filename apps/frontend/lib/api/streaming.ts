@@ -8,6 +8,7 @@ import {
   type ChatStreamEvent,
 } from '@/lib/api/chat-stream';
 import { getAccessToken, handleUnauthorized } from '@/lib/api/auth-bridge';
+import type { ImageInput } from '@/lib/api/types';
 
 export type { ChatStreamEvent } from '@/lib/api/chat-stream';
 export { ChatStreamError } from '@/lib/api/chat-stream';
@@ -16,6 +17,8 @@ export interface StreamChatParams {
   baseUrl: string;
   threadId: string;
   message: string;
+  /** Images for this turn only; apps/api never stores them (spec 211). */
+  images?: ImageInput[];
   /**
    * Per-event callback, fired for every SSE event (`text` deltas, `tool_call` /
    * `tool_result`, `error`, `done`) as it arrives. This is the progress seam the
@@ -68,7 +71,11 @@ async function runStream(
     accept: 'text/event-stream',
   };
   if (token) headers.authorization = `Bearer ${token}`;
-  const body = JSON.stringify({ message: params.message });
+  const body = JSON.stringify(
+    params.images?.length
+      ? { message: params.message, images: params.images }
+      : { message: params.message },
+  );
 
   const response = await expoFetch(url, {
     method: 'POST',

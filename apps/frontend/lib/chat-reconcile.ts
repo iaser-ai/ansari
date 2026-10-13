@@ -1,4 +1,4 @@
-import type { Message } from '@/lib/api';
+import type { Attachment, Message } from '@/lib/api';
 
 /**
  * The pure core of the chat screen's message reconciliation — extracted so the
@@ -28,6 +28,12 @@ export interface ReconcileInput {
   serverMessages: Message[] | undefined;
   /** The home-screen question carried in via the route param, if any. */
   q: string | undefined;
+  /**
+   * The images the carried-in question was asked with (spec 211), as local
+   * thumbnails. A question may be images alone, so these make an opening
+   * question even when `q` is empty.
+   */
+  openingAttachments?: Attachment[];
   conversationId: string;
   /** The answer streamed so far this turn; empty when not streaming. */
   streamingText: string;
@@ -57,6 +63,8 @@ export interface ReconcileInput {
    * durably remap the row's key, so it need not stay set past the hand-off.
    */
   pendingFollowUp: string | undefined;
+  /** The images `pendingFollowUp` was asked with (spec 211); may stand alone. */
+  pendingFollowUpAttachments?: Attachment[];
   /** This turn's synthetic-row list key for `pendingFollowUp` (see FOLLOWUP_KEY_PREFIX). */
   followUpKey: string;
 }
@@ -73,14 +81,26 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
   const {
     serverMessages,
     q,
+    openingAttachments = [],
     conversationId,
     streamingText,
     revealedText = streamingText,
     streamKey,
     sentAtCount,
     pendingFollowUp,
+    pendingFollowUpAttachments = [],
     followUpKey,
   } = input;
+
+  // A question is words, images, or both (spec 211). While a question asked
+  // here is on screen it keeps its own thumbnails, even once the server's copy
+  // — which only knows that an image was there — has taken its place.
+  const opening = !!q || openingAttachments.length > 0;
+  const followUp =
+    pendingFollowUp !== undefined &&
+    (pendingFollowUp.length > 0 || pendingFollowUpAttachments.length > 0);
+  const withLocal = (m: Message, attachments: Attachment[]): Message =>
+    attachments.length > 0 ? { ...m, attachments } : m;
 
   // The in-flight turn's answer has landed once the message count has grown past
   // the baseline captured at send AND the last message is the assistant reply.
@@ -100,7 +120,7 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
   // it can never be confused with an identical carried-in `q` sitting at
   // index 0 — that row belongs to ECHO_ID, not this turn's follow-up.
   const landedFollowUp =
-    pendingFollowUp && serverMessages
+    followUp && serverMessages
       ? (serverMessages
           .slice(sentAtCount ?? 0)
           .find((m) => m.role === 'user' && m.content === pendingFollowUp) ??
@@ -115,28 +135,32 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
     streamingText && landedAnswer ? server.slice(0, -1) : server.slice();
 
   let withEcho: Message[];
-  if (!q) {
+  if (!opening) {
     withEcho = base;
   } else {
+    const text = q ?? '';
     let matched = false;
     const reconciled = base.map((m) => {
-      if (!matched && m.role === 'user' && m.content === q) {
+      if (!matched && m.role === 'user' && m.content === text) {
         matched = true;
-        return { ...m, id: ECHO_ID };
+        return withLocal({ ...m, id: ECHO_ID }, openingAttachments);
       }
       return m;
     });
     withEcho = matched
       ? reconciled
       : [
-          {
-            id: ECHO_ID,
-            conversationId,
-            role: 'user',
-            content: q,
-            citations: [],
-            createdAt: '',
-          },
+          withLocal(
+            {
+              id: ECHO_ID,
+              conversationId,
+              role: 'user',
+              content: text,
+              citations: [],
+              createdAt: '',
+            },
+            openingAttachments,
+          ),
           ...reconciled,
         ];
   }
@@ -151,7 +175,7 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
   // safe precisely because `landedFollowUp` is itself scanned from
   // `sentAtCount` forward, so it can never point at a row older than this
   // turn — matching on its identity inherits that bound.
-  if (pendingFollowUp) {
+  if (followUp) {
     const matchIndex = landedFollowUp
       ? withEcho.findIndex((m) => m.id === landedFollowUp.id)
       : -1;
@@ -159,17 +183,22 @@ export function reconcileThread(input: ReconcileInput): ReconcileResult {
       matchIndex === -1
         ? [
             ...withEcho,
-            {
-              id: followUpKey,
-              conversationId,
-              role: 'user',
-              content: pendingFollowUp,
-              citations: [],
-              createdAt: '',
-            },
+            withLocal(
+              {
+                id: followUpKey,
+                conversationId,
+                role: 'user',
+                content: pendingFollowUp ?? '',
+                citations: [],
+                createdAt: '',
+              },
+              pendingFollowUpAttachments,
+            ),
           ]
         : withEcho.map((m, i) =>
-            i === matchIndex ? { ...m, id: followUpKey } : m,
+            i === matchIndex
+              ? withLocal({ ...m, id: followUpKey }, pendingFollowUpAttachments)
+              : m,
           );
   }
 

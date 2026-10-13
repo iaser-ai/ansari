@@ -155,3 +155,25 @@ describe('streamChat — incremental progress + empty-answer guard', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('streamChat — image attachments (spec 211)', () => {
+  beforeEach(() => vi.mocked(expoFetch).mockReset());
+
+  it('sends images alongside the message', async () => {
+    vi.mocked(expoFetch).mockResolvedValue(streamingResponse(SSE) as never);
+    const images = [{ media_type: 'image/jpeg' as const, data: 'QUJD' }];
+
+    await streamChat({ baseUrl: 'http://api', threadId: 't1', message: '', images });
+
+    const body = JSON.parse(vi.mocked(expoFetch).mock.calls[0][1]!.body as string);
+    expect(body).toEqual({ message: '', images });
+  });
+
+  it('a text-only message sends exactly the old body', async () => {
+    vi.mocked(expoFetch).mockResolvedValue(streamingResponse(SSE) as never);
+
+    await streamChat({ baseUrl: 'http://api', threadId: 't1', message: 'hi', images: [] });
+
+    expect(vi.mocked(expoFetch).mock.calls[0][1]!.body).toBe(JSON.stringify({ message: 'hi' }));
+  });
+});

@@ -67,10 +67,22 @@ export const documentBlockSchema = z.object({
 });
 export type WireDocument = z.infer<typeof documentBlockSchema>;
 
+/**
+ * An image a question carried (spec 211). apps/api never stores images, so
+ * this only records that one was there. Present only on messages with images —
+ * thread GET keeps `content` a bare string for them.
+ */
+export const wireAttachmentSchema = z.object({
+  type: z.literal('image'),
+  status: z.string(),
+  media_type: z.string(),
+});
+
 export const wireMessageSchema = z.object({
   id: z.string(),
   role: z.string(),
   content: messageContentSchema,
+  attachments: z.array(wireAttachmentSchema).optional(),
   agent_name: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
   created_at: z.string().optional(),
