@@ -94,6 +94,50 @@ variables declared in `turbo.json`.
 You can still target one package directly — `pnpm api lint`, `pnpm frontend web`,
 `pnpm api db:migrate` — which is the right thing for scripts Turbo does not model.
 
+## Working with Codev
+
+Ansari is a [Codev](https://codevos.ai) project, and **every PR goes through a
+Codev protocol** — maintainers' and contributors' alike. Codev is a method for
+AI-assisted engineering: the thinking behind a change is written down and
+versioned next to the code, so a reviewer can see what was intended, how it was
+planned, and what was learned, not just the diff.
+
+Each protocol is a sequence of phases with a document per phase, all committed
+in [`codev/`](codev/):
+
+- **Spec** (`codev/specs/<N>-<name>.md`) — *what* is being built and why,
+  with success criteria. Written before any code.
+- **Plan** (`codev/plans/<N>-<name>.md`) — *how* it will be built, broken into
+  reviewable steps.
+- **Review** (`codev/reviews/<N>-<name>.md`) — what actually happened and the
+  lessons learned, written once the work is done.
+
+`<N>` is the GitHub issue number the work is for, so **open (or pick) an issue
+first** — the issue is the registry, and the spec, plan, review, and commit
+messages all refer back to it.
+
+Which protocol to use depends on the size of the change:
+
+| Change | Protocol | Documents |
+|---|---|---|
+| Bug fix from an issue | **BUGFIX** | review |
+| Small, well-understood feature or chore | **AIR** | review |
+| Feature with design decisions | **PIR** or **SPIR** | spec, plan, review |
+
+The protocol definitions ship with the `@cluesmith/codev` package
+(`npm install -g @cluesmith/codev`) and are read with `afx spawn --protocol
+<name> --help`; project-local customisations, when there are any, live in
+`codev/protocols/`. The always-on engineering context for this repo —
+system-shape facts and hard-won lessons — is in
+[`codev/resources/arch-critical.md`](codev/resources/arch-critical.md) and
+[`codev/resources/lessons-critical.md`](codev/resources/lessons-critical.md);
+read both before starting.
+
+Prefix commit messages with the protocol and issue, matching the existing
+history: `[PIR #262][Phase: implement] feat: ...`, `[AIR #289] fix: ...`,
+`[Spec 168] ...`.
+A PR without its Codev documents is not ready for review.
+
 ## Pull requests
 
 - **Branch from `develop` and target `develop`** — not `main`. `main` is
@@ -107,6 +151,9 @@ You can still target one package directly — `pnpm api lint`, `pnpm frontend we
 - Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`
   or `git add .` — that is how stray files and secrets end up in commits.
 - Keep PRs focused: one change per PR.
+- Follow the Codev protocol for the change (see [Working with Codev](#working-with-codev))
+  and include its documents — a spec and plan up front for feature work, and a
+  review at the end for everything.
 - Add or update tests for any behavior change. The Vitest suite
   (`tests/*.test.ts`) is the regression net.
 - Never commit real credentials or `.env` files. `apps/api/.env.ci` contains
