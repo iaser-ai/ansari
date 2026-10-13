@@ -4,6 +4,8 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/iaser-ai/ansari/security/advisories/new
     about: Please report vulnerabilities privately here — never as a public issue.
+  # GitHub silently drops a contact link whose url is not https (a mailto: link
+  # never reaches the chooser), so this points at the section that gives the address.
   - name: General question
-    url: mailto:info@iaser.ai
-    about: Questions about using or self-hosting Ansari are welcome by email.
+    url: https://github.com/iaser-ai/ansari/blob/develop/CONTRIBUTING.md#filing-an-issue
+    about: Questions about using or self-hosting Ansari are welcome by email — the address is here.

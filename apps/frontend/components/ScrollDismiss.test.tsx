@@ -12,12 +12,31 @@
  * react-native-web starts telling a drag from a scroll, the first test
  * fails and 'on-drag' can come back on the web.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ScrollView, TextInput } from 'react-native';
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+// Every scroll arms react-native-web's 100ms scroll-end timer, which
+// dismisses the keyboard again and is never cleared on unmount. Left on
+// the real clock it can fire after jsdom is torn down, where reading
+// `document` throws into whatever file the worker runs next (#290). So
+// it runs here, while the page still exists — and nothing may outlive it.
+afterEach(() => {
+  try {
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
 
 function scrollWhileTyping(mode: 'on-drag' | 'none') {
   render(

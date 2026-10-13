@@ -134,12 +134,27 @@ const { AmbientVideo } = await import('@/components/AmbientVideo');
  *  ready to be seen. */
 const UNTIL_READY = 250 + 600 + 200 + 200;
 
+// Up to ~70s of the clock pass in 10ms commits (see `advance`). That costs
+// real time, in proportion to how busy the machine is: the minute-long
+// pace check alone takes from a quarter of a second to three on the same
+// laptop. Against the 5s default, whether these pass was a matter of load
+// (#290), so the file sets the budget its own work needs.
+vi.setConfig({ testTimeout: 30_000 });
+
 /** Moves the clock in small steps, each in its own `act`: React only
  *  re-renders when an `act` ends, so a timer a re-render would register
- *  (the next stage of the arrival) must not be skipped past in one leap. */
+ *  (the next stage of the arrival) must not be skipped past in one leap.
+ *
+ *  It stops once its test is over. A test that runs out of time is failed
+ *  but not halted: its body carries on, and left alone it would go on
+ *  driving the clock and the player of the tests after it, failing every
+ *  one of them for nothing they did (#290). */
 const STEP_MS = 10;
+let testRun = 0;
 const advance = async (ms: number) => {
+  const run = testRun;
   for (let left = ms; left > 0; left -= STEP_MS) {
+    if (run !== testRun) throw new Error('advance() outlived its test');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(Math.min(STEP_MS, left));
     });
@@ -163,6 +178,7 @@ const videoOpacity = (container: HTMLElement) =>
       .style.opacity,
   );
 afterEach(() => {
+  testRun += 1;
   cleanup();
   vi.useRealTimers();
 });

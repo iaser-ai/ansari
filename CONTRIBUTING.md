@@ -94,13 +94,39 @@ variables declared in `turbo.json`.
 You can still target one package directly — `pnpm api lint`, `pnpm frontend web`,
 `pnpm api db:migrate` — which is the right thing for scripts Turbo does not model.
 
-## Working with Codev
+## Pull requests
 
-Ansari is a [Codev](https://codevos.ai) project, and **every PR goes through a
-Codev protocol** — maintainers' and contributors' alike. Codev is a method for
-AI-assisted engineering: the thinking behind a change is written down and
-versioned next to the code, so a reviewer can see what was intended, how it was
-planned, and what was learned, not just the diff.
+- **Branch from `develop` and target `develop`** — not `main`. `main` is
+  production and is only ever fast-forwarded to `develop` during a release (see
+  [RELEASE.md](RELEASE.md)), so PRs against it can't be merged.
+- CI must be green before a PR can merge. `develop` requires all four checks:
+  `api (lint, typecheck, test, build)`, `auth (lint, typecheck, test, build)`,
+  `frontend (lint, typecheck)`, and `gitleaks (secret scan)`. The
+  [Checks](#checks) above are the same tasks, so passing them locally is a good
+  predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
+- Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`
+  or `git add .` — that is how stray files and secrets end up in commits.
+- Keep PRs focused: one change per PR.
+- Follow the Codev protocol for the change (see [Developing with Codev](#developing-with-codev))
+  and include its documents — a spec and plan up front for feature work, and a
+  review at the end for everything.
+- Add or update tests for any behavior change. The Vitest suite
+  (`tests/*.test.ts`) is the regression net.
+- Never commit real credentials or `.env` files. `apps/api/.env.ci` contains
+  deliberately fake placeholder values only.
+- Islamic-content changes (prompts, citations, source handling) get extra
+  scrutiny: accuracy and proper sourcing are the core of this project. Cite the
+  basis for any change to `lib/ai/prompts/`.
+
+### Developing with Codev
+
+Every PR goes through a [Codev](https://github.com/cluesmith/codev) protocol —
+maintainers' and contributors' alike. Codev is the human-agent software
+development methodology this project is built with: the thinking behind a
+change is written down and versioned next to the code, so a reviewer can see
+what was intended, how it was planned, and what was learned, not just the diff.
+In practice you spawn a builder with Agent Farm (`afx spawn <issue>`) and let
+porch drive it through the protocol.
 
 Each protocol is a sequence of phases with a document per phase, all committed
 in [`codev/`](codev/):
@@ -124,43 +150,36 @@ Which protocol to use depends on the size of the change:
 | Small, well-understood feature or chore | **AIR** | review |
 | Feature with design decisions | **PIR** or **SPIR** | spec, plan, review |
 
-The protocol definitions ship with the `@cluesmith/codev` package
-(`npm install -g @cluesmith/codev`) and are read with `afx spawn --protocol
-<name> --help`; project-local customisations, when there are any, live in
-`codev/protocols/`. The always-on engineering context for this repo —
-system-shape facts and hard-won lessons — is in
+Prefix commit messages with the protocol and issue, matching the existing
+history: `[PIR #262][Phase: implement] feat: ...`, `[Bugfix #290] fix: ...`,
+`[Air #289] docs: ...`. A PR without its Codev documents is not ready for
+review.
+
+The always-on engineering context for this repo — system-shape facts and
+hard-won lessons — is in
 [`codev/resources/arch-critical.md`](codev/resources/arch-critical.md) and
 [`codev/resources/lessons-critical.md`](codev/resources/lessons-critical.md);
 read both before starting.
 
-Prefix commit messages with the protocol and issue, matching the existing
-history: `[PIR #262][Phase: implement] feat: ...`, `[AIR #289] fix: ...`,
-`[Spec 168] ...`.
-A PR without its Codev documents is not ready for review.
+If you work from a fork, a few notes save the usual papercuts:
 
-## Pull requests
-
-- **Branch from `develop` and target `develop`** — not `main`. `main` is
-  production and is only ever fast-forwarded to `develop` during a release (see
-  [RELEASE.md](RELEASE.md)), so PRs against it can't be merged.
-- CI must be green before a PR can merge. `develop` requires all four checks:
-  `api (lint, typecheck, test, build)`, `auth (lint, typecheck, test, build)`,
-  `frontend (lint, typecheck)`, and `gitleaks (secret scan)`. The
-  [Checks](#checks) above are the same tasks, so passing them locally is a good
-  predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
-- Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`
-  or `git add .` — that is how stray files and secrets end up in commits.
-- Keep PRs focused: one change per PR.
-- Follow the Codev protocol for the change (see [Working with Codev](#working-with-codev))
-  and include its documents — a spec and plan up front for feature work, and a
-  review at the end for everything.
-- Add or update tests for any behavior change. The Vitest suite
-  (`tests/*.test.ts`) is the regression net.
-- Never commit real credentials or `.env` files. `apps/api/.env.ci` contains
-  deliberately fake placeholder values only.
-- Islamic-content changes (prompts, citations, source handling) get extra
-  scrutiny: accuracy and proper sourcing are the core of this project. Cite the
-  basis for any change to `lib/ai/prompts/`.
+- The [CLI reference](https://github.com/cluesmith/codev/blob/main/codev/resources/commands/overview.md)
+  covers `codev`, `afx`, `porch` and `consult`. Protocol docs
+  (`codev/protocols/<name>/`) ship with the installed `@cluesmith/codev`
+  package and resolve from there when absent from this repo.
+- Commit the generated `codev/projects/<id>/status.yaml` and
+  `codev/state/<id>_thread.md` with your PR. They are expected, not noise:
+  builder thread files are versioned on purpose.
+- In a fresh worktree, porch's `build` check needs the dummy env loaded first —
+  `set -a && . ./apps/api/.env.ci && set +a` — until
+  [#260](https://github.com/iaser-ai/ansari/issues/260) lands.
+- Porch gate approvals recorded in your fork are your own state, not maintainer
+  approval. Maintainers review and merge (with merge commits, never squash).
+- Sync your fork's `develop` with upstream before branching. A stale base means
+  CI tests an old merge, and the review has to re-verify against current
+  `develop`.
+- A first-time fork PR shows "no checks reported" until a maintainer approves the
+  workflow run. That is normal; there is nothing for you to do.
 
 ## Secret scanning
 
