@@ -8,14 +8,31 @@ import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import { startHeartbeat, SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
+import { config } from '@/lib/config';
+import {
+  MAX_CHAT_BODY_BYTES,
+  decodeImages,
+  imagesSchema,
+  placeholderBlocks,
+  type ImageAttachment,
+} from '@/lib/attachments';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-const chatSchema = z.object({
-  message: z.string().min(1, 'Message is required'),
-});
+// `message` may be empty only when images are attached (spec 211).
+const chatSchema = z
+  .object({
+    message: z.string(),
+    images: imagesSchema.optional(),
+  })
+  .refine((b) => b.message.length > 0 || (b.images?.length ?? 0) > 0, {
+    message: 'Message is required',
+  });
+
+/** Thread name for a first message that has no text to summarize (spec 211). */
+const IMAGE_ONLY_THREAD_NAME = 'Image question';
 
 // POST /api/v2/threads/[id]/chat - Send a message and get streaming response
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -34,8 +51,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return createErrorResponse('Thread not found', 404);
     }
 
+    // Bound the buffered body before parsing it (spec 211): images make this
+    // route's body large, and a route handler imposes no limit of its own. The
+    // header check refuses early; the length check covers a body sent without one.
+    const declaredLength = Number(request.headers.get('content-length') ?? 0);
+    if (declaredLength > MAX_CHAT_BODY_BYTES) {
+      return createErrorResponse('Request body too large', 413);
+    }
+    const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody) > MAX_CHAT_BODY_BYTES) {
+      return createErrorResponse('Request body too large', 413);
+    }
+
     // Parse request body
-    const body = await request.json();
+    const body = JSON.parse(rawBody);
     const parseResult = chatSchema.safeParse(body);
     if (!parseResult.success) {
       const errors = parseResult.error.issues.map((i) => i.message);
@@ -44,12 +73,33 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const { message } = parseResult.data;
 
+    // Validate image bytes before anything is written (spec 211). The decoded
+    // images live only in this request's memory — they are handed to the
+    // facilitator and never persisted, logged, or sent to thread naming.
+    let images: ImageAttachment[] = [];
+    if (parseResult.data.images && parseResult.data.images.length > 0) {
+      // Inkling cannot see images, so an image turn is Gemini-only. With
+      // Inkling as the primary backend there is no model to send it to.
+      if (config.primaryBackend === 'inkling') {
+        return createErrorResponse('Image attachments are not available right now', 422);
+      }
+      const decoded = decodeImages(parseResult.data.images);
+      if (!decoded.ok) {
+        return createErrorResponse(decoded.error, 422);
+      }
+      images = decoded.images;
+    }
+
     // Per-client attribution (spec 56). Capture before the stream — the
     // assistant message is written inside the async stream closure.
     const client = getClientId(request);
 
-    // Store user message
-    const userContent: ContentBlock[] = [{ type: 'text', text: message }];
+    // Store user message: its text (if any) and one placeholder per image —
+    // never the image data itself (spec 211).
+    const userContent: ContentBlock[] = [
+      ...(message ? [{ type: 'text' as const, text: message }] : []),
+      ...placeholderBlocks(images),
+    ];
     await createMessage({
       threadId,
       role: 'user',
@@ -59,7 +109,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     // Auto-name thread on first message (fire-and-forget)
-    void maybeGenerateThreadName(threadId, user.id, message);
+    void maybeGenerateThreadName(threadId, user.id, message, IMAGE_ONLY_THREAD_NAME);
 
     // Load message history. rawPayload rides along so the facilitator replays the
     // real model turn — tool history and thought signatures — on turn 2+ (issue #70).
@@ -102,7 +152,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const heartbeat = startHeartbeat(() => safeEnqueue(encoder.encode(SSE_HEARTBEAT)));
 
         try {
-          for await (const event of runFacilitator(messageHistory)) {
+          for await (const event of runFacilitator(
+            messageHistory,
+            undefined,
+            images.length > 0 ? { images } : undefined
+          )) {
             heartbeat.touch();
             switch (event.type) {
               case 'text':
