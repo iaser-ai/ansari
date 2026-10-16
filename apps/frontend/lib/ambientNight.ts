@@ -78,8 +78,8 @@ export const NIGHT_SOURCE: Record<
   Clip,
   { min: number; frond: number; wall: number }
 > = {
-  portrait: { min: 0.663, frond: 0.706, wall: 0.894 },
-  landscape: { min: 0.773, frond: 0.776, wall: 0.91 },
+  portrait: { min: 0.631, frond: 0.659, wall: 0.898 },
+  landscape: { min: 0.635, frond: 0.663, wall: 0.894 },
 };
 
 /**
@@ -92,15 +92,18 @@ export const NIGHT_SOURCE: Record<
  *
  * `night.well` is 0.53–0.57 of `night.page` channel for channel. The
  * shadow used to stop just above it, at 0.58, and read as too faint;
- * 0.517 is 15% more depth (0.42 → 0.483), which lands the frond mass at
- * the well and lets the core go a little past it. That is deliberate:
- * the well was a reference point, not a limit, and what actually
- * protects the shadow — detail in its darkest fronds — is held by the
- * test against the filter's clamp.
+ * pushing the frond mass to the well (and letting the core go a little
+ * past it) is deliberate: the well was a reference point, not a limit,
+ * and what actually protects the shadow — detail in its darkest fronds —
+ * is held by the test against the filter's clamp.
  *
- * The darkest half-percent (`min`) continues past this. That tail is the
- * shadow's core and it should be the deepest thing on screen; the test
- * keeps it from running toward black or crushing.
+ * `min` continues past this. That tail is the shadow's core and it
+ * should be the deepest thing on screen; the test keeps it from running
+ * toward black or crushing. 0.517 is a chosen depth, not the floor of a
+ * search — `ambientNight.test.ts`'s crush-protection check only requires
+ * the graded `min` to clear 0.02, which a much deeper value than this
+ * still clears. Move it by eye against both clips and let the test catch
+ * an actual crush, rather than reading it as a limit the test found.
  */
 export const NIGHT_DEPTH = 0.517;
 
