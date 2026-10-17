@@ -21,6 +21,8 @@ import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/pr
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import { citabilityOf, type ToolResult } from '../tools/types';
+import { isImagePlaceholder, type ImageAttachment } from '../attachments';
+import { safeErrorMeta } from '../log';
 import { unavailableResult, reportDegradedTool, toolLabel } from '../tools/resilience';
 import type {
   ContentBlock,
@@ -354,12 +356,18 @@ function convertToGeminiHistory(messages: Message[]): Content[] {
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map((c) => c.text)
         .join('\n');
+      // Images are never stored (spec 211): the model is told they were there
+      // and are gone, so it neither forgets them nor pretends to still see them.
+      const imageCount = msg.content.filter(isImagePlaceholder).length;
 
-      if (textContent) {
-        history.push({
-          role: 'user',
-          parts: [{ text: textContent }],
-        });
+      // Every user message with text OR images yields exactly one Content —
+      // runFacilitator drops the last entry as the current turn, so a skipped
+      // image-only message would drop the previous assistant turn instead.
+      if (textContent || imageCount > 0) {
+        const parts: Part[] = [];
+        if (textContent) parts.push({ text: textContent });
+        if (imageCount > 0) parts.push({ text: imageUnavailableNote(imageCount) });
+        history.push({ role: 'user', parts });
       }
     } else {
       // For assistant messages, prefer rawPayload if available
@@ -384,6 +392,18 @@ function convertToGeminiHistory(messages: Message[]): Content[] {
   }
 
   return history;
+}
+
+/**
+ * The text that stands in for a past message's images on later turns (spec 211).
+ */
+export function imageUnavailableNote(count: number): string {
+  const what = count === 1 ? 'an image' : `${count} images`;
+  return (
+    `[The user attached ${what} to this message. Images are not stored, so ` +
+    `${count === 1 ? 'it is' : 'they are'} no longer available to you. Rely only on ` +
+    `what your earlier answers said about ${count === 1 ? 'it' : 'them'}.]`
+  );
 }
 
 /**
@@ -421,6 +441,14 @@ export async function* runFacilitator(
      * ladder rung and the #79 rescue.
      */
     provider?: 'gemini' | 'inkling';
+    /**
+     * Images attached to the current (last) user message (spec 211). Held in
+     * memory for this request only: they ride on the current user turn of every
+     * model call — first call, continuations, retries, synthesis — on Gemini and
+     * on Inkling alike (the Inkling client sends them as data-URL image parts),
+     * and are never part of a persisted or yielded payload.
+     */
+    images?: ImageAttachment[];
   }
 ): AsyncGenerator<FacilitatorStreamEvent> {
   const tools = getGeminiToolDescriptions();
@@ -465,8 +493,35 @@ export async function* runFacilitator(
   // Remove the last message from history since we'll send it as the current message
   geminiHistory = geminiHistory.slice(0, -1);
 
+  // The current user turn as Gemini parts (spec 211): the text plus one inlineData
+  // part per attached image. Text-only turns keep sending the plain string. Both
+  // clients take this same value, so an image turn that moves to Inkling (primary,
+  // ladder rung, or #79 rescue) still carries its images.
+  const images = options?.images ?? [];
+  const hasImages = images.length > 0;
+  const userParts: Part[] = [
+    ...(userQuery ? [{ text: userQuery }] : []),
+    ...images.map((img) => ({ inlineData: { mimeType: img.mediaType, data: img.data } })),
+  ];
+  const userTurn: Content = { role: 'user', parts: hasImages ? userParts : [{ text: userQuery }] };
+  // Report a failed model call. On an image turn only the error's name and code
+  // are logged (spec 211: image bytes are never logged): a provider error can
+  // echo the request, and an image turn's request holds the image data.
+  const reportFailure = (label: string, error: unknown) => {
+    if (hasImages) {
+      const meta = safeErrorMeta(error);
+      console.error(label, meta);
+      Sentry.captureMessage(label, { level: 'error', extra: meta });
+    } else {
+      console.error(label, error);
+      Sentry.captureException(error);
+    }
+  };
+
   let iterations = 0;
-  let currentQuery = userQuery;
+  // What the first model call sends as the current turn; becomes the
+  // continuation directive once the user turn has moved into history.
+  let currentMessage: string | Part[] = hasImages ? userParts : userQuery;
   // The user query starts as the `message` arg and is only appended to geminiHistory once we
   // continue the loop after a tool call. The synthesis pass needs it in history, so track it.
   let userMessageInHistory = false;
@@ -584,9 +639,7 @@ export async function* runFacilitator(
       });
     };
 
-    const synthesisHistory = userMessageInHistory
-      ? geminiHistory
-      : [...geminiHistory, { role: 'user', parts: [{ text: userQuery }] } as Content];
+    const synthesisHistory = userMessageInHistory ? geminiHistory : [...geminiHistory, userTurn];
     const remainingMs = Math.max(0, hardDeadline - Date.now());
 
     let synthText = '';
@@ -618,8 +671,7 @@ export async function* runFacilitator(
         }
       }
     } catch (error) {
-      console.error('Facilitator synthesis error:', error);
-      Sentry.captureException(error);
+      reportFailure('Facilitator synthesis error:', error);
       logShortCircuit('error');
       yield {
         type: 'error',
@@ -705,11 +757,11 @@ export async function* runFacilitator(
       // INKLING_TIMEOUT_MS owns the per-call cap — min() preserves both. At the
       // default (180s > the whole budget) this is a no-op.
       const stream = useInklingRung
-        ? streamInkling(currentQuery, {
+        ? streamInkling(currentMessage, {
             ...callOptions,
             timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
           })
-        : streamGemini(currentQuery, callOptions);
+        : streamGemini(currentMessage, callOptions);
 
       const toolCallsCollected: GeminiToolCall[] = [];
       let response: GeminiResponse | null = null;
@@ -880,17 +932,14 @@ export async function* runFacilitator(
 
       // Process tool calls
       // Add the user message to history the first time we continue past a model turn
-      // (it was removed to send as currentQuery, but we need it in history for context).
+      // (it was removed to send as currentMessage, but we need it in history for context).
       // Guard on the flag, NOT `iterations === 1`: a degenerate-final retry (empty/fragment/
       // MALFORMED, or the Inkling rescue) does `continue` after `iterations++`, so if the FIRST
       // call fails and the retry then requests a tool, we are at iterations === 2 here and the
       // user's question would otherwise never enter history — every continuation would ask the
       // model to answer a question it never saw (issue #2).
       if (!userMessageInHistory) {
-        geminiHistory.push({
-          role: 'user',
-          parts: [{ text: userQuery }],
-        });
+        geminiHistory.push(userTurn);
         userMessageInHistory = true;
       }
 
@@ -1000,7 +1049,7 @@ export async function* runFacilitator(
       // the empty user turn after functionResponse parts is the trigger for flash's
       // thoughts-only empty completions under load. Transient — never added to
       // geminiHistory, so it cannot accumulate across rounds or persist.
-      currentQuery = TOOL_CONTINUATION_DIRECTIVE;
+      currentMessage = TOOL_CONTINUATION_DIRECTIVE;
       continue;
     } catch (error) {
       // A tool-gathering call cut at/after the soft deadline is a budget short-circuit, not a
@@ -1034,11 +1083,14 @@ export async function* runFacilitator(
         // Same no-PII breadcrumb shape as the #74 ladder engagement but a DISTINCT
         // message, so ladder-engagements and error-rescues stay separable in Sentry.
         // The error text is provider-generated (never query text); truncated anyway.
+        // On an image turn even that is withheld: it could echo the image data.
         const rescueSummary = {
           elapsedMs: Date.now() - startTime,
           iterations,
           toolCallCount: tracker.history.length,
-          error: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+          error: hasImages
+            ? safeErrorMeta(error)
+            : (error instanceof Error ? error.message : String(error)).slice(0, 200),
         };
         console.warn('[facilitator] terminal Gemini error — rescuing on Inkling', rescueSummary);
         Sentry.addBreadcrumb({
@@ -1053,8 +1105,7 @@ export async function* runFacilitator(
         });
         continue;
       }
-      console.error('Facilitator error:', error);
-      Sentry.captureException(error);
+      reportFailure('Facilitator error:', error);
       yield {
         type: 'error',
         data: error instanceof Error ? error.message : 'Unknown error',

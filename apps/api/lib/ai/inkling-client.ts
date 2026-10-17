@@ -29,6 +29,7 @@ import * as Sentry from '@sentry/nextjs';
 import { config } from '../config';
 import type {
   Content,
+  Part,
   GeminiResponse,
   GeminiStreamEvent,
   GeminiToolCall,
@@ -81,10 +82,49 @@ type OpenAiToolCall = {
   function: { name: string; arguments: string };
 };
 
+/**
+ * A user turn's content: a plain string, or, when the turn carries images
+ * (spec 211), OpenAI content parts. Images go as base64 `data:` URLs, the only
+ * form the Tinker endpoint accepts (remote URLs are refused with a 400).
+ */
+type OpenAiContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 type OpenAiMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string | OpenAiContentPart[] }
   | { role: 'assistant'; content: string | null; tool_calls?: OpenAiToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
+
+/**
+ * A user turn's Gemini parts as OpenAI content, or null when there is nothing
+ * to send. Text-only parts stay one newline-joined string, exactly as before
+ * images existed, so text requests are unchanged. inlineData parts become
+ * image_url parts; any other part (functionResponse, thought) is not content.
+ */
+function toOpenAiUserContent(parts: Part[]): string | OpenAiContentPart[] | null {
+  const hasImages = parts.some((p) => p.inlineData?.data);
+  if (!hasImages) {
+    const text = parts
+      .map((p) => p.text ?? '')
+      .filter((t) => t.length > 0)
+      .join('\n');
+    return text || null;
+  }
+  const content: OpenAiContentPart[] = [];
+  for (const p of parts) {
+    if (p.text) {
+      content.push({ type: 'text', text: p.text });
+    } else if (p.inlineData?.data) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` },
+      });
+    }
+  }
+  return content;
+}
 
 /**
  * Convert Gemini-format Content history to OpenAI messages. Gemini carries no
@@ -108,7 +148,7 @@ type OpenAiMessage =
 function toOpenAiMessages(
   history: Content[],
   systemPrompt?: string,
-  message?: string
+  message?: string | Part[]
 ): OpenAiMessage[] {
   const messages: OpenAiMessage[] = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
@@ -168,14 +208,14 @@ function toOpenAiMessages(
           content: JSON.stringify(p.functionResponse.response ?? {}),
         });
       }
-      const text = parts
-        .map((p) => p.text ?? '')
-        .filter((t) => t.length > 0)
-        .join('\n');
-      if (text) messages.push({ role: 'user', content: text });
+      // An image turn reaches history after its first tool round (spec 211),
+      // so its images must survive here too, not only on the current message.
+      const content = toOpenAiUserContent(parts);
+      if (content) messages.push({ role: 'user', content });
     }
   }
-  if (message) messages.push({ role: 'user', content: message });
+  const current = typeof message === 'string' ? message || null : toOpenAiUserContent(message ?? []);
+  if (current) messages.push({ role: 'user', content: current });
   if (synthesizedCallCount > 0) {
     // No PII: counters only. Flags histories where a functionCall was dropped
     // upstream and the converter recovered instead of throwing (issue #81).
@@ -318,7 +358,7 @@ async function* sseData(
  * is nothing to fail over to, so any error surfaces immediately and loudly.
  */
 export async function* streamInkling(
-  message: string,
+  message: string | Part[],
   options: InklingCallOptions = {}
 ): AsyncGenerator<GeminiStreamEvent> {
   const { apiKey, baseUrl } = config.inkling;

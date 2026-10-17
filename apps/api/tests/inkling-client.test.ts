@@ -358,6 +358,48 @@ describe('streamInkling', () => {
     expect(JSON.stringify(body.messages)).not.toContain('INTERNAL THOUGHT');
   });
 
+  describe('image parts (spec 211)', () => {
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAE=';
+    const IMAGE_PART = { inlineData: { mimeType: 'image/png', data: PNG } };
+    const IMAGE_URL = { type: 'image_url', image_url: { url: `data:image/png;base64,${PNG}` } };
+
+    async function sentMessages(...args: Parameters<typeof streamInkling>) {
+      fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));
+      await collect(streamInkling(...args));
+      return JSON.parse(fetchMock.mock.calls[0][1].body).messages;
+    }
+
+    it('sends the current turn\'s images as data-URL image_url parts, text first', async () => {
+      const messages = await sentMessages([{ text: 'What is this?' }, IMAGE_PART]);
+      expect(messages.at(-1)).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: 'What is this?' }, IMAGE_URL],
+      });
+    });
+
+    it('an image-only turn sends only image parts', async () => {
+      const messages = await sentMessages([IMAGE_PART, IMAGE_PART]);
+      expect(messages.at(-1)).toEqual({ role: 'user', content: [IMAGE_URL, IMAGE_URL] });
+    });
+
+    it('keeps the images when the image turn is already in history (after a tool round)', async () => {
+      const messages = await sentMessages('Continue.', {
+        history: [
+          { role: 'user', parts: [{ text: 'What is this?' }, IMAGE_PART] },
+          { role: 'model', parts: [{ functionCall: { name: 'search_quran', args: {} } }] },
+          { role: 'user', parts: [{ functionResponse: { name: 'search_quran', response: {} } }] },
+        ],
+      });
+      expect(messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'What is this?' }, IMAGE_URL] });
+      expect(messages.at(-1)).toEqual({ role: 'user', content: 'Continue.' });
+    });
+
+    it('control: text-only parts still go as one plain string (unchanged request shape)', async () => {
+      const messages = await sentMessages([{ text: 'What is sabr?' }]);
+      expect(messages.at(-1)).toEqual({ role: 'user', content: 'What is sabr?' });
+    });
+  });
+
   it('synthesizes the assistant tool_call when a 3.6-flash tool-round rawPayload dropped the functionCall (issue #81)', async () => {
     const Sentry = await import('@sentry/nextjs');
     fetchMock.mockResolvedValue(sseResponse([delta({ content: 'ok' }, 'stop')]));

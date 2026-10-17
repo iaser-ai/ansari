@@ -1,0 +1,24 @@
+{
+  "name": "ansari-image-bdd",
+  "private": true,
+  "description": "Local-only BDD checks for image attachments (PR #284). Never committed, never run in CI.",
+  "type": "module",
+  "scripts": {
+    "test": "sh bin/cucumber.sh features",
+    "test:inkling": "sh bin/cucumber.sh features/inkling-fallback.feature",
+    "test:abuse": "sh bin/cucumber.sh features/abuse.feature",
+    "test:cost": "sh bin/cucumber.sh features/cost.feature",
+    "test:latency": "sh bin/cucumber.sh features/latency.feature",
+    "test:downsampling": "sh bin/cucumber.sh features/downsampling.feature",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "13.3.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "pg": "8.23.1",
+    "sharp": "0.35.5",
+    "tsx": "4.23.15",
+    "typescript": "~5.9.3"
+  }
+}

@@ -20,6 +20,6 @@ STARTER: replace the examples below with YOUR project's facts and arch.md sectio
 
 ## Map of arch.md (consult when…)
 - Authentication & Authorization — consult when touching login/register/refresh/logout/reset, tokens, admin/system access, or the JWT config.
-- Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, or the repetition guard.
+- Gemini facilitator & message history — consult when touching the facilitator loop, Gemini history building/replay, message persistence, the repetition guard, or image attachments (bytes never stored; image turns reach Inkling too, as data-URL parts).
 - Monorepo layout, build & deploy — consult when changing the workspace layout, `turbo.json`, env vars, Docker builds, CI task wiring, or Railway deploy config.
 - Frontend chat display (apps/frontend) — consult when touching how answers render: citation markers/stripping, the streaming bubble, or the hand-off footer; text direction, Arabic passages, or the scripture box and its source pill; the web keyboard shim, `onShellResize`, and `keyboardDismissMode` on web lists; the Ansari mark, its brass emboss, or the generated icon rasters; the ambient palm-shadow layer's strength/grade, playback rate, or arrival fade; the About/Terms/Privacy reading pages and the verbatim legal text; or the sign-in sheet, or any web `Modal`/`Sheet` that holds fields (`fitToShell`).

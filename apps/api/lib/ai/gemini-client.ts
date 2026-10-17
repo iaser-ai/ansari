@@ -920,7 +920,8 @@ export async function callGeminiStreaming(
  * @yields GeminiStreamEvent - text chunks, tool calls, and completion events
  */
 export async function* streamGemini(
-  message: string,
+  // A string for text-only turns; Part[] when the turn carries image parts (spec 211).
+  message: string | Part[],
   options: Omit<GeminiCallOptions, 'onTextChunk' | 'onThinkingPart'> = {}
 ): AsyncGenerator<GeminiStreamEvent, void, unknown> {
   const startTime = Date.now();

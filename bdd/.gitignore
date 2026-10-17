@@ -1,0 +1,8 @@
+# Dependencies (npm, outside the pnpm workspace on purpose: CI never sees this folder)
+node_modules/
+# Your real API keys
+.env
+# Run reports and server logs
+results/
+# Personal message used as a local-only fixture; never committed
+fixtures/text-images/whatsapp-egyptian-arabic.*

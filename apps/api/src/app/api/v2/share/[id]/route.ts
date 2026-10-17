@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findShareById, createThreadSnapshot } from '@/lib/db/shares';
 import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
-import type { ContentBlock } from '@/db/schema/messages';
+import { splitForWire } from '@/lib/attachments';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-// Format message content for API response
-function formatMessageContent(content: ContentBlock[]): string | ContentBlock[] {
-  if (content.length === 1 && content[0].type === 'text') {
-    return content[0].text;
-  }
-  return content;
-}
 
 // GET /api/v2/share/[id] - Get shared thread content (public endpoint)
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -30,11 +22,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({
       id: share.id,
       thread_name: snapshot.threadName,
-      messages: snapshot.messages.map((m) => ({
-        role: m.role,
-        content: formatMessageContent(m.content),
-        created_at: m.createdAt,
-      })),
+      messages: snapshot.messages.map((m) => {
+        const { content, attachments } = splitForWire(m.content);
+        return {
+          role: m.role,
+          content,
+          ...(attachments ? { attachments } : {}),
+          created_at: m.createdAt,
+        };
+      }),
       created_at: share.createdAt?.toISOString(),
     });
   } catch (error) {
