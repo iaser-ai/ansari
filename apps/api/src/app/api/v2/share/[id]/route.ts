@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findShareById, createThreadSnapshot } from '@/lib/db/shares';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import type { ContentBlock } from '@/db/schema/messages';
 
 type RouteContext = {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 // Note: [id] here is the thread ID, not the share ID
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

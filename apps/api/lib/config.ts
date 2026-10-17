@@ -1,21 +1,30 @@
 import { z } from 'zod';
 
+const AUTH_SERVICE_VARS = [
+  'AUTH_URL',
+  'AUTH_JWT_ISSUER',
+  'AUTH_JWT_AUDIENCE',
+  'AUTH_LAYER_ORIGIN',
+] as const;
+
 const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
-  // Auth
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  ACCESS_TOKEN_EXPIRY_HOURS: z.coerce
-    .number()
-    .int('ACCESS_TOKEN_EXPIRY_HOURS must be an integer')
-    .positive('ACCESS_TOKEN_EXPIRY_HOURS must be greater than 0')
-    .default(2),
-  REFRESH_TOKEN_EXPIRY_HOURS: z.coerce
-    .number()
-    .int('REFRESH_TOKEN_EXPIRY_HOURS must be an integer')
-    .positive('REFRESH_TOKEN_EXPIRY_HOURS must be greater than 0')
-    .default(2160), // 90 days
+  // apps/auth (spec 300; owner amendment 2026-10-17). apps/api reaches it like
+  // any other client: its public JWKS, its account endpoints with the user's
+  // own JWT, and the layer's anonymous calls, all at AUTH_URL (apps/auth's
+  // public origin). There is no shared credential. The issuer it pins is set
+  // on its own, never derived from the URL. Optional here so suites that never
+  // reach apps/auth run without them; required in production by the
+  // refinement below (checked at boot, lib/boot-check.ts), and checked again
+  // by `config.authService`.
+  AUTH_URL: z.string().url('AUTH_URL must be a valid URL').optional(),
+  AUTH_JWT_ISSUER: z.string().url('AUTH_JWT_ISSUER must be a valid URL').optional(),
+  AUTH_JWT_AUDIENCE: z.string().min(1, 'AUTH_JWT_AUDIENCE must not be empty').optional(),
+  // apps/api's own origin, sent as `Origin` on the layer's calls to apps/auth
+  // (which trusts it for CSRF only, never for CORS). Same value as apps/auth's.
+  AUTH_LAYER_ORIGIN: z.string().url('AUTH_LAYER_ORIGIN must be a valid URL').optional(),
 
   // AI - Facilitator (Gemini)
   // Either Vertex AI (preferred) or the public Gemini API must be configured.
@@ -100,9 +109,6 @@ const envSchema = z.object({
   USUL_API_TOKEN: z.string().min(1, 'USUL_API_TOKEN is required'),
   USUL_BASE_URL: z.string().default('https://api.usul.ai/v1/vector-search'),
 
-  // Admin
-  ADMIN_EMAILS: z.string().optional().default(''),
-
   // External evaluation harnesses (e.g. IslamicMMLU leaderboard) authenticate
   // against /v1/chat/completions with this bearer token. Optional in dev.
   LEADERBOARD_API_KEY: z.string().min(32).optional(),
@@ -120,12 +126,23 @@ const envSchema = z.object({
   // Optional
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 }).superRefine((env, ctx) => {
+  if (env.NODE_ENV === 'production') {
+    for (const name of AUTH_SERVICE_VARS) {
+      if (!env[name]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [name],
+          message: `${name} is required in production`,
+        });
+      }
+    }
+  }
   // Fail fast at first config access, not at first chat request: an inkling
   // primary with no credential would otherwise serve a server whose every
   // completion fails.
   if (env.PRIMARY_BACKEND === 'inkling' && !env.INKLING_API_KEY && !env.TINKER_API_KEY) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: ['PRIMARY_BACKEND'],
       message:
         'PRIMARY_BACKEND=inkling requires INKLING_API_KEY (or TINKER_API_KEY as fallback)',
@@ -170,11 +187,22 @@ export const config = {
     };
   },
 
-  get auth() {
+  /**
+   * apps/auth, as apps/api reaches it (spec 300): its public origin, the JWT
+   * issuer and audience apps/api pins, and the Origin the layer sends.
+   * Throws, naming only the missing variables, when any is unset.
+   */
+  get authService() {
+    const env = getEnv();
+    const missing = AUTH_SERVICE_VARS.filter((name) => !env[name]);
+    if (missing.length > 0) {
+      throw new Error(`apps/auth is not configured: set ${missing.join(', ')}.`);
+    }
     return {
-      jwtSecret: getEnv().JWT_SECRET,
-      accessTokenExpiryHours: getEnv().ACCESS_TOKEN_EXPIRY_HOURS,
-      refreshTokenExpiryHours: getEnv().REFRESH_TOKEN_EXPIRY_HOURS,
+      url: env.AUTH_URL as string,
+      jwtIssuer: env.AUTH_JWT_ISSUER as string,
+      jwtAudience: env.AUTH_JWT_AUDIENCE as string,
+      layerOrigin: new URL(env.AUTH_LAYER_ORIGIN as string).origin,
     };
   },
 
@@ -239,16 +267,6 @@ export const config = {
   get leaderboard() {
     return {
       apiKey: getEnv().LEADERBOARD_API_KEY,
-    };
-  },
-
-  get admin() {
-    const raw = getEnv().ADMIN_EMAILS;
-    return {
-      emails: raw
-        .split(',')
-        .map((e) => e.trim().toLowerCase())
-        .filter((e) => e.length > 0),
     };
   },
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findShareById } from '@/lib/db/shares';
-import { createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
 
 type RouteContext = {
   params: Promise<{ id: string }>;

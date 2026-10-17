@@ -35,6 +35,8 @@ import { is } from 'drizzle-orm';
 import * as schema from '@/db/schema';
 import { createThread, createMessage, getThreadWithMessages, findMessagesByThread } from '@/lib/db/threads';
 import { createThreadSnapshot } from '@/lib/db/shares';
+import { insertAppUserRow } from '@/lib/db/users';
+import { resolveUser } from '@/lib/auth/resolve-user';
 
 const DRIZZLE_DIR = path.resolve(__dirname, '../../drizzle');
 // Last migration the deployed code may rely on. The deployed-state test fails
@@ -44,7 +46,7 @@ const DRIZZLE_DIR = path.resolve(__dirname, '../../drizzle');
 // the migration must be applied on staging AND production before the code
 // deploys (arch-critical.md deploy order). It is not evidence that anyone
 // applied it: a bumped constant goes green whether or not the migration ran.
-const DEPLOYED_THROUGH = '0008_model_provenance';
+const DEPLOYED_THROUGH = '0011_better_auth_window';
 
 type JournalEntry = { idx: number; tag: string };
 const journal: JournalEntry[] = JSON.parse(
@@ -74,11 +76,20 @@ async function exerciseMessagePaths(client: PGlite) {
 
 async function runMessagePaths(client: PGlite) {
   h.db = drizzle(client, { schema });
-  const [{ id: userId }] = (
-    await client.query<{ id: string }>(
-      `INSERT INTO users (email, password_hash) VALUES ('parity@example.com', 'x') RETURNING id`
-    )
-  ).rows;
+  // Every bearer request runs these two: the first-use app row (no
+  // password_hash: 0011 drops its NOT NULL) and resolveUser, whose first read
+  // is the tombstone table (0010). A row already present means resolveUser
+  // touches no network.
+  const userId = '00000000-0000-4000-8000-00000000a11e';
+  await insertAppUserRow({
+    id: userId,
+    email: 'parity@example.com',
+    firstName: 'Parity',
+    lastName: null,
+    registeredVia: 'askansari-web',
+  });
+  const resolved = await resolveUser(userId, 'unused-jwt');
+  expect(resolved).toMatchObject({ kind: 'user', user: { id: userId } });
   const thread = await createThread({ userId, name: 'parity' });
   await createMessage({ threadId: thread.id, role: 'user', content: [{ type: 'text', text: 'q' }] });
   await createMessage({

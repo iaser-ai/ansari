@@ -1,0 +1,40 @@
+### Phase 4 Review: `apps/auth` HTTP Perimeter
+
+I have reviewed the Phase 4 implementation across `apps/auth` and `packages/auth` against the specification and plan.
+
+#### Highlights & Verification
+
+1. **Public vs. Internal Listener Split ([`apps/auth/src/app.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/app.ts), [`apps/auth/src/index.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/index.ts))**:
+   - `createPublicApp` mounts `/health`, `/__diag/client-ip`, and `/api/auth/*`, strips `X-Ansari-Forwarded-Client-IP` unconditionally, and never mounts `/internal/*` (404).
+   - `createInternalApp` enforces `internalPerimeter` (`X-Ansari-Internal-Auth` checked via `timingSafeEqual` over SHA-256 digests) on every request before reaching any handler.
+   - Both listeners share a single `createServiceAuth(db)` instance and database, and enforce `requireClientIp` (400 when `x-real-ip` is missing or not a single valid IP) on `/api/auth/*` in production so requests can never fall into Better Auth's shared `no-trusted-ip|<path>` bucket.
+
+2. **Blocked Paths Defense-in-Depth ([`apps/auth/src/middleware/blocked-paths.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/blocked-paths.ts), [`apps/auth/tests/blocked-paths.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/tests/blocked-paths.test.ts))**:
+   - Canonicalizes `req.originalUrl` before `toNodeHandler` (iterative `decodeURIComponent` up to 4 passes, backslash normalization, repeated-slash collapse, `posix.normalize`, lowercase, trailing-slash removal, and rejecting malformed percent-encoding) and returns an empty 404 for `/api/auth/admin/*`, `/api/auth/change-email`, and `/api/auth/update-user`, paired with `disabledPaths` in [`createAuth()`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/index.ts#L184).
+   - Tested against the enumerated admin endpoints from the installed `better-auth` package using a live admin session across case, slash, dot-segment, backslash, and single/double percent-encoded variants on both listeners.
+
+3. **Client IP Validation & Rate Limiting ([`apps/auth/src/middleware/client-ip.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/client-ip.ts), [`apps/auth/src/limits/email-limiter.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/limits/email-limiter.ts), [`packages/auth/src/rate-limit-store.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/rate-limit-store.ts))**:
+   - Forwarded client IPs on the internal listener are validated with `singleIp` (`net.isIP`, rejecting lists, zone IDs, hostnames, and overly long strings).
+   - Atomic fixed-window counters on `auth.rate_limit` back the per-IP and per-hashed-email password-reset limits (in both modes) as well as the `email`-mode fallback (failed-only sign-in lockouts without lock extension on refused attempts, per-email + global sign-up caps, and Sentry list-walk alerting with 8-char hash prefixes and no raw emails).
+   - Good catch on Better Auth's rate-limit table pruning: `rateLimitRetention` (`LONGEST_WINDOW` = 3600s) prevents Better Auth's built-in pruner from deleting 1-hour per-email reset limit rows after 15 minutes, and is pinned by a dedicated test in [`packages/auth/tests/config/rate-limit-store.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/tests/config/rate-limit-store.test.ts#L138-L155).
+
+4. **CORS, Origin Check (#266), Health & Diagnostics ([`apps/auth/src/middleware/cors.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/cors.ts), [`packages/auth/tests/auth.http.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/tests
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - .builder-state.md
+  - codev/state/spir-300_thread.md
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.
+
+
+---
+
+## ⚠️ REPOSITORY MOVED during the gemini review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: c849b083afa0e5699ea2a7d89e663511097045cb -> 24b4bb742d0d4f1ad12dde5a81d1c0536bfaddc6
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

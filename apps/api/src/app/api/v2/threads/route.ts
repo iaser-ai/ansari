@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { findThreadsByUser, createThread } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 
 // GET /api/v2/threads - List user's threads
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }
@@ -39,7 +40,7 @@ const createThreadSchema = z.object({
 // POST /api/v2/threads - Create a new thread
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

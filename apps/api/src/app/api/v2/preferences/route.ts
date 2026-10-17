@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { getPreferences, setPreference } from '@/lib/db/preferences';
 
 // GET /api/v2/preferences - Get all user preferences
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }
@@ -32,7 +33,7 @@ const updatePreferencesSchema = z.record(z.string(), z.string());
 // PUT /api/v2/preferences - Update user preferences
 export async function PUT(request: NextRequest) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

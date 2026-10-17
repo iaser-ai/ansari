@@ -295,6 +295,14 @@ export function Sidebar({
     await logout();
   };
 
+  // Account deletion is a page of its own (#306): the same address the
+  // app stores link to. Only a real account is offered it; a guest has
+  // nothing of its own to delete.
+  const openDeleteAccount = () => {
+    onNavigate?.();
+    router.push('/delete-account');
+  };
+
   // What the account line shows once there is a session: the name given
   // at registration, or a plain fallback for a guest / an account with
   // no name on it.
@@ -980,6 +988,21 @@ export function Sidebar({
                       Log out
                     </Text>
                   </PressableScale>
+                  <PressableScale
+                    onPress={openDeleteAccount}
+                    accessibilityRole="link"
+                    testID="sidebar-delete-account"
+                    style={(state) => [
+                      styles.deleteLink,
+                      { opacity: state.pressed ? 0.6 : isHovered(state) ? 1 : 0.8 },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.deleteText, { color: colors.mutedForeground }]}
+                    >
+                      Delete account
+                    </Text>
+                  </PressableScale>
                 </>
               ) : (
                 <>
@@ -1324,6 +1347,15 @@ const styles = StyleSheet.create({
   loginText: {
     fontSize: 13,
     fontFamily: fonts.bodyMedium,
+  },
+  deleteLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  deleteText: {
+    fontSize: 12,
+    fontFamily: fonts.body,
+    textDecorationLine: 'underline',
   },
   calloutTitle: {
     fontSize: 12.5,

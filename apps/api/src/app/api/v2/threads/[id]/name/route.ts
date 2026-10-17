@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { updateThread } from '@/lib/db/threads';
 
 type RouteContext = {
@@ -14,7 +15,7 @@ const renameSchema = z.object({
 // POST /api/v2/threads/[id]/name - Rename a thread
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

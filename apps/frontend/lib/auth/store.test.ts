@@ -9,11 +9,16 @@ vi.mock('expo-secure-store', () => ({
   deleteItemAsync: vi.fn(),
 }));
 
-import { loadSession, saveSession, type StoredSession } from '@/lib/auth/store';
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+  type StoredSession,
+} from '@/lib/auth/store';
 
 const session: StoredSession = {
   accessToken: 'access-token',
-  refreshToken: 'refresh-token',
+  sessionToken: 'session-token',
   firstName: 'Test',
   lastName: 'User',
   isGuest: false,
@@ -64,7 +69,7 @@ describe('saveSession — web storage failures are loud', () => {
     };
     await expect(saveSession(session)).resolves.toBeUndefined();
     expect(backing.get('ansari.accessToken')).toBe('access-token');
-    expect(backing.get('ansari.refreshToken')).toBe('refresh-token');
+    expect(backing.get('ansari.sessionToken')).toBe('session-token');
   });
 });
 
@@ -87,7 +92,7 @@ describe('loadSession — isGuest inference from the stored blob', () => {
   function storeNameBlob(nameBlob: Record<string, unknown>): void {
     const backing = new Map<string, string>([
       ['ansari.accessToken', 'access-token'],
-      ['ansari.refreshToken', 'refresh-token'],
+      ['ansari.sessionToken', 'session-token'],
       ['ansari.userName', JSON.stringify(nameBlob)],
     ]);
     (globalThis as { localStorage?: unknown }).localStorage = {
@@ -127,5 +132,51 @@ describe('loadSession — isGuest inference from the stored blob', () => {
   it('rescues a stale literal isGuest: false on the guest name', async () => {
     storeNameBlob({ firstName: 'Welcome', lastName: 'Guest', isGuest: false });
     expect((await loadSession())?.isGuest).toBe(true);
+  });
+});
+
+/**
+ * The apps/auth cutover: a device holding only the legacy apps/api pair has no
+ * session apps/auth knows, so it loads as signed out (→ its stored guest), and
+ * clearing the session removes the legacy refresh token too.
+ */
+describe('the legacy refresh token after the cutover', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  let backing: Map<string, string>;
+
+  afterEach(() => {
+    if (descriptor) {
+      Object.defineProperty(globalThis, 'localStorage', descriptor);
+    } else {
+      delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
+  function storeLegacyPair(): void {
+    backing = new Map<string, string>([
+      ['ansari.accessToken', 'legacy-access'],
+      ['ansari.refreshToken', 'legacy-refresh'],
+      ['ansari.userName', JSON.stringify({ firstName: 'Test', lastName: 'User' })],
+      ['ansari.guestCredentials', JSON.stringify({ email: 'g@ansari.chat', password: 'pw' })],
+    ]);
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      setItem: (key: string, value: string) => backing.set(key, value),
+      getItem: (key: string) => backing.get(key) ?? null,
+      removeItem: (key: string) => backing.delete(key),
+    };
+  }
+
+  it('a legacy pair alone loads as no session, and the load deletes it (the upgrade path)', async () => {
+    storeLegacyPair();
+    expect(await loadSession()).toBeNull();
+    // The startup path goes straight to the guest and never signs out, so the
+    // load itself must remove the live legacy credential; the guest stays.
+    expect([...backing.keys()]).toEqual(['ansari.guestCredentials']);
+  });
+
+  it('clearSession removes the legacy refresh token and keeps the guest', async () => {
+    storeLegacyPair();
+    await clearSession();
+    expect([...backing.keys()]).toEqual(['ansari.guestCredentials']);
   });
 });

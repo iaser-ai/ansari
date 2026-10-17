@@ -1,0 +1,36 @@
+## Phase 1 Review: Legacy Contract Tests
+
+### Assessment
+
+The Phase 1 implementation cleanly freezes the legacy `/v2/users/*` and password-reset wire contracts against today's `apps/api` implementation before any migration changes begin:
+
+1. **Spec & Plan Alignment**:
+   - [legacy-users.json](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/fixtures/legacy-users.json) pins exact status codes, key sets (including the absence of `status` on `refresh_token.ok`), value types (`string`, `null`, `uuid`, `iso-datetime`), literal values (`token_type: "bearer"`), and `detail` strings across all 8 endpoints (`register`, `login`, `refresh_token`, `logout`, `me` GET/DELETE, `request_password_reset`, `reset_password`).
+   - [harness.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/harness.ts) builds the database directly from the `apps/api/drizzle` migration journal on PGlite, uses real route handlers and `lib/db` helpers without mocking `lib/db` queries, and cleanly isolates setup behind the [`ContractHarness`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/harness.ts#L101-L120) interface (`AuthBackend` seam).
+   - [legacy-users-contract.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/legacy-users-contract.test.ts) covers all required happy paths, validation errors, malformed JSON semantics, `X-Ansari-Client` attribution (`registered_via`), reserved email (`@system.ansari.chat` and `ADMIN_EMAILS`) 409 parity, `register` guard ordering (`validation → reserved/taken → strength → create`), null-name handling differences between `login` (`""`) and `GET /v2/users/me` (`null`), and the recorded client flows (mobile login → bearer → expiry 401 → refresh → retry, concurrent refreshes without a single-flight guard, logout session revocation, and admin analytics login).
+   - [spir-300_thread.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/state/spir-300_thread.md#L114-L127) documents both the mutation negative-test run and the client source audit (including the `legacy/frontend-web` refresh finding and resulting owner decisions).
+
+2. **Code Quality & Maintainability**:
+   - [`expectWire`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/legacy-users-contract.test.ts#L59-L75) enforces strict key-set equality (`Object.keys(body).sort()`), preventing extra or missing keys from slipping through silently.
+   - Using `vi.useFakeTimers({ toFake: ['Date'] })` while keeping PGlite and bcrypt on real timers is a clean solution for testing token expiry deterministically.
+
+3. **Note for Phase 8 (Non-blocking)**:
+   - In [legacy-users-contract.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/legacy-users-contract.test.ts#L385), `DELETE /v2/users/me` asserts that a subsequent `GET /v2/users/me` with the deleted user's still-unexpired `access_token` matches `bearer.rejected` (`detailOneOf` in [legacy-users.json](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/fixtures/legacy-users.json#L216-L225)). When implementing the JWT verifier and tombstone check in Phases 7–8, ensure that a missing/tombstoned user returns one of those four `detail` strings so the fixture remains unedited.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 legacy contract test suite, PGlite harness, frozen fixtures, mutation verification, and client source audit are complete and well-executed.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES: None
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - .consult-codex.log
+  - .consult-gemini.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

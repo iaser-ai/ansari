@@ -1,0 +1,36 @@
+### Phase 6 Implementation Review
+
+#### Summary of Findings
+
+1. **Spec Adherence & Plan Alignment**
+   - **[0009_better_auth_scaffold_cleanup.sql](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/drizzle/0009_better_auth_scaffold_cleanup.sql)**: Executes as a single atomic `DO $$` block. Guards each of the four #59 scaffold tables (`public.user`, `public.session`, `public.account`, `public.verification`) via `to_regclass` and `EXISTS`, raising an exception before any DDL runs if any table contains rows, then drops them with `DROP TABLE IF EXISTS` (without `CASCADE`).
+   - **[0010_deleted_users.sql](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/drizzle/0010_deleted_users.sql)** & **[deleted-users.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/db/schema/deleted-users.ts)**: Adds `public.deleted_users` (`id uuid primary key`, `deleted_at timestamptz not null default now()`, `auth_deleted_at timestamptz`) with no foreign key to `users`, and exports it from [index.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/db/schema/index.ts).
+   - **[0011_better_auth_window.sql](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/drizzle/0011_better_auth_window.sql)**: Executes as a single atomic `DO $$` block. Checks for `lower(trim(email))` collisions first (reporting only the collision count without leaking email addresses), normalizes `public.users.email` where needed, and runs `ALTER TABLE public.users ALTER COLUMN password_hash DROP NOT NULL` with no other schema changes.
+   - **[users.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/db/schema/users.ts)** & **[migration-schema-parity.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/migration/migration-schema-parity.test.ts)**: `users.ts` remains untouched for Phase 9, and `DEPLOYED_THROUGH` remains at `'0008_model_provenance'` while the full-journal parity test now covers `0009` through `0011`.
+   - **[_journal.json](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/drizzle/meta/_journal.json)**: Follows the numbering rule (`idx` 8–10 mapped to tags `0009`–`0011` and snapshots `0008`–`0010`), with the `develop` re-check recorded in [spir-300_thread.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/state/spir-300_thread.md).
+
+2. **Code Quality & Test Coverage**
+   - **[window-migration.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/migration/window-migration.test.ts)** thoroughly exercises all Phase 6 deliverables against real journal migrations on PGlite:
+     - Scenario 15: abort when `public.account` has a row, plus isolated per-table guard verification (with scaffold FKs dropped so each of the four tables is tested independently), dropping empty scaffold tables, and no-op when absent.
+     - Tombstone creation, defaults, and absence of foreign keys.
+     - Scenario 14 (app half) & Scenario 13: collision abort on case and whitespace variants, no email leaked in error output, normalization of padded mixed-case emails, and `password_hash` nullability.
+     - Verification that foreign keys on `threads`, `preferences`, and `feedback` and all other columns/indexes/constraints remain unchanged, and that legacy `apps/api` database helpers continue working after `0011`.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 6 app-database migrations (0009 scaffold cleanup, 0010 tombstones, 0011 window migration), Drizzle schema additions, journal numbering, and PGlite migration tests are complete and match the spec and plan.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - .builder-state.md
+  - codev/state/spir-300_thread.md
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

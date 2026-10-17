@@ -5,9 +5,17 @@
     // tests/auth.http.test.ts reads apps/frontend/app.json (expo.scheme must be in
     // trustedOrigins). A file outside this package is NOT part of the task hash by
     // default, so without this input a warm cache replays the test when only the
-    // manifest changes and the guard passes by not running.
+    // manifest changes and the guard passes by not running. Likewise
+    // tests/migration/auth-journal-parity.test.ts reads RELEASE.md and docs/**
+    // for the cutover's `auth-journal-applied:` record.
     "test": {
-      "inputs": ["$TURBO_DEFAULT$", ".env.ci", "$TURBO_ROOT$/apps/frontend/app.json"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.ci",
+        "$TURBO_ROOT$/apps/frontend/app.json",
+        "$TURBO_ROOT$/RELEASE.md",
+        "$TURBO_ROOT$/docs/**/*.md"
+      ]
     }
   }
 }

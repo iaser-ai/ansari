@@ -1,0 +1,65 @@
+{
+  "about": "Request header shapes as they reach the service behind Railway's edge, on each path (docs/cutover/edge-check.md). Client addresses are replaced by RFC 5737 addresses: 203.0.113.0/24 = the real client, 192.0.2.66 = a value the client forged, 198.51.100.0/24 = a Cloudflare egress, 192.0.2.200 = Railway's edge. Each shape carries the headers as they arrive and `probe`, the JSON the diag probes return for them (what the edge check records); the service's client is `probe.x_real_ip`. apps/auth's public-listener and probe tests and apps/api's getRealIp and probe tests derive every expectation from this file, so the measured shapes can replace these without touching a test. PROVISIONAL: the shapes are as reported by a sibling Railway deployment behind Cloudflare (kidscanspell apps/auth, its issue 332). The phase 13 staging measurement replaces them with the shapes measured on our own staging hostnames, via Cloudflare and direct.",
+  "source": "kidscanspell issue 332 (reported, not yet measured here)",
+  "shapes": [
+    {
+      "name": "via Cloudflare, with x-real-ip, x-forwarded-for and cf-connecting-ip forged by the client",
+      "path": "client → Cloudflare → Railway edge → service",
+      "headers": {
+        "x-real-ip": "203.0.113.10",
+        "x-forwarded-for": "198.51.100.10, 192.0.2.200",
+        "cf-connecting-ip": "203.0.113.10",
+        "cdn-loop": "cloudflare",
+        "cf-ray": "0000000000000000-SYD"
+      },
+      "never": [
+        "192.0.2.66",
+        "198.51.100.10",
+        "192.0.2.200"
+      ],
+      "probe": {
+        "x_real_ip": "203.0.113.10",
+        "x_forwarded_for_entries": 2,
+        "x_forwarded_for_first_is_x_real_ip": false,
+        "cf_connecting_ip": "203.0.113.10",
+        "via_cloudflare": true
+      }
+    },
+    {
+      "name": "direct to Railway's edge (Host header), with x-real-ip, x-forwarded-for and cf-connecting-ip forged by the client",
+      "path": "client → Railway edge → service",
+      "headers": {
+        "x-real-ip": "203.0.113.20",
+        "x-forwarded-for": "203.0.113.20, 192.0.2.200",
+        "cf-connecting-ip": "192.0.2.66"
+      },
+      "never": [
+        "192.0.2.66",
+        "192.0.2.200"
+      ],
+      "probe": {
+        "x_real_ip": "203.0.113.20",
+        "x_forwarded_for_entries": 2,
+        "x_forwarded_for_first_is_x_real_ip": true,
+        "cf_connecting_ip": "192.0.2.66",
+        "via_cloudflare": false
+      }
+    }
+  ],
+  "withoutTheEdge": [
+    {
+      "name": "no x-real-ip: Cloudflare-looking and forwarded headers only",
+      "headers": {
+        "x-forwarded-for": "192.0.2.66",
+        "cf-connecting-ip": "192.0.2.66"
+      }
+    },
+    {
+      "name": "a client-built x-real-ip list that no edge overwrote",
+      "headers": {
+        "x-real-ip": "192.0.2.66, 203.0.113.30",
+        "cf-connecting-ip": "192.0.2.66"
+      }
+    }
+  ]
+}

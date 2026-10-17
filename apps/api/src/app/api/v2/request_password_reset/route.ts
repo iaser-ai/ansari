@@ -1,19 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateToken } from '@/lib/auth/jwt';
-import { findUserByEmail, storeToken, deleteUserTokens } from '@/lib/db/users';
-import { createErrorResponse } from '@/lib/auth/middleware';
-import { sendPasswordResetEmail } from '@/lib/email';
-import { config } from '@/lib/config';
+import { AuthServiceUnavailableError } from '@/lib/auth-service/client';
+import {
+    requestPasswordReset,
+  tooManyRequestsResponse,
+  unavailableResponse,
+} from '@/lib/auth-service/legacy';
+import { limitLegacyRoute } from '@/lib/auth-service/limits';
+import { createErrorResponse } from '@/lib/error-response';
 import { safeErrorMeta } from '@/lib/log';
 
-const RESET_TOKEN_EXPIRY_HOURS = 1;
+// Legacy reset request over apps/auth (spec 300, plan phase 8). apps/auth
+// sends the legacy-shaped link, and answers every email alike, with one rate
+// budget for known and unknown addresses. An apps/auth outage is a 503 (the
+// same for every address); any other failure still answers success, as today,
+// so the route never tells whether an address exists.
 
 const requestSchema = z.object({
   email: z.string().email('Invalid email format'),
 });
 
 export async function POST(request: NextRequest) {
+  const limited = limitLegacyRoute(request, 'request_password_reset');
+  if (limited) return limited;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -23,51 +33,21 @@ export async function POST(request: NextRequest) {
 
   const parseResult = requestSchema.safeParse(body);
   if (!parseResult.success) {
-    const errors = parseResult.error.issues.map(i => i.message);
+    const errors = parseResult.error.issues.map((i) => i.message);
     return createErrorResponse(errors.join(', '), 422);
   }
 
   try {
-    const { email } = parseResult.data;
-
-    const user = await findUserByEmail(email);
-    if (user) {
-      const jwtSecret = config.auth.jwtSecret;
-
-      // Delete any existing reset tokens for this user
-      await deleteUserTokens(user.id, 'reset');
-
-      // Generate new reset token. Reset tokens are validated by DB existence +
-      // type, not by session_version, so the embedded version is informational.
-      const resetToken = generateToken(user.id, 'reset', RESET_TOKEN_EXPIRY_HOURS, jwtSecret, user.sessionVersion);
-
-      // Store token hash in database
-      await storeToken({
-        userId: user.id,
-        token: resetToken,
-        tokenType: 'reset',
-        expiresAt: new Date(Date.now() + RESET_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000),
-      });
-
-      // Send email (fire-and-forget)
-      sendPasswordResetEmail(email, resetToken)
-        .then((result) => {
-          if (!result.success) {
-            console.error('Password reset email failed:', result.error);
-          }
-        })
-        .catch((err) => {
-          console.error('Password reset email unexpected error:', err instanceof Error ? err.message : err);
-        });
-    }
-
-    // Always return success regardless of whether email exists
-    return NextResponse.json({ status: 'success' });
+    const result = await requestPasswordReset(parseResult.data.email);
+    if (result.kind === 'rate_limited') return tooManyRequestsResponse(result.retryAfter);
   } catch (error) {
-    // Return success even on unexpected errors to prevent user enumeration.
-    // Log ONLY sanitized metadata — a raw driver error can embed user content
-    // (email, query params). See @/lib/log (issue #19).
+    // An outage is the same for every address, so the 503 tells nothing about
+    // which exist; the layer never lets a dead apps/auth look like success.
+    if (error instanceof AuthServiceUnavailableError) {
+      console.error('Request password reset: apps/auth unavailable', { status: error.status });
+      return unavailableResponse();
+    }
     console.error('Request password reset error:', safeErrorMeta(error));
-    return NextResponse.json({ status: 'success' });
   }
+  return NextResponse.json({ status: 'success' });
 }

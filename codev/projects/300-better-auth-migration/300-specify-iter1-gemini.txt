@@ -1,0 +1,83 @@
+# Specification Review: 300-Better Auth Migration
+
+**Document Under Review:** [300-better-auth-migration.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/specs/300-better-auth-migration.md)  
+**Reference Documents Consulted:** [60-better-auth-migration-reference.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/specs/60-better-auth-migration-reference.md), [60-better-auth-migration-reference.md (Plan)](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/plans/60-better-auth-migration-reference.md), [schema.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/schema.ts), [index.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/index.ts), [rate-limit.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/lib/rate-limit.ts), [next.config.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/next.config.ts), and route handlers under `apps/api/src/app/api/v2/`.
+
+---
+
+## 1. Clarity and Completeness of Requirements
+
+The specification is exceptionally thorough, concrete, and grounded in the realities of the current codebase on `develop`. It clearly demarcates WHAT and WHY from implementation details.
+
+- **Departures and Grounding:** The spec correctly identifies that `apps/auth` has no Dockerfile and no Railway service on this branch, and that the "ported migration framework" referenced in #60 does not exist in the repository. Its decision to depart from reference Q5 and host Better Auth **in-process inside `apps/api`** is well-justified: it eliminates deploying a new service, new domain, cross-origin cookie setup, and an immediate frontend client rewrite during an already sensitive cutover window.
+- **Scope & Boundary Control:** By keeping the `/v2/users/*` compatibility layer and password reset routes byte-compatible with the existing JWT endpoints, released mobile clients, web clients, and the admin analytics dashboard will continue functioning without requiring store releases or day-zero frontend changes.
+- **Traceability:** Requirements map directly to the baked decisions of issue #300 (dedicated `auth` schema, UUID preservation, permanent bcrypt dual-verify, admin plugin, bearer session authentication, and rate limiting).
+
+---
+
+## 2. Technical Feasibility
+
+The technical blueprint is sound and feasible within the stack (`better-auth@1.7.7`, `drizzle-orm@^0.45.2`, `pg`, `Next.js 15`):
+
+- **In-Process Integration:** In [packages/auth/src/index.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/index.ts#L24), `createAuth(db)` already accepts an injectable Drizzle database client. `apps/api` can pass its existing connection pool, preventing connection exhaustion across Next.js route handlers.
+- **Database Schema & Drizzle Kit:** Moving all auth tables to `pgSchema('auth')` and consolidating DDL into `apps/api/drizzle/` avoids multi-journal ownership conflicts over `auth.users` when repointing foreign keys from `threads`, `preferences`, and `feedback`.
+- **Phasing via Two PRs:** The two-PR model (PR A: additive schema + code preparation; PR B: cutover migration + route switch + legacy decommission) provides a clean boundary. PR A can be deployed and verified on production while legacy JWT auth continues to serve without downtime.
+
+---
+
+## 3. Edge Cases and Error Scenarios
+
+The specification demonstrates high rigor around edge cases and failure modes:
+
+- **Name Derivation:** The three-tier derivation rule (`trim(first || ' ' || last)` $\rightarrow$ email local-part $\rightarrow$ `'User'`) handles nullable names without violating Better Auth's `NOT NULL` constraint on `user.name`, while retaining `first_name` and `last_name` as separate `additionalFields` for legacy response shapes.
+- **Account Deletion (`DELETE /v2/users/me`):** The spec explicitly anticipates Better Auth's 24-hour `freshAge` check on `auth.api.deleteUser`, requiring account deletion on the compatibility layer to bypass this requirement (via the internal adapter or direct database deletion) so older mobile sessions can delete accounts without re-entering passwords.
+- **Bcrypt Truncation:** Bcrypt's historical 72-byte truncation behavior is preserved on legacy hash checks, preventing silent lockout for users with long passwords created under the legacy system.
+- **Precondition & Abort Guards:** The cutover migration is encapsulated in a single transaction with guards that abort if `auth.users` is not empty or `public.users` does not exist.
+
+---
+
+## 4. Security Considerations
+
+- **Client IP & Rate Limiting:** The spec correctly identifies that in `better-auth@1.7.7`, unconfigured `trustedProxies` with multi-value `X-Forwarded-For` headers collapses all requests into a single `no-trusted-ip|<path>` bucket. Pinning IP extraction to `X-Real-IP` alone (which Railway edge overwrites) is well-reasoned and avoids this bottleneck. Empirical verification of edge behavior before cutover is an excellent safeguard.
+- **System Account Protection:** System accounts (`system_key IS NOT NULL`) are strictly excluded from `auth.account` backfills, preventing them from acquiring login credentials or being targeted by password reset flows.
+- **Admin Privilege Escalation:** Admin status is decoupled from email matching and database flags (`is_admin`), moving to Better Auth's admin plugin `role` column. The startup assertion in [apps/api/lib/auth/startup-checks.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/lib/auth/startup-checks.ts#L20) is preserved and adapted to assert against `role = 'admin'`.
+- **CORS Hardening:** Removing `Access-Control-Allow-Origin: *` in [apps/api/next.config.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/next.config.ts#L16-L17) fixes an invalid configuration for credentialed requests.
+
+---
+
+## 5. Testing Strategy
+
+The test plan is comprehensive and addresses critical verification criteria:
+
+- **Vacuity Detection:** Explicit requirements that tests fail if the bcrypt verify branch or `revokeSessionsOnPasswordReset` is removed ensures these guards are genuinely executed.
+- **Frozen Contract Testing:** Contract tests written against the existing JWT endpoints prior to reimplementation guarantee that legacy clients will not encounter unexpected schema deviations (such as the absence of `status` on `/v2/users/refresh_token`).
+- **Real Database Testing:** All auth lifecycle tests run against real Postgres/pglite instances rather than mock drivers.
+
+---
+
+## 6. Recommendations & Minor Considerations for the Implementation Plan
+
+1. **Compatibility Layer Rate Limiting (Open Question I-2):**  
+   If Railway runs multiple instances of `backend` in production, [apps/api/lib/rate-limit.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/lib/rate-limit.ts#L8) (an in-memory `Map`) will multiply the sign-in/sign-up rate limit by the replica count. In the implementation plan, prefer routing compatibility layer authentication checks through Better Auth's in-process API (`auth.api.signInEmail`) or querying `auth.rate_limit`, ensuring database-backed limits apply consistently across replicas.
+2. **Session Extension on `/v2/users/refresh_token`:**  
+   In [apps/api/src/app/api/v2/users/refresh_token/route.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/src/app/api/v2/users/refresh_token/route.ts), mobile clients periodically send their token to refresh session lifetime. The plan should verify that resolving the token via `auth.api.getSession` triggers Better Auth's sliding window `updateAge` logic so that long-lived sessions remain valid.
+3. **Workspace Dependency:**  
+   Adding `@ansari/auth` to [apps/api/package.json](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/package.json#L31) will touch `pnpm-lock.yaml`. As noted in Constraints, this requires review by the main architect during PR A.
+
+---
+
+---
+VERDICT: APPROVE
+SUMMARY: Exemplary specification that resolves unverified reference assumptions, respects all constraints, and thoroughly mitigates mass lockout and security risks.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+---
+
+## ⚠️ REPOSITORY MOVED during the gemini review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: c7d06276c8516eefcac31548f0f816f9e1a0cfb9 -> 60ca04dea9e82dbfac5dd4f41f2762b48f2be12a
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

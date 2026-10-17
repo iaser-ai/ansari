@@ -5,8 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1787275725177,
-      "tag": "0000_better_auth_init",
+      "when": 1792130636316,
+      "tag": "0000_auth_schema",
       "breakpoints": true
     }
   ]

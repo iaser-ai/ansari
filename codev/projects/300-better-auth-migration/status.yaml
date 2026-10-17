@@ -1,0 +1,119 @@
+id: '300'
+title: better-auth-migration
+protocol: spir
+phase: review
+plan_phases:
+  - id: phase_1
+    title: Legacy contract tests pinned against today's implementation
+    status: complete
+  - id: phase_2
+    title: Auth database schema, fresh journal and parity guard
+    status: complete
+  - id: phase_3
+    title: 'Better Auth configuration: UUIDs, dual verify, sessions, JWT, admin columns'
+    status: complete
+  - id: phase_4
+    title: 'apps/auth HTTP perimeter: blocked surfaces, client IP, rate limits, CORS'
+    status: complete
+  - id: phase_5
+    title: apps/auth internal endpoints, reset email, role script and boot assertion
+    status: complete
+  - id: phase_6
+    title: 'App database migrations: scaffold cleanup, tombstones, window migration'
+    status: complete
+  - id: phase_7
+    title: apps/api JWT verifier, user resolution and auth-service client
+    status: complete
+  - id: phase_8
+    title: Route switch and compatibility layer over apps/auth
+    status: complete
+  - id: phase_9
+    title: Legacy auth removal, CORS fix and source scans
+    status: complete
+  - id: phase_10
+    title: apps/frontend signs in at apps/auth
+    status: complete
+  - id: phase_11
+    title: 'apps/auth deployment: Dockerfile, Railway service, CI and env'
+    status: complete
+  - id: phase_12
+    title: 'Cutover tooling: copy, audits, rollback SQL and runbooks'
+    status: complete
+  - id: phase_13
+    title: 'Staging verification: edge check, unmodified clients, full rehearsal'
+    status: complete
+current_plan_phase: null
+gates:
+  spec-approval:
+    status: approved
+    requested_at: '2026-10-14T03:44:37.673Z'
+    approved_at: '2026-10-16T00:28:25.985Z'
+  plan-approval:
+    status: approved
+    requested_at: '2026-10-16T00:44:30.980Z'
+    approved_at: '2026-10-16T05:10:51.636Z'
+  pr:
+    status: pending
+    requested_at: '2026-10-17T02:48:53.217Z'
+  verify-approval:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-14T03:31:15.359Z'
+updated_at: '2026-10-17T02:48:53.217Z'
+context_refreshes:
+  - boundary: enter:plan
+    at: '2026-10-16T00:28:28.599Z'
+    acknowledged_at: '2026-10-16T00:29:26.903Z'
+  - boundary: plan-phase:phase_2
+    at: '2026-10-16T06:01:30.636Z'
+    acknowledged_at: '2026-10-16T06:01:35.842Z'
+  - boundary: plan-phase:phase_3
+    at: '2026-10-16T06:16:26.113Z'
+    acknowledged_at: '2026-10-16T06:16:30.462Z'
+  - boundary: plan-phase:phase_4
+    at: '2026-10-16T06:44:03.411Z'
+    acknowledged_at: '2026-10-16T06:45:08.019Z'
+  - boundary: plan-phase:phase_5
+    at: '2026-10-16T07:18:11.511Z'
+    acknowledged_at: '2026-10-16T07:18:17.202Z'
+  - boundary: plan-phase:phase_6
+    at: '2026-10-16T07:50:10.617Z'
+    acknowledged_at: '2026-10-16T07:50:15.773Z'
+  - boundary: plan-phase:phase_7
+    at: '2026-10-16T08:13:11.068Z'
+    acknowledged_at: '2026-10-16T08:14:03.784Z'
+  - boundary: plan-phase:phase_8
+    at: '2026-10-16T08:57:39.703Z'
+    acknowledged_at: '2026-10-16T08:57:44.794Z'
+  - boundary: plan-phase:phase_9
+    at: '2026-10-16T09:40:57.317Z'
+    acknowledged_at: '2026-10-16T09:41:04.776Z'
+  - boundary: plan-phase:phase_10
+    at: '2026-10-16T10:20:14.170Z'
+    acknowledged_at: '2026-10-16T10:21:14.981Z'
+  - boundary: plan-phase:phase_11
+    at: '2026-10-16T11:09:59.744Z'
+    acknowledged_at: '2026-10-16T11:10:29.309Z'
+  - boundary: plan-phase:phase_12
+    at: '2026-10-16T19:34:58.361Z'
+    acknowledged_at: '2026-10-16T19:40:50.394Z'
+  - boundary: plan-phase:phase_13
+    at: '2026-10-16T21:19:03.487Z'
+    acknowledged_at: '2026-10-16T21:19:17.820Z'
+  - boundary: enter:review
+    at: '2026-10-17T01:16:53.958Z'
+    acknowledged_at: '2026-10-17T01:17:03.073Z'
+force_advanced:
+  phase: phase_12
+  iteration: 3
+  max_iterations: 3
+  rebuttal_file: 300-phase_12-iter3-rebuttals.md
+  at: '2026-10-16T21:19:01.825Z'
+pr_history:
+  - phase: review
+    pr_number: 315
+    branch: builder/spir-300
+    created_at: '2026-10-17T02:08:25.476Z'
+pr_ready_for_human: true

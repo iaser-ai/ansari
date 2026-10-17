@@ -46,10 +46,12 @@ vi.mock('@sentry/nextjs', () => ({
 }));
 
 const mockAuthenticate = vi.fn();
-vi.mock('@/lib/auth/middleware', () => ({
-  authenticateRequest: (...a: unknown[]) => mockAuthenticate(...a),
+vi.mock('@/lib/error-response', () => ({
   createErrorResponse: (detail: string, status = 400) =>
     new Response(JSON.stringify({ error: detail }), { status }),
+}));
+vi.mock('@/lib/auth/require-user', () => ({
+  requireUser: (...a: unknown[]) => mockAuthenticate(...a),
 }));
 
 const mockFindThreadById = vi.fn();

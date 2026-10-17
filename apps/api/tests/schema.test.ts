@@ -1,29 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { users, threads, messages, feedback, shares, tokens, preferences } from '../db/schema';
+import * as schemaModule from '../db/schema';
+import { users, threads, messages, feedback, shares, preferences } from '../db/schema';
 
 describe('Database Schema', () => {
   it('users table has required columns', () => {
     expect(users.id).toBeDefined();
     expect(users.email).toBeDefined();
-    expect(users.passwordHash).toBeDefined();
     expect(users.firstName).toBeDefined();
     expect(users.lastName).toBeDefined();
     expect(users.source).toBeDefined();
     expect(users.registeredVia).toBeDefined();
-    expect(users.isAdmin).toBeDefined();
     expect(users.systemKey).toBeDefined();
-    expect(users.sessionVersion).toBeDefined();
     expect(users.createdAt).toBeDefined();
     expect(users.updatedAt).toBeDefined();
   });
 
-  it('tokens table has required columns', () => {
-    expect(tokens.id).toBeDefined();
-    expect(tokens.userId).toBeDefined();
-    expect(tokens.tokenType).toBeDefined();
-    expect(tokens.tokenHash).toBeDefined();
-    expect(tokens.expiresAt).toBeDefined();
-    expect(tokens.createdAt).toBeDefined();
+  it('users carries no credential, role or session column; tokens is not in the schema (spec 300)', () => {
+    // The columns and the table stay in the database until the contract PR;
+    // apps/api's code can no longer name them.
+    const columns = Object.keys(users);
+    for (const legacy of ['passwordHash', 'isAdmin', 'sessionVersion']) {
+      expect(columns).not.toContain(legacy);
+    }
+    expect('tokens' in schemaModule).toBe(false);
   });
 
   it('threads table has required columns', () => {

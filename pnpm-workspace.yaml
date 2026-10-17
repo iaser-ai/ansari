@@ -27,6 +27,21 @@ onlyBuiltDependencies:
   - sharp
   - unrs-resolver
 
+# Dependencies a package requires at runtime but does not declare. Without
+# them it resolves only through pnpm's hoisting, which shifts whenever an
+# unrelated package leaves the lockfile.
+packageExtensions:
+  # react-native-worklets 0.10.1's Babel plugin (plugin/index.js, run by
+  # babel-preset-expo for every frontend build) requires @babel/traverse and
+  # @babel/generator, but declares only @babel/types and the transforms. It
+  # resolved them through the hidden hoist of copies that react-email's chain
+  # pulled in; when apps/api dropped react-email, an incremental install lost
+  # that hoist and the frontend build failed (spec 300 review).
+  react-native-worklets@*:
+    dependencies:
+      "@babel/traverse": ^7.27.1
+      "@babel/generator": ^7.27.1
+
 # Security overrides for Dependabot alerts on TRANSITIVE deps we cannot bump
 # directly. pnpm reads overrides ONLY from here (or root package.json `pnpm.overrides`);
 # an `overrides` key inside an app's package.json is npm syntax and is silently

@@ -9,6 +9,11 @@
 #
 # Keep the two in sync: if you change a dashboard setting, update this file in the
 # same PR. See the "Railway service configuration" block in RELEASE.md.
+#
+# Service variables (dashboard; baked into the bundle at build time by
+# Dockerfile.web, so a change needs a redeploy), one environment per pair:
+#   EXPO_PUBLIC_API_URL   https://api.askansari.ai   (staging: https://api-staging.askansari.ai)
+#   EXPO_PUBLIC_AUTH_URL  https://auth.askansari.ai  (staging: https://auth-staging.askansari.ai)
 
 [build]
 builder = "dockerfile"

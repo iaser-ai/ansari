@@ -1,0 +1,44 @@
+# Railway settings for the `auth` service (apps/auth, spec 300), kept in version
+# control.
+#
+# NOT READ BY RAILWAY IN THIS PROJECT (the same as apps/api/railway.toml).
+# Deployment is configured in the Railway dashboard using a Dockerfile path:
+#   apps/auth/Dockerfile
+# The dashboard is the live configuration; this file is the reviewable record of
+# what it should contain. Keep the two in sync: if you change a dashboard
+# setting, update this file in the same PR. See the "Railway service
+# configuration" block in RELEASE.md.
+#
+# One listener (owner amendment 2026-10-17: no internal listener, no private
+# network hop):
+#   PORT  3100  /api/auth/*, /api/account/*, /health. The public domain
+#               (auth.askansari.ai; auth-staging.askansari.ai) targets this port.
+#               apps/api reaches the service there too (its AUTH_URL), like any
+#               other client.
+# Set it as a service variable (PORT=3100) so Railway does not assign PORT
+# itself.
+#
+# Database: its OWN Railway Postgres (the auth database), never the app
+# database. Snapshots or PITR are enabled before its first real row (C-4).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/auth/Dockerfile"
+watchPatterns = [
+  "apps/auth/**",
+  # Shared workspace packages are COPYied into this image (see the Dockerfile),
+  # and @ansari/auth is the service's whole auth config, so a packages-only
+  # change alters the built artifact. Without this pattern the change ships
+  # nothing: no rebuild, no deploy, no error.
+  "packages/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+# /health pings the auth database: 200 only when it answers, 503 otherwise.
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

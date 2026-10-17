@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { hashPassword, checkPasswordStrength } from '@/lib/auth/password';
-import { findUserByEmail, createUser, issueTokenPair, maybeSweepExpiredTokens } from '@/lib/db/users';
-import { createErrorResponse } from '@/lib/auth/middleware';
-import { isReservedAddress } from '@/lib/auth/reserved';
-import { subscribeToNewsletter } from '@/lib/newsletter';
-import { getClientId } from '@/lib/attribution';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db/index';
+import { users } from '@/db/schema';
+import { insertAppUserRow } from '@/lib/db/users';
+import { CLIENT_HEADER, getClientId } from '@/lib/attribution';
+import { AuthServiceUnavailableError } from '@/lib/auth-service/client';
+import {
+  LEGACY_DETAIL,
+    mintJwt,
+  signUp,
+  tooManyRequestsResponse,
+  unavailableResponse,
+} from '@/lib/auth-service/legacy';
+import { limitLegacyRoute } from '@/lib/auth-service/limits';
+import { createErrorResponse } from '@/lib/error-response';
 import { safeErrorMeta } from '@/lib/log';
+
+// Legacy register over apps/auth (spec 300, plan phase 8). The order is the
+// legacy one, so registration is no oracle: validation (422, here) → reserved
+// or taken (one identical 409) → strength (400) → create. apps/auth enforces
+// the reserved/taken → strength part, including the system domain; this route
+// also refuses an address any `public.users` row holds (a system account's, or
+// a leftover), before apps/auth sees it.
+// The newsletter opt-in is forwarded; apps/auth subscribes.
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -16,92 +33,64 @@ const registerSchema = z.object({
     .max(128, 'Password must be at most 128 characters'),
   first_name: z.string().optional(),
   last_name: z.string().optional(),
-  // Opt-in newsletter subscription. Defaults to false (opt-in) when omitted so
-  // we never subscribe without explicit consent (CAN-SPAM / GDPR). The frontend
-  // always sends this flag; guest sessions send false.
   register_to_mail_list: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
+  const limited = limitLegacyRoute(request, 'register');
+  if (limited) return limited;
+
   try {
     const body = await request.json();
     const parseResult = registerSchema.safeParse(body);
-
     if (!parseResult.success) {
-      const errors = parseResult.error.issues.map(i => i.message);
+      const errors = parseResult.error.issues.map((i) => i.message);
       return createErrorResponse(errors.join(', '), 422);
     }
-
     const { email, password, first_name, last_name, register_to_mail_list } = parseResult.data;
+    const normalized = email.trim().toLowerCase();
 
-    // Check if the account exists OR the address is reserved (admin/system, spec 4).
-    // Both return the IDENTICAL 409 response, and this check sits BEFORE the
-    // password-strength check below — otherwise a reserved address paired with a
-    // weak password would return 400 while a taken address returns 409, turning
-    // registration into an oracle for which addresses are privileged.
-    const existingUser = await findUserByEmail(email);
-    if (existingUser || isReservedAddress(email.toLowerCase())) {
-      return createErrorResponse('An account with this email already exists', 409);
-    }
+    const [holder] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, normalized))
+      .limit(1);
+    if (holder) return createErrorResponse(LEGACY_DETAIL.emailTaken, 409);
 
-    // Check password strength
-    const strength = checkPasswordStrength(password);
-    if (!strength.valid) {
-      return createErrorResponse(
-        `Password is too weak. ${strength.suggestions.join(' ')}`,
-        400
-      );
-    }
+    const clientHeader = request.headers.get(CLIENT_HEADER);
+    const result = await signUp(
+      { email, password, first_name, last_name, register_to_mail_list },
+      { headers: clientHeader ? { [CLIENT_HEADER]: clientHeader } : undefined }
+    );
+    if (result.kind === 'taken') return createErrorResponse(LEGACY_DETAIL.emailTaken, 409);
+    if (result.kind === 'weak') return createErrorResponse(result.detail, 400);
+    if (result.kind === 'invalid') return createErrorResponse(result.detail, 422);
+    if (result.kind === 'rate_limited') return tooManyRequestsResponse(result.retryAfter);
 
-    // Create user. `registered_via` records which client the account signed up
-    // through, from the X-Ansari-Client header (spec 56); NULL when absent.
-    // `source` stays 'web' (unchanged) — it is a separate axis.
-    const registeredVia = getClientId(request);
-    const passwordHash = await hashPassword(password);
-    const user = await createUser({
-      email,
-      passwordHash,
-      firstName: first_name,
-      lastName: last_name,
-      source: 'web',
-      registeredVia,
+    const accessToken = await mintJwt(result.sessionToken);
+    if (!accessToken) throw new AuthServiceUnavailableError(401);
+
+    // `registered_via` from X-Ansari-Client, as today (spec 56); NULL when absent.
+    await insertAppUserRow({
+      id: result.userId,
+      email: normalized,
+      firstName: first_name ?? null,
+      lastName: last_name ?? null,
+      registeredVia: getClientId(request),
     });
 
-    // Issue tokens (single consolidated generate-and-store helper). A new user
-    // starts at session_version 0.
-    const { accessToken, refreshToken } = await issueTokenPair(user.id, user.sessionVersion);
-
-    // Opportunistically prune expired tokens (fire-and-forget, spec 4).
-    maybeSweepExpiredTokens();
-
-    // Fire-and-forget: subscribe to newsletter (non-blocking), but only when the
-    // user explicitly opted in. Guests and opt-outs send false and are skipped.
-    if (register_to_mail_list === true) {
-      subscribeToNewsletter(
-        email,
-        first_name ?? null,
-        last_name ?? null,
-      ).then((result) => {
-        if (!result.success) {
-          console.error('Newsletter subscription failed:', result.error);
-        }
-      }).catch((err) => {
-        console.error('Newsletter subscription unexpected error:', err instanceof Error ? err.message : err);
-      });
-    }
-
-    // Return tokens in Ansari's format (frontend expects status: 'success')
     return NextResponse.json({
       status: 'success',
       access_token: accessToken,
-      refresh_token: refreshToken,
+      refresh_token: result.sessionToken,
       token_type: 'bearer',
     });
   } catch (error) {
-    // Log ONLY sanitized metadata (error type + SQLSTATE code). The full driver
-    // error can embed user content — the submitted email, query params, or the
-    // password hash — which must never reach logs (backend CLAUDE.md) or the
-    // client. The client gets a generic message (spec 4).
+    if (error instanceof AuthServiceUnavailableError) {
+      console.error('Registration: apps/auth unavailable', { status: error.status });
+      return unavailableResponse();
+    }
+    // Sanitized metadata only: a driver error can embed the email or a hash.
     console.error('Registration error:', safeErrorMeta(error));
     return createErrorResponse('Registration failed', 500);
   }

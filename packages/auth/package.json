@@ -18,16 +18,20 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@ansari/types": "workspace:*",
     "@better-auth/expo": "1.7.7",
+    "bcrypt": "^6.0.0",
     "better-auth": "1.7.7",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.17.2",
+    "resend": "^6.9.3",
     "zod": "^4.3.5"
   },
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
     "@electric-sql/pglite": "^0.5.3",
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
     "dotenv": "^17.2.3",

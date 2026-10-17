@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { findThreadById, createMessage, findMessagesByThread, persistOrphanToolCalls } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
@@ -20,7 +21,7 @@ const chatSchema = z.object({
 // POST /api/v2/threads/[id]/chat - Send a message and get streaming response
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

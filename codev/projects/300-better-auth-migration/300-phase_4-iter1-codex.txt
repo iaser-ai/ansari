@@ -1,0 +1,27 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The perimeter is strong overall, but two rate-limit correctness issues violate phase requirements.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Reset requests rejected by Better Auth’s 3/60s limiter never reach the custom hook, so they do not count toward the per-IP/email budgets as required. The tests avoid this interaction by advancing 61 seconds. Move counting before Better Auth’s `onRequest` limiter or otherwise ensure every attempt is counted.
+- `ipBucket()` mishandles hexadecimal IPv4-mapped IPv6 such as `::ffff:cb00:7105`, grouping all such clients into the same IPv6 `/64` instead of IPv4 as Better Auth does. Add matching normalization and coverage.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - .builder-state.md
+  - codev/state/spir-300_thread.md
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.
+
+
+---
+
+## ⚠️ REPOSITORY MOVED during the codex review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: c849b083afa0e5699ea2a7d89e663511097045cb -> 24b4bb742d0d4f1ad12dde5a81d1c0536bfaddc6
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

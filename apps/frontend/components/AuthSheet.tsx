@@ -1,14 +1,14 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, {
@@ -21,8 +21,8 @@ import { useScheme } from '@/hooks/useScheme';
 import { fonts } from '@/constants/colors';
 import { DURATION, EASE_OUT } from '@/constants/motion';
 import { RADIUS, rounded } from '@/constants/radius';
-import { isHovered, touchBrowser } from '@/lib/web';
-import { heading, selfInkedFocusId } from '@/lib/semantics';
+import { isHovered } from '@/lib/web';
+import { heading } from '@/lib/semantics';
 import { useAuth } from '@/lib/auth/context';
 import {
   closeAuthSheet,
@@ -34,6 +34,7 @@ import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
 import { AppleMark, GoogleMark } from '@/components/BrandMarks';
 import { PressableScale } from '@/components/PressableScale';
 import { Sheet } from '@/components/Sheet';
+import { Field } from '@/components/AuthField';
 
 // Turning between "Log in" and "Sign up" is the same card showing its
 // other face: what changes fades in where it stands, nothing travels.
@@ -42,62 +43,6 @@ const FACE_ENTER = FadeIn.duration(DURATION.state)
   .reduceMotion(ReduceMotion.System);
 
 type Provider = 'Apple' | 'Google';
-
-/**
- * One field, in the app's recessed-bed style: `inputFill` under a
- * hairline that inks on focus rather than drawing a ring outside it —
- * the same treatment `SearchField` wears, so every place a reader types
- * in this app looks like the same place.
- */
-function Field({
-  label,
-  value,
-  onChangeText,
-  ...input
-}: {
-  label: string;
-  value: string;
-  onChangeText: (next: string) => void;
-} & React.ComponentProps<typeof TextInput>) {
-  const colors = useColors();
-  const fieldKey = useId();
-  const [focused, setFocused] = useState(false);
-  return (
-    <View
-      style={[
-        styles.field,
-        {
-          backgroundColor: colors.inputFill,
-          borderColor: focused ? colors.inputRimFocus : colors.inputRim,
-        },
-      ]}
-    >
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={label}
-        placeholderTextColor={colors.placeholder}
-        cursorColor={colors.caret}
-        selectionColor={colors.caret}
-        nativeID={selfInkedFocusId(fieldKey)}
-        accessibilityLabel={label}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={[
-          styles.input,
-          {
-            // Mobile Safari magnifies the page around any field with a
-            // sub-16px face; carry 16px on a phone browser (see
-            // `SearchField` for the same guard).
-            fontSize: touchBrowser ? 16 : 15.5,
-            color: colors.foreground,
-          },
-        ]}
-        {...input}
-      />
-    </View>
-  );
-}
 
 /**
  * The platform's own sign-in button, in the platform's own dress — not
@@ -278,6 +223,13 @@ export function AuthSheet() {
     }
   };
 
+  // A reset is a page, not a face of this card: it is also reached from the
+  // emailed link and the legacy `/forgot-password` address (#304).
+  const forgotPassword = () => {
+    closeAuthSheet();
+    router.push('/forgot-password');
+  };
+
   // Continue as guest — reuses this device's guest account if it has
   // one, else registers a fresh throwaway.
   const continueAsGuest = async () => {
@@ -433,6 +385,21 @@ export function AuthSheet() {
           returnKeyType="go"
           testID="password-input"
         />
+
+        {!isRegister && (
+          <PressableScale
+            onPress={forgotPassword}
+            accessibilityRole="link"
+            testID="auth-forgot-password"
+            style={styles.forgotLink}
+          >
+            <Text
+              style={[styles.forgotText, { color: colors.mutedForeground }]}
+            >
+              Forgot password?
+            </Text>
+          </PressableScale>
+        )}
 
         {error && (
           <Text
@@ -620,18 +587,14 @@ const styles = StyleSheet.create({
   nameField: {
     flex: 1,
   },
-  field: {
-    minHeight: 50,
-    justifyContent: 'center',
-    paddingHorizontal: 15,
-    ...rounded(RADIUS.md),
-    borderWidth: StyleSheet.hairlineWidth,
+  forgotLink: {
+    alignSelf: 'flex-end',
+    paddingVertical: 2,
+    marginTop: -4,
   },
-  input: {
-    fontFamily: fonts.body,
-    // The bed carries the vertical centring; the field keeps no line
-    // padding of its own so a 16px browser face still sits centred.
-    paddingVertical: 0,
+  forgotText: {
+    fontSize: 13,
+    fontFamily: fonts.bodyMedium,
   },
   error: {
     fontSize: 13.5,

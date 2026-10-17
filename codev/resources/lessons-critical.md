@@ -16,7 +16,7 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - A verification pattern is code, and untested code is not evidence — negative-test every scan against a known-bad line and a known-good near-miss, then report hit counts rather than a verdict.
 - Fix a documentation defect everywhere, not just where you are already editing — a partial fix turns one wrong doc into several that disagree, which is worse than the original error.
 - Before attributing a production symptom to code you are reading, confirm the revision production actually runs — prod can be hundreds of commits behind your branch, with the bug already fixed or differently shaped there.
-- A `vi.mock` factory that lacks a newly added export throws at the call site; if that site is inside a try/catch (a streaming route's error path), the suite stays green while the failure is swallowed — after adding an export a route calls, grep every factory mock of that module.
+- A rule or failure that exists only in production needs a production-shaped test: run the service with `NODE_ENV=production` from a cold cache, and stop its database under the running process. A long-lived client that emits `'error'` needs a listener; a capped restart policy turns one blip into a permanent outage.
 
 ## Map of lessons-learned.md (consult when…)
 - Auth hardening (spec 4) — consult when working on sessions/tokens, revocation races, anti-oracle responses, or drizzle/pg error handling.
@@ -31,3 +31,4 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 - New Ansari logo — frontend (issue #223) — consult when changing an SVG mark or its viewBox, regenerating icon rasters, adding a test in a new directory, or taking screenshots without the Chrome extension.
 - Ambient shadow strength (issue #225) + jitter (issue #254) — frontend — consult when tuning a visual intensity constant (size it in ΔL*), turning a knob whose effect a solver may cancel, chasing a smoothness report from a phone, measuring on a real device without a cable, judging a visual change by eye (blind A/B), or changing a video's playback rate, loop encode or arrival.
 - Scripture in answer prose — frontend (issue #228) — consult when mixing Arabic and English in one text block, classifying text by script, keeping an inline control on its word's line, balancing centred lines, or asserting react-native-web styles in jsdom.
+- Better Auth migration (spec 300) — consult when testing a production-only rule, writing psql guard/copy scripts, guarding a first-use insert against a concurrent delete, caching a remote JWKS, reading better-auth internals, bundling native modules, building a service image, or recording an infrastructure inference.

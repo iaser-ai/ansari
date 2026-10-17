@@ -48,7 +48,7 @@ jobs:
 
       # Build BEFORE the dummy env is loaded: the api build must need no env
       # (#260 — nothing may read lib/config.ts at import). GITHUB_ENV only reaches
-      # later steps, so this run sees no DATABASE_URL/JWT_SECRET, and a module-scope
+      # later steps, so this run sees no DATABASE_URL/AUTH_URL, and a module-scope
       # config read fails it with `Environment validation failed`.
       - name: Build
         run: pnpm exec turbo run build --filter ansari-api...

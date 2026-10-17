@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The spec 300 auth suites (tests/auth/) boot the real apps/auth in
+    // process, over a pglite database built from packages/auth's journal, and
+    // reuse both packages' test helpers. None of that is in this package's
+    // task hash by default (globalDependencies carries packages/auth/src only),
+    // so without these inputs a warm cache would replay apps/api's tests after
+    // apps/auth, its schema or the helpers changed.
+    //
+    // The doc and scan suites read files outside this package too: the
+    // runbooks and docs (release-doc, self-hosting-docs, contributor-docs,
+    // cutover-docs), the .github and gitleaks files contributor-docs checks, and
+    // apps/auth/scripts (the source scans; the cutover scripts the runbook
+    // names). Without them a doc edit left ansari-api#test at the same hash
+    // (verified) and a warm cache replayed a stale doc test.
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.ci",
+        "$TURBO_ROOT$/apps/auth/src/**",
+        "$TURBO_ROOT$/apps/auth/scripts/**",
+        "$TURBO_ROOT$/apps/auth/tests/helpers/**",
+        "$TURBO_ROOT$/packages/auth/drizzle/**",
+        "$TURBO_ROOT$/packages/auth/tests/helpers/**",
+        "$TURBO_ROOT$/RELEASE.md",
+        "$TURBO_ROOT$/CONTRIBUTING.md",
+        "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/docs/**",
+        "$TURBO_ROOT$/.github/ISSUE_TEMPLATE/**",
+        "$TURBO_ROOT$/.github/scripts/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/.gitleaksignore",
+        "$TURBO_ROOT$/.gitleaks.toml"
+      ]
+    }
+  }
+}

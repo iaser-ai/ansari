@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { NextRequest } from 'next/server';
 
 interface RateLimitEntry {
@@ -9,21 +10,24 @@ const store = new Map<string, RateLimitEntry>();
 const MAX_STORE_SIZE = 10_000;
 
 /**
- * Extract client IP from request headers.
- * Checks x-forwarded-for (first IP), x-real-ip, then falls back to 127.0.0.1.
+ * The client IP Railway's edge stamped in `X-Real-IP`, or null when there is
+ * no single valid address there (spec 300, Client IP). `X-Forwarded-For` is
+ * never read: the edge does not sanitize a caller's own entries, so its first
+ * entry is whatever the caller chose.
+ */
+export function getRealIp(request: NextRequest): string | null {
+  const realIp = request.headers.get('x-real-ip')?.trim();
+  if (!realIp || realIp.includes('%') || !isIP(realIp)) return null;
+  return realIp;
+}
+
+/**
+ * The rate-limit key for a request: its `X-Real-IP`, or 127.0.0.1 when there
+ * is none (local development). Exact addresses, with no IPv6 /64 grouping
+ * (spec 300 N-2, decided no).
  */
 export function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const firstIp = forwarded.split(',')[0].trim();
-    if (firstIp) return firstIp;
-  }
-
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp.trim();
-
-  // NextRequest.ip is not available in all environments
-  return (request as unknown as { ip?: string }).ip ?? '127.0.0.1';
+  return getRealIp(request) ?? '127.0.0.1';
 }
 
 /**

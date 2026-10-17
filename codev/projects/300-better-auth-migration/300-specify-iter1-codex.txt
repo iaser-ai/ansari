@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong, thorough spec, but three security/data-preservation requirements remain materially ambiguous.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Resolve I-2 by requiring shared/database-backed rate limiting for the compatibility layer. Allowing an in-memory limiter contradicts the baked database-storage decision and multiplies limits across replicas.
+- Define how existing admins are preserved. `is_admin` may include users outside `ADMIN_EMAILS`; copying no admin state and bootstrapping only configured emails can silently revoke legitimate administrators. Require an inventory, migration rule, and parity audit.
+- Explicitly specify safe removal of the unused public Better Auth scaffold tables. The migration should abort if any contain data, rather than relying only on an operator precheck followed by `DROP ... IF EXISTS`.
+- Clarify “byte-compatible” as wire-contract compatible; tokens and other dynamic values cannot be byte-identical.

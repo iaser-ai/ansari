@@ -14,13 +14,20 @@ import { GUEST_FIRST_NAME, GUEST_LAST_NAME } from '@/lib/auth/guest';
  *   tokens and the guest password is a KNOWN GAP, tracked in #264. Do not
  *   extend the pattern to new secrets.
  *
- * Tokens are never logged. Access and refresh tokens are stored under separate
- * keys (a single JSON blob of both can exceed SecureStore's per-item size cap on
- * Android); the display name is a tiny JSON blob.
+ * Tokens are never logged. The apps/api JWT (`accessToken`) and the apps/auth
+ * session token are stored under separate keys (a single JSON blob of both can
+ * exceed SecureStore's per-item size cap on Android); the display name is a
+ * tiny JSON blob.
  */
 
 const ACCESS_KEY = 'ansari.accessToken';
-const REFRESH_KEY = 'ansari.refreshToken';
+// The apps/auth session token: the bearer for `/token` and sign-out.
+const SESSION_KEY = 'ansari.sessionToken';
+// The legacy apps/api refresh token (before the apps/auth cutover). Never read:
+// it means nothing to apps/auth, so a device holding one starts over (signed
+// out → its stored guest). Deleted whenever the session is cleared, and on the
+// first load that finds no apps/auth session (the upgrade path).
+const LEGACY_REFRESH_KEY = 'ansari.refreshToken';
 const NAME_KEY = 'ansari.userName';
 // Guest email+password persist ACROSS logout (unlike the session keys above) so a
 // device reuses its one guest account instead of minting a new staging user on
@@ -68,8 +75,10 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 export interface StoredSession {
+  /** The apps/api JWT. */
   accessToken: string;
-  refreshToken: string;
+  /** The apps/auth session token. */
+  sessionToken: string;
   firstName: string;
   lastName: string;
   /**
@@ -85,12 +94,20 @@ export interface StoredSession {
 }
 
 export async function loadSession(): Promise<StoredSession | null> {
-  const [accessToken, refreshToken, nameRaw] = await Promise.all([
+  const [accessToken, sessionToken, nameRaw] = await Promise.all([
     getItem(ACCESS_KEY),
-    getItem(REFRESH_KEY),
+    getItem(SESSION_KEY),
     getItem(NAME_KEY),
   ]);
-  if (!accessToken || !refreshToken) return null;
+  if (!accessToken || !sessionToken) {
+    // No apps/auth session. Whatever partial state is here is dead, and on a
+    // device upgraded across the apps/auth cutover it includes the legacy
+    // apps/api refresh token, still a live credential until the window: delete
+    // it now, since this path goes straight to the guest and never reaches a
+    // sign-out. The guest credentials are kept.
+    await clearSession();
+    return null;
+  }
   let firstName = '';
   let lastName = '';
   let isGuest = false;
@@ -114,13 +131,13 @@ export async function loadSession(): Promise<StoredSession | null> {
       // corrupt name blob is non-fatal
     }
   }
-  return { accessToken, refreshToken, firstName, lastName, isGuest };
+  return { accessToken, sessionToken, firstName, lastName, isGuest };
 }
 
 export async function saveSession(session: StoredSession): Promise<void> {
   await Promise.all([
     setItem(ACCESS_KEY, session.accessToken),
-    setItem(REFRESH_KEY, session.refreshToken),
+    setItem(SESSION_KEY, session.sessionToken),
     setItem(
       NAME_KEY,
       JSON.stringify({
@@ -137,7 +154,8 @@ export async function clearSession(): Promise<void> {
   // tapping "Continue as guest" again must return to the SAME guest account.
   await Promise.all([
     deleteItem(ACCESS_KEY),
-    deleteItem(REFRESH_KEY),
+    deleteItem(SESSION_KEY),
+    deleteItem(LEGACY_REFRESH_KEY),
     deleteItem(NAME_KEY),
   ]);
 }

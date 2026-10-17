@@ -3,9 +3,10 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 // Round-trip tests for the spec-56 per-client attribution columns:
 //   threads.client, messages.client, users.registered_via
 //
-// These exercise the real createThread / createMessage / createUser SQL against
-// an in-memory Postgres (pglite), following the tests/token-grace.test.ts
-// pattern. The production DATABASE_URL is never touched.
+// These exercise the real createThread / createMessage / insertAppUserRow SQL
+// against an in-memory Postgres (pglite). The production DATABASE_URL is never
+// touched. `users` is as after the window migration (0011): password_hash is
+// nullable, and the legacy columns stay until the contract PR.
 //
 // The hand-written CREATE TABLE DDL below MUST stay in sync with db/schema/*.ts
 // (the repo's pglite tests hand-write DDL); the new columns are included here.
@@ -22,11 +23,25 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
 import { createThread, createMessage } from '@/lib/db/threads';
-import { createUser } from '@/lib/db/users';
+import { randomUUID } from 'node:crypto';
+import { findUserById, insertAppUserRow } from '@/lib/db/users';
 
 let client: PGlite;
 let seq = 0;
 const email = () => `u${seq++}@example.com`;
+
+/** An app row as register / first use writes it (spec 300). */
+async function createUser(opts: { registeredVia?: string } = {}) {
+  const id = randomUUID();
+  await insertAppUserRow({
+    id,
+    email: email(),
+    firstName: null,
+    lastName: null,
+    registeredVia: opts.registeredVia ?? null,
+  });
+  return (await findUserById(id))!;
+}
 
 beforeAll(async () => {
   client = new PGlite();
@@ -35,7 +50,7 @@ beforeAll(async () => {
     CREATE TABLE users (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       email text UNIQUE NOT NULL,
-      password_hash text NOT NULL,
+      password_hash text,
       first_name text,
       last_name text,
       source text DEFAULT 'web',
@@ -81,36 +96,36 @@ afterAll(async () => {
 });
 
 describe('per-client attribution columns (spec 56)', () => {
-  it('createUser persists registered_via when provided', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x', registeredVia: 'muslimpedia' });
+  it('the app row persists registered_via when provided', async () => {
+    const user = await createUser({ registeredVia: 'muslimpedia' });
     expect(user.registeredVia).toBe('muslimpedia');
   });
 
-  it('createUser defaults registered_via to NULL when omitted', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+  it('the app row defaults registered_via to NULL when omitted', async () => {
+    const user = await createUser();
     expect(user.registeredVia).toBeNull();
   });
 
   it('createThread persists client when provided', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+    const user = await createUser();
     const thread = await createThread({ userId: user.id, client: 'muslimpedia' });
     expect(thread.client).toBe('muslimpedia');
   });
 
   it('createThread defaults client to NULL when omitted', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+    const user = await createUser();
     const thread = await createThread({ userId: user.id });
     expect(thread.client).toBeNull();
   });
 
   it("createThread stores the 'invalid' sentinel like any other value", async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+    const user = await createUser();
     const thread = await createThread({ userId: user.id, client: 'invalid' });
     expect(thread.client).toBe('invalid');
   });
 
   it('createMessage persists client when provided', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+    const user = await createUser();
     const thread = await createThread({ userId: user.id });
     const msg = await createMessage({
       threadId: thread.id,
@@ -123,7 +138,7 @@ describe('per-client attribution columns (spec 56)', () => {
   });
 
   it('createMessage defaults client to NULL when omitted', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x' });
+    const user = await createUser();
     const thread = await createThread({ userId: user.id });
     const msg = await createMessage({
       threadId: thread.id,
@@ -135,7 +150,7 @@ describe('per-client attribution columns (spec 56)', () => {
   });
 
   it('leaves existing source semantics untouched', async () => {
-    const user = await createUser({ email: email(), passwordHash: 'x', source: 'web', registeredVia: 'kalimat' });
+    const user = await createUser({ registeredVia: 'kalimat' });
     const thread = await createThread({ userId: user.id, source: 'web', client: 'kalimat' });
     expect(user.source).toBe('web');
     expect(thread.source).toBe('web');

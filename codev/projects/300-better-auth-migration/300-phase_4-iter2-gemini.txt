@@ -1,0 +1,28 @@
+## Phase 4 Implementation Review (`phase_4`: `apps/auth` HTTP perimeter)
+
+### Verification of Iteration 1 Fixes
+
+1. **Reset-request counting vs. burst limiter ([`packages/auth/src/limits.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/limits.ts#L90-L99), [`apps/auth/src/limits/email-limiter.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/limits/email-limiter.ts#L98-L119))**
+   - `ROUTER_RULES['/request-password-reset']` is explicitly set to `false` so Better Auth's router does not fall back to its built-in 3/60s `onRequest` rule and reject requests before hooks execute.
+   - `limitResetRequest` atomically increments all three counters (`RESET_REQUEST_BURST` at 3/60s per IP, `RESET_REQUEST_PER_IP` at 5/15m per IP, and `RESET_REQUEST_PER_EMAIL` at 3/60m per normalized email hash) via `Promise.all` before checking thresholds and throwing `tooManyRequests`.
+   - New tests in [`apps/auth/tests/limits.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/tests/limits.test.ts#L95-L126) verify that burst-rejected requests still consume budget in both the 15-minute IP window and the 1-hour email window.
+
+2. **Hex IPv4-mapped IPv6 normalization in [`ipBucket`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/client-ip.ts#L81-L123)**
+   - `mappedIPv4` and `expandIPv6` now mirror `@better-auth/core`'s `normalizeIP`, handling dotted (`::ffff:203.0.113.5`), 7-part (`0:0:0:0:0:ffff:203.0.113.5`), and hex (`::ffff:cb00:7105`, `0:0:0:0:0:ffff:cb00:7105`) IPv4-mapped IPv6 forms as IPv4 addresses, and normalizing standard IPv6 addresses to full 8-group `/64` prefixes.
+   - Unit and router-parity tests in [`apps/auth/tests/client-ip.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/tests/client-ip.test.ts#L254-L275) confirm exact key agreement with Better Auth's rate limiter.
+
+### Phase 4 Deliverables & Acceptance Criteria
+
+- **Dual Listeners (Plan P-1, Amendment A)**: [`createPublicApp`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/app.ts#L43-L56) and [`createInternalApp`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/app.ts#L58-L66) cleanly separate public and private-network traffic while sharing one `Auth` instance and rate-limit store. The public listener unconditionally strips `X-Ansari-Forwarded-Client-IP` and leaves `/internal/*` unmounted (404); the internal listener requires `X-Ansari-Internal-Auth` verified in constant time via SHA-256 digest comparison.
+- **Blocked Admin & Profile Surfaces**: [`blockedPaths`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/blocked-paths.ts#L49-L55) canonicalizes URLs (multi-pass percent-decoding, backslash conversion, slash collapsing, POSIX dot-segment normalization, lowercasing, trailing-slash stripping) and blocks `/api/auth/admin/*`, `/api/auth/change-email`, and `/api/auth/update-user` alongside `disabledPaths` in [`createAuth`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/src/index.ts#L184). [`apps/auth/tests/blocked-paths.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/tests/blocked-paths.test.ts) dynamically enumerates admin endpoints from the installed plugin and tests all variants with a live admin session.
+- **Client IP Validation (Plan P-1, Amendment B)**: [`singleIp`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/client-ip.ts#L37-L42) rejects empty strings, multi-IP lists, hostnames, zone IDs (`%`), and invalid literals; [`requireClientIp`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/middleware/client-ip.ts#L71-L79) returns 400 in production when no usable IP is present so requests never collapse into `no-trusted-ip|<path>`.
+- **Email Fallback Mode & List-Walk Alert (Plan P-2, P-3)**: [`createPerimeterHooks`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/limits/email-limiter.ts#L72-L170) implements failed-only sign-in counting and lockout without lock extension on refused attempts, per-email and global sign-up caps, and Sentry alerting ([`apps/auth/src/alerts.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/auth/src/alerts.ts)) with 8-char SHA-256 prefixes and no PII.
+- **CORS, Origin Check (#266), `/health`, and `/__diag/client-ip`**: Exact-origin CORS allowlisting with merged `Access-Control-Expose-Headers` (`set-auth-token`, `set-auth-jwt`), `disableOriginCheck: false` verified in [`packages/auth/tests/auth.http.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/packages/auth/tests/auth.http.test.ts#L97-L127), database-backed `/health` check with sanitized error logging, and `/__diag/client-ip` returning only `x_real_ip` and `x_forwarded_for_entries` with `Cache-Control: no-store`.
+
+---
+VERDICT: APPROVE
+SUMMARY: All Phase 4 perimeter requirements and Iteration 1 rate-limit and IP-bucketing fixes are complete and well-tested.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES: None

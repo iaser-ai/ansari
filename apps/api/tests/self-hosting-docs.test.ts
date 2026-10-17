@@ -1,46 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * Drift guard (issue #21): docs/self-hosting.md documents the boot-time admin
- * bootstrap check's failure modes by quoting distinguishing phrases from its
- * error messages. If the error text in startup-checks.ts changes, or the docs
- * section is removed, operators lose the outage-vs-provisioning triage table.
- * This test fails on either side of that drift.
+ * docs/self-hosting.md against the code (issue #21; spec 300 amendment H-7).
+ * apps/auth runs no admin check at boot any more, so the docs must not send an
+ * operator to triage one, and must describe the two-step grant.
  */
 
 const doc = readFileSync(resolve(__dirname, '../../../docs/self-hosting.md'), 'utf8');
-const source = readFileSync(resolve(__dirname, '../lib/auth/startup-checks.ts'), 'utf8');
+const entry = readFileSync(resolve(__dirname, '../../auth/src/index.ts'), 'utf8');
 
-// The phrases the docs' triage table keys on, one per failure mode:
-// DB unreachable, admin account missing, account present but not flagged.
-const DISTINGUISHING_PHRASES = [
-  'could not reach the database',
-  'has no account',
-  'not flagged is_admin',
-];
-
-describe('self-hosting docs: boot-blocks-on-unreachable-DB triage (issue #21)', () => {
-  it.each(DISTINGUISHING_PHRASES)(
-    'startup-checks.ts still throws an error containing %j',
-    (phrase) => {
-      expect(source).toContain(phrase);
-    }
-  );
-
-  it.each(DISTINGUISHING_PHRASES)(
-    'docs/self-hosting.md documents the error phrase %j',
-    (phrase) => {
-      expect(doc).toContain(phrase);
-    }
-  );
-
-  it('documents the crash-loop symptom on restart-on-crash platforms', () => {
-    expect(doc.toLowerCase()).toContain('crash loop');
+describe('self-hosting docs: admins (H-7)', () => {
+  it('apps/auth has no boot admin check, and the docs say so', () => {
+    expect(existsSync(resolve(__dirname, '../../auth/src/startup-checks.ts'))).toBe(false);
+    expect(entry).not.toMatch(/assertConfiguredAdminsExist|startup-checks/);
+    expect(doc).toMatch(/`apps\/auth` runs no admin check at boot/);
+    expect(doc).not.toMatch(/Admin bootstrap check could not reach the database|has no account|role is not admin/);
   });
 
-  it('points operators at the bootstrap script for the provisioning case', () => {
+  it('points operators at the two-step grant script', () => {
     expect(doc).toContain('scripts/grant-admin.ts');
+    expect(doc).toContain('from\n`apps/auth/`');
+    expect(doc).toContain('`grant-admin.ts <email> --confirm <id>`');
+    expect(existsSync(resolve(__dirname, '../../auth/scripts/grant-admin.ts'))).toBe(true);
+  });
+
+  it("keeps backend's legacy ADMIN_EMAILS until the contract PR, for the rollback", () => {
+    expect(doc).toMatch(/legacy\*\* `ADMIN_EMAILS`[\s\S]*stays set on the\s+`backend` service until the contract PR/);
+  });
+});
+
+describe('self-hosting docs: two databases, two services (spec 300)', () => {
+  it('asks for two databases and runs both services', () => {
+    expect(doc).toMatch(/two databases/i);
+    expect(doc).toContain('applies packages/auth/drizzle/ to DATABASE_URL (the auth database)');
+    expect(existsSync(resolve(__dirname, '../../../packages/auth/drizzle/0000_auth_schema.sql'))).toBe(true);
+    expect(doc).toContain('pnpm auth dev');
+    expect(doc).toContain('pnpm api dev');
+  });
+
+  it('applies production migrations by psql with both flags, never by db:migrate or db:push', () => {
+    expect(doc).toContain('psql -X -v ON_ERROR_STOP=1 --single-transaction -f <file>');
+    expect(doc).toMatch(/Production migrations are \*\*not\*\* applied with `pnpm db:migrate`/);
+    expect(doc).not.toMatch(/applied with `pnpm db:migrate` \(from `apps\/api\/`\) against\s+the production/);
   });
 });

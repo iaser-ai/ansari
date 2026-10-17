@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { findThreadById } from '@/lib/db/threads';
 import { findCitableDocumentsByThread } from '@/lib/db/citable-documents';
 
@@ -14,7 +15,7 @@ type RouteContext = {
 // `messages` array; only messages with at least one citable document appear.
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

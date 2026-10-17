@@ -18,7 +18,6 @@ const API_KEY = 'test-leaderboard-key-must-be-at-least-32-chars-long';
 beforeEach(() => {
   vi.resetModules();
   process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
-  process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   process.env.GEMINI_API_KEY = 'test-gemini-key';
   process.env.KALEMAT_API_KEY = 'test-kalemat-key';
   process.env.USUL_API_TOKEN = 'test-usul-token';

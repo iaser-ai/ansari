@@ -27,7 +27,7 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 | MCP-style | `POST /api/v2/mcp-complete` (stateless completion for AI-skill integrations) |
 | Admin | `GET /api/v2/admin/stats`, `/admin/analytics` dashboard |
 
-Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing — compatible with hashes from the legacy Python backend).
+Auth is owned by `apps/auth` (Better Auth, spec 300): this service verifies its short-lived JWTs against the JWKS, and the `/v2/users/*` and password-reset routes are a compatibility layer over it with the legacy response shapes. No password, session or signing secret lives here.
 
 ## Tech Stack
 
@@ -35,7 +35,6 @@ Auth is JWT-based (access + rotating refresh tokens, bcrypt password hashing —
 - **AI**: Google Gemini via Vertex AI (preferred) or the public Gemini API, with model fallback on capacity errors
 - **Database**: PostgreSQL with Drizzle ORM (migrations in `drizzle/`)
 - **Validation**: Zod (strict env + request validation)
-- **Email**: Resend + react-email (password reset)
 - **Observability**: Sentry (optional — disabled when `SENTRY_DSN` is unset; no user content is logged)
 - **Tests**: Vitest (unit/integration)
 
@@ -47,7 +46,8 @@ cd ../.. && pnpm install && cd apps/api
 
 # Configure — see .env.example for the full contract
 cp .env.example .env
-# Required: DATABASE_URL, JWT_SECRET (32+ chars), KALEMAT_API_KEY, USUL_API_TOKEN,
+# Required: DATABASE_URL, KALEMAT_API_KEY, USUL_API_TOKEN,
+#           the AUTH_* settings in production (apps/auth),
 #           and one Gemini path (GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT + credentials).
 # NOTE: Kalemat and Usul keys are not self-serve — request them from the providers.
 
@@ -67,10 +67,9 @@ lib/            Engine: facilitator agent, Gemini client, tools, auth, db helper
   ai/prompts/   The facilitator system prompt ("the soul")
   tools/        Quran / Hadith / Mawsuah / Tafsir search + resilience wrapper
 src/app/api/    HTTP surface (v1, v2 routes)
-db/schema/      Drizzle schema (users, threads, messages, tokens, ...)
+db/schema/      Drizzle schema (users, threads, messages, deleted_users, ...)
 drizzle/        Generated SQL migrations
 tests/          Vitest suites
-emails/         react-email templates
 ```
 
 ## Deployment

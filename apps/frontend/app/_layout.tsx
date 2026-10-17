@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { isSharePath } from '@/lib/share-link';
+import { isPublicPath } from '@/lib/public-paths';
 import { ZodError } from 'zod';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -242,11 +243,11 @@ function AppFrame({ children }: { children: React.ReactNode }) {
       {/* One rail, two ways of standing. A desktop keeps it beside the
           page; a phone has no width to give it, so the same component
           arrives over the page and leaves again. */}
-      {/* Not over a shared thread: it is a public page, and the rail
-          and account cluster are the viewer's own threads and identity,
-          which a visitor may not have (see `isSharePath`). */}
-      {!isSharePath(path) && (desktop ? <Sidebar /> : <SidebarDrawer />)}
-      {!isSharePath(path) && desktop && <AccountChrome />}
+      {/* Not over a public page (a shared thread, a password reset): the
+          rail and account cluster are the viewer's own threads and
+          identity, which a visitor may not have (see `isPublicPath`). */}
+      {!isPublicPath(path) && (desktop ? <Sidebar /> : <SidebarDrawer />)}
+      {!isPublicPath(path) && desktop && <AccountChrome />}
     </PaperBackground>
   );
 }
@@ -257,14 +258,15 @@ function AppFrame({ children }: { children: React.ReactNode }) {
  * the transport knows whether it has a token. Ansari works signed-out —
  * `apps/api` serves guest and anonymous threads — so there is no forced
  * redirect: signing in is an optional add-on reached from the rail. A
- * shared thread is let through: it needs no token at all.
+ * public page (a shared thread, a password reset) is let through: it
+ * needs no token at all.
  */
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   const colors = useColors();
   const path = usePathname();
 
-  if (status === 'loading' && !isSharePath(path)) {
+  if (status === 'loading' && !isPublicPath(path)) {
     return (
       <View style={[styles.authGate, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} />
@@ -367,14 +369,14 @@ export default function RootLayout() {
 
 
 /**
- * `AuthProvider`, told whether the current route is a shared thread. The
+ * `AuthProvider`, told whether the current route is a public page. The
  * route is read here, not in `RootLayout`, so a navigation re-renders this
  * one component rather than the whole provider tree it wraps.
  */
 function RouteAuthProvider({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   return (
-    <AuthProvider deferGuest={isSharePath(path)}>
+    <AuthProvider deferGuest={isPublicPath(path)}>
       {children}
     </AuthProvider>
   );

@@ -42,7 +42,14 @@
     // is GLOBAL, so editing packages/auth/src invalidates EVERY task's cache repo-wide
     // (verified: @ansari/eslint-config#build's hash moves too), not just apps/auth's.
     // A slightly colder cache is the accepted cost of never replaying a stale result.
-    "packages/auth/src/**"
+    "packages/auth/src/**",
+
+    // Same rule for @ansari/types (spec 300): it now carries RUNTIME code, the
+    // X-Ansari-Client parser that apps/api and packages/auth (so apps/auth)
+    // import. test/typecheck/lint do not walk `workspace:*` deps, so without
+    // this entry editing the parser left ansari-api#typecheck at the same hash
+    // and a warm cache replayed a stale result. Verified both directions.
+    "packages/types/src/**"
   ],
 
   // Declared GLOBALLY rather than per-task, deliberately.
@@ -67,10 +74,11 @@
   // added because skipping it lost a real variable: step 3 is how
   // FACILITATOR_REQUEST_BUDGET_MS / FACILITATOR_SYNTHESIS_RESERVE_MS were missed,
   // and step 4 is how SENTRY_AUTH_TOKEN was missed:
-  //   1. The Zod schema in apps/api/lib/config.ts.
-  //   2. STATIC reads:  grep -rn "process\.env\.[A-Z]" apps
-  //      (FRONTEND_URL, MARKETMAKER_URL, NEXT_RUNTIME, RAILWAY_ENVIRONMENT,
-  //       RESEND_API_KEY, SENTRY_DSN, VITEST)
+  //   1. The Zod schemas: apps/api/lib/config.ts AND packages/auth/src/env.ts
+  //      (apps/auth's env; apps/auth reads nothing else).
+  //   2. STATIC reads:  grep -rn "process\.env\.[A-Z]" apps packages
+  //      (DATABASE_URL in both drizzle configs, NEXT_RUNTIME, NODE_ENV,
+  //       RAILWAY_ENVIRONMENT, SENTRY_DSN, VITEST)
   //   3. DYNAMIC reads: grep -rn "process\.env\[" apps  — then follow each
   //      call site to the string literals passed in. A static `process.env.X`
   //      pattern CANNOT see `process.env[name]`, and the failure is silent: the
@@ -95,9 +103,15 @@
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
     "CORS_ORIGIN",
-    "JWT_SECRET",
-    "ACCESS_TOKEN_EXPIRY_HOURS",
-    "REFRESH_TOKEN_EXPIRY_HOURS",
+    // apps/auth <-> apps/api (spec 300). The issuer, audience and layer origin
+    // are in BOTH Zod schemas; AUTH_URL (apps/auth's public origin) is
+    // apps/api's. There is no shared secret, internal port or rate-limit mode
+    // (owner amendment 2026-10-17). The legacy JWT_SECRET / ACCESS_ /
+    // REFRESH_TOKEN_EXPIRY_HOURS left with the legacy auth code (phase 9).
+    "AUTH_URL",
+    "AUTH_JWT_ISSUER",
+    "AUTH_JWT_AUDIENCE",
+    "AUTH_LAYER_ORIGIN",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
     "GEMINI_FALLBACK_MODEL",
@@ -120,7 +134,9 @@
     "KALEMAT_API_KEY",
     "USUL_API_TOKEN",
     "USUL_BASE_URL",
-    "ADMIN_EMAILS",
+    // FRONTEND_URL, MARKETMAKER_URL and RESEND_API_KEY below are apps/auth's
+    // since spec 300 (packages/auth env). Neither schema has an admin list any
+    // more (owner amendment 2026-10-17).
     "LEADERBOARD_API_KEY",
     "MAINTENANCE_MODE",
     "IOS_MINIMUM_BUILD_VERSION",

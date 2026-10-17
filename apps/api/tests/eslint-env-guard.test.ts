@@ -27,11 +27,13 @@ async function ruleErrors(code: string, filePath: string): Promise<string[]> {
 
 describe('no-restricted-properties env guard', () => {
   it.each([
-    ['JWT_SECRET', 'lib/auth/hypothetical.ts'],
+    ['AUTH_URL', 'lib/auth/hypothetical.ts'],
     ['DATABASE_URL', 'lib/db/hypothetical.ts'],
-    ['JWT_SECRET', 'src/app/api/v2/users/login/hypothetical.ts'],
-    ['ACCESS_TOKEN_EXPIRY_HOURS', 'lib/auth/hypothetical.ts'],
-    ['REFRESH_TOKEN_EXPIRY_HOURS', 'lib/auth/hypothetical.ts'],
+    ['AUTH_URL', 'src/app/api/v2/users/login/hypothetical.ts'],
+    ['AUTH_URL', 'lib/auth-service/hypothetical.ts'],
+    ['AUTH_JWT_ISSUER', 'lib/auth/hypothetical.ts'],
+    ['AUTH_JWT_AUDIENCE', 'lib/auth/hypothetical.ts'],
+    ['AUTH_LAYER_ORIGIN', 'lib/auth-service/hypothetical.ts'],
   ])(
     'flags process.env.%s in %s',
     async (envVar, filePath) => {
@@ -44,13 +46,13 @@ describe('no-restricted-properties env guard', () => {
   );
 
   it('flags getEnv() sidesteps outside lib/config.ts', async () => {
-    const code = `import { getEnv } from '@/lib/config';\nexport const s = getEnv().JWT_SECRET;\n`;
+    const code = `import { getEnv } from '@/lib/config';\nexport const s = getEnv().AUTH_URL;\n`;
     const errors = await ruleErrors(code, 'lib/auth/hypothetical.ts');
     expect(errors).toHaveLength(1);
   });
 
   it.each([
-    ['lib/config.ts', 'export const v = process.env.JWT_SECRET;\n'],
+    ['lib/config.ts', 'export const v = process.env.AUTH_URL;\n'],
     ['drizzle.config.ts', 'export const v = process.env.DATABASE_URL;\n'],
   ])('stays silent in allowlisted %s', async (filePath, code) => {
     const errors = await ruleErrors(code, filePath);

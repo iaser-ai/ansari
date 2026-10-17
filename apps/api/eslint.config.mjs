@@ -32,7 +32,7 @@ const eslintConfig = [
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   {
     // Config-validation bypass guard (issue #17, replaces the grepping
-    // tests/auth-config-bypass.test.ts): auth/db secrets must be read through
+    // tests/auth-config-bypass.test.ts): auth/db settings must be read through
     // the validated `config` object in lib/config.ts, never process.env.
     // Entries are property-only (no `object:` key) because ESLint matches
     // `object` against a bare identifier and cannot express the nested
@@ -42,21 +42,16 @@ const eslintConfig = [
       'no-restricted-properties': [
         'error',
         {
-          property: 'JWT_SECRET',
-          message: 'Read the JWT secret via config.auth.jwtSecret (lib/config.ts), not process.env.',
-        },
-        {
           property: 'DATABASE_URL',
           message: 'Read the database URL via config.database.url (lib/config.ts), not process.env.',
         },
-        {
-          property: 'ACCESS_TOKEN_EXPIRY_HOURS',
-          message: 'Read token expiry via config.auth.accessTokenExpiryHours (lib/config.ts), not process.env.',
-        },
-        {
-          property: 'REFRESH_TOKEN_EXPIRY_HOURS',
-          message: 'Read token expiry via config.auth.refreshTokenExpiryHours (lib/config.ts), not process.env.',
-        },
+        // apps/auth's coordinates (spec 300).
+        ...['AUTH_URL', 'AUTH_JWT_ISSUER', 'AUTH_JWT_AUDIENCE', 'AUTH_LAYER_ORIGIN'].map(
+          (property) => ({
+            property,
+            message: `Read ${property} via config.authService (lib/config.ts), not process.env.`,
+          })
+        ),
       ],
     },
   },

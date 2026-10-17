@@ -34,11 +34,20 @@ End to end against `apps/api` (staging by default — see `lib/api/config.ts`):
   sheet open. `AuthProvider` is mounted in
   `_layout.tsx` and registers the bearer-token + 401-refresh bridges for
   both `custom-fetch` and the SSE path.
+- **Sign-in is at `apps/auth`** (`lib/auth/api.ts`, spec 300): sign-in,
+  sign-up and sign-out go to `EXPO_PUBLIC_AUTH_URL`, and the session token
+  they return is exchanged at `/api/auth/token` for the JWT `apps/api`
+  accepts. One bearer transport on web, iOS and Android, no cookies
+  (`credentials: 'omit'` on every request); the JWT is attached only to
+  `apps/api` requests. A 401 from `apps/api` mints a new JWT from the session
+  (single-flight); only a 401 from `/token` signs the device out.
 - **Accountless by default, via an auto-provisioned guest.** `apps/api` has
   no true-anonymous path — every thread call needs a bearer token — so on
   first launch (nothing stored) `AuthProvider` silently registers a throwaway
   guest account and caches its credentials; after logging out of a real
-  account it drops straight back to that guest. The reader never sees an auth
+  account it drops straight back to that guest. A stored guest is replaced
+  only when apps/auth refuses its credentials (401); a rate limit, an outage
+  or no network keeps it and surfaces an error. The reader never sees an auth
   screen unless they choose to: "Log in" in the sidebar / the desktop account
   corner raises the sign-in sheet as an optional upgrade, and a real account's name + "Log
   out" then shows in the rail colophon. (Every fresh browser/device mints one
@@ -71,10 +80,11 @@ typecheck run through the graph: `pnpm exec turbo run lint typecheck --filter
 ansari-frontend...`. `typecheck` depends on `gen:types` (uniwind codegen), so
 run it through turbo, or run `pnpm gen:types` first from this directory.
 
-`lib/api/config.ts` defaults the API base URL to staging
-(`https://api-staging.askansari.ai`); override with `EXPO_PUBLIC_API_URL` in
-`.env.local` (see `.env.local.example`). That is the app's only environment
-variable.
+`lib/api/config.ts` defaults the API and auth base URLs to staging
+(`https://api-staging.askansari.ai`, `https://auth-staging.askansari.ai`);
+override them together with `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_AUTH_URL`
+in `.env.local` (see `.env.local.example`). Those are the app's only
+environment variables.
 
 Then: home screen (dark-mode-capable, sidebar, ambient palm-shadow layer) →
 ask a question and watch the answer stream in → open a past thread from the
@@ -201,9 +211,10 @@ locally — gitignored, never committed.
 custom shell in `public/index.html`. Deployment is a Caddy-served Docker
 image (`Dockerfile.web`, built from the repo root:
 `docker build -f apps/frontend/Dockerfile.web .`) on Railway; `railway.toml`
-is the reviewable record of the dashboard settings. `EXPO_PUBLIC_API_URL` is
-baked in at build time — set it on the Railway service (or leave it unset for
-the staging default); changing it requires a redeploy.
+is the reviewable record of the dashboard settings. `EXPO_PUBLIC_API_URL` and
+`EXPO_PUBLIC_AUTH_URL` are baked in at build time — set both on the Railway
+service, for the same environment (or leave both unset for the staging
+defaults); changing either requires a redeploy.
 
 ## Layout
 

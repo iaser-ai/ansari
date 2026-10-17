@@ -6,7 +6,7 @@
  * These accounts are resolved by the durable `users.system_key` column, NOT by
  * email, so a look-alike that a user pre-registers (which has no `system_key`)
  * can never receive system-attributed threads/messages. The `@system.ansari.chat`
- * domain is reserved at registration (see `isReservedAddress`).
+ * domain is reserved at sign-up by apps/auth (spec 300).
  */
 
 export const SYSTEM_EMAIL_DOMAIN = '@system.ansari.chat';

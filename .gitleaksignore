@@ -13,3 +13,19 @@ d124945f53dcf27cb68de896c25b4f006d9bba4c:backend/tests/session-version-reuse.tes
 d124945f53dcf27cb68de896c25b4f006d9bba4c:backend/tests/session-version-reuse.test.ts:generic-api-key:20
 48699228c99715e2116072e3c53fd2a0be4a0a0d:backend/tests/session-version-reuse.test.ts:generic-api-key:8
 48699228c99715e2116072e3c53fd2a0be4a0a0d:backend/tests/session-version-reuse.test.ts:generic-api-key:20
+
+# Spec 300 (Better Auth migration), PR #315: five generic-api-key findings, each a
+# DUMMY value visible beside its use, never a credential (adjudicated 2026-10-17):
+# - apps/auth/.env.example: the RESEND_API_KEY template placeholder
+#   (`re_placeholder_key_20_chars`, documented as "No real values here").
+# - codev/state/spir-300_thread.md: the same placeholder, quoted in the builder log.
+# - apps/api/tests/auth/helpers.ts: LEGACY_JWT_SECRET, the HS256 key that builds
+#   retired-legacy tokens for the refusal tests (the legacy signer is gone).
+# - layer.test.ts, legacy-users-contract.test.ts: the fixture password
+#   `Fresh-Lantern-Orchard-4`. The contract file's preamble is SHA-pinned
+#   (contract-frozen.test.ts), so the value is pinned here, not changed.
+064f06fca19611f5be34ef70de5594f3bc41f9c1:apps/auth/.env.example:generic-api-key:26
+9b497be509c7f87188582f5934d0c0cb4104cc3a:codev/state/spir-300_thread.md:generic-api-key:201
+e5be51f092321d12ec509ad4ae1f4584dd572817:apps/api/tests/auth/helpers.ts:generic-api-key:34
+6f62770f4d2297f6dfc0d4e28b2e0029964cdee3:apps/api/tests/auth/layer.test.ts:generic-api-key:443
+d9504cceecbaba270979e1232a487c3cf375cd48:apps/api/tests/contract/legacy-users-contract.test.ts:generic-api-key:78

@@ -37,6 +37,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > |---|---|
 > | backend | `apps/api/Dockerfile` |
 > | frontend (web) | `apps/frontend/Dockerfile.web` |
+> | auth | `apps/auth/Dockerfile` |
 >
 > **Watch paths** — set these per service, or Railway rebuilds *both* on every push
 > (any commit touches the root lockfile):
@@ -44,6 +45,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > ```
 > backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > ```
 >
 > `packages/**` is **not optional**. The shared config packages are copied into both
@@ -52,7 +54,29 @@ migration runbook were both proven in real releases on 2026-08-02.
 > drifts from the repo.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
-> healthcheck `/`; restart ON_FAILURE, max 3 retries.
+> healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
+> answers; timeout 300s); restart ON_FAILURE, max 3 retries.
+>
+> **auth service (spec 300)** — one listener: the public domain
+> (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as
+> a service variable. `backend` reaches it at that domain too (`AUTH_URL`), like any
+> client: no private-network hop, no shared secret (spec amendment H-1).
+> It has its OWN Railway Postgres, the auth database, with snapshots or PITR
+> enabled before its first real row, on Postgres 18 (C-4: the owner's service; in staging it
+> already exists, empty; in production it is created or found, and checked empty in window step 1).
+> Its image is the service only: no Postgres client
+> and no migration SQL. The cutover runs from the owner's machine over the Tailscale route
+> (spec amendment H-8; the runbook's "operator environment"). The two operator scripts run from
+> a checkout with the auth database's `DATABASE_URL` (`pnpm exec tsx scripts/grant-admin.ts …`,
+> `… scripts/ban-user.ts …`), or in the image from `/repo/apps/auth` with
+> `./node_modules/.bin/tsx scripts/…` (tsx directly: the image has no pnpm for its non-root user).
+>
+> **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
+> and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so both are set on the
+> Railway service and a change needs a redeploy. They name the SAME environment:
+> production `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
+> `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai` (the
+> defaults when unset). The web app signs in at `EXPO_PUBLIC_AUTH_URL` (spec 300).
 >
 > **`apps/*/railway.toml` are not read by Railway here.** This project configures
 > deployment through the dashboard with a Dockerfile path (confirmed by the operator,
@@ -110,30 +134,44 @@ migration runbook were both proven in real releases on 2026-08-02.
 
 ## Pre-promotion local smoke test
 
-Proven 2026-08-02. Run from `apps/api/` on the exact `develop` tip you are
-about to promote, with a real `.env` (see the env tables in
-`docs/self-hosting.md` — the chat step needs real AI/search keys, because it
-exercises the real model and tools, not mocks).
+Proven 2026-08-02; rewritten for Better Auth (spec 300, closes #33). Run on the exact
+`develop` tip you are about to promote, with real env files for both services (see the env
+tables in `docs/self-hosting.md` — the chat step needs real AI/search keys, because it
+exercises the real model and tools, not mocks). `apps/api` no longer signs anyone in: it
+verifies JWTs from `apps/auth`, so both services run, each on its own database.
 
-1. **Build:**
+1. **Build** (from `apps/api/`):
 
    ```bash
-   (cd ../.. && pnpm install) && pnpm build
+   (cd ../.. && pnpm install) && pnpm build && (cd ../auth && pnpm build)
    ```
 
-2. **Migrate a fresh database.** Start a disposable Postgres 16 and apply the
-   full migration chain (`apps/api/drizzle/0000_baseline.sql` → latest) to an empty
-   database — this proves a from-scratch install works, not just the
-   incremental step:
+2. **Migrate two fresh databases.** Start a disposable Postgres 18 (the production major), create the app and auth
+   databases, and apply both full journals to them — this proves a from-scratch install
+   works, not just the incremental step:
 
    ```bash
-   docker run --rm -d --name ansari-smoke -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16
+   docker run --rm -d --name ansari-smoke -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:18
+   psql postgresql://postgres:postgres@localhost:5433/postgres -X -c 'create database ansari_auth'
    export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/postgres
    pnpm db:migrate
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ansari_auth pnpm --filter @ansari/auth db:migrate
    ```
 
-3. **Boot the production build** against that database (same shell, so the
-   `DATABASE_URL` override wins over `.env`):
+   `pnpm db:migrate` applies `apps/api/drizzle/0000_baseline.sql` → latest to the app
+   database; the second command applies `packages/auth/drizzle/` (from
+   `0000_auth_schema.sql`) to the auth database.
+
+3. **Boot both production builds.** `apps/auth` first, in its own shell, from `apps/auth/`,
+   with its `DATABASE_URL` set to the auth database and its env file loaded (it listens on
+   3100):
+
+   ```bash
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ansari_auth pnpm start
+   ```
+
+   Then `apps/api`, in this shell (the `DATABASE_URL` override wins over `.env`; its
+   `AUTH_URL` is `http://localhost:3100`, `apps/auth`'s origin):
 
    ```bash
    pnpm start
@@ -143,11 +181,13 @@ exercises the real model and tools, not mocks).
 
    ```bash
    curl -fsS localhost:3000/api/health   # 200 {"status":"ok",...}
+   curl -fsS localhost:3100/health       # 200 {"status":"ok"}
    ```
 
-5. **Auth round-trip** — register, log in, fetch the authenticated profile.
-   Use a strong throwaway passphrase (the strength policy rejects weak
-   passwords with a 400; max 128 chars):
+5. **Auth round-trip, both paths.** Use a strong throwaway passphrase (the strength policy
+   rejects weak passwords with a 400; 8 to 128 characters).
+
+   The compatibility layer the released mobile app uses (`apps/api` calls `apps/auth`):
 
    ```bash
    curl -s localhost:3000/api/v2/users/register -H 'Content-Type: application/json' \
@@ -156,6 +196,19 @@ exercises the real model and tools, not mocks).
      -d '{"email":"smoke@example.com","password":"<same passphrase>"}' | jq -r .access_token)
    curl -s localhost:3000/api/v2/users/me -H "Authorization: Bearer $TOKEN"
    ```
+
+   Directly at `apps/auth`, as `apps/frontend` does (sign in, then exchange the session for a
+   JWT; the `Origin` is one of `apps/auth`'s `CORS_ORIGIN` values):
+
+   ```bash
+   SESSION=$(curl -s localhost:3100/api/auth/sign-in/email -H 'Content-Type: application/json' \
+     -H 'Origin: http://localhost:8081' \
+     -d '{"email":"smoke@example.com","password":"<same passphrase>"}' | jq -r .token)
+   JWT=$(curl -s localhost:3100/api/auth/token -H "Authorization: Bearer $SESSION" | jq -r .token)
+   curl -s localhost:3000/api/v2/users/me -H "Authorization: Bearer $JWT"
+   ```
+
+   Both `me` calls return the same id.
 
 6. **Real streamed chat with tool use:**
 
@@ -170,13 +223,26 @@ exercises the real model and tools, not mocks).
    Expect a live SSE stream showing tool activity followed by a substantive,
    cited answer. A Quran/hadith question reliably triggers tool use.
 
-7. **Teardown:** `docker stop ansari-smoke` (the container was started with
+7. **Admin bootstrap** (#33): from `apps/auth/`, with the auth database's `DATABASE_URL`,
+   grant the smoke account and confirm the admin route answers:
+
+   ```bash
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ansari_auth \
+     pnpm exec tsx scripts/grant-admin.ts smoke@example.com
+   curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/api/v2/admin/stats -H "Authorization: Bearer $TOKEN"   # 200
+   ```
+
+8. **Teardown:** `docker stop ansari-smoke` (the container was started with
    `--rm`).
 
 ## Migration release (variant)
 
-Use this variant whenever the release includes a schema change (a new file in
-`apps/api/drizzle/`).
+Use this variant whenever the release includes a schema change: a new file in
+`apps/api/drizzle/` (the **app database**) or in `packages/auth/drizzle/` (the **auth
+database**, spec 300). The two databases are separate Railway Postgres services; every step
+below names the one it touches, as `APP_DATABASE_URL` or `AUTH_DATABASE_URL`. Those two names
+exist only in the operator's Railway shell, for that session: never on a service, never in
+a file. Each service's own variable is `DATABASE_URL`.
 
 > **NEVER run `pnpm db:push` (drizzle-kit push) against production.** It
 > diffs the live schema and can drop or recreate tables — and data. The rule
@@ -192,26 +258,66 @@ Order proven for migration `0003` on 2026-08-02:
    touch, via `psql` — e.g. before `0003`, the rows its system-account
    backfill would match. Know what the migration will do to real rows before
    it does it.
-2. **Apply the reviewed SQL explicitly:**
+2. **Apply the reviewed SQL explicitly**, from the `develop` commit being promoted, and record
+   that commit with the file name in the release notes:
 
    ```bash
-   psql "$DATABASE_URL" -f apps/api/drizzle/000N_<name>.sql
+   psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f apps/api/drizzle/000N_<name>.sql
+   psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/000N_<name>.sql
    ```
 
+   **Both flags, on every apply, for both databases.** `ON_ERROR_STOP` alone stops at the
+   first error but leaves the statements before it committed; `--single-transaction` rolls
+   them back too, so a failed migration applies nothing. A statement that cannot run inside a
+   transaction (`CREATE INDEX CONCURRENTLY` and similar) goes in a migration file of its own,
+   applied without `--single-transaction`, and its PR says so. A migration's own guard (a
+   check that must abort the migration) is written as one `DO` block, so it aborts the file
+   whatever flags it is run with. For the auth journal, record `auth-journal-applied: <tag>`
+   in the release notes with the commit.
+
 3. **Run bootstrap scripts** (after the migration, before the deploy):
-   - **Admins:** from `apps/api/`, `pnpm exec tsx scripts/grant-admin.ts <email>`
-     (securely prompts for a password; creates a login-capable admin, or
-     promotes an existing account while resetting its password and revoking
-     its sessions).
+   - **Admins** live in `apps/auth` (spec 300): from `apps/auth/`, with the
+     auth database's `DATABASE_URL`, `pnpm exec tsx scripts/grant-admin.ts <email>`
+     (in the auth service's Railway shell: `./node_modules/.bin/tsx scripts/grant-admin.ts <email>`).
+     It grants the admin role to an account that already exists, in two
+     steps: `grant-admin.ts <email>` shows the account (id, email, created_at,
+     email_verified, role) and grants nothing; `grant-admin.ts <email> --confirm
+     <id>` grants exactly that account. It never creates an account or touches a
+     password, and it refuses the system domain. A new admin signs up first; a
+     warning on a recent or unverified account means: confirm the person out of
+     band before `--confirm`. There is no `ADMIN_EMAILS` on `apps/auth` (spec
+     H-7): the role in the auth database is the only admin truth.
    - **System accounts** (`ai-skill`, `leaderboard`) self-provision lazily by
      `system_key` — no manual step.
-4. **Then run the standard release checklist above.** The order matters:
-   production boot asserts that every `ADMIN_EMAILS` entry already exists as
-   an admin, so deploying before migration + bootstrap fails fast at startup
-   — by design.
+4. **Then run the standard release checklist above.** Nothing at `apps/auth`'s
+   boot checks admins (spec H-7); verify them with `grant-admin.ts --list` (or
+   the cutover's `05-audit-admins-auth.sql`).
 
 Migrations must be backward-compatible with the currently-deployed code: the
 SQL is applied while the previous deployment is still serving traffic.
+
+**The Better Auth cutover is the exception** (spec 300): it runs in a maintenance window with
+`apps/api` offline, by its own runbook, [`docs/cutover/better-auth-cutover.md`](docs/cutover/better-auth-cutover.md),
+with its rollback in [`docs/cutover/rollback.md`](docs/cutover/rollback.md). From the merge of
+the cutover PR to the end of the window, **no other migration merges** to `develop`, in either
+journal (schema freeze).
+
+**The contract migration is the second exception.** The cutover drops nothing the legacy code
+reads, so the 24-hour rollback stays a redeploy. The destructive half (dropping
+`public.users.password_hash`, `is_admin` and `session_version`, and the `tokens` table, in the
+app database) is its own reviewed PR, merged and applied only **after** the rollback deadline,
+because it is not backward-compatible with the previous deployment and rollback cannot survive
+it. Its checklist also removes `backend`'s legacy variables (`JWT_SECRET`,
+`ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`), which stay set until
+then so the rollback can boot the previous `apps/api`.
+
+**No app migration is generated between the cutover merge and the contract PR.** The latest
+`apps/api` drizzle snapshot (`0010_snapshot.json`) still records `tokens` and the three legacy
+`users` columns, and the hand-written `0011` has no snapshot. Any `drizzle-kit generate` for
+`apps/api` in that interval therefore emits their drops as a surprise diff, inside an unrelated
+migration that would run before the rollback deadline. The contract PR is the first generate; its
+SQL is checked in review to contain **only** those drops (the three columns and `tokens`), and
+nothing else.
 
 ## Rollback
 
@@ -220,6 +326,9 @@ SQL is applied while the previous deployment is still serving traffic.
   the health checks on both domains afterwards. Follow up by reverting the
   offending change on `develop` through the normal PR flow — never by
   force-pushing `main`.
+- **Within 24 hours of the Better Auth cutover:** follow
+  [`docs/cutover/rollback.md`](docs/cutover/rollback.md) instead (it also removes the users
+  created after the cutover). After that deadline, fix forward.
 - **Database:** migrations are not rolled back. They are applied manually and
   must be backward-compatible, so the previous code runs fine on the new
   schema. If a migration itself is bad, ship a corrective forward migration —

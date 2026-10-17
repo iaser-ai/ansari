@@ -57,6 +57,27 @@
       "when": 1788270290856,
       "tag": "0008_model_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792137103315,
+      "tag": "0009_better_auth_scaffold_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792137135958,
+      "tag": "0010_deleted_users",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792137140279,
+      "tag": "0011_better_auth_window",
+      "breakpoints": true
     }
   ]
 }

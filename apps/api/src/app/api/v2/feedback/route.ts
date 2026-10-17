@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { upsertFeedback } from '@/lib/db/feedback';
 import { findMessageInOwnedThread } from '@/lib/db/threads';
 import { safeErrorMeta } from '@/lib/log';
@@ -22,7 +23,7 @@ const feedbackSchema = z.object({
 // POST /api/v2/feedback - Submit feedback on a message
 export async function POST(request: NextRequest) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

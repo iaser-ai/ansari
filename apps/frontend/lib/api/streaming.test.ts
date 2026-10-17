@@ -155,3 +155,20 @@ describe('streamChat — incremental progress + empty-answer guard', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('streamChat — bearer transport, no cookies', () => {
+  it('sends credentials: omit and the bearer, on the first request and the retry', async () => {
+    const auth = await import('@/lib/api/auth-bridge');
+    vi.mocked(auth.handleUnauthorized).mockResolvedValueOnce('fresh');
+    mockFetch
+      .mockResolvedValueOnce({ status: 401, ok: false })
+      .mockResolvedValueOnce(streamingResponse(SSE));
+    await streamChat({ baseUrl: 'https://x', threadId: 't', message: 'hi' });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of mockFetch.mock.calls) {
+      expect(init.credentials).toBe('omit');
+    }
+    expect(mockFetch.mock.calls[0]![1].headers.authorization).toBe('Bearer tok');
+    expect(mockFetch.mock.calls[1]![1].headers.authorization).toBe('Bearer fresh');
+  });
+});

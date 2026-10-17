@@ -1,39 +1,22 @@
 import * as Sentry from '@sentry/nextjs';
 import type { NextRequest } from 'next/server';
+import {
+  CLIENT_HEADER,
+  CLIENT_SRC_PARAM,
+  INVALID_CLIENT,
+  parseClientId,
+} from '@ansari/types/attribution';
 
 // Per-client traffic attribution (spec 56, extended by #87).
 //
 // A single choke-point for reading the optional `X-Ansari-Client` header (with
 // a `?src=` query-param fallback for callers that cannot set headers, e.g.
 // browsing AIs fetching a URL from a published prompt) so every write path
-// attributes identically. The client id is an application identifier (not
-// PII), so it is safe to attach to Sentry and logs.
+// attributes identically. The pattern and normalisation are shared with
+// apps/auth through @ansari/types (spec 300); this wrapper adds the Sentry
+// reporting.
 
-/** HTTP header carrying the per-request client id. Case-insensitive per Fetch. */
-export const CLIENT_HEADER = 'X-Ansari-Client';
-
-/** Query param carrying the client id when the header can't be set (#87). */
-export const CLIENT_SRC_PARAM = 'src';
-
-/**
- * Reserved sentinel stored when the header is present but malformed. Distinct
- * from NULL (= header absent), so malformed traffic stays countable in the
- * `client` analytics rather than being conflated with unattributed traffic.
- * Never assigned to a real client (a client that literally sends `invalid` is
- * also treated as malformed).
- */
-export const INVALID_CLIENT = 'invalid';
-
-/**
- * First-party client ids, for readability only — NOT enforced. Partners send
- * their own id (e.g. `muslimpedia`); any value matching CLIENT_ID_PATTERN is
- * accepted (spec decision D4: sanitize, don't allowlist).
- */
-export const KNOWN_CLIENTS = ['askansari-web', 'askansari-android'] as const;
-
-// 1–64 chars, starts alphanumeric, then [a-z0-9._-]. Bounds cardinality and is
-// safe for logging, Sentry tags, and SQL.
-const CLIENT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export { CLIENT_HEADER, CLIENT_SRC_PARAM, INVALID_CLIENT, KNOWN_CLIENTS } from '@ansari/types/attribution';
 
 /**
  * Extract the per-request client id from the `X-Ansari-Client` header
@@ -55,26 +38,26 @@ const CLIENT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
  * misconfigured clients are visible without leaking user content.
  */
 export function getClientId(request: NextRequest): string | null {
-  const header = request.headers.get(CLIENT_HEADER);
-  const raw = header ?? request.nextUrl.searchParams.get(CLIENT_SRC_PARAM);
-  if (raw === null) return null;
+  const parsed = parseClientId(
+    request.headers.get(CLIENT_HEADER),
+    request.nextUrl.searchParams.get(CLIENT_SRC_PARAM)
+  );
+  if (parsed.kind === 'absent') return null;
 
-  const normalized = raw.trim().toLowerCase();
-
-  if (CLIENT_ID_PATTERN.test(normalized) && normalized !== INVALID_CLIENT) {
-    Sentry.setTag('client', normalized);
-    return normalized;
+  if (parsed.kind === 'valid') {
+    Sentry.setTag('client', parsed.clientId);
+    return parsed.clientId;
   }
 
   // Present but malformed (bad charset, too long, empty after trim, or the
   // reserved sentinel word itself) → store the sentinel and warn.
   const via =
-    header !== null ? `${CLIENT_HEADER} header` : `${CLIENT_SRC_PARAM} query param`;
+    parsed.source === 'header' ? `${CLIENT_HEADER} header` : `${CLIENT_SRC_PARAM} query param`;
   Sentry.setTag('client', INVALID_CLIENT);
   Sentry.captureMessage(`invalid ${via}`, {
     level: 'warning',
     tags: { client: INVALID_CLIENT },
-    extra: { rawTruncated: raw.slice(0, 32) },
+    extra: { rawTruncated: parsed.raw.slice(0, 32) },
   });
   return INVALID_CLIENT;
 }

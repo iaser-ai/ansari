@@ -64,10 +64,12 @@ vi.mock('@sentry/nextjs', () => ({
 }));
 
 const mockAuthenticate = vi.fn();
-vi.mock('@/lib/auth/middleware', () => ({
-  authenticateRequest: (...a: unknown[]) => mockAuthenticate(...a),
+vi.mock('@/lib/error-response', () => ({
   createErrorResponse: (detail: string, status = 400) =>
     new Response(JSON.stringify({ error: detail }), { status }),
+}));
+vi.mock('@/lib/auth/require-user', () => ({
+  requireUser: (...a: unknown[]) => mockAuthenticate(...a),
 }));
 
 const mockFindThreadById = vi.fn();
@@ -120,7 +122,6 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
-  process.env.JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
   process.env.GEMINI_API_KEY = 'test-gemini-key';
   process.env.KALEMAT_API_KEY = 'test-kalemat-key';
   process.env.USUL_API_TOKEN = 'test-usul-token';

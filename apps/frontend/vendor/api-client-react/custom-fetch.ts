@@ -31,14 +31,13 @@ export function setBaseUrl(url: string | null): void {
 
 /**
  * Register a getter that supplies a bearer auth token.  Before every fetch
- * the getter is invoked; when it returns a non-null string, an
- * `Authorization: Bearer <token>` header is attached to the request.
+ * to a RELATIVE path (one the base URL is prepended to) the getter is
+ * invoked; when it returns a non-null string, an `Authorization: Bearer
+ * <token>` header is attached to the request.  An absolute URL never gets
+ * this token: it is the `apps/api` JWT, and another origin (`apps/auth`)
+ * must not receive it.  Such a caller sets its own Authorization header.
  *
- * Useful for Expo bundles making token-gated API calls.
  * Pass `null` to clear the getter.
- *
- * NOTE: This function should never be used in web applications where session
- * token cookies are automatically associated with API calls by the browser.
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
@@ -326,6 +325,7 @@ export async function customFetch<T = unknown>(
   input: RequestInfo | URL,
   options: CustomFetchOptions = {},
 ): Promise<T> {
+  const isBaseUrlRequest = resolveUrl(input).startsWith("/");
   input = applyBaseUrl(input);
   const { responseType = "auto", headers: headersInit, ...init } = options;
 
@@ -349,9 +349,9 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
-  // Attach bearer token when an auth getter is configured and no
-  // Authorization header has been explicitly provided.
-  if (_authTokenGetter && !headers.has("authorization")) {
+  // Attach bearer token when an auth getter is configured, the request goes
+  // to the base URL, and no Authorization header has been explicitly provided.
+  if (_authTokenGetter && isBaseUrlRequest && !headers.has("authorization")) {
     const token = await _authTokenGetter();
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
@@ -360,7 +360,9 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Bearer transport on every platform: no request ever sends or stores a
+  // cookie, whatever the caller passed.
+  const response = await fetch(input, { ...init, method, headers, credentials: "omit" });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

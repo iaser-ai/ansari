@@ -31,6 +31,8 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 vi.mock('@expo/vector-icons', () => ({ Feather: () => null }));
+const routerPush = vi.hoisted(() => vi.fn());
+vi.mock('expo-router', () => ({ router: { push: routerPush } }));
 vi.mock('@/lib/haptics', () => ({ tapHaptic: () => {} }));
 // A plain Pressable: the press-scale spring is not what is under test.
 vi.mock('@/components/PressableScale', async () => {
@@ -107,6 +109,19 @@ describe('AuthSheet (issue #245)', () => {
     expect(screen.getByTestId('email-input')).toBeTruthy();
     expect(screen.getByTestId('password-input')).toBeTruthy();
     expect(screen.queryByTestId('first-name-input')).toBeNull();
+  });
+
+  it('the log-in face links to /forgot-password, and following it puts the card away', () => {
+    raise('login');
+    fireEvent.click(screen.getByTestId('auth-forgot-password'));
+    expect(routerPush).toHaveBeenCalledWith('/forgot-password');
+    expect(mode).toBeNull();
+    expect(screen.queryByTestId('sheet')).toBeNull();
+  });
+
+  it('the sign-up face has no forgot-password link', () => {
+    raise('register');
+    expect(screen.queryByTestId('auth-forgot-password')).toBeNull();
   });
 
   it('turns to sign-up in place, keeping what was typed', () => {

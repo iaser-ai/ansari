@@ -25,7 +25,7 @@ beforeAll(async () => {
     CREATE TABLE users (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       email text UNIQUE NOT NULL,
-      password_hash text NOT NULL,
+      password_hash text,
       first_name text,
       last_name text,
       source text DEFAULT 'web',
@@ -49,12 +49,15 @@ beforeEach(async () => {
 });
 
 describe('getOrCreateSystemUser', () => {
-  it('lazily creates a system row keyed by system_key with a nologin hash', async () => {
+  it('lazily creates a system row keyed by system_key with no credential', async () => {
     const user = await getOrCreateSystemUser('ai-skill');
     expect(user.systemKey).toBe('ai-skill');
     expect(user.email).toBe('ai-skill@system.ansari.chat');
-    expect(user.passwordHash).toBe('nologin');
     expect(user.source).toBe('ai-skill');
+    // users as after the window migration (0011): password_hash is nullable,
+    // and apps/api writes no credential (apps/auth holds none for it either).
+    const { rows } = await client.query(`SELECT password_hash FROM users WHERE id = $1`, [user.id]);
+    expect(rows).toEqual([{ password_hash: null }]);
   });
 
   it('is idempotent — a second call returns the same row (no duplicate)', async () => {
@@ -101,7 +104,7 @@ describe('getOrCreateSystemUser', () => {
       CREATE TABLE users (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         email text UNIQUE NOT NULL,
-        password_hash text NOT NULL,
+        password_hash text,
         first_name text,
         last_name text,
         source text DEFAULT 'web',

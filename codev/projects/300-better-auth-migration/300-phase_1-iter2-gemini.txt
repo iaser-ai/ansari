@@ -1,0 +1,24 @@
+## Phase 1 Review (Iteration 2): Legacy Contract Tests
+
+### Assessment
+
+The updates in iteration 2 cleanly address the feedback from Iteration 1 while respecting the architectural constraints of the Phase 8 compatibility layer:
+
+1. **Exact Error Detail Pinning ([legacy-users.json](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/fixtures/legacy-users.json) & [legacy-users-contract.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/legacy-users-contract.test.ts))**:
+   - Rejections whose cause remains distinguishable after the migration now have exact `values.detail` fixtures:
+     - `bearer.invalid_or_expired` (`"Invalid or expired token"`) for garbage or expired access tokens across `logout`, `GET /v2/users/me`, `DELETE /v2/users/me`, and the mobile expiry cycle.
+     - `bearer.token_not_found` (`"Token not found or expired"`) for a bearer token belonging to a deleted account (which Phase 8's tombstone check in `resolve-user.ts` can return directly).
+     - `refresh_token.invalid` (`"Invalid or expired refresh token"`) for garbage refresh tokens.
+   - `detailOneOf` is retained strictly for the two cases (`refresh_token.rejected` and `bearer.rejected`) where the post-cutover architecture (stateless JWKS verification on `apps/api` and HTTP-only `GET /api/auth/token` exchange with no auth-DB access) cannot distinguish legacy token-type mismatches from revoked/expired sessions without violating the spec or editing assertions in Phase 8.
+
+2. **Deliverables & Acceptance Criteria**:
+   - All 58 contract scenarios in [legacy-users-contract.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/legacy-users-contract.test.ts) pass against the current implementation using PGlite and the real Drizzle migration journal in [harness.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/apps/api/tests/contract/harness.ts).
+   - Mutation testing and client source audits are thoroughly documented in [spir-300_thread.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-300/codev/state/spir-300_thread.md#L90-L128).
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 contract tests and fixtures are complete, accurately pin exact error details where architecturally distinguishable, and justify the two remaining closed-set fixtures.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES: None

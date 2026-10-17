@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const REQUIRED_ENV: Record<string, string> = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
-  JWT_SECRET: 'x'.repeat(32),
   KALEMAT_API_KEY: 'placeholder-key',
   USUL_API_TOKEN: 'placeholder-token',
 };

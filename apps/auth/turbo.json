@@ -1,0 +1,32 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The apps/auth suites build their pglite database from packages/auth's
+    // journal and reuse its test helpers. Neither is in this package's task
+    // hash by default (globalDependencies carries packages/auth/src only), so
+    // without these inputs a warm cache would replay apps/auth's tests after
+    // the schema or the helpers changed. tests/frontend-client.test.ts runs
+    // apps/frontend's apps/auth client (and the files it imports) against
+    // the service, so those files are inputs too; that test fails if the
+    // client imports a file outside them. tests/cutover/copy.test.ts builds
+    // the APP database from apps/api's journal, so a change there re-runs it.
+    // tests/client-ip.test.ts and tests/public-face.test.ts read the edge
+    // header shapes in docs/cutover/edge-header-shapes.json; client-ip.test.ts
+    // also reads rehearsal.md's verdict line (provisional shapes cannot ship).
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.ci",
+        "$TURBO_ROOT$/packages/auth/drizzle/**",
+        "$TURBO_ROOT$/packages/auth/tests/helpers/**",
+        "$TURBO_ROOT$/apps/frontend/lib/auth/**",
+        "$TURBO_ROOT$/apps/frontend/lib/api/wire-schemas.ts",
+        "$TURBO_ROOT$/apps/frontend/vendor/api-client-react/custom-fetch.ts",
+        "$TURBO_ROOT$/apps/api/drizzle/**",
+        "$TURBO_ROOT$/docs/cutover/edge-header-shapes.json",
+        "$TURBO_ROOT$/docs/cutover/rehearsal.md"
+      ]
+    }
+  }
+}

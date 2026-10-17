@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import {
   findThreadById,
   updateThread,
@@ -39,7 +40,7 @@ function formatMessageContent(content: ContentBlock[]): string | ContentBlock[] 
 // GET /api/v2/threads/[id] - Get thread with messages
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }
@@ -83,7 +84,7 @@ const updateThreadSchema = z.object({
 // PATCH /api/v2/threads/[id] - Update thread (rename)
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }
@@ -125,7 +126,7 @@ const chatSchema = z.object({
 // (Frontend calls this endpoint, not /threads/[id]/chat)
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }
@@ -335,7 +336,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 // DELETE /api/v2/threads/[id] - Delete thread
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

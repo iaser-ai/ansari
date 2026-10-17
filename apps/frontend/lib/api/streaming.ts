@@ -75,6 +75,7 @@ async function runStream(
     headers,
     body,
     signal: params.signal,
+    credentials: 'omit',
   });
 
   if (response.status === 401) throw new UnauthorizedStreamError();

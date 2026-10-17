@@ -1,4 +1,4 @@
-import type { RegisterInput } from '@/lib/auth/api';
+import type { RegisterInput } from './api';
 
 /**
  * Guest sessions: register a throwaway account with random credentials, matching

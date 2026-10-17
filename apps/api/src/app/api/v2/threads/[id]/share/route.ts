@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest, createErrorResponse } from '@/lib/auth/middleware';
+import { createErrorResponse } from '@/lib/error-response';
+import { requireUser } from '@/lib/auth/require-user';
 import { createThreadSnapshot } from '@/lib/db/shares';
 
 type RouteContext = {
@@ -9,7 +10,7 @@ type RouteContext = {
 // POST /api/v2/threads/[id]/share - Create a shareable link for a thread
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authResult = await authenticateRequest(request);
+    const authResult = await requireUser(request);
     if ('error' in authResult) {
       return authResult.error;
     }

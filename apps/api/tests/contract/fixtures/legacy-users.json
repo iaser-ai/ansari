@@ -1,0 +1,246 @@
+{
+  "$comment": "Frozen wire contract of the legacy /v2/users/* surface and the two password-reset routes, pinned against the pre-migration apps/api (spec 300, plan phase 1). `shape` is the EXACT key set with each value's type (string | null | uuid | iso-datetime). `values` pins literal values. `detailOneOf` is used ONLY where the post-migration backend cannot recover today's distinct cause (a refresh 401 from apps/auth, or an opaque non-JWT bearer): the status and the set are frozen, the specific member is not. Every other detail is exact. Phase 8 must pass against these files unedited.",
+
+  "register.ok": {
+    "status": 200,
+    "shape": { "status": "string", "access_token": "string", "refresh_token": "string", "token_type": "string" },
+    "values": { "status": "success", "token_type": "bearer" }
+  },
+  "register.invalid_email": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid email format" }
+  },
+  "register.password_too_short": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Password must be at least 8 characters" }
+  },
+  "register.password_too_long": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Password must be at most 128 characters" }
+  },
+  "register.invalid_email_and_short_password": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid email format, Password must be at least 8 characters" }
+  },
+  "register.missing_fields": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid input: expected string, received undefined, Invalid input: expected string, received undefined" }
+  },
+  "register.email_taken": {
+    "status": 409,
+    "shape": { "detail": "string" },
+    "values": { "detail": "An account with this email already exists" }
+  },
+  "register.weak_password": {
+    "status": 400,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Password is too weak. Add uppercase letters Add numbers Add special characters" }
+  },
+  "register.malformed_json": {
+    "status": 500,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Registration failed" }
+  },
+
+  "login.ok": {
+    "status": 200,
+    "shape": {
+      "status": "string",
+      "access_token": "string",
+      "refresh_token": "string",
+      "token_type": "string",
+      "first_name": "string",
+      "last_name": "string"
+    },
+    "values": { "status": "success", "token_type": "bearer" }
+  },
+  "login.ok_null_names": {
+    "status": 200,
+    "shape": {
+      "status": "string",
+      "access_token": "string",
+      "refresh_token": "string",
+      "token_type": "string",
+      "first_name": "string",
+      "last_name": "string"
+    },
+    "values": { "status": "success", "token_type": "bearer", "first_name": "", "last_name": "" }
+  },
+  "login.invalid_credentials": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid email or password" }
+  },
+  "login.invalid_email": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid email format" }
+  },
+  "login.missing_password": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Password is required" }
+  },
+  "login.malformed_json": {
+    "status": 500,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Login failed" }
+  },
+
+  "refresh_token.ok": {
+    "status": 200,
+    "shape": { "access_token": "string", "refresh_token": "string", "token_type": "string" },
+    "values": { "token_type": "bearer" }
+  },
+  "refresh_token.invalid": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid or expired refresh token" }
+  },
+  "refresh_token.rejected": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "detailOneOf": [
+      "Invalid or expired refresh token",
+      "Invalid token type",
+      "Refresh token not found or expired",
+      "Session no longer valid"
+    ]
+  },
+  "refresh_token.missing": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Refresh token is required" }
+  },
+  "refresh_token.malformed_json": {
+    "status": 500,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Token refresh failed" }
+  },
+
+  "logout.ok": {
+    "status": 200,
+    "shape": { "message": "string" },
+    "values": { "message": "Successfully logged out" }
+  },
+
+  "me.get.ok": {
+    "status": 200,
+    "shape": {
+      "id": "uuid",
+      "email": "string",
+      "first_name": "string",
+      "last_name": "string",
+      "source": "string",
+      "created_at": "iso-datetime",
+      "updated_at": "iso-datetime"
+    },
+    "values": { "source": "web" }
+  },
+  "me.get.ok_null_names": {
+    "status": 200,
+    "shape": {
+      "id": "uuid",
+      "email": "string",
+      "first_name": "null",
+      "last_name": "null",
+      "source": "string",
+      "created_at": "iso-datetime",
+      "updated_at": "iso-datetime"
+    },
+    "values": { "source": "web" }
+  },
+  "me.delete.ok": {
+    "status": 200,
+    "shape": { "message": "string" },
+    "values": { "message": "Account successfully deleted" }
+  },
+
+  "request_password_reset.ok": {
+    "status": 200,
+    "shape": { "status": "string" },
+    "values": { "status": "success" }
+  },
+  "request_password_reset.invalid_email": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid email format" }
+  },
+  "request_password_reset.malformed_json": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid request body" }
+  },
+
+  "reset_password.ok": {
+    "status": 200,
+    "shape": { "status": "string" },
+    "values": { "status": "success" }
+  },
+  "reset_password.invalid_token": {
+    "status": 400,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid or expired reset token" }
+  },
+  "reset_password.weak_password": {
+    "status": 400,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Password is too weak. Add uppercase letters Add numbers Add special characters" }
+  },
+  "reset_password.missing_token": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "reset_token is required" }
+  },
+  "reset_password.missing_password": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "new_password is required" }
+  },
+  "reset_password.password_too_long": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "new_password must be at most 128 characters" }
+  },
+  "reset_password.malformed_json": {
+    "status": 422,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid request body" }
+  },
+
+  "bearer.missing": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Not authenticated" }
+  },
+  "bearer.invalid_or_expired": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Invalid or expired token" }
+  },
+  "bearer.token_not_found": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Token not found or expired" }
+  },
+  "bearer.rejected": {
+    "status": 401,
+    "shape": { "detail": "string" },
+    "detailOneOf": [
+      "Invalid or expired token",
+      "Invalid token type",
+      "Token not found or expired",
+      "Session no longer valid"
+    ]
+  },
+  "admin.forbidden": {
+    "status": 403,
+    "shape": { "detail": "string" },
+    "values": { "detail": "Admin access required" }
+  }
+}

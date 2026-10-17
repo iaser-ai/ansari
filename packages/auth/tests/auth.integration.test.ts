@@ -3,25 +3,15 @@
 // lessons-critical: a helper that no-ops against a mock passes every test while
 // committing nothing. This drives the actual sign-up → sign-in → session →
 // sign-out path and asserts on real rows.
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 
 import { createAuth, schema, type Auth, type Db } from '../src/index';
-
-// The generated migration IS the artifact under test — apply the exact SQL a
-// deploy would, so the test fails if the migration and the schema ever diverge.
-const migrationSql = readFileSync(
-  fileURLToPath(new URL('../drizzle/0000_better_auth_init.sql', import.meta.url)),
-  'utf8'
-);
+import { drizzleFor, migrate, setAuthEnv } from './helpers/auth-db';
 
 let client: PGlite;
 let auth: Auth;
-let db: ReturnType<typeof drizzle>;
+let db: Db;
 
 const testUser = {
   name: 'Test User',
@@ -31,19 +21,13 @@ const testUser = {
 
 beforeAll(async () => {
   // createAuth() reads env via getEnv(); set a valid, fake env before it runs.
-  process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
-  process.env.BETTER_AUTH_SECRET = 'test-secret-at-least-32-characters-long-000';
-  process.env.BETTER_AUTH_URL = 'http://localhost:3100';
-  process.env.CORS_ORIGIN = 'http://localhost:3100';
-  process.env.NODE_ENV = 'test';
+  setAuthEnv('http://localhost:3100');
 
-  client = new PGlite();
-  // `--> statement-breakpoint` lines are SQL comments (`--`), so pglite ignores
-  // them; the whole file runs as one multi-statement exec.
-  await client.exec(migrationSql);
-
-  db = drizzle(client, { schema });
-  auth = createAuth(db as unknown as Db);
+  // The migration journal IS the artifact under test: apply the exact SQL a
+  // deploy would, so the test fails if the migration and the schema diverge.
+  client = await migrate();
+  db = drizzleFor(client);
+  auth = createAuth(db);
 });
 
 afterAll(async () => {
@@ -51,11 +35,11 @@ afterAll(async () => {
 });
 
 describe('Better Auth email/password over a real database', () => {
-  it('sign-up creates exactly one row in "user"', async () => {
+  it('sign-up creates exactly one row in auth.users', async () => {
     const result = await auth.api.signUpEmail({ body: testUser });
     expect(result.user.email).toBe(testUser.email);
 
-    const users = await db.select().from(schema.user);
+    const users = await db.select().from(schema.users);
     expect(users).toHaveLength(1);
     expect(users[0]?.email).toBe(testUser.email);
   });

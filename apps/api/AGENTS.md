@@ -8,8 +8,8 @@
 The Ansari backend: a Next.js API serving an Islamic AI assistant. A
 Gemini-powered facilitator (`lib/facilitator/`) answers questions by calling
 Islamic search tools (`lib/tools/`: Quran, Hadith, Mawsuah, Tafsir) and citing
-results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), JWT auth
-(`lib/auth/`), SSE streaming responses.
+results. Postgres via Drizzle (`db/schema/`, migrations in `drizzle/`), auth by
+verifying apps/auth's JWTs (`lib/auth/`), SSE streaming responses.
 
 ## Commands
 

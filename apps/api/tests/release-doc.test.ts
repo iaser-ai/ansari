@@ -65,13 +65,45 @@ describe('RELEASE.md consistency', () => {
     // preceded by `apps`, so the lookbehind separates the two cleanly.
     const paths = [
       ...new Set([...doc.matchAll(/(?<!apps)\/api\/[A-Za-z0-9_$/[\]-]+/g)].map((m) => m[0])),
-    ];
+    ].filter((p) => !p.startsWith('/api/auth/'));
     expect(paths.length).toBeGreaterThan(3);
     for (const apiPath of paths) {
       const routePath = apiPath.replace('$THREAD', '[id]');
       const routeFile = resolve(apiDir, 'src/app', `.${routePath}`, 'route.ts');
       expect(existsSync(routeFile), `${apiPath} has no route at ${routeFile}`).toBe(true);
     }
+  });
+
+  it("references only apps/auth's own endpoints under /api/auth/ (served by apps/auth, not apps/api)", () => {
+    // Better Auth's router serves these on apps/auth; the contract suite
+    // (apps/auth/tests/frontend-client.test.ts) pins each one's behaviour.
+    const known = new Set(['/api/auth/sign-in/email', '/api/auth/sign-up/email', '/api/auth/token', '/api/auth/jwks']);
+    const authPaths = [...new Set([...doc.matchAll(/\/api\/auth\/[A-Za-z0-9_/-]+/g)].map((m) => m[0]))];
+    expect(authPaths.length).toBeGreaterThan(0);
+    for (const authPath of authPaths) {
+      expect(known.has(authPath), `${authPath} is not a pinned apps/auth endpoint`).toBe(true);
+    }
+  });
+
+  it('applies every migration with ON_ERROR_STOP and --single-transaction, naming the database', () => {
+    const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l) || /psql .*--single-transaction \\$/.test(l));
+    // The two production applies (app + auth); the fresh-database smoke uses db:migrate.
+    expect(applies.length).toBeGreaterThanOrEqual(2);
+    for (const line of applies) {
+      expect(line, `apply without both flags: "${line.trim()}"`).toMatch(/-v ON_ERROR_STOP=1 --single-transaction/);
+    }
+    expect(doc).toContain('psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f apps/api/drizzle/');
+    expect(doc).toContain('psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/');
+    // The old unflagged form must not come back.
+    expect(doc).not.toMatch(/psql "\$DATABASE_URL" -f/);
+  });
+
+  it('points at the cutover runbook and its rollback, which exist', () => {
+    for (const rel of ['docs/cutover/better-auth-cutover.md', 'docs/cutover/rollback.md']) {
+      expect(doc).toContain(rel);
+      expect(existsSync(resolve(repoRoot, rel)), `${rel} missing`).toBe(true);
+    }
+    expect(doc).toMatch(/schema freeze/i);
   });
 
   it('only references repo files that exist', () => {
@@ -86,9 +118,11 @@ describe('RELEASE.md consistency', () => {
       expect(doc, `expected RELEASE.md to reference ${rel}`).toContain(rel);
       expect(existsSync(resolve(repoRoot, rel)), `${rel} referenced but missing`).toBe(true);
     }
-    // Referenced relative to apps/api/ in the doc:
+    // Referenced relative to apps/auth/ in the doc (spec 300 moved it there):
+    expect(doc).toContain('from `apps/auth/`');
     expect(doc).toContain('scripts/grant-admin.ts');
-    expect(existsSync(resolve(apiDir, 'scripts/grant-admin.ts'))).toBe(true);
+    expect(existsSync(resolve(repoRoot, 'apps/auth/scripts/grant-admin.ts'))).toBe(true);
+    expect(existsSync(resolve(apiDir, 'scripts/grant-admin.ts'))).toBe(false);
   });
 
   it('pins exactly the two production health-check domains', () => {
