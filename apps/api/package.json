@@ -31,7 +31,7 @@
   "dependencies": {
     "@ansari/types": "workspace:*",
     "@google/genai": "^2.19.0",
-    "@sentry/nextjs": "^10.39.0",
+    "@sentry/nextjs": "^11.8.0",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.9",
     "next": "^15.5.25",
