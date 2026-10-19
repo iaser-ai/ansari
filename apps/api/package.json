@@ -45,7 +45,7 @@
     "@ansari/eslint-config": "workspace:*",
     "@ansari/tsconfig": "workspace:*",
     "@electric-sql/pglite": "^0.5.3",
-    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/eslintrc": "^3.3.7",
     "@testing-library/react": "^16.3.2",
     "bcrypt": "^6.0.0",
     "@types/bcrypt": "^6.0.0",
