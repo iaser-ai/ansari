@@ -35,7 +35,7 @@
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
     "dotenv": "^17.2.3",
-    "drizzle-kit": "^0.31.8",
+    "drizzle-kit": "^0.31.11",
     "eslint": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
