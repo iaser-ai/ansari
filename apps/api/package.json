@@ -37,7 +37,7 @@
     "next": "^15.5.25",
     "pg": "^8.17.2",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "react-dom": "^19.3.1",
     "recharts": "^3.7.0",
     "zod": "^4.3.5"
   },
@@ -52,7 +52,7 @@
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.9",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^4.1.11",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
