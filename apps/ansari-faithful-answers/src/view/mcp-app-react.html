@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      No Content-Security-Policy here: the build derives it from the application's content policy and
+      embeds it, with that policy's configuration, in the document it writes (embed-document.ts).
+    -->
+    <title>{{brand.name}}</title>
+    <meta name="ansari-release" content="{{release}}" />
+    <meta name="ansari-sdk" content="{{sdk.version}}" />
+  </head>
+  <body data-release="{{release}}" data-sdk-kind="{{sdk.kind}}" data-sdk-version="{{sdk.version}}" data-sdk-source="{{sdk.source}}" data-sdk-stack-sha256="{{sdk.stackSha256}}" data-sdk-set-sha256="{{sdk.setSha256}}">
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

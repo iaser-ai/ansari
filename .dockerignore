@@ -14,3 +14,8 @@
 **/.env.local
 **/.env.*.local
 apps/frontend/google-service-account
+# Cloudflare Worker local state and secrets (apps/ansari-faithful-answers)
+**/.dev.vars
+**/.dev.vars.*
+**/.wrangler
+**/dist-worker

@@ -1,0 +1,32 @@
+name: Standalone public packages
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+permissions:
+  contents: read
+jobs:
+  standalone:
+    name: Standalone public packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+      - name: Install Chromium system dependencies
+        working-directory: apps/ansari-faithful-answers
+        run: pnpm dlx playwright@1.64.0 install-deps chromium
+      - name: Install destination lockfile
+        run: pnpm install --frozen-lockfile --filter ansari-faithful-answers...
+      - name: Verify application against destination lockfile
+        run: |
+          pnpm --filter ansari-faithful-answers exec playwright install chromium
+          pnpm --filter ansari-faithful-answers verify
+      - name: Verify isolated public installation, tests and normal Docker image
+        run: bash apps/ansari-faithful-answers/scripts/verify-standalone.sh

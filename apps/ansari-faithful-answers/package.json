@@ -1,0 +1,55 @@
+{
+  "name": "ansari-faithful-answers",
+  "version": "0.16.5",
+  "private": true,
+  "type": "module",
+  "description": "Ansari's MCP application with the SAGA React FaithfulCard",
+  "engines": {
+    "node": ">=22.18.0",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "start": "node dist/server/index.js",
+    "dev": "tsx src/node/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:browser": "tsx test/browser.ts",
+    "verify": "pnpm typecheck && pnpm build && pnpm build:worker && pnpm test && pnpm test:browser",
+    "check:release": "node scripts/check-release.mjs",
+    "build:worker": "tsx scripts/build.ts worker",
+    "guard:dev-vars": "test ! -e .dev.vars || { echo 'A generic .dev.vars is read by every environment: rename it to .dev.vars.<env> for the one environment it belongs to.' >&2; exit 1; }",
+    "dev:worker:dev": "pnpm guard:dev-vars && pnpm build:worker && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev --env dev",
+    "dev:worker:beta": "pnpm guard:dev-vars && pnpm build:worker && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev --env beta",
+    "dev:worker:production": "pnpm guard:dev-vars && pnpm build:worker && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev --env production",
+    "deploy:worker:dev": "pnpm build:worker && wrangler deploy --env dev --var ANSARI_RELEASE:$(git rev-parse HEAD)",
+    "deploy:worker:beta": "pnpm build:worker && wrangler deploy --env beta --var ANSARI_RELEASE:$(git rev-parse HEAD)",
+    "deploy:worker:production": "pnpm build:worker && wrangler deploy --env production --var ANSARI_RELEASE:$(git rev-parse HEAD)"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.19.17",
+    "@modelcontextprotocol/hono": "2.0.2",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@saga-a2ui/react-mcp-stack": "0.7.6-rc.1",
+    "hono": "4.13.13",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@playwright/test": "1.64.0",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.1",
+    "tsx": "4.22.0",
+    "typescript": "~6.0.3",
+    "vite": "6.4.1",
+    "vite-plugin-singlefile": "2.3.0",
+    "wrangler": "4.151.3"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "license": "MIT"
+}

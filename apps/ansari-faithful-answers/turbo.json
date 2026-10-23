@@ -1,0 +1,63 @@
+{
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": []
+    },
+    "typecheck": {
+      "dependsOn": []
+    },
+    "test": {
+      "dependsOn": [
+        "build",
+        "build:worker"
+      ]
+    },
+    "test:browser": {
+      "dependsOn": [
+        "build"
+      ],
+      "cache": false
+    },
+    "dev": {
+      "dependsOn": [
+        "build"
+      ],
+      "env": [
+        "PORT",
+        "ANSARI_API_BASE_URL",
+        "ANSARI_API_AUTHORIZATION",
+        "ANSARI_CLIENT",
+        "MCP_ALLOWED_HOSTS",
+        "MCP_ALLOWED_ORIGINS",
+        "MCP_RESPONSE_MODE",
+        "ANSARI_RELEASE",
+        "RAILWAY_GIT_COMMIT_SHA"
+      ],
+      "cache": false,
+      "persistent": true
+    },
+    "start": {
+      "env": [
+        "PORT",
+        "ANSARI_API_BASE_URL",
+        "ANSARI_API_AUTHORIZATION",
+        "ANSARI_CLIENT",
+        "MCP_ALLOWED_HOSTS",
+        "MCP_ALLOWED_ORIGINS",
+        "MCP_RESPONSE_MODE",
+        "ANSARI_RELEASE",
+        "RAILWAY_GIT_COMMIT_SHA"
+      ],
+      "cache": false,
+      "persistent": true
+    },
+    "build:worker": {
+      "dependsOn": [
+        "build"
+      ]
+    }
+  }
+}

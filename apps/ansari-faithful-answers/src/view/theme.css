@@ -1,0 +1,418 @@
+/*
+ * Ansari theme for the shared React FaithfulCard: the approved 8 October floral design (balanced light
+ * and Soft Malachite dark). This stylesheet and floral-artwork.ts are the whole branding: the card's
+ * component supplies structure and the documented `--saga-card-*` tokens, and nothing here is selected
+ * by an answer. Colors are the app's own `--ansari-*` properties, which the host-theme adapter
+ * (`applyHostTheme`) overwrites on the root from the host's context; the values below are the
+ * pre-connection fallbacks and equal branding.ts (a test asserts it).
+ *
+ * Reading profile. The adapter owns host recognition and publishes `--ansari-wide-reading-scale` on
+ * the root (1 for a desktop host, 1.6 for a device profile). Here the scale becomes the card's
+ * effective font size, line length and spacing; the document root is never transformed.
+ *
+ * Numbering. The card's `ol` and `li` keep their native list semantics (`start`, nesting, assistive
+ * technology announcements). The floral disk is the `li`'s `::before`, showing the browser's own
+ * `list-item` counter, so a list that starts at 3, or nests, displays the number its markup carries. The
+ * disk is generated content with an empty alternative text, so it is never announced twice.
+ */
+:root {
+  color-scheme: light dark;
+  --ansari-reading-scale: 1;
+  --ansari-font-body: 'Kitab';
+  --ansari-surface: light-dark(#ffffff, #14191c);
+  --ansari-backdrop: light-dark(#ffffff, #14191c);
+  --ansari-ink: light-dark(#172235, #eef1f4);
+  --ansari-secondary: light-dark(#556275, #b9c4cd);
+  --ansari-line: light-dark(#c3ced2, #607c70);
+  --ansari-accent: light-dark(#0b5a46, #7fd1b5);
+  --ansari-code: light-dark(#eef2f3, #222b30);
+  --ansari-link: light-dark(#15583e, #c0d7c6);
+  --ansari-numeral: light-dark(#15583e, #c0d7c6);
+  --ansari-mark-surface: light-dark(#15583e, #1f6b4c);
+  --ansari-art-flourish: var(--ansari-art-light-flourish);
+  --ansari-art-marker: var(--ansari-art-light-marker);
+  --ansari-art-separator: var(--ansari-art-light-separator);
+}
+
+/* Separate dark artwork, never a filter of the light: by the host's theme, else by the system's. */
+:root[data-theme='dark'] {
+  --ansari-art-flourish: var(--ansari-art-dark-flourish);
+  --ansari-art-marker: var(--ansari-art-dark-marker);
+  --ansari-art-separator: var(--ansari-art-dark-separator);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ansari-art-flourish: var(--ansari-art-dark-flourish);
+    --ansari-art-marker: var(--ansari-art-dark-marker);
+    --ansari-art-separator: var(--ansari-art-dark-separator);
+  }
+}
+
+/* Only a device reading profile (set by the adapter) enlarges the rhythm, and only on a wide view. */
+@media (min-width: 900px) {
+  :root {
+    --ansari-reading-scale: var(--ansari-wide-reading-scale, 1);
+  }
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  background: var(--ansari-backdrop);
+  color: var(--ansari-ink);
+  font-family: var(--ansari-font-body);
+  font-synthesis: none;
+}
+
+.answer-status {
+  margin: 0;
+  padding: 20px;
+  white-space: pre-wrap;
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--ansari-ink);
+}
+
+.answer-status:empty {
+  display: none;
+}
+
+/* ---- The card: width, typography, colors --------------------------------------------------- */
+.answer-card {
+  --rs: var(--ansari-reading-scale, 1);
+  --marker-size: calc(64px * var(--rs));
+  --marker-gap: calc(18px * var(--rs));
+  --marker-font: calc(25px * var(--rs));
+  --card-padding-inline: calc(34px * var(--rs));
+  --saga-card-font-family: var(--ansari-font-body);
+  font-synthesis: none;
+  --saga-card-font-size: calc(18px * var(--rs));
+  --saga-card-line-height: 1.48;
+  --saga-card-reading-width: 100%;
+  --saga-card-text-color: var(--ansari-ink);
+  --saga-card-accent-color: var(--ansari-link);
+  --saga-card-muted-color: var(--ansari-secondary);
+  --saga-card-border-color: var(--ansari-line);
+  --saga-card-code-background: var(--ansari-code);
+  box-sizing: border-box;
+  max-width: calc(680px * var(--rs));
+  margin: 0 auto;
+  padding: calc(12px * var(--rs)) var(--card-padding-inline) calc(24px * var(--rs));
+  background: var(--ansari-surface);
+  border-radius: calc(12px * var(--rs));
+  font-family: var(--ansari-font-body);
+  font-synthesis: none;
+  color: var(--ansari-ink);
+}
+
+.answer-card[hidden] {
+  display: none;
+}
+
+/* ---- Header: the question, with the flourish at the top right ------------------------------ */
+.answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(24px * var(--rs));
+  min-height: calc(94px * var(--rs));
+}
+
+.answer-question {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--ansari-font-body);
+  font-synthesis: none;
+  font-size: calc(26px * var(--rs));
+  font-weight: 700;
+  line-height: 1.24;
+  letter-spacing: calc(-0.65px * var(--rs));
+  overflow-wrap: anywhere;
+}
+
+/* Tracking drops optional Arabic ligatures, such as the name of Allah. */
+.answer-question:dir(rtl) {
+  letter-spacing: 0;
+}
+
+.answer-header::after {
+  content: '';
+  flex: none;
+  width: calc(94px * var(--rs));
+  height: calc(94px * var(--rs));
+  margin-inline-start: auto;
+  background: var(--ansari-art-flourish) center / contain no-repeat;
+}
+
+/* ---- Content ------------------------------------------------------------------------------- */
+.answer-card .saga-card-content p {
+  margin: 0 0 calc(22px * var(--rs));
+}
+
+.answer-card .saga-card-content strong {
+  font-weight: 700;
+}
+
+.answer-card .saga-card-content :is(h3, h4, h5, h6) {
+  margin: calc(22px * var(--rs)) 0 calc(12px * var(--rs));
+  font-size: calc(20px * var(--rs));
+  line-height: 1.35;
+}
+
+/* Kitab has no Arabic italic, so right-to-left emphasis is weight, not a fake slant. */
+.answer-card .saga-card-content em:dir(rtl) {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.answer-card .saga-card-content :is(ul, ol) {
+  margin: calc(18px * var(--rs)) 0 calc(24px * var(--rs));
+}
+
+.answer-card .saga-card-content ul {
+  padding-inline-start: calc(24px * var(--rs));
+}
+
+.answer-card .saga-card-content ul > li {
+  margin: calc(12px * var(--rs)) 0;
+  padding-inline-start: calc(4px * var(--rs));
+}
+
+.answer-card .saga-card-content li :is(ul, ol) {
+  margin: calc(12px * var(--rs)) 0;
+}
+
+.answer-card .saga-card-content blockquote {
+  margin: calc(20px * var(--rs)) 0;
+  padding-inline-start: calc(18px * var(--rs));
+  border-inline-start: calc(2px * var(--rs)) solid var(--ansari-line);
+}
+
+.answer-card .saga-card-content pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.answer-card .saga-card-content code {
+  font-size: 0.9em;
+}
+
+.answer-card .saga-card-link {
+  text-underline-offset: calc(2px * var(--rs));
+  text-decoration-thickness: calc(1px * var(--rs));
+}
+
+.answer-card .saga-card-link:hover {
+  text-decoration-thickness: calc(2px * var(--rs));
+}
+
+.answer-card .saga-card-link:focus-visible {
+  outline: calc(2px * var(--rs)) solid var(--ansari-link);
+  outline-offset: calc(2px * var(--rs));
+  border-radius: 3px;
+}
+
+/* ---- Floral numbering and botanical rules -------------------------------------------------- */
+.answer-card .saga-card-content ol {
+  padding: 0;
+  margin-block: calc(27px * var(--rs)) calc(30px * var(--rs));
+}
+
+.answer-card .saga-card-content ol > li {
+  position: relative;
+  min-height: var(--marker-size);
+  padding-inline-start: calc(var(--marker-size) + var(--marker-gap));
+}
+
+/* The native marker is replaced by the disk; the list keeps its list semantics. */
+.answer-card .saga-card-content ol > li::marker {
+  content: '';
+}
+
+.answer-card .saga-card-content ol > li::before {
+  content: counter(list-item);
+  content: counter(list-item) / '';
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--marker-size);
+  height: var(--marker-size);
+  background: var(--ansari-art-marker) center / contain no-repeat;
+  color: var(--ansari-numeral);
+  font-size: var(--marker-font);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/*
+ * A fine rule with a small botanical ornament between numbered items. The item always holds at
+ * least the disk's height, and the rule sits in room reserved below that, so a short item never
+ * lets the disk touch the rule.
+ */
+.answer-card .saga-card-content ol > li:not(:last-child) {
+  padding-block-end: calc(51px * var(--rs));
+}
+
+.answer-card .saga-card-content ol > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: calc(11px * var(--rs));
+  height: calc(24px * var(--rs));
+  background:
+    var(--ansari-art-separator) center / calc(50px * var(--rs)) calc(24px * var(--rs)) no-repeat,
+    linear-gradient(
+        to right,
+        var(--ansari-line) 0,
+        var(--ansari-line) calc(50% - 31px * var(--rs)),
+        transparent calc(50% - 31px * var(--rs)),
+        transparent calc(50% + 31px * var(--rs)),
+        var(--ansari-line) calc(50% + 31px * var(--rs)),
+        var(--ansari-line) 100%
+      )
+      center / 100% calc(1px * var(--rs)) no-repeat;
+}
+
+.answer-card .saga-card-content ol > li > p {
+  margin: calc(3px * var(--rs)) 0 0;
+}
+
+.answer-card .saga-card-content ol > li > p + p {
+  margin-top: calc(12px * var(--rs));
+}
+
+/* A numbered heading group: the section title leads its item. */
+.answer-card .saga-card-content ol > li > :is(h3, h4, h5, h6):first-child {
+  margin: calc(3px * var(--rs)) 0 calc(8px * var(--rs));
+  font-size: inherit;
+  letter-spacing: calc(-0.4px * var(--rs));
+}
+
+.answer-card .saga-card-content ol > li > :is(h3, h4, h5, h6):first-child:dir(rtl) {
+  letter-spacing: 0;
+}
+
+/* Nested numbering: the smaller disk; the rule and its ornament are the same as the outer list's. */
+.answer-card .saga-card-content li ol > li {
+  --marker-size: calc(44px * var(--rs));
+  --marker-gap: calc(12px * var(--rs));
+  --marker-font: calc(20px * var(--rs));
+}
+
+/* ---- Attribution footer --------------------------------------------------------------------
+ * The answer's supplied closing attribution paragraph, in place. `data-attribution` is set by the
+ * wrapper only when the paragraph the shared card rendered last is Ansari's attribution (attribution.ts). */
+.answer-card[data-attribution] .saga-card-content > p[data-saga-closing='paragraph'] {
+  --footer-mark: calc(26px * var(--rs));
+  position: relative;
+  margin: calc(23px * var(--rs)) 0 0;
+  padding-block-start: calc(17px * var(--rs));
+  padding-inline-start: calc(var(--footer-mark) + 10px * var(--rs));
+  border-top: calc(1px * var(--rs)) solid var(--ansari-line);
+  color: var(--ansari-secondary);
+  direction: ltr;
+  font-size: calc(14px * var(--rs));
+  line-height: 1.5;
+}
+
+/* The supplied thematic break already separates the attribution from the answer. */
+.answer-card[data-attribution] .saga-card-content > hr + p[data-saga-closing='paragraph'] {
+  border-top: 0;
+  margin-block-start: 0;
+}
+
+.answer-card[data-attribution] .saga-card-content > p[data-saga-closing='paragraph'] strong {
+  font-weight: inherit;
+}
+
+.answer-card[data-attribution] .saga-card-content > p[data-saga-closing='paragraph']::before {
+  content: '';
+  position: absolute;
+  inset-block-start: calc(18px * var(--rs));
+  inset-inline-start: 0;
+  box-sizing: border-box;
+  width: var(--footer-mark);
+  height: var(--footer-mark);
+  border-radius: calc(6px * var(--rs));
+  background: var(--ansari-art-brand-mark) center / calc(20px * var(--rs)) no-repeat var(--ansari-mark-surface);
+}
+
+/* ---- Narrow views: the 375px reference ------------------------------------------------------ */
+@media (max-width: 480px) {
+  .answer-card {
+    --marker-size: 44px;
+    --marker-gap: 12px;
+    --marker-font: 20px;
+    --card-padding-inline: 20px;
+    --saga-card-font-size: 16px;
+    padding: 12px 20px 24px;
+  }
+
+  .answer-header {
+    gap: 12px;
+    min-height: 60px;
+  }
+
+  .answer-question {
+    font-size: 22px;
+  }
+
+  .answer-header::after {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+/* Application credit follows the complete supplied Ansari attribution paragraph. */
+.saga-credit { display: none; }
+.answer-card[data-attribution] > .saga-credit {
+  display: block;
+  margin-block-start: calc(6px * var(--rs));
+  text-align: right;
+  color: var(--ansari-secondary);
+  font-size: calc(14px * var(--rs));
+  line-height: 1.5;
+}
+.saga-credit [role="status"] { display: block; }
+.saga-credit button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Link feedback is application UI, visually separate from the supplied answer. A successful
+ * request has no text, so its status stays silent. */
+.answer-card .saga-card-link-status:empty,
+.saga-credit [role="status"]:empty { display: none; }
+
+.answer-card .saga-card-link-status:not(:empty),
+.saga-credit [role="status"]:not(:empty) {
+  display: block;
+  margin-block: calc(8px * var(--rs));
+  padding: calc(8px * var(--rs)) calc(12px * var(--rs));
+  border: 1px solid var(--ansari-line);
+  border-inline-start: 3px solid var(--ansari-link);
+  border-radius: calc(6px * var(--rs));
+  background: var(--ansari-code);
+  color: var(--ansari-ink);
+  font-size: calc(14px * var(--rs));
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.answer-card .saga-card-link-status:not(:empty)::before,
+.saga-credit [role="status"]:not(:empty)::before {
+  content: 'Link notice';
+  display: block;
+  font-weight: 600;
+}

@@ -1,0 +1,76 @@
+{
+  // Cloudflare Workers deployment targets for Ansari Faithful Answers: three named environments, one Worker each
+  // (`dev`, `beta`, `production`). This file is their only declaration; every command selects one with `--env <name>`
+  // (the `dev:worker:*` and `deploy:worker:*` package scripts do). See README.md.
+  //
+  // There is deliberately no top-level Worker: no `main`, vars, routes or secrets. A bare `wrangler deploy` finds no
+  // entry point and publishes nothing, so no environment is ever the implicit destination. Wrangler does not inherit
+  // `vars`, `routes` or `secrets` into a named environment either, so each block below is the whole declaration of that
+  // environment. Only the compatibility settings are shared (the MCP SDK uses Node's crypto, buffer and stream
+  // modules, hence `nodejs_compat`). `ANSARI_RELEASE` is not declared here: a deploy stamps it with the exact revision
+  // (see the `deploy:worker:*` scripts).
+  //
+  // Placeholders: a `replace-with-*` value is something only the deploying owner can supply (the hostname that will
+  // serve the Worker); do not deploy that environment while one remains. No account identifier is committed:
+  // `wrangler login` (interactive) selects the account.
+  //
+  // Secrets are never written here. The only secret binding is the optional upstream header ANSARI_API_AUTHORIZATION;
+  // set it per environment with `wrangler secret put ANSARI_API_AUTHORIZATION --env <env>` (Worker secrets are per
+  // Worker, never shared between environments). Locally, the `dev:worker:*` scripts read `.dev.vars.<env>` only: they
+  // refuse a generic `.dev.vars` and turn off Wrangler's `.env` fallback.
+  //
+  // Allowlists and client labels distinguish endpoints; they are not authentication.
+  //
+  // Version preview URLs (`<version>-<name>.<subdomain>.workers.dev`) are deliberately off: every environment declares
+  // `"preview_urls": false`. Wrangler 4.151.3 treats an omitted value as "leave the Worker's current setting", which
+  // enabled them on a deploy to Dev. The value is repeated per environment, not relied on by inheritance, and
+  // `test/environments.test.ts` checks what Wrangler resolves for each one. `workers_dev` is a separate setting: it only
+  // controls the main `<name>.<subdomain>.workers.dev` endpoint, which Dev keeps.
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "env": {
+    // The existing, isolated Dev Worker (https://ansari-faithful-answers-dev.younes-b2d.workers.dev). Declared here
+    // to keep it reproducible; it is deployed and owned by the app owner, never by a worker or an agent run.
+    "dev": {
+      "name": "ansari-faithful-answers-dev",
+      "main": "src/worker/index.ts",
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": {
+        "ANSARI_API_BASE_URL": "https://api.askansari.ai",
+        "ANSARI_CLIENT": "machinewisdom-faithful-answers-dev",
+        "MCP_ALLOWED_HOSTS": "ansari-faithful-answers-dev.younes-b2d.workers.dev",
+        "MCP_ALLOWED_ORIGINS": "",
+        "MCP_RESPONSE_MODE": ""
+      }
+    },
+    "beta": {
+      "name": "ansari-faithful-answers-beta",
+      "main": "src/worker/index.ts",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{"pattern": "replace-with-beta-worker-hostname.invalid", "custom_domain": true}],
+      "vars": {
+        "ANSARI_API_BASE_URL": "https://api.askansari.ai",
+        "ANSARI_CLIENT": "machinewisdom-faithful-answers-beta",
+        "MCP_ALLOWED_HOSTS": "replace-with-beta-worker-hostname.invalid",
+        "MCP_ALLOWED_ORIGINS": "",
+        "MCP_RESPONSE_MODE": ""
+      }
+    },
+    "production": {
+      "name": "ansari-faithful-answers-production",
+      "main": "src/worker/index.ts",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{"pattern": "replace-with-production-worker-hostname.invalid", "custom_domain": true}],
+      "vars": {
+        "ANSARI_API_BASE_URL": "https://api.askansari.ai",
+        "ANSARI_CLIENT": "machinewisdom-faithful-answers-production",
+        "MCP_ALLOWED_HOSTS": "replace-with-production-worker-hostname.invalid",
+        "MCP_ALLOWED_ORIGINS": "",
+        "MCP_RESPONSE_MODE": ""
+      }
+    }
+  }
+}

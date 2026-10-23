@@ -1,0 +1,7 @@
+# Standalone installation: run `pnpm install` from this folder. In a destination workspace, merge the override
+# below into that workspace's root file instead (a nested file is not read there).
+packages: []
+overrides:
+  # A2UI React 0.13 permits adapter 0.2.2, but that adapter requires web_core 0.14.
+  # Pin the adapter; SAGA retains its own separate markdown-it dependency.
+  '@a2ui/markdown-it': '0.2.1'

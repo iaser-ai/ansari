@@ -48,7 +48,7 @@ The facilitator (`apps/api/lib/facilitator/agent.ts`) answers via a Gemini tool 
 
 ## Monorepo layout, build & deploy
 
-The repo is a pnpm workspace of `apps/*` + `packages/*`, driven by Turborepo.
+The repo is a pnpm workspace of `apps/*` and `packages/*`, driven by Turborepo. `apps/ansari-faithful-answers` is the standalone MCP application; it consumes public saga a2ui packages and has no dependency on the other applications. Run it explicitly with `pnpm faithful-answers dev`. Its Docker context is its own directory, unlike the API/auth images described below. The root Markdown adapter override preserves the supported SAGA-owned A2UI dependency combination.
 
 **Layout & task running.** Root tasks fan out through one cached Turborepo task graph; `pnpm dev` starts api, auth and frontend (`pnpm dev:no-auth` skips auth). Target a single package with `pnpm api <script>` / `pnpm auth <script>` / `pnpm frontend <script>`, or by running from inside the app directory.
 
