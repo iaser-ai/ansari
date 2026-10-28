@@ -187,14 +187,14 @@
 
     // Real graph edge, replacing the old `pnpm run gen:types && tsc` shell chain.
     //
-    // RACE WARNING: do NOT run `typecheck` and `build` in a SINGLE turbo
-    // invocation for ansari-api. apps/api/tsconfig.json includes
-    // `.next/types/**/*.ts`, which a concurrent `next build` rewrites underneath
-    // `tsc` — an intermittent `typecheck exited (2)` that passes on re-run. CI is
-    // unaffected because it runs them as separate sequential steps; keep it that
-    // way, and run them as separate commands locally too. This predates the task
-    // graph (the same overlap existed with parallel pnpm runs) but turbo makes
-    // concurrency the default, so it surfaces more often.
+    // `typecheck` and `build` are safe to run in ONE invocation, for ansari-api
+    // too. apps/api/tsconfig.json includes `.next/types/**/*.ts`, which a
+    // concurrent `next build` rewrites — that used to surface as an intermittent
+    // `typecheck exited (2)` that passed on re-run. The api `typecheck` script now
+    // runs `tsc -p tsconfig.typecheck.json`, which reads nothing under `.next/`
+    // (issue #52; see that file for the two entries that guarantee it, and
+    // apps/api/tests/tsconfig-typecheck.test.ts for the guard). The generated
+    // route types are still checked — by `next build`, which uses tsconfig.json.
     "typecheck": {
       "dependsOn": ["gen:types"],
       "outputs": []
