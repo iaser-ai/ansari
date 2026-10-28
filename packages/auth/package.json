@@ -34,7 +34,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
-    "dotenv": "^17.2.3",
+    "dotenv": "^18.0.8",
     "drizzle-kit": "^0.31.8",
     "eslint": "catalog:",
     "typescript": "catalog:",
