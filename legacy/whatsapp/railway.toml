@@ -3,7 +3,8 @@
 # NOT READ BY RAILWAY IN THIS PROJECT (see apps/api/railway.toml and the
 # "Railway service configuration" block in RELEASE.md). The dashboard is the live
 # configuration; this file is the reviewable record of what it should contain.
-# The service has not been created in Railway yet: confirm every value there.
+# The service exists in Railway's staging environment (created 2026-10-30), not yet in
+# production: confirm every value there.
 #
 # Keep the two in sync: if you change a dashboard setting, update this file in the
 # same PR.
