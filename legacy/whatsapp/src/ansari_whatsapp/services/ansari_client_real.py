@@ -9,6 +9,7 @@ from loguru import logger
 
 from ansari_whatsapp.utils.config import get_settings
 from ansari_whatsapp.utils.exceptions import (
+    ApiUnauthorizedError,
     ThreadCreationError,
     ThreadDeletionError,
     ThreadInfoError,
@@ -57,6 +58,13 @@ class AnsariClientReal(AnsariClientBase):
     def _auth(token: str) -> dict:
         return {"Authorization": f"Bearer {token}"}
 
+    @staticmethod
+    def _refuse_if_unauthorized(status_code: int) -> None:
+        # apps/api refused the token itself, which a fresh token can fix; any other status is a different fault
+        if status_code == 401:
+            logger.warning("apps/api refused the user's token (HTTP 401)")
+            raise ApiUnauthorizedError("apps/api refused the user's token")
+
     async def close(self):
         """Close the HTTP client connection and release resources.
 
@@ -89,6 +97,7 @@ class AnsariClientReal(AnsariClientBase):
                 json={"name": title, "source": "whatsapp"},
                 headers=self._auth(token),
             )
+            self._refuse_if_unauthorized(response.status_code)
             response.raise_for_status()
             return {"thread_id": response.json()["thread_id"]}
         except httpx.HTTPStatusError as e:
@@ -118,6 +127,7 @@ class AnsariClientReal(AnsariClientBase):
             response = await self.client.delete(f"{self.base_url}/api/v2/threads/{thread_id}", headers=self._auth(token))
             if response.status_code == 404:
                 return
+            self._refuse_if_unauthorized(response.status_code)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error deleting thread: {e.response.status_code}")
@@ -145,6 +155,7 @@ class AnsariClientReal(AnsariClientBase):
         """
         try:
             response = await self.client.get(f"{self.base_url}/api/v2/threads", headers=self._auth(token))
+            self._refuse_if_unauthorized(response.status_code)
             response.raise_for_status()
             threads = [t for t in response.json() if t.get("source") == "whatsapp"]
             if not threads:
@@ -186,6 +197,7 @@ class AnsariClientReal(AnsariClientBase):
 
             # Use stream=True to receive the response as a stream
             async with self.client.stream("POST", url, json=data, headers=self._auth(token)) as response:
+                self._refuse_if_unauthorized(response.status_code)
                 if response.status_code != 200:
                     logger.error(f"Error from backend API: HTTP {response.status_code}")
                     raise MessageProcessingError(f"Backend returned HTTP {response.status_code}")
@@ -226,8 +238,8 @@ class AnsariClientReal(AnsariClientBase):
         except httpx.RequestError as e:
             logger.error(f"Network error processing message: {type(e).__name__}")
             raise MessageProcessingError("Network error during message processing") from e
-        except MessageProcessingError:
-            # Re-raise our custom exception without wrapping
+        except (MessageProcessingError, ApiUnauthorizedError):
+            # Re-raise our custom exceptions without wrapping
             raise
         except Exception as e:
             logger.error(f"Unexpected error processing message: {type(e).__name__}")

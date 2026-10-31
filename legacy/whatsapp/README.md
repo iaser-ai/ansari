@@ -10,7 +10,17 @@ The WhatsApp front door for Ansari. It receives webhooks from Meta, signs the us
 4. The service finds the user's newest thread in `apps/api` (`GET /api/v2/threads`). If it is older than `WHATSAPP_CHAT_RETENTION_HOURS` it is deleted and a new one is created (`source: "whatsapp"`).
 5. The message goes to `POST /api/v2/threads/{id}/chat`. The server-sent-event stream is collected and the answer is sent back to the user's BSUID, split to fit WhatsApp's 4,000-character limit.
 
-If sign-in fails, the user gets a short apology and the failure goes to Sentry. Meta still gets its 200, because sign-in runs after the reply.
+If sign-in fails, the user is told, and Meta still gets its 200, because sign-in runs after the reply. What the user is told and what reaches Sentry depend on why it failed:
+
+| pps/auth answered | Meaning | User is told | Sentry error_type |
+|---|---|---|---|
+| 400 | Our request was malformed (a bug here) | Sign-in failed | uth_bad_request |
+| 401 | Our API key is bad: needs an operator | Sign-in failed | uth_key_rejected |
+| 403 | The user is banned | The account cannot be answered | none (log only) |
+| 429 | The user's budget is spent (6 per 15 minutes) | To wait about X-Retry-After | none (log only); the user is not asked again until it ends |
+| 500 or no answer | An outage, or a fault for this one user | Sign-in failed | uth_token_failure |
+
+None of these is retried per message. If pps/api itself answers 401 to a cached token (the session ended after the token was signed, for example a ban), the service drops that token, exchanges once more and retries the message once; a second 401 gives up with pi_unauthorized_after_reexchange.
 
 ## Layout
 
@@ -106,7 +116,7 @@ Only the facts below come from this repo. The dashboard settings themselves are 
 
 - Build with the repository root as the root directory and `legacy/whatsapp/Dockerfile` as the Dockerfile path. Locally, from the repo root: `docker build -f legacy/whatsapp/Dockerfile -t ansari-whatsapp .`
 - `legacy/whatsapp/railway.toml` records these settings in git; Railway does not read it (same as `apps/api/railway.toml`).
-- Set a watch path so only changes under `legacy/whatsapp/**` rebuild this service (see the "Railway service configuration" block in `RELEASE.md`).
+- Set a watch path so only changes under `legacy/whatsapp/**` and `.dockerignore` (the build context is the repo root, so that file decides what the build sees) rebuild this service (see the "Railway service configuration" block in `RELEASE.md`).
 - Health check path: `/`.
 - The app binds `PORT` when Railway provides it. If the public domain is given a fixed target port, it must match.
 - Each environment needs its own Meta credentials and its own webhook callback URL (`https://<domain>/whatsapp/v2`).

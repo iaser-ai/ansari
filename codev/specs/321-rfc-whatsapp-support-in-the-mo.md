@@ -75,7 +75,18 @@ Other constraints:
 
 - `apps/auth` provides the `/whatsapp` endpoint and handles the fact that a WhatsApp user has no email (owned by Amr).
 - Ansari uses a single Meta business portfolio and is not enrolled in parent BSUIDs, so the regular BSUID suffices (to be confirmed).
-- The `/whatsapp` contract follows issue #329: `POST /api/whatsapp/session`, authenticated with `Authorization: Bearer <key>` where the key is an `apps/auth` API key (env name `AUTH_WHATSAPP_API_KEY`), request `{ "bsuid": "US.…" }`, response `{ "token": "<JWT>" }` in the format `apps/auth` already issues, errors as `{ message }` (400 malformed BSUID, 401 one identical body for every key failure, 500).
+- The `/whatsapp` contract follows issue #329: `POST /api/whatsapp/session`, authenticated with `Authorization: Bearer <key>` where the key is an `apps/auth` API key (env name `AUTH_WHATSAPP_API_KEY`), request `{ "bsuid": "US.…" }`, response `{ "token": "<JWT>" }` in the format `apps/auth` already issues, errors as `{ message }`. The statuses mean different things, and the service treats them differently (follow-up #336):
+
+  | Status | Meaning | What the service does |
+  |---|---|---|
+  | 400 | The request failed `apps/auth`'s sanity bounds on the BSUID (there is no format check). A bug here | Tell the user sign-in failed; report to Sentry as `auth_bad_request`; no retry |
+  | 401 | Our API key is bad (one identical body for every key refusal) | Tell the user sign-in failed; report as `auth_key_rejected` so an operator is paged and it does not look like an outage; no retry per message |
+  | 403 | This user is banned | Tell the user the account cannot be answered; log only, no operator alert |
+  | 429 + `X-Retry-After` | This user's exchange budget is spent (6 per 15 minutes); the key is fine | Tell the user to wait about that long; remember the cool-down and do not ask `apps/auth` for that user again until it ends; log only |
+  | 500 | An outage, or a permanent fault for this one user | Tell the user sign-in failed; report as `auth_token_failure`; **no retry per message**; alert on a sustained rate, not on isolated 500s |
+
+- A session can end after its token was signed (a ban or a deletion), so `apps/api` can answer 401 to a token that is still cached. On a 401 from any `apps/api` call the service drops that BSUID's cached token, exchanges once more, and retries the message once. A second 401, or a refused exchange (for example the user is now banned), ends the attempt with a notice and a Sentry event (`api_unauthorized_after_reexchange` for the second 401).
+- **No phone number is sent to `apps/auth` (decided against #336 item 1).** #336 asked for `phone_number` in the exchange body, but spec 329 amendment 2 (2026-10-30) reversed that: `apps/auth` accepts the field and ignores it, never stores or logs it, and asks this service to stop sending it. So baked decision 2 stands: this service sends the BSUID only, and no phone number leaves it. A BSUID change (a user changing number) is a new user; Meta's `previous_user_id` system message, not the phone number, would be the link if that continuity is ever wanted.
 - The key is a revocable, permission-scoped client credential, not a shared secret: a leaked key can mint tokens only for WhatsApp users, within a per-key budget. Each WhatsApp user reuses one session, so this service caches the token per BSUID for a little under the token's 15-minute life. `apps/auth` applies per-key limits instead of per-IP ones.
 - The `preferences` table (one row per setting keyed by GUID) is the home for user settings; today that is only preferred language, and expiry stays global.
 - Meta's own throughput limits and webhook retry behaviour sufficiently bound traffic (see Baked Decision 7); this has not been load tested.

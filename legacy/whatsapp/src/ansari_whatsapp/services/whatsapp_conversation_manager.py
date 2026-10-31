@@ -2,6 +2,7 @@
 """Service for orchestrating WhatsApp conversations and message handling."""
 
 import asyncio
+import math
 import time
 from datetime import datetime
 
@@ -12,7 +13,12 @@ from ansari_whatsapp.services.service_provider import get_ansari_client, get_aut
 from ansari_whatsapp.services.meta_service_provider import get_meta_api_service
 from ansari_whatsapp.utils.app_logger import request_id_var
 from ansari_whatsapp.utils.exceptions import (
+    ApiUnauthorizedError,
+    AuthBadRequestError,
+    AuthKeyRejectedError,
+    AuthRateLimitedError,
     AuthTokenError,
+    AuthUserBannedError,
     ThreadCreationError,
     ThreadDeletionError,
     ThreadInfoError,
@@ -21,6 +27,15 @@ from ansari_whatsapp.utils.exceptions import (
 from ansari_whatsapp.utils.time_utils import calculate_time_passed, get_retention_time_seconds
 from ansari_whatsapp.presenters.whatsapp_message_formatter import format_for_whatsapp
 from ansari_whatsapp.utils.whatsapp_message_splitter import split_message
+
+SIGN_IN_FAILED_NOTICE = "Sorry, we couldn't sign you in. Please try again later."
+BANNED_NOTICE = "Sorry, we can't answer messages from this account."
+
+
+def _rate_limited_notice(retry_after_seconds: int) -> str:
+    minutes = max(1, math.ceil(retry_after_seconds / 60))
+    unit = "minute" if minutes == 1 else "minutes"
+    return f"You are sending messages too quickly. Please try again in about {minutes} {unit}."
 
 
 class WhatsAppConversationManager:
@@ -53,6 +68,7 @@ class WhatsAppConversationManager:
         """
         self.bsuid = bsuid
         self.token = None  # The user's JWT, set by authenticate_user()
+        self.auth_failure_notice = SIGN_IN_FAILED_NOTICE  # What to tell the user if authenticate_user() fails
         self.incoming_msg_type = incoming_msg_type
         self.incoming_msg_body = incoming_msg_body
         self.message_id = message_id
@@ -106,6 +122,10 @@ class WhatsAppConversationManager:
             logger.error(f"Error in typing indicator loop: {e}")
             logger.exception(e)
 
+    def _stop_typing_indicator(self) -> None:
+        if self.typing_indicator_task and not self.typing_indicator_task.done():
+            self.typing_indicator_task.cancel()
+
     @staticmethod
     def _capture(error: Exception, error_type: str) -> None:
         """Report an error to Sentry, tagged with its kind and this request's id (never any user content)."""
@@ -121,14 +141,31 @@ class WhatsAppConversationManager:
         for the later apps/api calls.
 
         Returns:
-            bool: True if a token was obtained, False if the exchange failed.
+            bool: True if a token was obtained. If False, `auth_failure_notice` says what to tell the user.
+
+        Each refusal means something different, so each is reported differently: our own key being refused or our
+        request being malformed are bugs for an operator (Sentry, with their own tags); a banned or rate-limited user
+        is expected and only logged; anything else is an outage.
         """
+        self.auth_failure_notice = SIGN_IN_FAILED_NOTICE
         if not self.bsuid:
             logger.error("Cannot authenticate user: bsuid is not set")
             return False
 
         try:
             self.token = await self.auth_client.get_token(self.bsuid)
+        except AuthUserBannedError:
+            self.auth_failure_notice = BANNED_NOTICE
+            return False
+        except AuthRateLimitedError as e:
+            self.auth_failure_notice = _rate_limited_notice(e.retry_after)
+            return False
+        except AuthKeyRejectedError as e:
+            self._capture(e, "auth_key_rejected")
+            return False
+        except AuthBadRequestError as e:
+            self._capture(e, "auth_bad_request")
+            return False
         except AuthTokenError as e:
             logger.error(f"Failed to get a token for the user: {e}")
             self._capture(e, "auth_token_failure")
@@ -261,7 +298,7 @@ class WhatsAppConversationManager:
     async def sign_in_and_handle_text_message(self) -> None:
         """Background entry point for a text message: sign in, show typing, then answer."""
         if not await self.authenticate_user():
-            await self.send_whatsapp_message("Sorry, we couldn't sign you in. Please try again later.")
+            await self.send_whatsapp_message(self.auth_failure_notice)
             return
 
         # Only handle_text_message cancels the typing loop, so it starts only for a signed-in user
@@ -278,27 +315,44 @@ class WhatsAppConversationManager:
             incoming_txt_msg = self.incoming_msg_body["body"]
             logger.debug(f"Whatsapp user sent a text message ({len(incoming_txt_msg)} characters)")
 
-            thread_id = await self._resolve_thread(incoming_txt_msg)
-            if thread_id is None:
-                if self.typing_indicator_task and not self.typing_indicator_task.done():
-                    self.typing_indicator_task.cancel()
-                return
+            # Two attempts at most: if apps/api refuses the token (a session can end after its token was signed,
+            # e.g. a ban or a deletion), the cached token is dropped, apps/auth is asked once more, and the
+            # message is tried once more. A 401 on the second attempt, or a refused exchange, ends it.
+            for attempt in (1, 2):
+                try:
+                    thread_id = await self._resolve_thread(incoming_txt_msg)
+                    if thread_id is None:
+                        self._stop_typing_indicator()
+                        return
 
-            # Process the message using the Ansari backend API
-            try:
-                response = await self.ansari_client.process_message(
-                    token=self.token,
-                    thread_id=thread_id,
-                    message=incoming_txt_msg,
-                )
-            except MessageProcessingError as e:
-                logger.error(f"Failed to process message: {e}")
-                self._capture(e, "message_processing_failure")
-                await self.send_whatsapp_message("An error occurred while processing your message. Please try again later.")
-                # Cancel typing indicator if running
-                if self.typing_indicator_task and not self.typing_indicator_task.done():
-                    self.typing_indicator_task.cancel()
-                return
+                    response = await self.ansari_client.process_message(
+                        token=self.token,
+                        thread_id=thread_id,
+                        message=incoming_txt_msg,
+                    )
+                    break
+                except ApiUnauthorizedError as e:
+                    if attempt == 1:
+                        self.auth_client.forget(self.bsuid)
+                        if await self.authenticate_user():
+                            continue
+                        await self.send_whatsapp_message(self.auth_failure_notice)
+                    else:
+                        logger.error("apps/api refused a freshly exchanged token; giving up")
+                        self._capture(e, "api_unauthorized_after_reexchange")
+                        await self.send_whatsapp_message(
+                            "An error occurred while processing your message. Please try again later."
+                        )
+                    self._stop_typing_indicator()
+                    return
+                except MessageProcessingError as e:
+                    logger.error(f"Failed to process message: {e}")
+                    self._capture(e, "message_processing_failure")
+                    await self.send_whatsapp_message(
+                        "An error occurred while processing your message. Please try again later."
+                    )
+                    self._stop_typing_indicator()
+                    return
 
             # Cancel the typing indicator task if it's still running
             if self.typing_indicator_task and not self.typing_indicator_task.done():

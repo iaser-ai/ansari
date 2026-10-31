@@ -14,6 +14,8 @@ builder = "dockerfile"
 dockerfilePath = "legacy/whatsapp/Dockerfile"
 watchPatterns = [
   "legacy/whatsapp/**",
+  # The image builds from the repo root, so this file decides what the build can see.
+  ".dockerignore",
 ]
 
 [deploy]
