@@ -12,6 +12,7 @@ from loguru import logger
 from ansari_whatsapp.services.service_provider import get_ansari_client, get_auth_client
 from ansari_whatsapp.services.meta_service_provider import get_meta_api_service
 from ansari_whatsapp.utils.app_logger import request_id_var
+from ansari_whatsapp.utils.config import get_settings
 from ansari_whatsapp.utils.exceptions import (
     ApiUnauthorizedError,
     AuthBadRequestError,
@@ -56,6 +57,7 @@ class WhatsAppConversationManager:
         incoming_msg_body: dict = None,
         message_id: str = None,
         message_unix_time: int = None,
+        sender_phone: str = None,
     ):
         """Initialize the conversation manager with user-specific details.
 
@@ -65,8 +67,13 @@ class WhatsAppConversationManager:
             incoming_msg_body (dict, optional): The body content of the incoming message.
             message_id (str, optional): The ID of the incoming message.
             message_unix_time (int, optional): The timestamp of the incoming message in Unix format.
+            sender_phone (str, optional): The sender's phone number from the webhook, used only to address replies
+                on local and staging, where Meta's test number accepts recipients by phone number only
+                (i.e., doesn't accept BSUIDs).
         """
         self.bsuid = bsuid
+        use_phone = bool(sender_phone) and get_settings().DEPLOYMENT_TYPE in ("local", "staging")
+        self.reply_to = sender_phone if use_phone else bsuid
         self.token = None  # The user's JWT, set by authenticate_user()
         self.auth_failure_notice = SIGN_IN_FAILED_NOTICE  # What to tell the user if authenticate_user() fails
         self.incoming_msg_type = incoming_msg_type
@@ -192,15 +199,16 @@ class WhatsAppConversationManager:
     async def send_whatsapp_message(
         self,
         msg_body: str,
-        recipient_bsuid: str = None,
+        recipient_bsuid_or_phone: str = None,
     ) -> None:
         """Send a message to the WhatsApp recipient.
 
         Args:
             msg_body (str): The message body to be sent.
-            recipient_bsuid (str, optional): The recipient's BSUID. Defaults to self.bsuid if not provided.
+            recipient_bsuid_or_phone (str, optional): A BSUID or a phone number to send to. Defaults to
+                self.reply_to if not provided (i.e., the BSUID on prod, or the sender's phone on local/staging).
         """
-        recipient = recipient_bsuid or self.bsuid
+        recipient = recipient_bsuid_or_phone or self.reply_to
 
         if not recipient:
             logger.error("Cannot send WhatsApp message: No recipient provided")

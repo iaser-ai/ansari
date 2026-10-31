@@ -11,6 +11,10 @@ from ansari_whatsapp.utils.config import get_settings
 from ansari_whatsapp.services.meta_api_service_base import MetaApiServiceBase
 
 
+# Why longer timeout? As Meta can take over 5 s (httpx's default) to answer a send-message request from us.
+REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+
 class MetaApiServiceReal(MetaApiServiceBase):
     """Real Meta WhatsApp API service that makes actual HTTP requests."""
 
@@ -30,6 +34,18 @@ class MetaApiServiceReal(MetaApiServiceBase):
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
         }
+
+    @staticmethod
+    def _log_bad_request_details(error: httpx.HTTPStatusError) -> None:
+        """Always log Meta's reply; log the request we sent too, but only for a 400 outside production."""
+        logger.error(f"Meta's reply ({error.response.status_code}): {error.response.text}")
+        if error.response.status_code != 400 or get_settings().DEPLOYMENT_TYPE == "production":
+            return
+        headers = {k: ("Bearer ***" if k.lower() == "authorization" else v) for k, v in error.request.headers.items()}
+        logger.error(
+            f"Meta rejected the request (400). URL: {error.request.url} | Headers: {headers} | "
+            f"Body: {error.request.content.decode('utf-8', errors='replace')}"
+        )
 
     async def send_typing_indicator(self, recipient_phone: str, message_id: str) -> None:
         """Send typing indicator via Meta API.
@@ -54,7 +70,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
         }
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 logger.debug("Sending typing indicator")
 
                 response = await client.post(self.api_url, headers=self._get_headers(), json=json_data)
@@ -63,6 +79,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error sending typing indicator: {e.response.status_code}")
+            self._log_bad_request_details(e)
             # Only capture 5xx errors (Meta's fault, not ours)
             if e.response.status_code >= 500:
                 sentry_sdk.set_tag("error_type", "meta_api_failure")
@@ -77,7 +94,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
                 sentry_sdk.capture_exception(e)
             raise
         except httpx.RequestError as e:
-            logger.error(f"Network error sending typing indicator: {e}")
+            logger.error(f"Network error sending typing indicator ({type(e).__name__}): {e}")
             raise
         except Exception as e:
             logger.exception(f"Unexpected error sending typing indicator: {e}")
@@ -97,9 +114,8 @@ class MetaApiServiceReal(MetaApiServiceBase):
 
         Note:
             Per Meta, a phone number goes in `to`, while a BSUID goes in `recipient` (with `to` omitted;
-            if both are sent, `to` takes precedence). Meta's page marks BSUID sending as "coming soon"
-            in one place and as supported from July 2026 in another, and this hasn't been tested against
-            the live API.
+            if both are sent, `to` takes precedence). Meta's changelog says BSUID sending is supported
+            since July 2026.
             https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids#send-message-requests
         """
         if not recipient_phone:
@@ -111,12 +127,13 @@ class MetaApiServiceReal(MetaApiServiceBase):
             return
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 logger.debug(f"Sending {len(message_parts)} message part(s)")
 
                 for i, part in enumerate(message_parts, 1):
                     json_data = {
                         "messaging_product": "whatsapp",
+                        "type": "text",
                         "text": {"body": part},
                     }
                     if recipient_phone.isdigit():
@@ -139,6 +156,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error sending message: {e.response.status_code}")
+            self._log_bad_request_details(e)
             # Only capture 5xx errors (Meta's fault, not ours)
             if e.response.status_code >= 500:
                 sentry_sdk.set_tag("error_type", "meta_api_failure")
@@ -153,7 +171,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
                 sentry_sdk.capture_exception(e)
             raise
         except httpx.RequestError as e:
-            logger.error(f"Network error sending message: {e}")
+            logger.error(f"Network error sending message ({type(e).__name__}): {e}")
             raise
         except Exception as e:
             logger.exception(f"Unexpected error sending message: {e}")

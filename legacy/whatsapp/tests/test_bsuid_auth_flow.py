@@ -356,7 +356,8 @@ def test_ansari_client_error_status_raises(monkeypatch):
 # ---------- webhook flow ----------
 
 
-def test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only(monkeypatch):
+def _spy_identity_and_reply_target(monkeypatch):
+    """Record which id is exchanged for a token and which recipient each reply is addressed to."""
     tokens_requested = []
     recipients = []
 
@@ -374,6 +375,24 @@ def test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only(monkeypat
 
     monkeypatch.setattr(AuthClientMock, "get_token", spy_get_token)
     monkeypatch.setattr(MetaApiServiceMock, "send_message", spy_send)
+    return tokens_requested, recipients
+
+
+@pytest.mark.parametrize("deployment_type", ["local", "staging"])
+def test_test_environments_reply_to_the_phone_but_identify_by_bsuid(monkeypatch, deployment_type):
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+    tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
+
+    response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
+
+    assert response.status_code == 200
+    assert tokens_requested == [BSUID]
+    assert recipients and set(recipients) == {PHONE}
+
+
+def test_production_replies_to_the_bsuid_even_when_the_phone_is_visible(monkeypatch):
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
+    tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
 
     response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
 
@@ -381,6 +400,16 @@ def test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only(monkeypat
     assert tokens_requested == [BSUID]
     assert recipients and set(recipients) == {BSUID}
     assert PHONE not in tokens_requested + recipients
+
+
+def test_test_environment_falls_back_to_the_bsuid_when_the_phone_is_hidden(monkeypatch):
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "staging")
+    _, recipients = _spy_identity_and_reply_target(monkeypatch)
+
+    response = _post_signed_webhook(_text_message(from_user_id=BSUID))
+
+    assert response.status_code == 200
+    assert recipients and set(recipients) == {BSUID}
 
 
 def test_no_phone_number_reaches_apps_api(monkeypatch):

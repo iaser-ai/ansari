@@ -27,8 +27,8 @@ class WhatsAppSettings(BaseSettings):
     5. Variables from the secrets directory.
     6. Default field values in the WhatsAppSettings model.
 
-    E.g., if you set the variable `META_API_VERSION` in .env file to `v22.xyz`,
-    it will override the default value of `v22.0` defined in the WhatsAppSettings model.
+    E.g., if you set the variable `META_API_VERSION` in .env file to `v26.xyz`,
+    it will override the default value of `v26.0` defined in the WhatsAppSettings model.
 
     For more details, refer to the Pydantic documentation:
     [https://docs.pydantic.dev/latest/concepts/pydantic_settings/#field-value-priority].
@@ -52,7 +52,7 @@ class WhatsAppSettings(BaseSettings):
 
     ########### Meta Business API settings ###########
 
-    META_API_VERSION: str = "v22.0"
+    META_API_VERSION: str = "v26.0"
     META_BUSINESS_PHONE_NUMBER_ID: SecretStr
     META_ACCESS_TOKEN_FROM_SYS_USER: SecretStr
     META_WEBHOOK_VERIFY_TOKEN: SecretStr
