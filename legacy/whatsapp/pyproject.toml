@@ -48,6 +48,13 @@ dev = [
     "ruff>=0.8.0",
 ]
 
+[tool.uv]
+# certifi is not a direct dependency (it arrives through httpx and requests), so without this
+# floor only uv.lock holds it at a safe version. 2026.10.18 dropped the emSign root whose
+# intermediate CA keys were compromised (GHSA-6q48-6c7w-9gw2); certifi is the trust store for
+# every outbound TLS call this service makes (Meta, apps/auth, apps/api).
+constraint-dependencies = ["certifi>=2026.10.18"]
+
 [tool.ruff]
 line-length = 127
 indent-width = 4
