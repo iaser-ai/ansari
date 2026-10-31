@@ -11,6 +11,9 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+constraints = [{ name = "certifi", specifier = ">=2026.10.18" }]
+
 [[package]]
 name = "agent-detector"
 version = "2.0.0"
