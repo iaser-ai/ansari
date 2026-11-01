@@ -39,7 +39,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.7.0",
-    "zod": "^4.3.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
