@@ -12,7 +12,6 @@ from loguru import logger
 from ansari_whatsapp.services.service_provider import get_ansari_client, get_auth_client
 from ansari_whatsapp.services.meta_service_provider import get_meta_api_service
 from ansari_whatsapp.utils.app_logger import request_id_var
-from ansari_whatsapp.utils.config import get_settings
 from ansari_whatsapp.utils.exceptions import (
     ApiUnauthorizedError,
     AuthBadRequestError,
@@ -44,7 +43,7 @@ class WhatsAppConversationManager:
 
     This service manages the lifecycle of WhatsApp conversations, coordinating
     between apps/auth, apps/api and the Meta WhatsApp API to handle:
-    - User identification by BSUID (exchanged for a JWT; the phone number is never used)
+    - User identification by BSUID (exchanged for a JWT; a phone number never identifies anyone)
     - Message processing and response generation
     - Typing indicators and user experience features
     - Thread/conversation management
@@ -67,13 +66,12 @@ class WhatsAppConversationManager:
             incoming_msg_body (dict, optional): The body content of the incoming message.
             message_id (str, optional): The ID of the incoming message.
             message_unix_time (int, optional): The timestamp of the incoming message in Unix format.
-            sender_phone (str, optional): The sender's phone number from the webhook, used only to address replies
-                on local and staging, where Meta's test number accepts recipients by phone number only
-                (i.e., doesn't accept BSUIDs).
+            sender_phone (str, optional): The sender's phone number, set by the webhook parser only when
+                META_REPLY_BY_PHONE is on (Meta's free test number cannot message a BSUID). Used only to address
+                the reply.
         """
         self.bsuid = bsuid
-        use_phone = bool(sender_phone) and get_settings().DEPLOYMENT_TYPE in ("local", "staging")
-        self.reply_to = sender_phone if use_phone else bsuid
+        self.reply_to = sender_phone or bsuid
         self.token = None  # The user's JWT, set by authenticate_user()
         self.auth_failure_notice = SIGN_IN_FAILED_NOTICE  # What to tell the user if authenticate_user() fails
         self.incoming_msg_type = incoming_msg_type
@@ -192,7 +190,7 @@ class WhatsAppConversationManager:
             return
 
         try:
-            await self.meta_api_service.send_typing_indicator(recipient_phone=self.bsuid, message_id=self.message_id)
+            await self.meta_api_service.send_typing_indicator(recipient_bsuid_or_phone=self.bsuid, message_id=self.message_id)
         except Exception as e:
             logger.exception(f"Error sending typing indicator: {e}")
 
@@ -206,7 +204,7 @@ class WhatsAppConversationManager:
         Args:
             msg_body (str): The message body to be sent.
             recipient_bsuid_or_phone (str, optional): A BSUID or a phone number to send to. Defaults to
-                self.reply_to if not provided (i.e., the BSUID on prod, or the sender's phone on local/staging).
+                self.reply_to if not provided (the BSUID, or the sender's phone when META_REPLY_BY_PHONE is on).
         """
         recipient = recipient_bsuid_or_phone or self.reply_to
 
@@ -218,8 +216,8 @@ class WhatsAppConversationManager:
         message_parts = split_message(msg_body)
 
         try:
-            # Delegate to Meta API service (its `recipient_phone` argument also accepts a BSUID)
-            await self.meta_api_service.send_message(recipient_phone=recipient, message_parts=message_parts)
+            # Delegate to Meta API service (its `recipient_bsuid_or_phone` argument also accepts a BSUID)
+            await self.meta_api_service.send_message(recipient_bsuid_or_phone=recipient, message_parts=message_parts)
         except Exception as e:
             logger.exception(f"Error sending WhatsApp message: {e}")
 
@@ -344,7 +342,10 @@ class WhatsAppConversationManager:
                         self.auth_client.forget(self.bsuid)
                         if await self.authenticate_user():
                             continue
-                        await self.send_whatsapp_message(self.auth_failure_notice)
+                        # A user who sent one message must not be told they are sending too quickly, which is what
+                        # a 429 on this second exchange would otherwise say
+                        notice = BANNED_NOTICE if self.auth_failure_notice == BANNED_NOTICE else SIGN_IN_FAILED_NOTICE
+                        await self.send_whatsapp_message(notice)
                     else:
                         logger.error("apps/api refused a freshly exchanged token; giving up")
                         self._capture(e, "api_unauthorized_after_reexchange")

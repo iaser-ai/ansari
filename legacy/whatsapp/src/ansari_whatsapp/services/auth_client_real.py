@@ -26,8 +26,8 @@ SESSION_PATH = "/api/whatsapp/session"
 TOKEN_CACHE_SECONDS = 14 * 60
 TOKEN_CACHE_MAX_ENTRIES = 10_000
 
-# Used when a 429 carries no usable X-Retry-After; apps/auth's per-user window is 15 minutes
-DEFAULT_RETRY_AFTER_SECONDS = 60
+# Used when a 429 carries no usable X-Retry-After: assume the user's whole 15-minute window in apps/auth
+DEFAULT_RETRY_AFTER_SECONDS = 15 * 60
 
 
 class AuthClientReal(AuthClientBase):

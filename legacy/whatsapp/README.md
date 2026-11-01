@@ -5,22 +5,22 @@ The WhatsApp front door for Ansari. It receives webhooks from Meta, signs the us
 ## How a message flows
 
 1. Meta posts a webhook to `POST /whatsapp/v2`. The `X-Hub-Signature-256` header is checked against `META_ANSARI_APP_SECRET`, which has no default: the service will not start without it. Meta gets its 200 reply straight away; everything below runs in the background.
-2. The user is identified by their BSUID (Meta's per-user id), read from `from_user_id`. The phone number is never read, stored, logged or sent on.
+2. The user is identified by their BSUID (Meta's per-user id), read from `from_user_id`. The phone number is never stored, logged, or sent to `apps/auth` or `apps/api`. It is read from the webhook only when `META_REPLY_BY_PHONE` is on (off by default, refused in production), and only to address the reply.
 3. `apps/auth` (`POST /api/whatsapp/session`, header `Authorization: Bearer <AUTH_WHATSAPP_API_KEY>`, body `{bsuid}`) returns a token for that user (contract: issue #329). The token is reused for the same user for 14 minutes, a little under its 15-minute life.
 4. The service finds the user's newest thread in `apps/api` (`GET /api/v2/threads`). If it is older than `WHATSAPP_CHAT_RETENTION_HOURS` it is deleted and a new one is created (`source: "whatsapp"`).
 5. The message goes to `POST /api/v2/threads/{id}/chat`. The server-sent-event stream is collected and the answer is sent back to the user's BSUID, split to fit WhatsApp's 4,000-character limit.
 
 If sign-in fails, the user is told, and Meta still gets its 200, because sign-in runs after the reply. What the user is told and what reaches Sentry depend on why it failed:
 
-| pps/auth answered | Meaning | User is told | Sentry error_type |
+| apps/auth answered | Meaning | User is told | Sentry error_type |
 |---|---|---|---|
-| 400 | Our request was malformed (a bug here) | Sign-in failed | uth_bad_request |
-| 401 | Our API key is bad: needs an operator | Sign-in failed | uth_key_rejected |
+| 400 | Our request was malformed (a bug here) | Sign-in failed | auth_bad_request |
+| 401 | Our API key is bad: needs an operator | Sign-in failed | auth_key_rejected |
 | 403 | The user is banned | The account cannot be answered | none (log only) |
 | 429 | The user's budget is spent (6 per 15 minutes) | To wait about X-Retry-After | none (log only); the user is not asked again until it ends |
-| 500 or no answer | An outage, or a fault for this one user | Sign-in failed | uth_token_failure |
+| 500 or no answer | An outage, or a fault for this one user | Sign-in failed | auth_token_failure |
 
-None of these is retried per message. If pps/api itself answers 401 to a cached token (the session ended after the token was signed, for example a ban), the service drops that token, exchanges once more and retries the message once; a second 401 gives up with pi_unauthorized_after_reexchange.
+None of these is retried per message. If apps/api itself answers 401 to a cached token (the session ended after the token was signed, for example a ban), the service drops that token, exchanges once more and retries the message once; a second 401 gives up with api_unauthorized_after_reexchange.
 
 ## Layout
 
@@ -80,6 +80,7 @@ Staging shares the same test number, so start every message you send while testi
 | `META_ACCESS_TOKEN_FROM_SYS_USER` | Meta API token (belongs to one Meta app) |
 | `META_ANSARI_APP_SECRET` | Verifies webhook signatures (must be the same app as the token) |
 | `META_WEBHOOK_VERIFY_TOKEN` | One-time webhook URL verification |
+| `META_REPLY_BY_PHONE` | Default `False`. When `True`, replies are addressed to the sender's phone number instead of the BSUID, for a Meta test number that cannot message BSUIDs. The service refuses to start with it if `DEPLOYMENT_TYPE=production` |
 | `WA_MAINTENANCE_MODE` | See above |
 | `WHATSAPP_CHAT_RETENTION_HOURS` | How long a conversation continues before a fresh thread (default 3) |
 | `SENTRY_DSN` | Empty disables Sentry |
@@ -108,7 +109,7 @@ In Railway's log search:
 - one request: `@request_id:<id>` (the id is also returned in the `X-Request-ID` response header)
 - all errors: `@level:error`
 
-Logs deliberately contain no phone numbers, BSUIDs or message text. Railway caps logging at 500 lines per second per replica, and retention depends on the plan.
+Outside `DEPLOYMENT_TYPE=local`, logs contain no phone numbers, BSUIDs or message text; text copied from Meta's error replies is masked, and production logs no request details at all. `local` logs the full request body for debugging, never the access token. Railway caps logging at 500 lines per second per replica, and retention depends on the plan.
 
 ## Deploying (Railway)
 

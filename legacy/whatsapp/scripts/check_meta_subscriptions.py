@@ -17,6 +17,7 @@ Features:
     - Unsubscribe WABA from app
 """
 
+import getpass
 import os
 import requests
 from dotenv import load_dotenv
@@ -77,13 +78,13 @@ def debug_access_token():
     print("=" * 60)
 
     url = f"https://graph.facebook.com/{META_API_VERSION}/debug_token"
-    params = {
-        "input_token": ACCESS_TOKEN,
-        "access_token": ACCESS_TOKEN,  # Can use the same token to debug itself
-    }
+    # The token that does the asking goes in the header, not the URL (URLs end up in proxy logs); it can debug itself.
+    # `input_token` is a GET parameter on this endpoint (a POST is refused), so the token still appears in that URL.
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    params = {"input_token": ACCESS_TOKEN}
 
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         result = response.json()
 
@@ -349,11 +350,11 @@ def unsubscribe_waba():
     # Step 1: Get the current access token's app name
     print("\n→ Step 1: Identifying your access token's app...")
     token_debug_url = f"https://graph.facebook.com/{META_API_VERSION}/debug_token"
-    token_params = {"input_token": ACCESS_TOKEN, "access_token": ACCESS_TOKEN}
+    token_params = {"input_token": ACCESS_TOKEN}
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
 
     try:
-        token_response = requests.get(token_debug_url, params=token_params)
+        token_response = requests.get(token_debug_url, headers=headers, params=token_params)
         token_response.raise_for_status()
         token_data = token_response.json()
 
@@ -615,9 +616,9 @@ def get_current_context():
     # Get App name from token
     try:
         token_debug_url = f"https://graph.facebook.com/{META_API_VERSION}/debug_token"
-        token_params = {"input_token": ACCESS_TOKEN, "access_token": ACCESS_TOKEN}
+        token_params = {"input_token": ACCESS_TOKEN}
 
-        token_response = requests.get(token_debug_url, params=token_params)
+        token_response = requests.get(token_debug_url, headers=headers, params=token_params)
         if token_response.status_code == 200:
             token_data = token_response.json()
             if "data" in token_data:
@@ -695,7 +696,7 @@ def main():
         print("      3. Select your app and required permissions")
         print("      4. Copy the generated token")
 
-        ACCESS_TOKEN = input("\n   Enter your META_ACCESS_TOKEN_FROM_SYS_USER: ").strip()
+        ACCESS_TOKEN = getpass.getpass("\n   Enter your META_ACCESS_TOKEN_FROM_SYS_USER (typing is hidden): ").strip()
 
         if not ACCESS_TOKEN:
             print("\n   ERROR: Access token is required. Exiting...")

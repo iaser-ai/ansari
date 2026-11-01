@@ -61,6 +61,9 @@ class WhatsAppSettings(BaseSettings):
     # NOTE: We add a default value here, since we never set this in staging/production/etc. environments
     #   I.e., this token is only used for local development with zrok (check .env.example for more details)
     META_WEBHOOK_ZROK_SHARE_TOKEN: SecretStr = SecretStr("your_token")
+    # Reply to the sender's phone number instead of their BSUID. Only for Meta's free test number, whose allowed-recipient
+    # list holds phone numbers, so it cannot message a BSUID (error 131030). A real number accepts BSUID replies.
+    META_REPLY_BY_PHONE: bool = False
 
     @property
     def META_API_URL(self) -> str:
@@ -117,6 +120,13 @@ class WhatsAppSettings(BaseSettings):
             enabled.append("MOCK_AUTH_TOKEN")
         if enabled:
             raise ValueError(f"{', '.join(enabled)} only allowed when DEPLOYMENT_TYPE=local (got {self.DEPLOYMENT_TYPE})")
+        return self
+
+    @model_validator(mode="after")
+    def refuse_phone_replies_in_production(self):
+        """Production answers on a real number, which takes BSUIDs, so no phone number should be read there."""
+        if self.META_REPLY_BY_PHONE and self.DEPLOYMENT_TYPE == "production":
+            raise ValueError("META_REPLY_BY_PHONE is not allowed when DEPLOYMENT_TYPE=production")
         return self
 
     @model_validator(mode="after")

@@ -1,6 +1,8 @@
 # Real Meta WhatsApp API service implementation
 """Real client implementation for Meta WhatsApp API via HTTP."""
 
+import json
+
 import httpx
 import sentry_sdk
 
@@ -8,11 +10,45 @@ from loguru import logger
 
 from ansari_whatsapp.utils.app_logger import request_id_var
 from ansari_whatsapp.utils.config import get_settings
+from ansari_whatsapp.utils.log_masking import mask_identifiers, redact_values
 from ansari_whatsapp.services.meta_api_service_base import MetaApiServiceBase
 
 
 # Why longer timeout? As Meta can take over 5 s (httpx's default) to answer a send-message request from us.
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+# String values of a send payload that describe its shape and name nobody (the rest is masked outside local)
+_SAFE_REQUEST_KEYS = {"messaging_product", "type", "recipient_type", "status"}
+
+
+def _meta_error_summary(response: httpx.Response) -> str:
+    """The structured part of Meta's error reply, with anything shaped like an identifier masked.
+
+    Meta documents the error object as `code`, `type`, `error_subcode`, `fbtrace_id`, `message` (the code and its
+    title) and `error_data.details`, but not that none of them can name the recipient, so the two texts are masked.
+    https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return f"no standard error object ({len(response.content)} bytes)"
+    error_data = error.get("error_data") if isinstance(error.get("error_data"), dict) else {}
+
+    def number(value):
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    fields = {
+        "code": number(error.get("code")),
+        "error_subcode": number(error.get("error_subcode")),
+        "type": mask_identifiers(str(error.get("type") or "")[:64]),
+        "fbtrace_id": mask_identifiers(str(error.get("fbtrace_id") or "")[:64]),
+        "message": mask_identifiers(str(error.get("message") or "")[:300]),
+        "details": mask_identifiers(str(error_data.get("details") or "")[:300]),
+    }
+    return " ".join(f"{name}={value!r}" for name, value in fields.items() if value not in (None, ""))
 
 
 class MetaApiServiceReal(MetaApiServiceBase):
@@ -36,30 +72,48 @@ class MetaApiServiceReal(MetaApiServiceBase):
         }
 
     @staticmethod
-    def _log_bad_request_details(error: httpx.HTTPStatusError) -> None:
-        """Always log Meta's reply; log the request we sent too, but only for a 400 outside production."""
-        logger.error(f"Meta's reply ({error.response.status_code}): {error.response.text}")
-        if error.response.status_code != 400 or get_settings().DEPLOYMENT_TYPE == "production":
-            return
-        headers = {k: ("Bearer ***" if k.lower() == "authorization" else v) for k, v in error.request.headers.items()}
-        logger.error(
-            f"Meta rejected the request (400). URL: {error.request.url} | Headers: {headers} | "
-            f"Body: {error.request.content.decode('utf-8', errors='replace')}"
-        )
+    def _log_meta_error(error: httpx.HTTPStatusError) -> None:
+        """Log what Meta said, and for a 400 what we sent.
 
-    async def send_typing_indicator(self, recipient_phone: str, message_id: str) -> None:
+        Meta's raw body is never logged, only its structured fields with identifiers masked. For a 400 the payload's
+        keys are logged everywhere; their values too, masked on staging and development and unmasked only on local.
+        """
+        logger.error(f"Meta's reply ({error.response.status_code}): {_meta_error_summary(error.response)}")
+        if error.response.status_code != 400:
+            return
+        try:
+            sent = json.loads(error.request.content)
+        except ValueError:
+            logger.error("Meta rejected the request (400); the request body was not JSON")
+            return
+        if not isinstance(sent, dict):
+            logger.error("Meta rejected the request (400); the request body was not a JSON object")
+            return
+
+        deployment = get_settings().DEPLOYMENT_TYPE
+        line = f"Meta rejected the request (400). URL: {error.request.url} | Payload keys: {sorted(sent)}"
+        if deployment != "production":
+            headers = {k: ("Bearer ***" if k.lower() == "authorization" else v) for k, v in error.request.headers.items()}
+            line += f" | Headers: {headers}"
+            if deployment == "local":
+                line += f" | Body: {json.dumps(sent, ensure_ascii=False)}"
+            else:
+                line += f" | Body with values masked: {redact_values(sent, _SAFE_REQUEST_KEYS)}"
+        logger.error(line)
+
+    async def send_typing_indicator(self, recipient_bsuid_or_phone: str, message_id: str) -> None:
         """Send typing indicator via Meta API.
 
         Args:
-            recipient_phone: WhatsApp phone number of recipient
+            recipient_bsuid_or_phone: Who the typing indicator is for (not sent: Meta ties it to `message_id`)
             message_id: Message ID for the typing indicator
 
         Raises:
             httpx.HTTPStatusError: If Meta API returns error status
             httpx.RequestError: If network error occurs
         """
-        if not recipient_phone or not message_id:
-            logger.error("Cannot send typing indicator: missing recipient_phone or message_id")
+        if not recipient_bsuid_or_phone or not message_id:
+            logger.error("Cannot send typing indicator: missing recipient_bsuid_or_phone or message_id")
             return
 
         json_data = {
@@ -79,7 +133,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error sending typing indicator: {e.response.status_code}")
-            self._log_bad_request_details(e)
+            self._log_meta_error(e)
             # Only capture 5xx errors (Meta's fault, not ours)
             if e.response.status_code >= 500:
                 sentry_sdk.set_tag("error_type", "meta_api_failure")
@@ -100,12 +154,12 @@ class MetaApiServiceReal(MetaApiServiceBase):
             logger.exception(f"Unexpected error sending typing indicator: {e}")
             raise
 
-    async def send_message(self, recipient_phone: str, message_parts: list[str]) -> None:
+    async def send_message(self, recipient_bsuid_or_phone: str, message_parts: list[str]) -> None:
         """Send WhatsApp message(s) via Meta API.
 
         Args:
-            recipient_phone: WhatsApp phone number of recipient, or a business-scoped user ID (BSUID,
-                e.g., "US.13491208655302741918") if the user's phone number is hidden
+            recipient_bsuid_or_phone: A phone number (digits only, sent as `to`) or a business-scoped user ID
+                (BSUID, e.g., "US.13491208655302741918", sent as `recipient`)
             message_parts: List of message parts (already split by length)
 
         Raises:
@@ -118,7 +172,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
             since July 2026.
             https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids#send-message-requests
         """
-        if not recipient_phone:
+        if not recipient_bsuid_or_phone:
             logger.error("Cannot send message: No recipient")
             return
 
@@ -136,12 +190,12 @@ class MetaApiServiceReal(MetaApiServiceBase):
                         "type": "text",
                         "text": {"body": part},
                     }
-                    if recipient_phone.isdigit():
-                        json_data["to"] = recipient_phone
+                    if recipient_bsuid_or_phone.isdigit():
+                        json_data["to"] = recipient_bsuid_or_phone
                     else:
                         # Not a phone number, so it's a business-scoped user ID (e.g., US.1349...)
                         json_data["recipient_type"] = "individual"
-                        json_data["recipient"] = recipient_phone
+                        json_data["recipient"] = recipient_bsuid_or_phone
 
                     response = await client.post(self.api_url, headers=self._get_headers(), json=json_data)
                     response.raise_for_status()
@@ -156,7 +210,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error sending message: {e.response.status_code}")
-            self._log_bad_request_details(e)
+            self._log_meta_error(e)
             # Only capture 5xx errors (Meta's fault, not ours)
             if e.response.status_code >= 500:
                 sentry_sdk.set_tag("error_type", "meta_api_failure")

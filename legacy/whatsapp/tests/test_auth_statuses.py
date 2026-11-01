@@ -99,6 +99,10 @@ def test_a_429_without_a_usable_wait_falls_back_to_a_default(monkeypatch, header
     assert raised.value.retry_after == DEFAULT_RETRY_AFTER_SECONDS
 
 
+def test_the_fallback_wait_is_the_users_whole_fifteen_minute_window():
+    assert DEFAULT_RETRY_AFTER_SECONDS == 15 * 60
+
+
 def test_a_user_with_a_spent_budget_is_not_asked_again_until_it_frees_up(monkeypatch):
     calls = []
 
@@ -264,9 +268,9 @@ def _spy_on_replies(monkeypatch) -> list:
     replies = []
     original = MetaApiServiceMock.send_message
 
-    async def spy(self, recipient_phone, message_parts):
+    async def spy(self, recipient_bsuid_or_phone, message_parts):
         replies.extend(message_parts)
-        return await original(self, recipient_phone, message_parts)
+        return await original(self, recipient_bsuid_or_phone, message_parts)
 
     monkeypatch.setattr(MetaApiServiceMock, "send_message", spy)
     return replies
@@ -345,6 +349,26 @@ def test_a_banned_user_found_on_the_api_401_is_told_so_and_not_retried(monkeypat
 
     assert api["chat_calls"] == 1, "no retry once the exchange says the user is banned"
     assert replies == [BANNED_NOTICE]
+
+
+def test_a_429_after_an_api_401_tells_the_user_sign_in_failed_not_to_slow_down(monkeypatch):
+    _capturing(monkeypatch)
+    replies = _spy_on_replies(monkeypatch)
+    _api_refusing_first_tokens(monkeypatch, refused=99)
+    state = {"exchanges": 0}
+
+    async def get_token(self, bsuid):
+        state["exchanges"] += 1
+        if state["exchanges"] == 1:
+            return "token-1"
+        raise AuthRateLimitedError("429", retry_after=300)
+
+    monkeypatch.setattr(AuthClientMock, "get_token", get_token)
+
+    asyncio.run(_manager().sign_in_and_handle_text_message())
+
+    assert replies == [SIGN_IN_FAILED_NOTICE]
+    assert "minutes" not in replies[0]
 
 
 def test_the_stale_token_is_dropped_before_the_second_exchange(monkeypatch):

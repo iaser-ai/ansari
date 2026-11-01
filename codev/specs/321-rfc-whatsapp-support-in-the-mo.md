@@ -26,7 +26,7 @@ Affected: all WhatsApp users who currently cannot use Ansari on WhatsApp at all;
 ## Desired State
 
 - WhatsApp is served from this monorepo by a separate WhatsApp service that talks to `apps/api` over HTTP. It begins as the existing Python service, imported as is as much as possible.
-- Every WhatsApp user, including phone-hidden users, gets answers. Users are recognised by BSUID only; the phone number is never sent to or stored in this app.
+- Every WhatsApp user, including phone-hidden users, gets answers. Users are recognised by BSUID only; the phone number is never sent to or stored in this app (the only use is the off-by-default `META_REPLY_BY_PHONE` setting, refused in production, which addresses replies to a Meta test number).
 - The WhatsApp service exchanges the user's BSUID for a JWT through a new `/whatsapp` endpoint in `apps/auth`, then calls `apps/api` with the message text and that JWT. `apps/api` identifies the user by the GUID in the JWT, exactly as for other users.
 - This app stores only the user's GUID and settings (in the existing `preferences` table), not the BSUID or phone number.
 - Each WhatsApp user has exactly one thread, the current conversation. When a message arrives after the expiry time (3 hours, global), the old thread and its messages are deleted and a new thread starts.
@@ -129,7 +129,7 @@ Recommended: Approach 1.
 ## Test Scenarios
 
 - Phone-visible user sends text: registered via token exchange, answered.
-- Phone-hidden user sends text: answered; no phone number in any outgoing call or log.
+- Phone-hidden user sends text: answered; no phone number in any outgoing call or log; with `META_REPLY_BY_PHONE` on (never in production) the phone is read only to address the reply, and is still not logged or sent to `apps/auth` or `apps/api`.
 - Two consecutive messages within 3 hours: same user, same thread, context retained.
 - Message after 3 hours: old thread and messages deleted, new thread created.
 - Same user with a new BSUID: treated as a new user.
