@@ -356,7 +356,8 @@ def test_ansari_client_error_status_raises(monkeypatch):
 # ---------- webhook flow ----------
 
 
-def test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only(monkeypatch):
+def _spy_identity_and_reply_target(monkeypatch):
+    """Record which id is exchanged for a token and which recipient each reply is addressed to."""
     tokens_requested = []
     recipients = []
 
@@ -368,19 +369,122 @@ def test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only(monkeypat
 
     original_send = MetaApiServiceMock.send_message
 
-    async def spy_send(self, recipient_phone, message_parts):
-        recipients.append(recipient_phone)
-        return await original_send(self, recipient_phone, message_parts)
+    async def spy_send(self, recipient_bsuid_or_phone, message_parts):
+        recipients.append(recipient_bsuid_or_phone)
+        return await original_send(self, recipient_bsuid_or_phone, message_parts)
 
     monkeypatch.setattr(AuthClientMock, "get_token", spy_get_token)
     monkeypatch.setattr(MetaApiServiceMock, "send_message", spy_send)
+    return tokens_requested, recipients
+
+
+def test_the_phone_is_not_read_or_used_by_default(monkeypatch):
+
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "staging")
+
+    tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
 
     response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
 
     assert response.status_code == 200
+
     assert tokens_requested == [BSUID]
+
     assert recipients and set(recipients) == {BSUID}
-    assert PHONE not in tokens_requested + recipients
+
+
+@pytest.mark.parametrize("deployment_type", ["local", "development", "staging"])
+def test_reply_by_phone_addresses_the_reply_to_the_phone_and_still_identifies_by_bsuid(monkeypatch, deployment_type):
+
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+
+    monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
+
+    tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
+
+    response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
+
+    assert response.status_code == 200
+
+    assert tokens_requested == [BSUID]
+
+    assert recipients and set(recipients) == {PHONE}
+
+
+def test_reply_by_phone_falls_back_to_the_bsuid_when_the_phone_is_hidden(monkeypatch):
+
+    monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
+
+    _, recipients = _spy_identity_and_reply_target(monkeypatch)
+
+    response = _post_signed_webhook(_text_message(from_user_id=BSUID))
+
+    assert response.status_code == 200
+
+    assert recipients and set(recipients) == {BSUID}
+
+
+def test_the_phone_never_reaches_apps_auth_even_with_reply_by_phone(monkeypatch):
+
+    monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
+
+    monkeypatch.setattr(get_settings(), "MOCK_AUTH_CLIENT", False)
+
+    sent_to_auth = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+
+        sent_to_auth.append(f"{request.url} {dict(request.headers)} {request.content.decode()}")
+
+        return httpx.Response(200, json={"token": "jwt"})
+
+    _use_transport(monkeypatch, "ansari_whatsapp.services.auth_client_real", handler)
+
+    response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
+
+    assert response.status_code == 200
+
+    assert sent_to_auth and not any(PHONE in r for r in sent_to_auth)
+
+
+def test_reply_by_phone_is_refused_in_production(monkeypatch):
+
+    from ansari_whatsapp.utils.config import WhatsAppSettings
+
+    monkeypatch.setenv("DEPLOYMENT_TYPE", "production")
+
+    monkeypatch.setenv("META_REPLY_BY_PHONE", "True")
+
+    for flag in ("MOCK_ANSARI_CLIENT", "MOCK_AUTH_CLIENT", "MOCK_META_API"):
+        monkeypatch.setenv(flag, "False")
+
+    get_settings.cache_clear()
+
+    try:
+        with pytest.raises(ValueError, match="META_REPLY_BY_PHONE"):
+            WhatsAppSettings()
+
+    finally:
+        monkeypatch.undo()
+
+        get_settings.cache_clear()
+
+
+def test_reply_by_phone_defaults_to_off(monkeypatch):
+
+    from ansari_whatsapp.utils.config import WhatsAppSettings
+
+    monkeypatch.delenv("META_REPLY_BY_PHONE", raising=False)
+
+    get_settings.cache_clear()
+
+    try:
+        assert WhatsAppSettings().META_REPLY_BY_PHONE is False
+
+    finally:
+        monkeypatch.undo()
+
+        get_settings.cache_clear()
 
 
 def test_no_phone_number_reaches_apps_api(monkeypatch):
@@ -419,10 +523,10 @@ def test_token_exchange_failure_notifies_user_and_is_reported(monkeypatch):
     async def failing_get_token(self, bsuid):
         raise AuthTokenError("apps/auth is down")
 
-    async def spy_send(self, recipient_phone, message_parts):
-        recipients.append(recipient_phone)
+    async def spy_send(self, recipient_bsuid_or_phone, message_parts):
+        recipients.append(recipient_bsuid_or_phone)
         sent.extend(message_parts)
-        return await original_send(self, recipient_phone, message_parts)
+        return await original_send(self, recipient_bsuid_or_phone, message_parts)
 
     monkeypatch.setattr(AuthClientMock, "get_token", failing_get_token)
     monkeypatch.setattr(MetaApiServiceMock, "send_message", spy_send)

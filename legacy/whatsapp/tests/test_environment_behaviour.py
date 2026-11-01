@@ -68,9 +68,9 @@ def _spy_on_replies(monkeypatch) -> list:
     replies = []
     original = MetaApiServiceMock.send_message
 
-    async def spy(self, recipient_phone, message_parts):
+    async def spy(self, recipient_bsuid_or_phone, message_parts):
         replies.extend(message_parts)
-        return await original(self, recipient_phone, message_parts)
+        return await original(self, recipient_bsuid_or_phone, message_parts)
 
     monkeypatch.setattr(MetaApiServiceMock, "send_message", spy)
     return replies

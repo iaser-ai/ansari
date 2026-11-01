@@ -12,11 +12,11 @@ class MetaApiServiceBase(ABC):
     """
 
     @abstractmethod
-    async def send_typing_indicator(self, recipient_phone: str, message_id: str) -> None:
+    async def send_typing_indicator(self, recipient_bsuid_or_phone: str, message_id: str) -> None:
         """Send typing indicator to WhatsApp recipient.
 
         Args:
-            recipient_phone (str): WhatsApp phone number of recipient
+            recipient_bsuid_or_phone (str): BSUID or phone number of the recipient
             message_id (str): Message ID for the typing indicator
 
         Raises:
@@ -25,11 +25,11 @@ class MetaApiServiceBase(ABC):
         pass
 
     @abstractmethod
-    async def send_message(self, recipient_phone: str, message_parts: list[str]) -> None:
+    async def send_message(self, recipient_bsuid_or_phone: str, message_parts: list[str]) -> None:
         """Send WhatsApp message(s) to recipient.
 
         Args:
-            recipient_phone (str): WhatsApp phone number of recipient
+            recipient_bsuid_or_phone (str): BSUID or phone number of the recipient
             message_parts (list[str]): List of message parts (already split by length)
 
         Raises:
