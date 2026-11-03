@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import React from 'react';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import React from "react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Mock the storage + network layers so the provider runs under jsdom with no
 // React Native runtime and no real requests. The apps/auth client is one shared
 // double (the provider builds its client once, at import); `AuthError` stays
 // the real class, because the provider's decisions key on it.
-vi.mock('@/lib/auth/store', () => ({
+vi.mock("@/lib/auth/store", () => ({
   loadSession: vi.fn(async () => null),
   saveSession: vi.fn(async () => {}),
   clearSession: vi.fn(async () => {}),
@@ -19,11 +19,20 @@ vi.mock('@/lib/auth/store', () => ({
 const authApiDouble = vi.hoisted(() => ({
   signIn: vi.fn(),
   signUp: vi.fn(),
+  signInWithIdToken: vi.fn(),
   mintJwt: vi.fn(),
   signOut: vi.fn(),
 }));
-vi.mock('@/lib/auth/api', async (importActual) => ({
-  ...(await importActual<typeof import('@/lib/auth/api')>()),
+const startAppleSignInMock = vi.hoisted(() => vi.fn());
+const startGoogleSignInMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/nativeApple", () => ({
+  startAppleSignIn: startAppleSignInMock,
+}));
+vi.mock("@/lib/auth/nativeGoogle", () => ({
+  startGoogleSignIn: startGoogleSignInMock,
+}));
+vi.mock("@/lib/auth/api", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/auth/api")>()),
   createAuthApi: () => authApiDouble,
 }));
 
@@ -31,19 +40,19 @@ vi.mock('@/lib/auth/api', async (importActual) => ({
 // stubbed fetch.
 const deleteAccountRequest = vi.hoisted(() => vi.fn(async () => {}));
 const realDeleteAccountRequest = vi.hoisted(() => ({ fn: null as null | (() => Promise<void>) }));
-vi.mock('@/lib/auth/delete-account', async (importActual) => {
+vi.mock("@/lib/auth/delete-account", async (importActual) => {
   realDeleteAccountRequest.fn = (
-    await importActual<typeof import('@/lib/auth/delete-account')>()
+    await importActual<typeof import("@/lib/auth/delete-account")>()
   ).deleteAccountRequest;
   return { deleteAccountRequest };
 });
 
-import * as store from '@/lib/auth/store';
-import { AuthError } from '@/lib/auth/api';
-import { handleUnauthorized } from '@/lib/api/auth-bridge';
-import { AuthProvider, useAuth } from '@/lib/auth/context';
-import { AccountDeleteNotSentError, AccountSessionEndedError } from '@/lib/auth/errors';
-import { ApiError, setBaseUrl } from '@/vendor/api-client-react/custom-fetch';
+import * as store from "@/lib/auth/store";
+import { AuthError } from "@/lib/auth/api";
+import { handleUnauthorized } from "@/lib/api/auth-bridge";
+import { AuthProvider, useAuth } from "@/lib/auth/context";
+import { AccountDeleteNotSentError, AccountSessionEndedError } from "@/lib/auth/errors";
+import { ApiError, setBaseUrl } from "@/vendor/api-client-react/custom-fetch";
 
 const loadSessionMock = vi.mocked(store.loadSession);
 const saveSessionMock = vi.mocked(store.saveSession);
@@ -51,9 +60,9 @@ const clearSessionMock = vi.mocked(store.clearSession);
 const loadGuestMock = vi.mocked(store.loadGuestCredentials);
 const saveGuestMock = vi.mocked(store.saveGuestCredentials);
 const clearGuestMock = vi.mocked(store.clearGuestCredentials);
-const { signIn, signUp, mintJwt, signOut } = authApiDouble;
+const { signIn, signUp, signInWithIdToken, mintJwt, signOut } = authApiDouble;
 
-const STORED_GUEST = { email: 'guest_stored@ansari.chat', password: 'Stored-guest-pw1!' };
+const STORED_GUEST = { email: "guest_stored@ansari.chat", password: "Stored-guest-pw1!" };
 
 let authApi!: ReturnType<typeof useAuth>;
 
@@ -67,16 +76,30 @@ beforeEach(() => {
   loadGuestMock.mockResolvedValue(null);
   signIn.mockImplementation(async (email: string) => ({
     sessionToken: `session-${email}`,
-    firstName: 'X',
-    lastName: 'Y',
+    firstName: "X",
+    lastName: "Y",
   }));
   signUp.mockImplementation(async (input: { firstName?: string; lastName?: string }) => ({
-    sessionToken: 'session-new',
-    firstName: input.firstName ?? '',
-    lastName: input.lastName ?? '',
+    sessionToken: "session-new",
+    firstName: input.firstName ?? "",
+    lastName: input.lastName ?? "",
   }));
   mintJwt.mockImplementation(async (sessionToken: string) => `jwt-for-${sessionToken}`);
   signOut.mockResolvedValue(undefined);
+  signInWithIdToken.mockImplementation(async (input: { provider: string }) => ({
+    sessionToken: `session-${input.provider}`,
+    firstName: "Social",
+    lastName: "User",
+  }));
+  startAppleSignInMock.mockResolvedValue({
+    token: "apple-id-token",
+    nonce: "apple-nonce",
+    user: { name: { firstName: "Apple", lastName: "User" } },
+  });
+  startGoogleSignInMock.mockResolvedValue({
+    token: "google-id-token",
+    nonce: "google-nonce",
+  });
 });
 
 afterEach(() => {
@@ -95,9 +118,9 @@ async function mount(queryClient = new QueryClient()) {
       <AuthProvider>
         <Probe />
       </AuthProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  await waitFor(() => expect(authApi.status).not.toBe('loading'));
+  await waitFor(() => expect(authApi.status).not.toBe("loading"));
 }
 
 /**
@@ -106,28 +129,28 @@ async function mount(queryClient = new QueryClient()) {
  * provider must auto-provision a guest — on first launch with nothing stored,
  * and again after logout — so the app is never tokenless.
  */
-describe('AuthProvider auto-provisions a guest session', () => {
-  it('first launch with no stored session signs up a guest at apps/auth', async () => {
+describe("AuthProvider auto-provisions a guest session", () => {
+  it("first launch with no stored session signs up a guest at apps/auth", async () => {
     await mount();
 
-    expect(authApi.status).toBe('signedIn');
+    expect(authApi.status).toBe("signedIn");
     expect(authApi.isGuest).toBe(true);
     expect(signIn).not.toHaveBeenCalled();
     expect(signUp).toHaveBeenCalledTimes(1);
     expect(signUp.mock.calls[0]![0]).toMatchObject({
-      firstName: 'Welcome',
-      lastName: 'Guest',
+      firstName: "Welcome",
+      lastName: "Guest",
       registerToMailList: false,
     });
     // The guest is remembered, and the session holds both tokens.
     expect(saveGuestMock).toHaveBeenCalledTimes(1);
     expect(authApi.session).toMatchObject({
-      sessionToken: 'session-new',
-      accessToken: 'jwt-for-session-new',
+      sessionToken: "session-new",
+      accessToken: "jwt-for-session-new",
     });
   });
 
-  it('relaunch with a stored guest signs back into that guest', async () => {
+  it("relaunch with a stored guest signs back into that guest", async () => {
     loadGuestMock.mockResolvedValue(STORED_GUEST);
     await mount();
 
@@ -137,17 +160,17 @@ describe('AuthProvider auto-provisions a guest session', () => {
     expect(authApi.session?.sessionToken).toBe(`session-${STORED_GUEST.email}`);
   });
 
-  it('restores a real stored session without minting a guest', async () => {
+  it("restores a real stored session without minting a guest", async () => {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'real-access',
-      sessionToken: 'real-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "real-access",
+      sessionToken: "real-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     await mount();
 
-    expect(authApi.status).toBe('signedIn');
+    expect(authApi.status).toBe("signedIn");
     expect(authApi.isGuest).toBe(false);
     expect(signIn).not.toHaveBeenCalled();
     expect(signUp).not.toHaveBeenCalled();
@@ -161,7 +184,7 @@ describe('AuthProvider auto-provisions a guest session', () => {
  * no sign-up request — otherwise sign-in throttling becomes sign-up pressure
  * and the device's guest and its threads are orphaned.
  */
-describe('loginAsGuest: when a stored guest may be replaced', () => {
+describe("loginAsGuest: when a stored guest may be replaced", () => {
   async function tapContinueAsGuest(): Promise<unknown> {
     try {
       await act(async () => {
@@ -173,9 +196,9 @@ describe('loginAsGuest: when a stored guest may be replaced', () => {
     }
   }
 
-  it('401 from sign-in: the stored guest is gone, a new guest is signed up', async () => {
+  it("401 from sign-in: the stored guest is gone, a new guest is signed up", async () => {
     loadGuestMock.mockResolvedValue(STORED_GUEST);
-    signIn.mockRejectedValue(new AuthError('Invalid email or password', 401, 'sign-in'));
+    signIn.mockRejectedValue(new AuthError("Invalid email or password", 401, "sign-in"));
     await mount();
 
     expect(signIn).toHaveBeenCalledTimes(1);
@@ -186,22 +209,22 @@ describe('loginAsGuest: when a stored guest may be replaced', () => {
   });
 
   it.each([
-    ['429 (rate limited)', new AuthError('Too many attempts.', 429, 'sign-in')],
-    ['503 (apps/auth down)', new AuthError('Sign-in is unavailable.', 503, 'sign-in')],
-    ['a network error', new AuthError("Couldn't reach Ansari.", 0, 'sign-in')],
-    ['a 401 from /token, not sign-in', new AuthError('Session ended.', 401, 'token')],
-  ])('%s: the same guest is kept, the error surfaces, no sign-up', async (_label, failure) => {
+    ["429 (rate limited)", new AuthError("Too many attempts.", 429, "sign-in")],
+    ["503 (apps/auth down)", new AuthError("Sign-in is unavailable.", 503, "sign-in")],
+    ["a network error", new AuthError("Couldn't reach Ansari.", 0, "sign-in")],
+    ["a 401 from /token, not sign-in", new AuthError("Session ended.", 401, "token")],
+  ])("%s: the same guest is kept, the error surfaces, no sign-up", async (_label, failure) => {
     loadGuestMock.mockResolvedValue(STORED_GUEST);
     signIn.mockRejectedValue(failure);
     signIn.mockImplementationOnce(async (email: string) => ({
       sessionToken: `session-${email}`,
-      firstName: 'Welcome',
-      lastName: 'Guest',
+      firstName: "Welcome",
+      lastName: "Guest",
     }));
     // The /token case fails on the exchange after a good sign-in.
-    if (failure.endpoint === 'token') {
+    if (failure.endpoint === "token") {
       signIn.mockReset();
-      signIn.mockResolvedValue({ sessionToken: 's', firstName: 'Welcome', lastName: 'Guest' });
+      signIn.mockResolvedValue({ sessionToken: "s", firstName: "Welcome", lastName: "Guest" });
       mintJwt.mockRejectedValue(failure);
     }
     // Startup's attempt (succeeds once for the sign-in cases; the /token case
@@ -216,12 +239,12 @@ describe('loginAsGuest: when a stored guest may be replaced', () => {
     expect(clearGuestMock).not.toHaveBeenCalled();
   });
 
-  it('a transient failure at first launch lands signed-out, guest kept, no sign-up', async () => {
+  it("a transient failure at first launch lands signed-out, guest kept, no sign-up", async () => {
     loadGuestMock.mockResolvedValue(STORED_GUEST);
-    signIn.mockRejectedValue(new AuthError('Too many attempts.', 429, 'sign-in'));
+    signIn.mockRejectedValue(new AuthError("Too many attempts.", 429, "sign-in"));
     await mount();
 
-    await waitFor(() => expect(authApi.status).toBe('signedOut'));
+    await waitFor(() => expect(authApi.status).toBe("signedOut"));
     expect(signUp).not.toHaveBeenCalled();
     expect(saveGuestMock).not.toHaveBeenCalled();
     expect(clearGuestMock).not.toHaveBeenCalled();
@@ -232,47 +255,51 @@ describe('loginAsGuest: when a stored guest may be replaced', () => {
  * 401 recovery: the transport's single-flight refresh now mints a JWT from the
  * apps/auth session (`/token`). Only a dead session signs the user out.
  */
-describe('refresh on 401 through /token', () => {
+describe("refresh on 401 through /token", () => {
   async function mountSignedIn() {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'expired-jwt',
-      sessionToken: 'live-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "expired-jwt",
+      sessionToken: "live-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     await mount();
   }
 
-  it('concurrent 401s share ONE /token call and all get the fresh JWT', async () => {
+  it("concurrent 401s share ONE /token call and all get the fresh JWT", async () => {
     await mountSignedIn();
     let release!: () => void;
     mintJwt.mockImplementationOnce(
-      () => new Promise<string>((resolve) => (release = () => resolve('fresh-jwt'))),
+      () => new Promise<string>((resolve) => (release = () => resolve("fresh-jwt")))
     );
 
     let results: (string | null)[] = [];
     await act(async () => {
-      const pending = Promise.all([handleUnauthorized(), handleUnauthorized(), handleUnauthorized()]);
+      const pending = Promise.all([
+        handleUnauthorized(),
+        handleUnauthorized(),
+        handleUnauthorized(),
+      ]);
       release();
       results = await pending;
     });
 
     expect(mintJwt).toHaveBeenCalledTimes(1);
-    expect(mintJwt).toHaveBeenCalledWith('live-session');
-    expect(results).toEqual(['fresh-jwt', 'fresh-jwt', 'fresh-jwt']);
-    expect(authApi.session?.accessToken).toBe('fresh-jwt');
+    expect(mintJwt).toHaveBeenCalledWith("live-session");
+    expect(results).toEqual(["fresh-jwt", "fresh-jwt", "fresh-jwt"]);
+    expect(authApi.session?.accessToken).toBe("fresh-jwt");
     expect(saveSessionMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ accessToken: 'fresh-jwt', sessionToken: 'live-session' }),
+      expect.objectContaining({ accessToken: "fresh-jwt", sessionToken: "live-session" })
     );
     expect(authApi.isGuest).toBe(false);
   });
 
-  it('401 from /token (dead session): signed out, then back to the guest', async () => {
+  it("401 from /token (dead session): signed out, then back to the guest", async () => {
     await mountSignedIn();
-    mintJwt.mockRejectedValueOnce(new AuthError('Session ended.', 401, 'token'));
+    mintJwt.mockRejectedValueOnce(new AuthError("Session ended.", 401, "token"));
 
-    let result: string | null = 'unset';
+    let result: string | null = "unset";
     await act(async () => {
       result = await handleUnauthorized();
     });
@@ -283,22 +310,22 @@ describe('refresh on 401 through /token', () => {
   });
 
   it.each([
-    ['503', new AuthError('Sign-in is unavailable.', 503, 'token')],
-    ['429', new AuthError('Too many attempts.', 429, 'token')],
-    ['a network error', new AuthError("Couldn't reach Ansari.", 0, 'token')],
-  ])('%s from /token keeps the session (no sign-out)', async (_label, failure) => {
+    ["503", new AuthError("Sign-in is unavailable.", 503, "token")],
+    ["429", new AuthError("Too many attempts.", 429, "token")],
+    ["a network error", new AuthError("Couldn't reach Ansari.", 0, "token")],
+  ])("%s from /token keeps the session (no sign-out)", async (_label, failure) => {
     await mountSignedIn();
     mintJwt.mockRejectedValueOnce(failure);
 
-    let result: string | null = 'unset';
+    let result: string | null = "unset";
     await act(async () => {
       result = await handleUnauthorized();
     });
 
     expect(result).toBeNull();
     expect(clearSessionMock).not.toHaveBeenCalled();
-    expect(authApi.status).toBe('signedIn');
-    expect(authApi.session?.sessionToken).toBe('live-session');
+    expect(authApi.status).toBe("signedIn");
+    expect(authApi.session?.sessionToken).toBe("live-session");
   });
 });
 
@@ -319,19 +346,19 @@ function deferred<T>() {
  * `/token`, so a failed exchange never orphans it; and concurrent callers
  * share one attempt, so a device never signs up two guests at once.
  */
-describe('guest provisioning: atomic and single-flight', () => {
-  it('sign-up ok, /token 503: the guest is stored, and the retry signs back into it', async () => {
+describe("guest provisioning: atomic and single-flight", () => {
+  it("sign-up ok, /token 503: the guest is stored, and the retry signs back into it", async () => {
     const stored: { email: string; password: string }[] = [];
     saveGuestMock.mockImplementation(async (credentials) => {
       stored.push(credentials);
     });
     loadGuestMock.mockImplementation(async () => stored.at(-1) ?? null);
-    mintJwt.mockRejectedValueOnce(new AuthError('Sign-in is unavailable.', 503, 'token'));
+    mintJwt.mockRejectedValueOnce(new AuthError("Sign-in is unavailable.", 503, "token"));
     await mount();
 
     // Startup: sign-up succeeded and the guest was stored, /token failed →
     // signed out; the re-guest retry then signs back into THAT guest.
-    await waitFor(() => expect(authApi.status).toBe('signedIn'));
+    await waitFor(() => expect(authApi.status).toBe("signedIn"));
     expect(stored).toHaveLength(1);
     expect(signUp).toHaveBeenCalledTimes(1);
     expect(signIn).toHaveBeenCalledWith(stored[0]!.email, stored[0]!.password);
@@ -345,20 +372,20 @@ describe('guest provisioning: atomic and single-flight', () => {
     expect(saveGuestMock).toHaveBeenCalledTimes(1);
   });
 
-  it('the guest is stored BEFORE the /token exchange starts', async () => {
+  it("the guest is stored BEFORE the /token exchange starts", async () => {
     const order: string[] = [];
     saveGuestMock.mockImplementation(async () => {
-      order.push('save guest');
+      order.push("save guest");
     });
     mintJwt.mockImplementation(async (token: string) => {
-      order.push('token');
+      order.push("token");
       return `jwt-for-${token}`;
     });
     await mount();
-    expect(order).toEqual(['save guest', 'token']);
+    expect(order).toEqual(["save guest", "token"]);
   });
 
-  it('concurrent calls on a device with no stored guest sign up ONE guest', async () => {
+  it("concurrent calls on a device with no stored guest sign up ONE guest", async () => {
     const pendingSignUp = deferred<{ sessionToken: string; firstName: string; lastName: string }>();
     signUp.mockImplementationOnce(() => pendingSignUp.promise);
     render(
@@ -366,7 +393,7 @@ describe('guest provisioning: atomic and single-flight', () => {
         <AuthProvider>
           <Probe />
         </AuthProvider>
-      </QueryClientProvider>,
+      </QueryClientProvider>
     );
     // Startup's attempt is in flight (sign-up pending); the sheet's
     // "Continue as guest" and a second caller arrive meanwhile.
@@ -376,13 +403,17 @@ describe('guest provisioning: atomic and single-flight', () => {
       both = Promise.all([authApi.loginAsGuest(), authApi.loginAsGuest()]);
     });
     await act(async () => {
-      pendingSignUp.resolve({ sessionToken: 'session-one', firstName: 'Welcome', lastName: 'Guest' });
+      pendingSignUp.resolve({
+        sessionToken: "session-one",
+        firstName: "Welcome",
+        lastName: "Guest",
+      });
       await both;
     });
 
     expect(signUp).toHaveBeenCalledTimes(1);
     expect(saveGuestMock).toHaveBeenCalledTimes(1);
-    expect(authApi.session?.sessionToken).toBe('session-one');
+    expect(authApi.session?.sessionToken).toBe("session-one");
   });
 });
 
@@ -390,19 +421,19 @@ describe('guest provisioning: atomic and single-flight', () => {
  * refresh() must not write a result back over a principal change that landed
  * while `/token` was awaited (app architect, #309 review).
  */
-describe('refresh during a principal change', () => {
+describe("refresh during a principal change", () => {
   async function mountSignedIn() {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'old-jwt',
-      sessionToken: 'old-session',
-      firstName: 'Old',
-      lastName: 'User',
+      accessToken: "old-jwt",
+      sessionToken: "old-session",
+      firstName: "Old",
+      lastName: "User",
       isGuest: false,
     });
     await mount();
   }
 
-  it('sign-out during the await: the old tokens are not re-persisted', async () => {
+  it("sign-out during the await: the old tokens are not re-persisted", async () => {
     await mountSignedIn();
     const pending = deferred<string>();
     mintJwt.mockImplementationOnce(() => pending.promise);
@@ -415,17 +446,17 @@ describe('refresh during a principal change', () => {
       await authApi.logout();
     });
     await act(async () => {
-      pending.resolve('jwt-for-the-old-session');
+      pending.resolve("jwt-for-the-old-session");
       expect(await refreshed).toBeNull();
     });
 
     await waitFor(() => expect(authApi.isGuest).toBe(true));
     const persisted = saveSessionMock.mock.calls.map(([session]) => session.sessionToken);
-    expect(persisted).not.toContain('old-session');
-    expect(authApi.session?.accessToken).not.toBe('jwt-for-the-old-session');
+    expect(persisted).not.toContain("old-session");
+    expect(authApi.session?.accessToken).not.toBe("jwt-for-the-old-session");
   });
 
-  it('sign-in during the await: the new principal is kept', async () => {
+  it("sign-in during the await: the new principal is kept", async () => {
     await mountSignedIn();
     const pending = deferred<string>();
     mintJwt.mockImplementationOnce(() => pending.promise);
@@ -435,21 +466,21 @@ describe('refresh during a principal change', () => {
       refreshed = handleUnauthorized();
     });
     await act(async () => {
-      await authApi.login('b@example.com', 'pw');
+      await authApi.login("b@example.com", "pw");
     });
     await act(async () => {
-      pending.resolve('jwt-for-the-old-session');
+      pending.resolve("jwt-for-the-old-session");
       expect(await refreshed).toBeNull();
     });
 
     expect(authApi.session).toMatchObject({
-      sessionToken: 'session-b@example.com',
-      accessToken: 'jwt-for-session-b@example.com',
+      sessionToken: "session-b@example.com",
+      accessToken: "jwt-for-session-b@example.com",
       isGuest: false,
     });
   });
 
-  it('a 401 for the OLD session after a sign-in does not sign the new principal out', async () => {
+  it("a 401 for the OLD session after a sign-in does not sign the new principal out", async () => {
     await mountSignedIn();
     const pending = deferred<string>();
     mintJwt.mockImplementationOnce(() => pending.promise);
@@ -459,15 +490,15 @@ describe('refresh during a principal change', () => {
       refreshed = handleUnauthorized();
     });
     await act(async () => {
-      await authApi.login('b@example.com', 'pw');
+      await authApi.login("b@example.com", "pw");
     });
     await act(async () => {
-      pending.reject(new AuthError('Session ended.', 401, 'token'));
+      pending.reject(new AuthError("Session ended.", 401, "token"));
       expect(await refreshed).toBeNull();
     });
 
     expect(clearSessionMock).not.toHaveBeenCalled();
-    expect(authApi.session?.sessionToken).toBe('session-b@example.com');
+    expect(authApi.session?.sessionToken).toBe("session-b@example.com");
   });
 });
 
@@ -476,43 +507,43 @@ describe('refresh during a principal change', () => {
  * session on this device is checked at once; if the reset killed it (401
  * from /token) it is dropped locally, with no sign-out call.
  */
-describe('checkSession', () => {
+describe("checkSession", () => {
   async function mountReal() {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'pre-reset-jwt',
-      sessionToken: 'pre-reset-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "pre-reset-jwt",
+      sessionToken: "pre-reset-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     await mount();
   }
 
-  it('a session the reset killed (401 from /token) is dropped locally, no sign-out', async () => {
+  it("a session the reset killed (401 from /token) is dropped locally, no sign-out", async () => {
     await mountReal();
-    mintJwt.mockRejectedValueOnce(new AuthError('Session ended.', 401, 'token'));
+    mintJwt.mockRejectedValueOnce(new AuthError("Session ended.", 401, "token"));
     await act(async () => {
       await authApi.checkSession();
     });
-    expect(mintJwt).toHaveBeenCalledWith('pre-reset-session');
+    expect(mintJwt).toHaveBeenCalledWith("pre-reset-session");
     expect(clearSessionMock).toHaveBeenCalled();
     expect(signOut).not.toHaveBeenCalled();
-    expect(authApi.session?.sessionToken).not.toBe('pre-reset-session');
+    expect(authApi.session?.sessionToken).not.toBe("pre-reset-session");
   });
 
-  it('a session still alive (another account was reset) is kept, with a fresh JWT', async () => {
+  it("a session still alive (another account was reset) is kept, with a fresh JWT", async () => {
     await mountReal();
     await act(async () => {
       await authApi.checkSession();
     });
     expect(clearSessionMock).not.toHaveBeenCalled();
     expect(authApi.session).toMatchObject({
-      sessionToken: 'pre-reset-session',
-      accessToken: 'jwt-for-pre-reset-session',
+      sessionToken: "pre-reset-session",
+      accessToken: "jwt-for-pre-reset-session",
     });
   });
 
-  it('a guest is not checked', async () => {
+  it("a guest is not checked", async () => {
     await mount();
     mintJwt.mockClear();
     await act(async () => {
@@ -528,29 +559,29 @@ describe('checkSession', () => {
  * and JWT are dead, so no sign-out call and no refresh is attempted, and the
  * device returns to its guest.
  */
-describe('deleteAccount', () => {
+describe("deleteAccount", () => {
   async function mountReal() {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'real-jwt',
-      sessionToken: 'real-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "real-jwt",
+      sessionToken: "real-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     loadGuestMock.mockResolvedValue(STORED_GUEST);
     await mount();
   }
 
-  it('deletes through apps/api, ends the session locally, and returns to the stored guest', async () => {
+  it("deletes through apps/api, ends the session locally, and returns to the stored guest", async () => {
     await mountReal();
     await act(async () => {
       await authApi.deleteAccount();
     });
     expect(deleteAccountRequest).toHaveBeenCalledTimes(1);
     // One fresh JWT, minted before the DELETE.
-    expect(mintJwt).toHaveBeenCalledWith('real-session');
+    expect(mintJwt).toHaveBeenCalledWith("real-session");
     expect(mintJwt.mock.invocationCallOrder[0]!).toBeLessThan(
-      deleteAccountRequest.mock.invocationCallOrder[0]!,
+      deleteAccountRequest.mock.invocationCallOrder[0]!
     );
     expect(clearSessionMock).toHaveBeenCalled();
     expect(signOut).not.toHaveBeenCalled();
@@ -559,29 +590,29 @@ describe('deleteAccount', () => {
     expect(clearGuestMock).not.toHaveBeenCalled();
   });
 
-  it('a failed delete keeps the account signed in, untouched', async () => {
+  it("a failed delete keeps the account signed in, untouched", async () => {
     await mountReal();
-    deleteAccountRequest.mockRejectedValueOnce(new Error('HTTP 503'));
+    deleteAccountRequest.mockRejectedValueOnce(new Error("HTTP 503"));
     let thrown: unknown;
     await act(async () => {
       thrown = await authApi.deleteAccount().catch((error: unknown) => error);
     });
-    expect(String(thrown)).toContain('HTTP 503');
+    expect(String(thrown)).toContain("HTTP 503");
     expect(clearSessionMock).not.toHaveBeenCalled();
-    expect(authApi.session?.sessionToken).toBe('real-session');
+    expect(authApi.session?.sessionToken).toBe("real-session");
   });
 
-  it('a guest cannot delete (no request is made)', async () => {
+  it("a guest cannot delete (no request is made)", async () => {
     await mount(); // a fresh guest
     await expect(
       act(async () => {
         await authApi.deleteAccount();
-      }),
+      })
     ).rejects.toThrow(/Sign in/);
     expect(deleteAccountRequest).not.toHaveBeenCalled();
   });
 
-  it('a double tap sends ONE delete', async () => {
+  it("a double tap sends ONE delete", async () => {
     await mountReal();
     const pending = deferred<void>();
     deleteAccountRequest.mockImplementationOnce(() => pending.promise);
@@ -596,10 +627,13 @@ describe('deleteAccount', () => {
     expect(deleteAccountRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('a 401 with the fresh JWT (already deleted, response lost) ends the session locally, honestly', async () => {
+  it("a 401 with the fresh JWT (already deleted, response lost) ends the session locally, honestly", async () => {
     await mountReal();
     deleteAccountRequest.mockRejectedValueOnce(
-      new ApiError(new Response(null, { status: 401 }), null, { method: 'DELETE', url: '/api/v2/users/me' }),
+      new ApiError(new Response(null, { status: 401 }), null, {
+        method: "DELETE",
+        url: "/api/v2/users/me",
+      })
     );
     let thrown: unknown;
     await act(async () => {
@@ -607,7 +641,7 @@ describe('deleteAccount', () => {
     });
     expect(thrown).toBeInstanceOf(AccountSessionEndedError);
     expect(clearSessionMock).toHaveBeenCalled();
-    expect(mintJwt.mock.calls.filter(([t]) => t === 'real-session')).toHaveLength(1);
+    expect(mintJwt.mock.calls.filter(([t]) => t === "real-session")).toHaveLength(1);
     expect(signOut).not.toHaveBeenCalled();
     await waitFor(() => expect(authApi.isGuest).toBe(true));
   });
@@ -615,23 +649,27 @@ describe('deleteAccount', () => {
   // Security review F3: the JWT lives 15 minutes and is refreshed only when a
   // request 401s; /delete-account makes no request first. The stored JWT here
   // is expired (the server 401s it); the DELETE must carry the fresh one.
-  it('an expired stored JWT: a fresh one is minted and the DELETE succeeds with it', async () => {
+  it("an expired stored JWT: a fresh one is minted and the DELETE succeeds with it", async () => {
     const sent: (string | null)[] = [];
-    vi.stubGlobal('fetch', async (_url: string, init: RequestInit & { headers: Headers }) => {
-      const bearer = new Headers(init.headers).get('authorization');
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit & { headers: Headers }) => {
+      const bearer = new Headers(init.headers).get("authorization");
       sent.push(bearer);
-      return bearer === 'Bearer real-jwt'
-        ? new Response(JSON.stringify({ detail: 'Could not validate credentials' }), { status: 401 })
-        : new Response(JSON.stringify({ message: 'Account successfully deleted' }), { status: 200 });
+      return bearer === "Bearer real-jwt"
+        ? new Response(JSON.stringify({ detail: "Could not validate credentials" }), {
+            status: 401,
+          })
+        : new Response(JSON.stringify({ message: "Account successfully deleted" }), {
+            status: 200,
+          });
     });
-    setBaseUrl('https://api.test');
+    setBaseUrl("https://api.test");
     deleteAccountRequest.mockImplementationOnce(() => realDeleteAccountRequest.fn!());
     try {
       await mountReal();
       await act(async () => {
         await authApi.deleteAccount();
       });
-      expect(sent).toEqual(['Bearer jwt-for-real-session']);
+      expect(sent).toEqual(["Bearer jwt-for-real-session"]);
       expect(clearSessionMock).toHaveBeenCalled();
       await waitFor(() => expect(authApi.isGuest).toBe(true));
     } finally {
@@ -640,9 +678,9 @@ describe('deleteAccount', () => {
     }
   });
 
-  it('a /token 401 (the session is dead): nothing is sent, the session ends, honestly', async () => {
+  it("a /token 401 (the session is dead): nothing is sent, the session ends, honestly", async () => {
     await mountReal();
-    mintJwt.mockRejectedValueOnce(new AuthError('Unauthorized', 401, 'token'));
+    mintJwt.mockRejectedValueOnce(new AuthError("Unauthorized", 401, "token"));
     let thrown: unknown;
     await act(async () => {
       thrown = await authApi.deleteAccount().catch((error: unknown) => error);
@@ -653,10 +691,10 @@ describe('deleteAccount', () => {
   });
 
   it.each([429, 503])(
-    'a /token %i: nothing is sent, the session is kept, and the page can offer a retry',
+    "a /token %i: nothing is sent, the session is kept, and the page can offer a retry",
     async (status) => {
       await mountReal();
-      mintJwt.mockRejectedValueOnce(new AuthError('Unavailable', status, 'token'));
+      mintJwt.mockRejectedValueOnce(new AuthError("Unavailable", status, "token"));
       let thrown: unknown;
       await act(async () => {
         thrown = await authApi.deleteAccount().catch((error: unknown) => error);
@@ -664,23 +702,26 @@ describe('deleteAccount', () => {
       expect(thrown).toBeInstanceOf(AccountDeleteNotSentError);
       expect(deleteAccountRequest).not.toHaveBeenCalled();
       expect(clearSessionMock).not.toHaveBeenCalled();
-      expect(authApi.session).toMatchObject({ sessionToken: 'real-session', accessToken: 'real-jwt' });
-    },
+      expect(authApi.session).toMatchObject({
+        sessionToken: "real-session",
+        accessToken: "real-jwt",
+      });
+    }
   );
 
-  it('a network failure at /token: nothing is sent, the session is kept', async () => {
+  it("a network failure at /token: nothing is sent, the session is kept", async () => {
     await mountReal();
-    mintJwt.mockRejectedValueOnce(new TypeError('Network request failed'));
+    mintJwt.mockRejectedValueOnce(new TypeError("Network request failed"));
     let thrown: unknown;
     await act(async () => {
       thrown = await authApi.deleteAccount().catch((error: unknown) => error);
     });
     expect(thrown).toBeInstanceOf(AccountDeleteNotSentError);
     expect(deleteAccountRequest).not.toHaveBeenCalled();
-    expect(authApi.status).toBe('signedIn');
+    expect(authApi.status).toBe("signedIn");
   });
 
-  it('a sign-in during the request keeps the new principal', async () => {
+  it("a sign-in during the request keeps the new principal", async () => {
     await mountReal();
     const pending = deferred<void>();
     deleteAccountRequest.mockImplementationOnce(() => pending.promise);
@@ -690,17 +731,17 @@ describe('deleteAccount', () => {
     });
     await waitFor(() => expect(deleteAccountRequest).toHaveBeenCalled());
     await act(async () => {
-      await authApi.login('b@example.com', 'pw');
+      await authApi.login("b@example.com", "pw");
     });
     await act(async () => {
       pending.resolve();
       await deleting;
     });
     expect(clearSessionMock).not.toHaveBeenCalled();
-    expect(authApi.session?.sessionToken).toBe('session-b@example.com');
+    expect(authApi.session?.sessionToken).toBe("session-b@example.com");
   });
 
-  it('a sign-in while the fresh JWT is minted: nothing is sent, the new principal is kept', async () => {
+  it("a sign-in while the fresh JWT is minted: nothing is sent, the new principal is kept", async () => {
     await mountReal();
     const minted = deferred<string>();
     mintJwt.mockImplementationOnce(() => minted.promise);
@@ -709,81 +750,81 @@ describe('deleteAccount', () => {
       deleting = authApi.deleteAccount().catch((error: unknown) => error);
     });
     await act(async () => {
-      await authApi.login('b@example.com', 'pw');
+      await authApi.login("b@example.com", "pw");
     });
     let thrown: unknown;
     await act(async () => {
-      minted.resolve('jwt-late');
+      minted.resolve("jwt-late");
       thrown = await deleting;
     });
     expect(thrown).toBeInstanceOf(AccountDeleteNotSentError);
     expect(deleteAccountRequest).not.toHaveBeenCalled();
     expect(clearSessionMock).not.toHaveBeenCalled();
-    expect(authApi.session?.sessionToken).toBe('session-b@example.com');
+    expect(authApi.session?.sessionToken).toBe("session-b@example.com");
   });
 });
 
-describe('sign-in, sign-up and sign-out', () => {
-  it('sign-in stores the session token and its JWT', async () => {
+describe("sign-in, sign-up and sign-out", () => {
+  it("sign-in stores the session token and its JWT", async () => {
     await mount();
     await act(async () => {
-      await authApi.login('a@example.com', 'pw');
+      await authApi.login("a@example.com", "pw");
     });
     expect(authApi.session).toMatchObject({
-      sessionToken: 'session-a@example.com',
-      accessToken: 'jwt-for-session-a@example.com',
+      sessionToken: "session-a@example.com",
+      accessToken: "jwt-for-session-a@example.com",
       isGuest: false,
     });
   });
 
-  it('sign-up passes the mail-list opt-in through', async () => {
+  it("sign-up passes the mail-list opt-in through", async () => {
     await mount();
     await act(async () => {
       await authApi.register({
-        email: 'new@example.com',
-        password: 'Strong-pass-123!',
-        firstName: 'Amina',
+        email: "new@example.com",
+        password: "Strong-pass-123!",
+        firstName: "Amina",
         registerToMailList: true,
       });
     });
     expect(signUp).toHaveBeenLastCalledWith(
-      expect.objectContaining({ email: 'new@example.com', registerToMailList: true }),
+      expect.objectContaining({ email: "new@example.com", registerToMailList: true })
     );
-    expect(authApi.session?.firstName).toBe('Amina');
+    expect(authApi.session?.firstName).toBe("Amina");
     expect(authApi.isGuest).toBe(false);
   });
 
-  it('a failed sign-in rejects and leaves the guest session in place', async () => {
+  it("a failed sign-in rejects and leaves the guest session in place", async () => {
     await mount();
     const guestSession = authApi.session;
-    signIn.mockRejectedValueOnce(new AuthError('Invalid email or password', 401, 'sign-in'));
+    signIn.mockRejectedValueOnce(new AuthError("Invalid email or password", 401, "sign-in"));
     await expect(
       act(async () => {
-        await authApi.login('a@example.com', 'wrong');
-      }),
-    ).rejects.toThrow('Invalid email or password');
+        await authApi.login("a@example.com", "wrong");
+      })
+    ).rejects.toThrow("Invalid email or password");
     expect(authApi.session).toBe(guestSession);
   });
 
-  it('sign-out calls apps/auth with the session token, clears, and returns to the guest', async () => {
+  it("sign-out calls apps/auth with the session token, clears, and returns to the guest", async () => {
     await mount();
     await act(async () => {
-      await authApi.login('a@example.com', 'pw');
+      await authApi.login("a@example.com", "pw");
     });
     await act(async () => {
       await authApi.logout();
     });
-    expect(signOut).toHaveBeenCalledWith('session-a@example.com');
+    expect(signOut).toHaveBeenCalledWith("session-a@example.com");
     expect(clearSessionMock).toHaveBeenCalled();
     await waitFor(() => expect(authApi.isGuest).toBe(true));
   });
 
-  it('sign-out still clears locally when apps/auth is unreachable', async () => {
+  it("sign-out still clears locally when apps/auth is unreachable", async () => {
     await mount();
     await act(async () => {
-      await authApi.login('a@example.com', 'pw');
+      await authApi.login("a@example.com", "pw");
     });
-    signOut.mockRejectedValueOnce(new AuthError("Couldn't reach Ansari.", 0, 'sign-out'));
+    signOut.mockRejectedValueOnce(new AuthError("Couldn't reach Ansari.", 0, "sign-out"));
     await act(async () => {
       await authApi.logout();
     });
@@ -798,33 +839,33 @@ describe('sign-in, sign-up and sign-out', () => {
  * guest → register flow on one device). Without the `queryClient.clear()` in
  * `applySession`, both assertions below fail — the seeded data survives.
  */
-describe('AuthProvider clears the query cache on principal transitions', () => {
-  it('signing in as a real account wipes the guest cache', async () => {
+describe("AuthProvider clears the query cache on principal transitions", () => {
+  it("signing in as a real account wipes the guest cache", async () => {
     const queryClient = new QueryClient();
     await mount(queryClient); // signed in as guest
 
-    queryClient.setQueryData(['conversations'], [{ id: 'A-thread', title: 'A secret' }]);
-    expect(queryClient.getQueryData(['conversations'])).toBeTruthy();
+    queryClient.setQueryData(["conversations"], [{ id: "A-thread", title: "A secret" }]);
+    expect(queryClient.getQueryData(["conversations"])).toBeTruthy();
 
     await act(async () => {
-      await authApi.login('b@example.com', 'pw');
+      await authApi.login("b@example.com", "pw");
     });
 
-    expect(authApi.status).toBe('signedIn');
+    expect(authApi.status).toBe("signedIn");
     expect(authApi.isGuest).toBe(false);
-    expect(queryClient.getQueryData(['conversations'])).toBeUndefined();
+    expect(queryClient.getQueryData(["conversations"])).toBeUndefined();
   });
 
-  it('logging out of a real account wipes the cache and drops back to a guest', async () => {
+  it("logging out of a real account wipes the cache and drops back to a guest", async () => {
     const queryClient = new QueryClient();
     await mount(queryClient);
 
     await act(async () => {
-      await authApi.login('a@example.com', 'pw');
+      await authApi.login("a@example.com", "pw");
     });
     expect(authApi.isGuest).toBe(false);
-    queryClient.setQueryData(['conversations'], [{ id: 'A-thread' }]);
-    expect(queryClient.getQueryData(['conversations'])).toBeTruthy();
+    queryClient.setQueryData(["conversations"], [{ id: "A-thread" }]);
+    expect(queryClient.getQueryData(["conversations"])).toBeTruthy();
 
     await act(async () => {
       await authApi.logout();
@@ -832,8 +873,8 @@ describe('AuthProvider clears the query cache on principal transitions', () => {
 
     // logout clears the cache, then the app falls straight back to a guest.
     await waitFor(() => expect(authApi.isGuest).toBe(true));
-    expect(authApi.status).toBe('signedIn');
-    expect(queryClient.getQueryData(['conversations'])).toBeUndefined();
+    expect(authApi.status).toBe("signedIn");
+    expect(queryClient.getQueryData(["conversations"])).toBeUndefined();
   });
 });
 
@@ -843,7 +884,7 @@ describe('AuthProvider clears the query cache on principal transitions', () => {
  * provider holds at `loading` (the share page renders through it) and
  * provisions only once the visitor moves on into the app.
  */
-describe('AuthProvider defers the guest on a public page', () => {
+describe("AuthProvider defers the guest on a public page", () => {
   function tree(queryClient: QueryClient, deferGuest: boolean) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -854,52 +895,52 @@ describe('AuthProvider defers the guest on a public page', () => {
     );
   }
 
-  it('mints no guest while deferred, then provisions once the page is left', async () => {
+  it("mints no guest while deferred, then provisions once the page is left", async () => {
     const queryClient = new QueryClient();
     const { rerender } = render(tree(queryClient, true));
     await waitFor(() => expect(loadSessionMock).toHaveBeenCalled());
     await act(async () => {});
 
-    expect(authApi.status).toBe('loading');
+    expect(authApi.status).toBe("loading");
     expect(signUp).not.toHaveBeenCalled();
 
     rerender(tree(queryClient, false));
-    await waitFor(() => expect(authApi.status).toBe('signedIn'));
+    await waitFor(() => expect(authApi.status).toBe("signedIn"));
     expect(authApi.isGuest).toBe(true);
     expect(signUp).toHaveBeenCalledTimes(1);
   });
 
-  it('still restores a stored session while deferred', async () => {
+  it("still restores a stored session while deferred", async () => {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'real-access',
-      sessionToken: 'real-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "real-access",
+      sessionToken: "real-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     const queryClient = new QueryClient();
     render(tree(queryClient, true));
-    await waitFor(() => expect(authApi.status).toBe('signedIn'));
+    await waitFor(() => expect(authApi.status).toBe("signedIn"));
     expect(authApi.isGuest).toBe(false);
     expect(signUp).not.toHaveBeenCalled();
   });
 
-  it('a session lost on the public page is not replaced by a guest until it is left', async () => {
+  it("a session lost on the public page is not replaced by a guest until it is left", async () => {
     loadSessionMock.mockResolvedValueOnce({
-      accessToken: 'real-access',
-      sessionToken: 'real-session',
-      firstName: 'Real',
-      lastName: 'User',
+      accessToken: "real-access",
+      sessionToken: "real-session",
+      firstName: "Real",
+      lastName: "User",
       isGuest: false,
     });
     const queryClient = new QueryClient();
     const { rerender } = render(tree(queryClient, true));
-    await waitFor(() => expect(authApi.status).toBe('signedIn'));
+    await waitFor(() => expect(authApi.status).toBe("signedIn"));
 
     await act(async () => {
       await authApi.logout();
     });
-    expect(authApi.status).toBe('signedOut');
+    expect(authApi.status).toBe("signedOut");
     expect(signUp).not.toHaveBeenCalled();
 
     rerender(tree(queryClient, false));
@@ -908,3 +949,89 @@ describe('AuthProvider defers the guest on a public page', () => {
   });
 });
 
+describe("social sign-in (Apple and Google)", () => {
+  it("signInWithApple: succeeds, mints JWT, saves real session, and wipes query cache", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["test-key"], "cached-data");
+    await mount(queryClient);
+
+    await act(async () => {
+      await authApi.signInWithApple();
+    });
+
+    expect(startAppleSignInMock).toHaveBeenCalledTimes(1);
+    expect(signInWithIdToken).toHaveBeenCalledWith({
+      provider: "apple",
+      idToken: "apple-id-token",
+      nonce: "apple-nonce",
+      user: { name: { firstName: "Apple", lastName: "User" } },
+    });
+    expect(mintJwt).toHaveBeenCalledWith("session-apple");
+    expect(saveSessionMock).toHaveBeenCalledWith({
+      accessToken: "jwt-for-session-apple",
+      sessionToken: "session-apple",
+      firstName: "Social",
+      lastName: "User",
+      isGuest: false,
+    });
+    expect(authApi.isGuest).toBe(false);
+    expect(queryClient.getQueryData(["test-key"])).toBeUndefined();
+  });
+
+  it("signInWithApple: user cancel (returns null) does not call API and preserves session", async () => {
+    startAppleSignInMock.mockResolvedValueOnce(null);
+    const queryClient = new QueryClient();
+    await mount(queryClient);
+    const prevSession = authApi.session;
+
+    await act(async () => {
+      await authApi.signInWithApple();
+    });
+
+    expect(startAppleSignInMock).toHaveBeenCalledTimes(1);
+    expect(signInWithIdToken).not.toHaveBeenCalled();
+    expect(authApi.session).toBe(prevSession);
+  });
+
+  it("signInWithGoogle: succeeds, mints JWT, saves real session, and wipes query cache", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["test-key"], "cached-data");
+    await mount(queryClient);
+
+    await act(async () => {
+      await authApi.signInWithGoogle();
+    });
+
+    expect(startGoogleSignInMock).toHaveBeenCalledTimes(1);
+    expect(signInWithIdToken).toHaveBeenCalledWith({
+      provider: "google",
+      idToken: "google-id-token",
+      nonce: "google-nonce",
+    });
+    expect(mintJwt).toHaveBeenCalledWith("session-google");
+    expect(saveSessionMock).toHaveBeenCalledWith({
+      accessToken: "jwt-for-session-google",
+      sessionToken: "session-google",
+      firstName: "Social",
+      lastName: "User",
+      isGuest: false,
+    });
+    expect(authApi.isGuest).toBe(false);
+    expect(queryClient.getQueryData(["test-key"])).toBeUndefined();
+  });
+
+  it("signInWithGoogle: user cancel (returns null) does not call API and preserves session", async () => {
+    startGoogleSignInMock.mockResolvedValueOnce(null);
+    const queryClient = new QueryClient();
+    await mount(queryClient);
+    const prevSession = authApi.session;
+
+    await act(async () => {
+      await authApi.signInWithGoogle();
+    });
+
+    expect(startGoogleSignInMock).toHaveBeenCalledTimes(1);
+    expect(signInWithIdToken).not.toHaveBeenCalled();
+    expect(authApi.session).toBe(prevSession);
+  });
+});

@@ -11,6 +11,9 @@ import path from 'node:path';
 // is aliased to it here; Expo-native modules (haptics, reanimated) are mocked
 // per test file, as in `lib/auth/context.test.tsx`.
 export default defineConfig({
+  define: {
+    __DEV__: true,
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname),

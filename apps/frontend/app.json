@@ -12,6 +12,9 @@
     "ios": {
       "bundleIdentifier": "chat.ansari.app",
       "supportsTablet": false,
+      "entitlements": {
+        "com.apple.developer.applesignin": ["Default"]
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CADisableMinimumFrameDurationOnPhone": true
@@ -39,6 +42,13 @@
       "expo-web-browser",
       "expo-video",
       "expo-secure-store",
+      "expo-apple-authentication",
+      [
+        "react-native-nitro-google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.chat-ansari-app"
+        }
+      ],
       [
         "expo-splash-screen",
         {
