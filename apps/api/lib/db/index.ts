@@ -3,6 +3,17 @@ import { Pool } from 'pg';
 import * as schema from '@/db/schema';
 import { config } from '@/lib/config';
 
+/**
+ * An idle pooled client that loses its connection (a database restart,
+ * failover, `pg_terminate_backend`) makes the pool emit `error`. With no
+ * listener that is an uncaught exception (issue #310); the pool already
+ * discards the dead client and the next query reconnects, so log and go on.
+ * Only `{name, code}`: a driver error can carry query text and parameters.
+ */
+export function onPoolError(err: Error & { code?: string }): void {
+  console.error('[db] idle client error', { name: err.name, code: err.code });
+}
+
 // Create a singleton pool
 let pool: Pool | null = null;
 
@@ -17,6 +28,7 @@ function getPool(): Pool {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
+    pool.on('error', onPoolError);
   }
   return pool;
 }
