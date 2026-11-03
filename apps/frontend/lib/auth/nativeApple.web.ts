@@ -66,6 +66,30 @@ function loadAppleScript(): Promise<void> {
 }
 
 export async function startAppleSignIn(): Promise<SocialAuthResult | null> {
+  const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+  if (mockMode === "cancel") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return null;
+  }
+  if (
+    mockMode === "true" ||
+    mockMode === "1" ||
+    mockMode === "error" ||
+    mockMode === "network-error"
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      token: "mock-apple-id-token",
+      nonce: generateNonce(),
+      user: {
+        name: {
+          firstName: "Apple",
+          lastName: "Tester",
+        },
+      },
+    };
+  }
+
   if (typeof window === "undefined") {
     throw new Error("Apple Sign-In on web requires a browser environment.");
   }

@@ -75,6 +75,24 @@ export function loadGoogleGsiScript(): Promise<void> {
  * Initializes GIS and opens One Tap / prompt on web, returning the ID token or null on cancel.
  */
 export async function startGoogleSignIn(): Promise<SocialAuthResult | null> {
+  const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+  if (mockMode === "cancel") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return null;
+  }
+  if (
+    mockMode === "true" ||
+    mockMode === "1" ||
+    mockMode === "error" ||
+    mockMode === "network-error"
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      token: "mock-google-id-token",
+      nonce: generateNonce(),
+    };
+  }
+
   if (typeof window === "undefined") {
     throw new Error("Google Sign-In on web requires a browser environment.");
   }

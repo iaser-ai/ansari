@@ -190,6 +190,33 @@ export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
     },
 
     async signInWithIdToken(input) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "error") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new AuthError(
+          "An account with this email already exists. Sign in with your password, or reset it.",
+          400,
+          "sign-in-social"
+        );
+      }
+      if (mockMode === "network-error") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new AuthError(
+          "Couldn't reach Ansari. Check your connection and try again.",
+          0,
+          "sign-in-social"
+        );
+      }
+      if (mockMode === "true" || mockMode === "1") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {
+          sessionToken: `mock-session-${input.provider}`,
+          firstName:
+            input.user?.name?.firstName ?? (input.provider === "apple" ? "Apple" : "Google"),
+          lastName: input.user?.name?.lastName ?? "Tester",
+        };
+      }
+
       try {
         const raw = await customFetch<unknown>(url("/sign-in/social"), {
           method: "POST",
@@ -213,6 +240,11 @@ export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
     },
 
     async mintJwt(sessionToken) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "true" || mockMode === "1") {
+        return `mock-jwt-token-for-${sessionToken}`;
+      }
+
       try {
         const raw = await customFetch<unknown>(url("/token"), {
           method: "GET",
@@ -225,6 +257,11 @@ export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
     },
 
     async signOut(sessionToken) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "true" || mockMode === "1") {
+        return;
+      }
+
       try {
         const raw = await customFetch<unknown>(url("/sign-out"), {
           method: "POST",

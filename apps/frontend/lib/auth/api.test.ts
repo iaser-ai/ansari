@@ -318,3 +318,47 @@ describe("failures become AuthErrors the provider can classify", () => {
     expect([error.status, error.endpoint]).toEqual([401, "token"]);
   });
 });
+
+describe("EXPO_PUBLIC_MOCK_AUTH mock testing mode", () => {
+  const originalEnv = process.env.EXPO_PUBLIC_MOCK_AUTH;
+
+  afterEach(() => {
+    process.env.EXPO_PUBLIC_MOCK_AUTH = originalEnv;
+  });
+
+  it("returns mock session and mock JWT when EXPO_PUBLIC_MOCK_AUTH=true", async () => {
+    process.env.EXPO_PUBLIC_MOCK_AUTH = "true";
+    const session = await api.signInWithIdToken({
+      provider: "google",
+      idToken: "mock-token",
+    });
+    expect(session.sessionToken).toBe("mock-session-google");
+    expect(session.firstName).toBe("Google");
+    expect(session.lastName).toBe("Tester");
+
+    const jwt = await api.mintJwt(session.sessionToken);
+    expect(jwt).toBe("mock-jwt-token-for-mock-session-google");
+  });
+
+  it("refuses with existing-account message when EXPO_PUBLIC_MOCK_AUTH=error", async () => {
+    process.env.EXPO_PUBLIC_MOCK_AUTH = "error";
+    await expect(
+      api.signInWithIdToken({
+        provider: "apple",
+        idToken: "mock-token",
+      })
+    ).rejects.toThrow(
+      "An account with this email already exists. Sign in with your password, or reset it."
+    );
+  });
+
+  it("fails with unreachable network error when EXPO_PUBLIC_MOCK_AUTH=network-error", async () => {
+    process.env.EXPO_PUBLIC_MOCK_AUTH = "network-error";
+    await expect(
+      api.signInWithIdToken({
+        provider: "google",
+        idToken: "mock-token",
+      })
+    ).rejects.toThrow("Couldn't reach Ansari. Check your connection and try again.");
+  });
+});

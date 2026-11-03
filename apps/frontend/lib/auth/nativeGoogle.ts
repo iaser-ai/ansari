@@ -11,6 +11,24 @@ export interface SocialAuthResult {
  * Returns null if the user cancelled the dialog.
  */
 export async function startGoogleSignIn(): Promise<SocialAuthResult | null> {
+  const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+  if (mockMode === "cancel") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return null;
+  }
+  if (
+    mockMode === "true" ||
+    mockMode === "1" ||
+    mockMode === "error" ||
+    mockMode === "network-error"
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      token: "mock-google-id-token",
+      nonce: generateNonce(),
+    };
+  }
+
   const { GoogleOneTapSignIn, isCancelledResponse, isSuccessResponse, statusCodes } =
     await import("react-native-nitro-google-signin");
 

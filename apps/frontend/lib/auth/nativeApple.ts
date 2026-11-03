@@ -16,6 +16,30 @@ export interface SocialAuthResult {
  * Returns null if the user cancelled the dialog.
  */
 export async function startAppleSignIn(): Promise<SocialAuthResult | null> {
+  const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+  if (mockMode === "cancel") {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return null;
+  }
+  if (
+    mockMode === "true" ||
+    mockMode === "1" ||
+    mockMode === "error" ||
+    mockMode === "network-error"
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      token: "mock-apple-id-token",
+      nonce: generateNonce(),
+      user: {
+        name: {
+          firstName: "Apple",
+          lastName: "Tester",
+        },
+      },
+    };
+  }
+
   const AppleAuthentication = await import("expo-apple-authentication");
 
   const isAvailable = await AppleAuthentication.isAvailableAsync();
