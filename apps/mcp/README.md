@@ -32,14 +32,16 @@ User-provided capture of the Dev answer card in Claude, showing Arabic text, RTL
 
 ## Dependencies
 
-SAGA is installed from the public npm registry at one exact release, `1.0.0-rc.1` (the `next` tag): the stack `@saga-a2ui/react-mcp-stack`
-plus its exact-version siblings `@saga-a2ui/core`, `@saga-a2ui/components`, `@saga-a2ui/mcp` and `@saga-a2ui/react`. No private registry,
+SAGA is installed from the public npm registry: the stack `@saga-a2ui/react-mcp-stack@1.0.1` plus the siblings it pins exactly,
+`@saga-a2ui/core@1.0.0`, `@saga-a2ui/components@1.0.0`, `@saga-a2ui/mcp@1.0.2` and `@saga-a2ui/react@1.0.0`. SAGA versions its packages
+independently, so the siblings need not share the stack's version; each resolves to exactly the version the stack pins. No private registry,
 credential, SDK tarball, SDK workspace link or SDK-package override is involved, and the manifest pins an exact version rather than a tag or range.
 The root `pnpm-workspace.yaml` keeps the SDK's documented `dompurify` and `@hono/node-server` overrides.
 The card's address names its compatibility line, `ui://views/answer-card.v1.html` (`VIEW_MAJOR` in `src/server/view-artifact.ts`), not its
 bytes: every compatible release is served at the same address, and only a change an already-loaded card cannot handle increases it.
-`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile; `--target production` additionally refuses a
-prerelease, so Production waits for the stable SAGA release. The Beta and Production deploy scripts run the corresponding gate before any build or deployment.
+`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile, including that every SAGA package resolves to
+the exact version its dependents pin; `--target production` additionally refuses a prerelease. The Beta and Production deploy scripts run the
+corresponding gate before any build or deployment.
 
 The application depends on one SAGA package, the stack `@saga-a2ui/react-mcp-stack`, plus React and React DOM, and imports
 only its subpaths: `/faithful-card` (`FaithfulCardApp`, `startFaithfulCardApp`, and the definition's one `.result(...)` reader that reads the whole delivered result,
