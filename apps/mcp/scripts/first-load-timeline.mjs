@@ -25,13 +25,17 @@ const lines = file => readFileSync(file, 'utf8').split('\n').filter(line => line
 /** Records before the first window's start that still belong to it (discovery right before sending). */
 const LEAD_MS = 2_000;
 
-/** One normalized entry: when, what kind, and the fields worth printing. */
+/**
+ * One normalized entry: when, what kind, and the fields worth printing. An application record's own `at` is when it
+ * happened. Railway's `timestamp` is when Railway collected the line, in batches, so it is only the fallback: preferring
+ * it reorders records and moves them out of the window they belong to.
+ */
 function normalize(raw) {
   const time = Date.parse(raw.timestamp ?? '') || raw.at;
   if (typeof raw.message === 'string' && raw.message.startsWith('{')) {
     try { const record = JSON.parse(raw.message); return {...record, at: record.at ?? time}; } catch { /* plain text line */ }
   }
-  if (raw.event) return {...raw, at: time};
+  if (raw.event) return {...raw, at: typeof raw.at === 'number' ? raw.at : time};
   const path = raw.path ?? raw.attributes?.path;
   if (path !== undefined) return {event: 'edge', at: time, ...raw};
   return undefined;
