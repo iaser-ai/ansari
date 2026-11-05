@@ -10,14 +10,15 @@
       "dependsOn": []
     },
     "test": {
-      "dependsOn": [
-        "build",
-        "build:worker"
+      "dependsOn": [],
+      "outputs": [
+        "dist/**",
+        "dist-worker/**"
       ]
     },
     "test:browser": {
       "dependsOn": [
-        "build"
+        "test"
       ],
       "cache": false
     },

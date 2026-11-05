@@ -64,6 +64,8 @@ pnpm mcp start
 
 `build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` runs the Node entry source (`src/node/index.ts`) after `build`. The synthetic browser harness is test-only and uses no credentials or live answers.
 
+`test` runs `build` and `build:worker` itself before any test, because the tests run the built artifacts: without a fresh build they pass against a stale `dist/`. `test:browser` reads `dist/view.html` without building, so run it after `test` (as `verify` and the Turbo task order do).
+
 ### Two hosting targets, one application
 
 The same Hono application and official MCP handler (`src/server/fetch-app.ts`) run on Node/Docker and on Cloudflare Workers. Each target is a thin entry that supplies configuration, logging and the built card explicitly: `src/node/` (`index.ts` and `http-server.ts`: environment, filesystem read at start, listener, signals) and `src/worker/index.ts` (Worker bindings, console, the card bundled at build time). Both adapters import the shared code in `src/server/`; shared modules import neither adapter and read no file, environment or process object.
@@ -76,7 +78,7 @@ The same Hono application and official MCP handler (`src/server/fetch-app.ts`) r
 ```sh
 # Clean frozen installation, then both artifacts and every check (Node, Workers and browser):
 pnpm install --frozen-lockfile --strict-peer-dependencies --filter ansari-mcp...
-pnpm mcp verify          # typecheck, build, build:worker, test, test:browser
+pnpm mcp verify          # lint, typecheck, test (which builds both targets first), test:browser
 
 # Run the Worker in Wrangler's local runtime under one declared environment (dev, beta or production). Its local secrets are `.dev.vars.<env>` only (git-ignored, and excluded from the Docker build context, together with `.wrangler/` and `dist-worker/`). The script refuses a generic `.dev.vars`, which Wrangler would read for every environment, and turns off Wrangler's `.env` fallback.
 pnpm dev:worker:dev --var ANSARI_RELEASE:local-1
