@@ -18,11 +18,6 @@ catalogs:
 
 overrides:
   '@a2ui/react@0.13.0>@a2ui/markdown-it': 0.2.1
-  '@saga-a2ui/core': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz
-  '@saga-a2ui/components': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz
-  '@saga-a2ui/mcp': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz
-  '@saga-a2ui/react': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz
-  '@saga-a2ui/react-mcp-stack': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz
   dompurify: 3.4.17
   '@hono/node-server': 2.1.5
   sharp: ^0.35.0
@@ -395,8 +390,8 @@ importers:
         specifier: 2.4.0
         version: 2.4.0
       '@saga-a2ui/react-mcp-stack':
-        specifier: file:candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz
-        version: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: 1.0.0-rc.1
+        version: 1.0.0-rc.1(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       hono:
         specifier: 4.13.16
         version: 4.13.16
@@ -2941,35 +2936,30 @@ packages:
   '@rushstack/eslint-patch@1.16.1':
     resolution: {integrity: sha512-TvZbIpeKqGQQ7X0zSCvPH9riMSFQFSggnfBjFZ1mEoILW+UuXCKwOoPcgjMwiUtRqFZ8jWhPJc4um14vC6I4ag==}
 
-  '@saga-a2ui/components@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz':
-    resolution: {integrity: sha512-ir7z/7V2B+aOov0w8YpaDfS+9DKntBboZMM3p0RiHEbGIsmMdrAG3F25TICfyx6fhnVdrEJj2k/e1qiDWtM+9g==, tarball: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz}
-    version: 0.0.0-candidate.g8b4d987dd233
+  '@saga-a2ui/components@1.0.0-rc.1':
+    resolution: {integrity: sha512-djlrxMR8NXz9sN5IjIC1LIlKEBt4VgqhoAc7b4ZepOpmAywZ6YuyrmHJUZSP/FJviigA0IP7Z2iO0OWIwz3WNA==}
     engines: {node: '>=22.12.0'}
 
-  '@saga-a2ui/core@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz':
-    resolution: {integrity: sha512-nQO7PqLPWrebCkN7qwv7CbBFZRg0hIRQ6/WmPxpZJIL1bTAX5JkjjB3ZFVEhRQwRa0QhFcQOJpE7HW4RHtfwQQ==, tarball: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz}
-    version: 0.0.0-candidate.g8b4d987dd233
+  '@saga-a2ui/core@1.0.0-rc.1':
+    resolution: {integrity: sha512-0a0MAMSlPTslHhG4Id62UEsmLDZw55e5H/rl9zOMTJseeWRfQUWLieuCt5c11nYHy0FqSNXij8BfhyAq60im9Q==}
     engines: {node: '>=22.12.0'}
 
-  '@saga-a2ui/mcp@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz':
-    resolution: {integrity: sha512-bRR7ySzT0IPZr9Lx3pqfb3gEWeq0HkoFjDVPB3Fw7HGZzYXB/Dw6QvpsfiiZ3kPNs1fqGQcOVXS0pLruU392BA==, tarball: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz}
-    version: 0.0.0-candidate.g8b4d987dd233
+  '@saga-a2ui/mcp@1.0.0-rc.1':
+    resolution: {integrity: sha512-7h6vCTfLvLoHDS6QPD+/waewynSZwf6uX+X+WsvvSLaVJzf9t0emqyT0jxw4qd2EeWbT5nOrWyuxEgvC77p7/A==}
     engines: {node: '>=22.12.0'}
 
-  '@saga-a2ui/react-mcp-stack@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz':
-    resolution: {integrity: sha512-laKjVCJG1HBKd61WxwNHv1bdzA/KRa21OkG25O9k8QKaziEtewWO8RMNmTZYVjjJ9FXhKAchr5bJfPZW9lhNAw==, tarball: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz}
-    version: 0.0.0-candidate.g8b4d987dd233
+  '@saga-a2ui/react-mcp-stack@1.0.0-rc.1':
+    resolution: {integrity: sha512-YSeb7xFRgy5oWYqkGlkXilfTVrGFobkG00FmRRwxurjbmvbCvNeJHNRwetnVXwB9WxGoLGNWnm2JYurjIvM0lg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       react: ^19.3.1
       react-dom: ^19.3.1
 
-  '@saga-a2ui/react@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz':
-    resolution: {integrity: sha512-BancJ8w7DTiv1Rhn2Sr7sC/YhH+Xd3chfVuKU2vzYA7xBYenyHGgT7IYjnEk7TH+ZQ796WhbYGikiG73hAW8vw==, tarball: file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz}
-    version: 0.0.0-candidate.g8b4d987dd233
+  '@saga-a2ui/react@1.0.0-rc.1':
+    resolution: {integrity: sha512-ZFTuDE1IgEzvMewgqzD+niFE9URfLUwWT77tzhB3EyVcDfHTcT8bIdX5FWqEOsftBpwIk3j+mk7n9gcD1aciSg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
-      '@saga-a2ui/components': 0.0.0-candidate.g8b4d987dd233
+      '@saga-a2ui/components': 1.0.0-rc.1
       react: ^19.3.1
       react-dom: ^19.3.1
     peerDependenciesMeta:
@@ -11261,19 +11251,19 @@ snapshots:
 
   '@rushstack/eslint-patch@1.16.1': {}
 
-  '@saga-a2ui/components@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz':
+  '@saga-a2ui/components@1.0.0-rc.1':
     dependencies:
       '@a2ui/web_core': 0.13.0
-      '@saga-a2ui/core': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz
+      '@saga-a2ui/core': 1.0.0-rc.1
       markdown-it: 15.0.3
       zod: 4.6.7
 
-  '@saga-a2ui/core@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz':
+  '@saga-a2ui/core@1.0.0-rc.1':
     dependencies:
       '@a2ui/web_core': 0.13.0
       zod3: zod@3.25.76
 
-  '@saga-a2ui/mcp@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@saga-a2ui/mcp@1.0.0-rc.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.16)
       '@modelcontextprotocol/client': 2.4.0
@@ -11281,20 +11271,20 @@ snapshots:
       '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
       '@modelcontextprotocol/hono': 2.0.2(@modelcontextprotocol/server@2.4.0)(hono@4.13.16)
       '@modelcontextprotocol/server': 2.4.0
-      '@saga-a2ui/core': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz
+      '@saga-a2ui/core': 1.0.0-rc.1
       hono: 4.13.16
       zod: 4.6.7
     transitivePeerDependencies:
       - react
       - react-dom
 
-  '@saga-a2ui/react-mcp-stack@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@saga-a2ui/react-mcp-stack@1.0.0-rc.1(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
-      '@saga-a2ui/components': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz
-      '@saga-a2ui/core': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz
-      '@saga-a2ui/mcp': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@saga-a2ui/react': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz(@saga-a2ui/components@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@saga-a2ui/components': 1.0.0-rc.1
+      '@saga-a2ui/core': 1.0.0-rc.1
+      '@saga-a2ui/mcp': 1.0.0-rc.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@saga-a2ui/react': 1.0.0-rc.1(@saga-a2ui/components@1.0.0-rc.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
       zod: 4.6.7
@@ -11303,16 +11293,16 @@ snapshots:
       - '@modelcontextprotocol/core'
       - '@modelcontextprotocol/server'
 
-  '@saga-a2ui/react@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz(@saga-a2ui/components@file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@saga-a2ui/react@1.0.0-rc.1(@saga-a2ui/components@1.0.0-rc.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@a2ui/react': 0.13.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@3.25.76)
       '@a2ui/web_core': 0.13.0
-      '@saga-a2ui/core': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz
+      '@saga-a2ui/core': 1.0.0-rc.1
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
       zod: 3.25.76
     optionalDependencies:
-      '@saga-a2ui/components': file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz
+      '@saga-a2ui/components': 1.0.0-rc.1
 
   '@selderee/plugin-htmlparser2@0.11.0':
     dependencies:
