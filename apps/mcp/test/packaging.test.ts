@@ -136,7 +136,7 @@ test('production code imports SAGA only through the one stack, and the browser b
   const sources=(dir:string):string[]=>readdirSync(join(root,dir),{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?sources(`${dir}/${entry.name}`):/\.(?:ts|tsx)$/.test(entry.name)?[`${dir}/${entry.name}`]:[]);
   for(const file of [...sources('src'),'scripts/build.ts']) {
     const imported=[...readFileSync(join(root,file),'utf8').matchAll(/from\s+'(@saga-a2ui\/[^']+)'/g)].map(match=>match[1]);
-    for(const specifier of imported) assert.match(specifier,/^@saga-a2ui\/react-mcp-stack(?:\/(?:faithful-card|faithful-card\.css|content-policy|server))?$/,`${file} imports ${specifier}`);
+    for(const specifier of imported) assert.match(specifier,/^@saga-a2ui\/react-mcp-stack(?:\/(?:faithful-card|faithful-card\.css|content-policy|server|server\/http))?$/,`${file} imports ${specifier}`);
     if(file.startsWith('src/view/')) assert.ok(!imported.some(specifier=>specifier.endsWith('/server')),`${file} (browser graph) imports no server entry`);
   }
   const html=readFileSync(join(root,'dist/view.html'),'utf8');

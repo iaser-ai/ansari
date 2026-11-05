@@ -153,13 +153,4 @@ for(const json of [false,true]) test(`modern ${json?'JSON':'SSE'} delivers the a
   } finally {await service.close();}
 });
 
-for(const modern of [true,false]) test(`${modern?'modern':'older-host'} refuses a body over the SDK limit before calling Ansari`,async()=>{
-  let calls=0;
-  const service=await listen({host:'127.0.0.1',port:0,html:'<html><body>bounded body</body></html>',logger:()=>{},completer:{async complete(){calls++;return answer;}}});
-  try {
-    const response=await postRpc(service.port,'tools/call',{name:'answer_islamic_question',arguments:{question:'x'.repeat(4*1024*1024)}},{},modern);
-    assert.equal(response.status,413);
-    assert.match(await response.text(),/Payload Too Large/);
-    assert.equal(calls,0);
-  } finally {await service.close();}
-});
+// Body bounds are the SDK fetch app's and are tested there.
