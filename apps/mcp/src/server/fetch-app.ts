@@ -1,8 +1,8 @@
-import {hostHeaderValidation, originValidation} from '@modelcontextprotocol/hono';
-import {createMcpHandler} from '@modelcontextprotocol/server';
+import {hostHeaderValidation} from '@modelcontextprotocol/hono';
+import {createMcpFetchApp} from '@saga-a2ui/react-mcp-stack/server/http';
 import {Hono} from 'hono';
 import type {AnswerCompleter} from './ansari-client.js';
-import {createAnsariMcpServer} from './create-server.js';
+import {HANDLER_BOUND_MS, createAnsariMcpServer} from './create-server.js';
 import {errorIdentity, inspectRequest, observeResponse, readBounded} from './exchange-log.js';
 import {VIEW_DIAGNOSTICS_PATH, prepareAnswerView} from './view-artifact.js';
 import {MAX_VIEW_REPORT_BYTES, VIEW_REPORTS_PER_MINUTE, originHost, parseViewReport} from './view-report.js';
@@ -23,6 +23,7 @@ export type FetchAppOptions = {
   allowedOrigins: string[];
   enableJsonResponse: boolean;
   logger: OperationLogger;
+  /** Each request's budget, from admission. Defaults to the tool's declared handler bound. */
   requestMs?: number;
   /** Dev-only: the public origin a diagnostic card reports its milestones to (see `VIEW_DIAGNOSTICS_PATH`). */
   viewDiagnosticsOrigin?: string;
@@ -35,7 +36,11 @@ export type FetchApp = {
   close: () => Promise<void>;
 };
 
-/** One Hono application over the official stateless MCP handler. Hosting adapters only supply a listener or an entry point. */
+/**
+ * The SDK's fetch app serves `/mcp`: Host and Origin admission, body bounds, the request budget and lifetime, and the
+ * official stateless handler. Around it, this application adds only its own routes (`/health`, and the Dev-only
+ * diagnostics beacon) and its logs. Hosting adapters only supply a listener or an entry point.
+ */
 export function createFetchApp(options: FetchAppOptions): FetchApp {
   const {completer, logger, release} = options;
   // Measuring adds `debug` records and inspects each exchange; otherwise the exchange is passed straight through.
@@ -43,19 +48,22 @@ export function createFetchApp(options: FetchAppOptions): FetchApp {
   const log = (record: OperationRecord) => {
     if (record.level !== 'debug' || measuring) writeOperationLog(record, logger, release);
   };
-  // The view is prepared once: release stamping first, then the resource identity from the final bytes.
+  // The view is prepared once, release-stamped, at its compatibility-line address.
   const view = prepareAnswerView(options.html, release, options.viewDiagnosticsOrigin);
-  // The official handler owns per-request transports, protocol negotiation and cleanup.
   // Both modern MCP and its older-host fallback are stateless; only the prepared view is shared.
-  const mcp = createMcpHandler(
-    () => createAnsariMcpServer({completer, view, logger, release, requestMs: options.requestMs}),
-    {responseMode: options.enableJsonResponse ? 'json' : 'sse', onerror: (error: unknown) => log({level: 'error', event: 'mcp.error', ...errorIdentity(error)})},
-  );
+  const mcp = createMcpFetchApp({
+    createServer: lifetime => createAnsariMcpServer({completer, view, logger, release, lifetime}),
+    allowedHosts: options.allowedHosts,
+    allowedOrigins: options.allowedOrigins,
+    path: MCP_PATH,
+    responseMode: options.enableJsonResponse ? 'json' : 'sse',
+    // The request budget is the tool's declared bound, not the SDK's 10 s default, which would cut a long answer short.
+    budgets: {requestMs: options.requestMs ?? HANDLER_BOUND_MS},
+    onFailure: kind => log({level: 'error', event: 'mcp.error', kind}),
+  });
   const app = new Hono();
   app.get('/health', c => c.json({ok: true, mcp: MCP_PATH, release}));
-  app.use(MCP_PATH, hostHeaderValidation(options.allowedHosts));
-  app.use(MCP_PATH, originValidation(options.allowedOrigins));
-  // The exact card this instance serves: a diagnostic card differs from the closed one in bytes, address and permissions.
+  // The exact card this instance serves: a diagnostic card differs from the closed one in bytes and permissions, not address.
   log({level: 'debug', event: 'view.prepared', at: Date.now(), uri: view.uri, bytes: new TextEncoder().encode(view.html).byteLength, diagnostics: options.viewDiagnosticsOrigin !== undefined, connectDomains: view.csp.connectDomains.join(',')});
   app.all(MCP_PATH, async c => {
     log({level: 'info', event: 'mcp.request', method: c.req.method});

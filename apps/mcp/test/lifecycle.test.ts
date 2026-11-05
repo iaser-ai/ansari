@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
-import {execFile,spawn} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {createServer} from 'node:http';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 
-test('a completed subscription exchange releases timers even when its MCP server was never connected',async()=>{
-  const fixture=fileURLToPath(new URL('./fixtures/closed-subscription.ts',import.meta.url));
-  const result=await new Promise<{error:Error|null;stdout:string;stderr:string}>(resolve=>{
-    execFile(process.execPath,['--import','tsx',fixture],{timeout:2500},(error,stdout,stderr)=>resolve({error,stdout,stderr}));
-  });
-  assert.match(result.stdout,/exchange and listener closed/,'the HTTP exchange itself must finish');
-  assert.equal(result.error,null,`a disposed request still keeps the process alive: ${result.error?.message}\n${result.stderr}`);
-});
-
+// Request lifetimes (a server closed with or without a transport, a request that ends before a server exists) are the
+// SDK fetch app's and are tested there. This file keeps the Node listener's own signal shutdown.
 for(const modern of [true,false]) test(`SIGTERM exits with an in-flight ${modern?'modern':'older-host'} SSE tool request`,async()=>{
   let started!:()=>void;
   const sourceStarted=new Promise<void>(resolve=>{started=resolve;});
@@ -60,13 +53,4 @@ for(const modern of [true,false]) test(`SIGTERM exits with an in-flight ${modern
     await pending;
     const stopped=new Promise<void>(resolve=>upstream.close(()=>resolve()));upstream.closeAllConnections();await stopped;
   }
-});
-
-test('every way a per-request MCP server ends releases its request timer',async()=>{
-  const fixture=fileURLToPath(new URL('./fixtures/server-close.ts',import.meta.url));
-  const result=await new Promise<{error:Error|null;stdout:string;stderr:string}>(resolve=>{
-    execFile(process.execPath,['--import','tsx',fixture],{timeout:2500},(error,stdout,stderr)=>resolve({error,stdout,stderr}));
-  });
-  assert.match(result.stdout,/servers closed/,result.stderr);
-  assert.equal(result.error,null,`a closed server still keeps the process alive: ${result.error?.message}\n${result.stderr}`);
 });

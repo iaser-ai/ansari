@@ -52,6 +52,18 @@ overrides:
   # Compatibility: A2UI React 0.13 needs adapter 0.2.1 (0.2.2 requires web_core 0.14).
   "@a2ui/react@0.13.0>@a2ui/markdown-it": "0.2.1"
 
+  # SAGA 1.0 release candidate (apps/mcp), from private tarballs packed from the SDK's source at commit 8b4d987 until
+  # 1.0.0-rc.1 is on the npm registry. Every sibling resolves from the same set. Replace these with the registry
+  # version and delete apps/mcp/candidates/ once it is published.
+  "@saga-a2ui/core": "file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-core-0.0.0-candidate.g8b4d987dd233.tgz"
+  "@saga-a2ui/components": "file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-components-0.0.0-candidate.g8b4d987dd233.tgz"
+  "@saga-a2ui/mcp": "file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-mcp-0.0.0-candidate.g8b4d987dd233.tgz"
+  "@saga-a2ui/react": "file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-0.0.0-candidate.g8b4d987dd233.tgz"
+  "@saga-a2ui/react-mcp-stack": "file:apps/mcp/candidates/saga-0.0.0-candidate.g8b4d987dd233/saga-a2ui-react-mcp-stack-0.0.0-candidate.g8b4d987dd233.tgz"
+  # The SDK's documented overrides for its consumers (from `candidate:tarballs`); apps/mcp is their only consumer here.
+  dompurify: 3.4.17
+  "@hono/node-server": 2.1.5
+
   # Security overrides for transitive Dependabot alerts.
   # next@15.5 declares optionalDependencies.sharp ^0.34.3 — GHSA-f88m-g3jw-g9cj
   sharp: ^0.35.0

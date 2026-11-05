@@ -182,7 +182,11 @@ test('a diagnostics origin opens exactly one connect origin and stamps the beaco
   assert.ok(view.html.includes(`connect-src ${ORIGIN};`));
   assert.ok(!view.html.includes("connect-src 'none'"));
   assert.deepEqual(view.csp.connectDomains, [ORIGIN]);
-  assert.notEqual(view.uri, prepareAnswerView(html, 'r1').uri, 'a diagnostic card has its own address');
+  // Same compatibility line, so the same address; the bytes and permissions are what differ from the closed card.
+  const closed = prepareAnswerView(html, 'r1');
+  assert.equal(view.uri, closed.uri);
+  assert.notEqual(view.html, closed.html);
+  assert.deepEqual(closed.csp.connectDomains, []);
   for (const bad of ['http://dev.example', 'https://dev.example/path', 'https://user@dev.example', 'not a url', 'https://dev.example?x=1']) {
     assert.throws(() => settingsFromEnv({MCP_VIEW_DIAGNOSTICS_ORIGIN: bad}), /MCP_VIEW_DIAGNOSTICS_ORIGIN/, bad);
   }
