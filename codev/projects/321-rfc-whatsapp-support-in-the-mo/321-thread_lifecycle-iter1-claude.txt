@@ -1,0 +1,32 @@
+I'll start by reading the key files for this phase.I read the phase-3 implementation (`_resolve_thread`, `user_locks.py`, the client `delete_thread` additions, and `test_thread_lifecycle.py`), and verified the `apps/api` contract it depends on by reading the actual route and DB helpers.
+
+## What I verified against apps/api (not from memory)
+
+- `GET /api/v2/threads` (`apps/api/src/app/api/v2/threads/route.ts:20-28`) returns a bare array, newest-first (`findThreadsByUser` → `.orderBy(desc(threads.updatedAt))`, `lib/db/threads.ts:65`), with `thread_id` and `updated_at` serialized via `toISOString()` → `"…T10:00:00.000Z"`. The client's `threads[0]` + `updated_at` mapping is correct, and the `.replace("Z", "+00:00")` + `fromisoformat` parse is valid on Python 3.10 (3 fractional digits).
+- `updated_at` really is bumped on every message (`createMessage`, `lib/db/threads.ts:141-147`), and deliberately *not* on tool-call orphans — so "time since last message" is a faithful expiry signal.
+- `DELETE /api/v2/threads/{id}` is scoped by `and(eq(threads.id,id), eq(threads.userId,userId))` (`:121-127`), returns 200 `{message:…}` and 404 when nothing matched; messages are cascade-deleted by the FK (`db/schema/messages.ts`). So treating 404 as success is right, and the spec's "the old thread **and its messages** are deleted" holds without any apps/api change. The plan asked for this to be recorded — it should go in the review doc.
+
+## Phase deliverables
+
+All three acceptance criteria are met, with tests that are better than average: `test_message_within_expiry_…` (just inside), `test_message_after_expiry_…` (just outside, asserts the old thread *and* its messages are gone), `test_another_users_thread_is_never_touched`, `test_failed_deletion_does_not_create_a_second_thread` (correctly refuses to create a second thread when the delete fails), and — the part I want to call out — `test_without_the_lock_two_close_messages_would_create_two_threads`, a negative control proving the concurrency test isn't vacuous. That is exactly the discipline this repo's lessons ask for. The in-process-only scope of the lock is documented in both `UserLocks` and `_resolve_thread`.
+
+## Non-blocking findings
+
+1. **Only thread *resolution* is serialized, not processing.** The lock is released before `process_message`, so two messages arriving a second apart both resolve the same thread and then stream concurrently against it. The thread invariant survives (that's what this phase promised), but the two turns interleave their user/assistant rows in one thread's history — which matters given the facilitator rebuilds Gemini history from those rows. Holding the lock across `handle_text_message`'s processing is a small change and only ever delays the *same* user. If you'd rather not (a 60s stream would block that user's next message), the plan's criterion says to *document the behaviour* — the docstring currently documents only the creation race.
+2. **The production timestamp format isn't exercised by the lifecycle tests.** `AnsariClientMock` stores `datetime.now(timezone.utc).isoformat()` → `+00:00`, while apps/api emits `…Z`. The `Z`-handling line is the one the expiry decision depends on in production and it is only covered indirectly (`test_bsuid_auth_flow.py:147` asserts the client passes the string through, not that `_resolve_thread` parses it). A single test — stub `get_last_thread_info` to return a 4-hour-old `…Z` string, assert delete-then-create — would close that. A real-client `MockTransport` run asserting the 4-call sequence (GET → DELETE → POST create → POST message) would cover the delete wiring end to end too.
+3. **`result.get("thread_id")` can return `None` silently.** If a client ever returns a dict without the key, `_resolve_thread` returns `None` and `handle_text_message` gives up without telling the user. Both current clients guarantee the key (the real one raises `ThreadCreationError` on `KeyError`), so this is robustness only — treating a missing id as a creation failure would keep the "the user was already told" contract honest.
+4. **Thread info/create/delete failures log but don't reach Sentry**, unlike `process_message` failures which `capture_exception`. An apps/api thread-endpoint outage would be invisible in Sentry. Small, and a natural fit for phase 4's logging item.
+5. **Deploy constraint worth writing down in phase 4:** the one-thread invariant depends on the service running as a *single* replica. That's a Railway dashboard setting, not something in the repo — the deployment notes should state it explicitly, since a second replica silently breaks the guarantee this phase just built.
+
+---
+VERDICT: APPROVE
+SUMMARY: One-thread-per-user with expiry is correctly implemented against the real apps/api contract and well tested, including a negative control proving the per-user lock matters; remaining items are non-blocking.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Lock covers thread resolution only; two close messages still stream concurrently into the same thread — either extend the lock over `process_message` or document the decision as the plan's criterion asks.
+- Expiry parsing of apps/api's real `…Z` timestamp is untested (the mock emits `+00:00`); one test on `_resolve_thread` would cover the line production depends on.
+- `_resolve_thread` can return `None` from a create response missing `thread_id`, leaving the user un-notified (robustness nit; unreachable with current clients).
+- Thread info/create/delete failures are logged but not captured in Sentry, unlike message-processing failures.
+- Single-replica assumption behind the invariant should be recorded in the phase-4 deployment notes (Railway replica count is dashboard config).

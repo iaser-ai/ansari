@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 4 is complete except the production Sentry configuration can leak newly issued keys through console breadcrumbs.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `main()` initializes Sentry with its default Console integration, prints the raw key via `console.log`, then captures the operator event. The raw key therefore becomes a breadcrumb attached to that event. The test disables default integrations, masking this leak. Disable/scrub console breadcrumbs for this script or write secret output outside instrumented console APIs, and test with production-shaped Sentry defaults.

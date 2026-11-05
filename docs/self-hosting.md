@@ -217,8 +217,48 @@ database does.
 ### Boot checks
 
 `apps/auth` runs no admin check at boot (spec 300 amendment H-7): a stale admin list can never
-stop sign-in. Its only boot requirement is the environment validation. `/health` answers 200
-only while the auth database does, so a deploy with an unreachable database fails its
-healthcheck instead of serving. Verify admins with `grant-admin.ts --list` from `apps/auth/`.
+stop sign-in. Its boot requirements are the environment validation and the schema check (spec
+329): it refuses to start when the auth database lacks `auth.apikey` or the `auth.account`
+`unique (provider_id, account_id)` constraint, so code that runs ahead of migration `0001`
+fails its deploy instead of serving. An unreachable database does not stop boot; `/health`
+answers 200 only while the auth database does, so such a deploy fails its healthcheck instead.
+Verify admins with `grant-admin.ts --list` from `apps/auth/`.
 
 `apps/api`'s own boot check is the environment validation above; it queries nothing.
+
+### Service keys and the WhatsApp exchange (spec 329)
+
+`apps/auth` issues API keys to services (the WhatsApp service today; `ansari-mcp` is reserved
+for #314) through `@better-auth/api-key`. A service is one auth user under
+`@noreply.askansari.ai` with no credential. Keys are stored hashed in `auth.apikey`; the
+plugin's HTTP surface is blocked, so keys are created, listed, rotated, changed and revoked only
+with `apps/auth/scripts/service-keys.ts`, run from `apps/auth/` in the auth service's shell
+(`create-service`, `create-key`, `list`, `rotate`, `update-limits`, `revoke`; every write is
+shown first and confirmed by id). The create and rotate commands print the raw key once.
+`docs/cutover/service-keys-runbook.md` is the operator's procedure: issuance, handoff, rotation,
+revocation, the alerts and the eligibility repair.
+
+The WhatsApp service trades a Meta business-scoped user id (BSUID) for that user's JWT at
+`POST /api/whatsapp/session` on `apps/auth`'s public origin, with `Authorization: Bearer <key>`
+and `{"bsuid": "..."}` (a `phone_number` field, if sent, is accepted and ignored; no phone number is stored). It answers `200 {token}` (the same 15-minute
+EdDSA `{sub, sid}` JWT every client gets), `400` for a malformed body, one identical `401` for
+every key refusal, `403` for a banned user, `429` with `X-Retry-After` for one user's budget,
+and `500` otherwise. The first exchange for a BSUID creates the user
+(`whatsapp-<id>@noreply.askansari.ai`, `registered_via = 'whatsapp'`) and one session, reused
+until it nears expiry. The route sits outside Better Auth's router, so no per-IP rule applies;
+it sends no CORS headers. `apps/api` needs nothing for it: the JWT passes `requireUser` like any
+other, and the app row is created on first use.
+
+The bounds live in `packages/auth/src/limits.ts`: the key's initial values
+(`WHATSAPP_KEY_INITIAL`: 60 per minute, 3,000 a day), the range the script accepts
+(`WHATSAPP_KEY_BOUNDS`, inclusive: `--rate-max` 1 to 100,000, `--rate-window` 1 second to
+24 hours, `--daily` 1 to 10,000,000), the per-user exchange budget (`WHATSAPP_EXCHANGE_PER_USER`: 6 per
+15 minutes), the exchange's lock and statement timeouts and body limit, and the alert
+thresholds. There is no new environment variable.
+
+**Migration before code.** `packages/auth/drizzle/0001_api_key.sql` must be applied to the
+auth database (after the duplicate check in the runbook, in a quiet window: it locks
+`auth.account`) before the `apps/auth` that uses it deploys; that `apps/auth` refuses to boot
+without it. On a deployment that tracks Ansari's own order: staging gets `0001` before the merge,
+and production gets the whole auth journal, in order, at its cutover
+(`docs/cutover/better-auth-cutover.md`).

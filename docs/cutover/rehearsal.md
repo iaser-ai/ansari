@@ -114,7 +114,7 @@ The seed is eight rows:
    - one more legacy admin
 
    Record counts only; the admin inventory stays with the owner.
-2. Apply the auth baseline (runbook step 5), then run step 6's `apps/auth/scripts/cutover/copy.sh`.
+2. Apply the auth baseline, the whole auth journal (runbook step 5), then run step 6's `apps/auth/scripts/cutover/copy.sh`.
    **It must exit non-zero** with
    `cutover copy: 1 normalized email(s) are held by more than one row`. Then:
    - `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"` prints `0`

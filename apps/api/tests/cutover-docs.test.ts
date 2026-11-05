@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { limits, serviceUsers } from '../../../packages/auth/src';
 
 // The Better Auth cutover runbooks (spec 300, plan phase 12) are executed
 // mid-window by an operator who cannot stop to hunt for a file. Every repo
@@ -84,7 +85,8 @@ describe('the window runbook', () => {
   });
 
   it('applies every migration with both psql flags, naming the database', () => {
-    const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l));
+    // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329).
+    const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l) || /auth-journal\.mjs files/.test(l));
     expect(applies.length).toBe(4);
     for (const line of applies) {
       expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /);
@@ -367,6 +369,30 @@ describe('the deployment guide', () => {
     expect(commands.length).toBeGreaterThan(25);
   });
 
+  // Main architect, 2026-10-28: both pages apply the WHOLE auth journal in _journal.json order, one
+  // single-transaction psql per file, before the copy, and check it per migration from the journal.
+  it('applies the whole auth journal before the copy, checked from the journal, never a hardcoded table count', () => {
+    const apply =
+      'for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done';
+    const check = 'node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1';
+    const step5 = runbook.slice(runbook.indexOf('## 5. The auth baseline'), runbook.indexOf('## 6. '));
+    const step3 = guide.slice(guide.indexOf('## 3. Auth schema'), guide.indexOf('## 4. '));
+    for (const [name, text] of [['runbook step 5', step5], ['guide step 3', step3]] as const) {
+      expect(text, name).toContain(apply);
+      expect(text, name).toContain(check);
+      // Interactive shells have no pipefail: without it a failed `check` gives psql empty input, exit 0.
+      expect(text, name).toContain(`set -o pipefail\n${check}`);
+      expect(text, name).not.toMatch(/-f packages\/auth\/drizzle\/\d{4}_/);
+      expect(text, name).not.toMatch(/table_schema = 'auth'/);
+    }
+    expect(step5).toMatch(/one `<tag>\|t` line per file `files` listed, in the same order/);
+    expect(step5).toContain('**No output at all is a\nfailure**: stop.');
+    expect(step3).toContain('no output at all is a failure');
+    expect(step5).toContain('Record one `auth-journal-applied: <tag>` line per tag it printed');
+    expect(runbook.indexOf(apply)).toBeLessThan(runbook.indexOf('## 6. The copy and the audits'));
+    expect(guide.indexOf(apply)).toBeLessThan(guide.indexOf('## 4. Copy the users'));
+  });
+
   it.each(commands)('runs the runbook command: %s', (line) => {
     const literal = line.replace(/\$API\b/g, 'https://api.askansari.ai').replace(/\$AUTH\b/g, 'https://auth.askansari.ai');
     // The runbook writes some auth-side checks as "the same for `$AUTH_DATABASE_URL`".
@@ -376,7 +402,7 @@ describe('the deployment guide', () => {
 
   it('follows the runbook order: baseline, copy, app migrations, admins, domain, merge', () => {
     const at = (s: string) => guide.indexOf(s);
-    const order = ['0000_auth_schema.sql', 'cutover/copy.sh', '0011_better_auth_window.sql', 'grant-admin.ts', '/health', 'git push origin', 'MAINTENANCE_MODE=false` on `backend`. Then'];
+    const order = ['auth-journal.mjs files', 'cutover/copy.sh', '0011_better_auth_window.sql', 'grant-admin.ts', '/health', 'git push origin', 'MAINTENANCE_MODE=false` on `backend`. Then'];
     const positions = order.map(at);
     expect(positions.every((p) => p > 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
@@ -413,5 +439,113 @@ describe('the deployment guide names every variable the new code requires', () =
 
   it('auth gets every required variable of its env schema', () => {
     for (const name of authVars) expect(auth, name).toContain(`| \`${name}\` |`);
+  });
+});
+
+describe('the service-keys runbook (spec 329)', () => {
+  const KEYS_RUNBOOK = 'docs/cutover/service-keys-runbook.md';
+  const doc = read(KEYS_RUNBOOK);
+  const section = (heading: string) => {
+    const start = doc.indexOf(`\n## ${heading}`);
+    if (start < 0) throw new Error(`no runbook section "${heading}"`);
+    const end = doc.indexOf('\n## ', start + 1);
+    return doc.slice(start, end < 0 ? undefined : end);
+  };
+
+  it('every repo path it names exists', () => {
+    const paths = namedRepoPaths(doc);
+    expect(paths.length).toBeGreaterThanOrEqual(4);
+    for (const path of paths) {
+      expect(existsSync(resolve(repoRoot, path)), `${KEYS_RUNBOOK} names ${path}, which does not exist`).toBe(true);
+    }
+  });
+
+  it('carries no bare apply record, which the auth journal parity test would read as one', () => {
+    const record = /^auth-journal-applied:/m;
+    expect(record.test('auth-journal-applied: 0001_api_key')).toBe(true);
+    expect(record.test('record `auth-journal-applied: <tag>` in the notes')).toBe(false);
+    expect(doc).not.toMatch(record);
+  });
+
+  it('documents every subcommand of the script', () => {
+    const script = read('apps/auth/scripts/service-keys.ts');
+    const usage = script.slice(script.indexOf('export const USAGE'), script.indexOf('].join'));
+    const commands = [...usage.matchAll(/service-keys\.ts ([a-z-]+) /g)].map((m) => m[1] as string);
+    expect(commands).toEqual(['create-service', 'create-key', 'list', 'rotate', 'update-limits', 'revoke']);
+    for (const command of commands) expect(doc, command).toMatch(new RegExp(`^\\| \`${command} `, 'm'));
+  });
+
+  it("issues with the WhatsApp key's initial limits from limits.ts", () => {
+    const initial = limits.WHATSAPP_KEY_INITIAL;
+    expect(section('Issuance')).toContain(
+      `--rate-max ${initial.rateLimitMax} --rate-window ${initial.rateLimitTimeWindow / 1000} --daily ${initial.refillAmount}`
+    );
+  });
+
+  it('covers the handoff, the rotation overlap and its doubled ceiling, revocation and pruning', () => {
+    expect(section('The handoff')).toMatch(/\*\*straight into the consumer's Railway variable\*\*/);
+    expect(section('Rotation')).toMatch(/\*\*While two keys are live, the service's ceiling doubles\*\*/);
+    expect(section('Rotation')).toMatch(/\*\*Every key is rotated every\s+6 months\*\*, owned by the operator/);
+    expect(section('Revocation and pruning')).toContain('`enabled = false`');
+    expect(section('Revocation and pruning')).toMatch(/Pruning: none expected/);
+    expect(section('Limits')).toMatch(/\*\*judgement, not measurement\*\*/);
+    expect(section('Limits')).toContain('`update-limits`');
+  });
+
+  it("gives the script's accepted ranges as WHATSAPP_KEY_BOUNDS defines them", () => {
+    const { rateLimitMax, rateLimitTimeWindow, refillAmount } = limits.WHATSAPP_KEY_BOUNDS;
+    const n = (v: number) => v.toLocaleString('en-US');
+    const rows = [...section('Limits').matchAll(/^\| `(--[a-z-]+)` \| ([^|]+) \|$/gm)].map((m) => [m[1], m[2]]);
+    expect(rows).toEqual([
+      ['--rate-max', `${n(rateLimitMax.min)} to ${n(rateLimitMax.max)}`],
+      [
+        '--rate-window',
+        `1 second to 24 hours (${n(rateLimitTimeWindow.min / 1000)} to ${n(rateLimitTimeWindow.max / 1000)} seconds)`,
+      ],
+      ['--daily', `${n(refillAmount.min)} to ${n(refillAmount.max)}`],
+    ]);
+    expect(rateLimitTimeWindow.min).toBe(1000);
+    expect(rateLimitTimeWindow.max).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('gives the staging apply before the merge (duplicate check, lock, verification) and leaves production to the cutover runbook', () => {
+    const apply = section('Applying `0001`: staging, before the merge');
+    expect(apply).toMatch(/group by provider_id, account_id\s+having count\(\*\) > 1;/);
+    expect(apply).toContain('**ACCESS EXCLUSIVE lock on `auth.account`**');
+    expect(apply).toContain('psql -X -v ON_ERROR_STOP=1 --single-transaction');
+    expect(apply).toContain('**on staging the apply precedes the merge**');
+    expect(apply).toMatch(/> Apply the whole auth journal in `_journal.json` order, one `psql -X -v ON_ERROR_STOP=1\s+> --single-transaction` per file\. The duplicate pre-check is needed only where data already\s+> exists \(staging now\)\./);
+    expect(apply).toContain('[`better-auth-cutover.md`](better-auth-cutover.md)');
+    expect(apply).not.toMatch(/rebase/i);
+  });
+
+  it('explains every exchange alert kind', () => {
+    const alerts = read('apps/auth/src/alerts.ts');
+    const union = alerts.slice(alerts.indexOf('export type ExchangeAlert ='), alerts.indexOf('export type KeyRefusalCode'));
+    const kinds = [...union.matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1] as string);
+    expect(kinds.length).toBe(6);
+    for (const kind of kinds) expect(section('Alerts'), kind).toMatch(new RegExp(`^\\| \`${kind}\``, 'm'));
+  });
+
+  it('the eligibility repair starts from the exact log line and names every reason', () => {
+    const alerts = read('apps/auth/src/alerts.ts');
+    const message = /INELIGIBLE_USER_MESSAGE = '([^']+)'/.exec(alerts)?.[1];
+    expect(message).toBeDefined();
+    const repair = section('Eligibility repair');
+    expect(repair).toContain(`\`${message}\``);
+    for (const reason of ['accounts', 'address', 'registered_via', 'role']) expect(repair).toContain(`\`${reason}\``);
+  });
+
+  it('has the key log the script banner points to', () => {
+    expect(read('apps/auth/scripts/service-keys.ts')).toContain("the runbook's key log");
+    expect(section('Key log')).toMatch(/^\| Date \(UTC\) \| Action \| Service \| User id \| Key id \|/m);
+  });
+
+  it('gives exactly the secret-scanning patterns the code defines, and where the owner registers them', () => {
+    const scanning = section('Secret scanning');
+    const rows = [...scanning.matchAll(/^\| `([a-z-]+)` \| `([^`]+)` \|$/gm)].map((m) => [m[1], m[2]]);
+    expect(rows).toEqual(Object.entries(serviceUsers.SECRET_SCANNING_PATTERNS).map(([name, re]) => [name, re.source]));
+    expect(scanning).toContain('Settings → Code security → Secret scanning → Custom patterns');
+    expect(scanning).toMatch(/\*\*revoke the key at once\*\*/);
   });
 });

@@ -5,6 +5,7 @@
 // Every setting below that the cutover depends on is pinned by a test in
 // tests/ that fails when the setting is removed.
 import { CLIENT_HEADER, CLIENT_SRC_PARAM, parseClientId } from '@ansari/types/attribution';
+import { apiKey } from '@better-auth/api-key';
 import { expo } from '@better-auth/expo';
 import { APIError, BASE_ERROR_CODES, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
@@ -14,7 +15,9 @@ import { z } from 'zod';
 
 import { createDb, type Db } from './db';
 import { getEnv, type AuthEnv } from './env';
+import { JWT_LIFETIME_SECONDS, SESSION_LIFETIME_SECONDS, SESSION_UPDATE_AGE_SECONDS } from './lifetimes';
 import { DEFAULT_RULE, LONGEST_WINDOW, ROUTER_RULES } from './limits';
+import { logBetterAuth } from './logger';
 import { deriveName } from './name';
 import { subscribeToNewsletter } from './newsletter';
 import {
@@ -28,12 +31,25 @@ import { createResetPasswordSender, resendMailer, type Mailer } from './reset-em
 import * as schema from './schema';
 
 export * as schema from './schema';
-export { createDb, pingDatabase, type Db } from './db';
+export { createDb, hasAuthUniqueConstraint, pingDatabase, type Db } from './db';
 export { getEnv, resetEnvCache, type AuthEnv } from './env';
+export { logBetterAuth, redactError, redactLogArgs } from './logger';
 export * as limits from './limits';
 export { consumeWindow, keysSeenSince, peekWindow, touchKey, type WindowState } from './rate-limit-store';
-export { isSystemAddress, normalizeEmail, SYSTEM_EMAIL_DOMAIN } from './reserved';
+export {
+  isNoreplyAddress,
+  isReservedAddress,
+  isSystemAddress,
+  normalizeEmail,
+  NOREPLY_EMAIL_DOMAIN,
+  serviceAddress,
+  SYSTEM_EMAIL_DOMAIN,
+  whatsappAddress,
+} from './reserved';
 export * as users from './users';
+export * as serviceUsers from './service-users';
+export * as whatsapp from './whatsapp';
+export * from './lifetimes';
 export {
   resetEmailHtml,
   resetLink,
@@ -44,14 +60,12 @@ export {
 } from './reset-email';
 export { CLIENT_HEADER } from '@ansari/types/attribution';
 
-const DAY = 24 * 60 * 60;
-
 /** Same bounds as the legacy register schema, and better-auth's own defaults. */
 export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 128;
 
 /** The JWT access-token lifetime: the revocation window (spec 300, item 11). */
-export const JWT_EXPIRATION = '15m';
+export const JWT_EXPIRATION = `${JWT_LIFETIME_SECONDS / 60}m`;
 
 /** The one response for a taken OR reserved address, so sign-up is no oracle. */
 export const EMAIL_TAKEN_MESSAGE = 'An account with this email already exists';
@@ -129,9 +143,10 @@ export type AuthExtensions = {
 };
 
 /**
- * Router paths that never answer: the whole admin plugin surface, the two
- * profile-changing routes, and change-password (spec 300). The plugin stays
- * only for its `role` and ban columns. No client changes a password while
+ * Router paths that never answer: the whole admin plugin surface, the
+ * api-key plugin's routes (spec 329), the two profile-changing routes, and
+ * change-password (spec 300). The admin plugin stays only for its `role` and
+ * ban columns. No client changes a password while
  * signed in, and Better Auth's route would skip the strength guard and keep
  * the other sessions alive; a future feature must add both. better-auth
  * matches `disabledPaths` exactly, so apps/auth also blocks every variant of
@@ -140,8 +155,34 @@ export type AuthExtensions = {
 export const ADMIN_PATHS: readonly string[] = Object.values(admin().endpoints).map(
   (endpoint) => endpoint.path
 );
+
+/**
+ * The api-key plugin's options (spec 329). Keys are created and verified only
+ * in process (apps/auth's operator script and its exchange route); its HTTP
+ * surface is blocked below. A key is never a session (`enableSessionForAPIKeys`
+ * stays false), the first characters of a key are not stored, and metadata
+ * carries the partner's client id.
+ */
+export const API_KEY_OPTIONS = {
+  enableMetadata: true,
+  enableSessionForAPIKeys: false,
+  startingCharactersConfig: { shouldStore: false },
+  rateLimit: { enabled: true },
+} as const;
+
+/**
+ * The api-key plugin's routed endpoints. Two of its seven endpoints
+ * (`verifyApiKey`, `deleteAllExpiredApiKeys`) are server-only and have no
+ * path, so they are filtered out rather than mapped to `undefined`.
+ */
+export const API_KEY_ENDPOINT_COUNT = Object.keys(apiKey(API_KEY_OPTIONS).endpoints).length;
+export const API_KEY_PATHS: readonly string[] = Object.values(apiKey(API_KEY_OPTIONS).endpoints)
+  .map((endpoint) => (endpoint as { path?: string }).path)
+  .filter((path): path is string => typeof path === 'string');
+
 export const BLOCKED_AUTH_PATHS: readonly string[] = [
   ...ADMIN_PATHS,
+  ...API_KEY_PATHS,
   '/change-email',
   '/update-user',
   '/change-password',
@@ -251,9 +292,13 @@ export function createAuth(db: Db = createDb(), extensions: AuthExtensions = {})
     emailVerification: { sendOnSignUp: false },
     // 30 days, slid forward at most once a day by any session use, including
     // the session → JWT exchange at /token. Better Auth's defaults are 7d / 1d.
-    session: { expiresIn: 30 * DAY, updateAge: 1 * DAY },
+    session: { expiresIn: SESSION_LIFETIME_SECONDS, updateAge: SESSION_UPDATE_AGE_SECONDS },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
+    // Every Error argument is reduced to {name, code} (logger.ts): a driver
+    // error must never reach a log line, and better-auth logs caught errors
+    // as they are (spec 329).
+    logger: { log: logBetterAuth },
     rateLimit: {
       enabled: true,
       storage: 'database',
@@ -358,6 +403,8 @@ export function createAuth(db: Db = createDb(), extensions: AuthExtensions = {})
       // Kept for its `role` and ban columns; its HTTP surface is blocked in
       // apps/auth (spec 300).
       admin(),
+      // Service keys (spec 329); HTTP surface blocked, see API_KEY_PATHS.
+      apiKey(API_KEY_OPTIONS),
       rateLimitRetention,
     ],
   });

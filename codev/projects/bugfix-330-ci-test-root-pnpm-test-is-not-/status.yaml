@@ -1,0 +1,17 @@
+id: bugfix-330
+title: ci-test-root-pnpm-test-is-not-
+protocol: bugfix
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-10-28T10:08:20.523Z'
+    approved_at: '2026-10-29T21:43:55.072Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-28T07:09:35.707Z'
+updated_at: '2026-10-29T21:43:55.072Z'
+pr_ready_for_human: false

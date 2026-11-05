@@ -1,0 +1,39 @@
+I'll review the implementation by reading the actual files.I read every changed source file, the CI workflow, the lockfile, the configs, and the git history for this branch. I did not modify anything in the tree and did not run `uv sync`/`pytest` (both write into the worktree the builder is live in).
+
+## Iteration 1 blocker — verified fixed
+
+The one must-fix from iteration 1 was that the suite ran nowhere but the builder's machine. That is genuinely resolved, and I checked each part rather than taking the rebuttal's word:
+
+- `.github/workflows/ci.yml:183-205` adds a `whatsapp` job with `defaults.run.working-directory: apps/whatsapp`, running `uv sync --frozen --extra dev`, `ruff check .`, `ruff format --check .`, `pytest tests/ -v`. `astral-sh/setup-uv` is pinned to a full SHA with a version comment, matching the repo's stated convention in the header comment at line 13.
+- `ruff>=0.8.0` is in `pyproject.toml`'s `dev` extra (line 48), and `uv.lock` carries it both as a `package.metadata` requirement (line 51, `marker = "extra == 'dev'"`) and as a resolved package at `0.17.2` (line 1025). So `uv sync --frozen --extra dev` will not fail the "lockfile not up to date" check, and `uv run ruff` will resolve.
+- The new signature tests (`test_whatsapp_service.py:372-388`) are real assertions (`assert response.status_code == 403`), not the `assert True` pattern the imported suite uses. Both paths through `verify_meta_signature` are covered: the missing/malformed-prefix branch (`whatsapp_webhook_utils.py:49`) and the `compare_digest` mismatch branch (line 68).
+- No secrets: `conftest.py` supplies mock-mode defaults, so the job needs no repository secrets, consistent with the rest of the workflow.
+
+Phase 1's other acceptance criteria check out: `.env.example` contains only placeholders (the one real-looking number, `871020755148175`, is a public Meta app id in a URL); `git ls-files apps/whatsapp` is 35 files with no `logs/`, no `tmp/`, no `zrok.exe`; and nothing touches `turbo.json`, `pnpm-workspace.yaml`, or root `package.json`, so the existing graph is unaffected (`apps/whatsapp` has no `package.json`, so pnpm's `apps/*` glob skips it).
+
+## Comments (none blocking)
+
+**1. The Dockerfile pins uv 0.5.11 against a `revision = 3` lockfile.** `Dockerfile:9` copies `ghcr.io/astral-sh/uv:0.5.11`, but `uv.lock:1-2` is `version = 1 / revision = 3` — a lockfile format written by a far newer uv. The `revision` key did not exist in 0.5.x. I could not prove the failure by reading alone (it depends on whether uv 0.5.11's deserializer rejects unknown keys), and nothing in this PR builds the image, so the question is open rather than settled. It's a one-line fix to remove the doubt: bump the tag to a uv that understands revision 3. Separately, `Dockerfile:44`'s second `uv sync` has no `--frozen`, so a deploy can silently resolve away from the lock that CI tested. Both are deploy-path concerns that Phase 4 owns — but Phase 1 lists the Dockerfile in its file set, so it's worth either fixing now or writing down as a named Phase 4 item.
+
+**2. `conftest.py`'s comment overstates what `setdefault` preserves.** "real values still win" holds for exported environment variables, but not for a developer's `.env` — pydantic-settings ranks environment variables *above* dotenv values, and `os.environ.setdefault` writes environment variables. So a developer who sets `MOCK_ANSARI_CLIENT=False` in `.env` to exercise a real backend silently gets the mock instead, which contradicts both `README.md:152` and the module docstring at `test_whatsapp_service.py:15-18`. Either reword the comment or gate the defaults on `.env` being absent.
+
+**3. `test_webhook_message_basic` effectively asserts only "HTTP 200".** At lines 302-318 both the `success and "processed successfully"` branch and the `else` branch call `assert True`. It has more teeth than it looks — Starlette runs `BackgroundTasks` before `TestClient` returns, so an exception in `handle_text_message` would surface — but it will not catch a response that comes back `success: False` with a 200. Since `ALWAYS_RETURN_OK_TO_META` is `False` under test, asserting `response.json()["success"] is True` costs one line and makes the happy path actually tested. This is imported legacy test style, so I'd leave it to whenever that suite is rewritten rather than ask for it now.
+
+**4. `/sentry-debug` (`main.py:111-113`) is unauthenticated and present in every environment.** Deliberate legacy behaviour for verifying Sentry wiring, and harmless beyond a 500, but worth a note before this reaches production in Phase 4.
+
+**5. `clean_logs.sh` looks like the kind of personal script Phase 1 said to exclude** ("without its logs, `tmp/` files, personal scripts..."). Minor — flagging only because it's the one file in the import that the plan's exclusion list arguably covers.
+
+**6. The `whatsapp` check is not a required check on `develop`.** The workflow header notes branch protection is an admin-coordinated change (lines 113-120). The job will run on PRs, but nothing blocks a merge on it failing until someone makes it required. Worth surfacing to the human rather than fixing in code.
+
+I did not re-raise the `logs/` creation at import (`app_logger.py:40`) or the phone numbers in logs — both are correctly deferred, and `logs/` is covered by `apps/whatsapp/.gitignore:8`. The dangling `README.md` references are confirmed scheduled: commit `7b04c55` adds `tests/README.md` to Phase 4's file list in the plan.
+
+---
+VERDICT: APPROVE
+SUMMARY: The iteration-1 CI blocker is genuinely fixed and verified end to end (job wired, ruff declared and locked, signature tests assert properly); remaining findings are deploy-path and test-style notes that belong to Phase 4 or are legacy-as-imported.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking. Non-blocking: Dockerfile pins uv 0.5.11 against a `revision = 3` lockfile and its second `uv sync` omits `--frozen` — fix now or name it explicitly as a Phase 4 item.
+- Non-blocking: `conftest.py`'s "real values still win" comment is wrong for `.env` values (env vars outrank dotenv in pydantic-settings), so a dev's `MOCK_ANSARI_CLIENT=False` is silently ignored.
+- Non-blocking: `test_webhook_message_basic` asserts only HTTP 200; both branches end in `assert True`, so a `success: False` 200 would pass.

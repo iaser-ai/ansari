@@ -243,6 +243,22 @@ describe('scenario 9f: an email the app database already holds', () => {
     }
   });
 
+  // Spec 329: the first-use refusal covers the system domain only. A WhatsApp
+  // user's profile carries apps/auth's other reserved domain, so a tightening
+  // that refused every reserved address would break WhatsApp here first.
+  it('a whatsapp-<id>@noreply.askansari.ai profile is accepted, and its row created', async () => {
+    const { id, jwt } = await signUpDirect(nextEmail('whatsapp'));
+    const email = `whatsapp-${id}@noreply.askansari.ai`;
+    await service.client.query(
+      "update auth.users set email = $1, registered_via = 'whatsapp' where id = $2",
+      [email, id]
+    );
+
+    expect((await resolveUser(id, jwt)).kind).toBe('user');
+    expect(await appUser(id)).toMatchObject({ id, email, registered_via: 'whatsapp' });
+    expect(h.sentry).toEqual([]);
+  });
+
   it('the email is compared normalized', async () => {
     const email = nextEmail('case');
     const legacy = await insertLegacyUserRow(app, email);

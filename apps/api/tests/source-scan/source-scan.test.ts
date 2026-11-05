@@ -16,6 +16,7 @@ import {
   removedHopHits,
   removedHopTextHits,
   sourceFiles,
+  whatsappHits,
 } from './scan';
 
 function report(name: string, files: string[], hits: Record<string, string[]>): void {
@@ -247,6 +248,39 @@ describe('scan 4: the removed internal hop stays gone (owner amendment 2026-10-1
       if (found.length > 0) hits[file] = found;
     }
     report('removed internal hop (runtime + config)', [...files, ...CONFIG], hits);
+    expect(hits).toEqual({});
+  });
+});
+
+describe('scan 5: apps/api has no WhatsApp-specific code (spec 329)', () => {
+  const KNOWN_BAD = "if (registeredVia === 'whatsapp') return;";
+
+  it('catches the known-bad line in a fixture under the scanned glob', () => {
+    for (const fixture of ['apps/api/lib/auth/fixture.ts', 'apps/api/src/app/api/v2/fixture/route.ts']) {
+      expect(whatsappHits([{ path: fixture, source: KNOWN_BAD }]), fixture).toEqual({ [fixture]: [KNOWN_BAD] });
+    }
+    for (const bad of ['// WhatsApp users skip this', "const via = 'WHATSAPP';", "import { x } from './whatsApp';"]) {
+      expect(whatsappHits([{ path: 'apps/api/lib/x.ts', source: bad }]), bad).not.toEqual({});
+    }
+  });
+
+  it('ignores the same line outside the glob', () => {
+    for (const outside of [
+      'apps/api/tests/contract/fixture.test.ts',
+      'apps/api/db/schema/fixture.ts',
+      'apps/api/library/fixture.ts',
+      'apps/auth/src/routes/fixture.ts',
+      'apps/whatsapp/lib/fixture.ts',
+    ]) {
+      expect(whatsappHits([{ path: outside, source: KNOWN_BAD }]), outside).toEqual({});
+    }
+  });
+
+  it('apps/api src and lib have no hits', () => {
+    const files = [...sourceFiles('apps/api/src'), ...sourceFiles('apps/api/lib')];
+    expect(files.length).toBeGreaterThan(60);
+    const hits = whatsappHits(files.map((file) => ({ path: file, source: readSource(file) })));
+    report('whatsapp (apps/api src + lib)', files, hits);
     expect(hits).toEqual({});
   });
 });

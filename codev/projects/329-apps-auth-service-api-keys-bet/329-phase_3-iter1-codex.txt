@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Reserved-domain coverage is solid, but padded noreply sign-ups violate the explicit 409 contract.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `signUpGuard` validates before normalization, so `" service-whatsapp@noreply.askansari.ai "` returns 400. The spec and phase deliverable require the same 409 response as a taken address. The test currently codifies the deviation instead of the required behavior.

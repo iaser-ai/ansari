@@ -6,7 +6,7 @@
 // Nothing here logs the address, the link, the token or the Resend key.
 import { Resend } from 'resend';
 
-import { isSystemAddress } from './reserved';
+import { isReservedAddress } from './reserved';
 
 /** The same sender as apps/api/lib/email.ts. */
 export const RESET_EMAIL_FROM = 'Ansari <feedback@askansari.ai>';
@@ -66,14 +66,16 @@ export function resendMailer(apiKey: string): Mailer {
 }
 
 /**
- * better-auth's `sendResetPassword`. A system address never receives mail: it
- * has no auth row, so better-auth never calls this for one, and the domain is
- * refused here as well. The send is not awaited, as in apps/api today, so a
+ * better-auth's `sendResetPassword`. A reserved address never receives mail. A
+ * system address has no auth row, so better-auth never calls this for one; a
+ * non-interactive address (a WhatsApp or service user, spec 329) does have a
+ * row, so it is skipped here, and the caller gets the same response as for an
+ * unknown address. The send is not awaited, as in apps/api today, so a
  * known email answers as fast as an unknown one; a failure logs its error name.
  */
 export function createResetPasswordSender(frontendUrl: string, mailer: Mailer) {
   return async ({ user, token }: { user: { email: string }; token: string }): Promise<void> => {
-    if (isSystemAddress(user.email)) return;
+    if (isReservedAddress(user.email)) return;
     const html = resetEmailHtml(resetLink(frontendUrl, token));
     void mailer({
       from: RESET_EMAIL_FROM,

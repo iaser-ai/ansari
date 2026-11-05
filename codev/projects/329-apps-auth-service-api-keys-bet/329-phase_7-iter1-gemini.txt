@@ -1,0 +1,20 @@
+---
+VERDICT: COMMENT
+SUMMARY: Gemini lane skipped — agy exited with code 3
+CONFIDENCE: LOW
+---
+
+The Gemini (Antigravity `agy`) reviewer was skipped: agy exited with code 3.
+This is a non-blocking skip; the remaining reviewers still apply. To enable the
+Gemini lane, install the CLI (https://antigravity.google/cli/install.sh) and run
+`agy` once to sign in.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - codev/projects/329-apps-auth-service-api-keys-bet/.codex-run.log
+  - codev/projects/329-apps-auth-service-api-keys-bet/.gemini-run.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

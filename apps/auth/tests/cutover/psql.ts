@@ -6,8 +6,9 @@
 // tuples-only, unaligned, '|'-separated), `\if :{?NAME}` / `\if :NAME` /
 // `\else` / `\endif`, `\copy (…) TO pstdout` and `\copy table FROM pstdin`
 // (through pglite's /dev/blob device), `\ir FILE` (inlined, relative to the
-// including file, as psql's \include_relative), and `:'NAME'` / `:NAME`
-// interpolation.
+// including file, as psql's \include_relative), `\i FILE` or `\i :NAME`
+// (inlined when reached, the path interpolated, as psql's \include), and
+// `:'NAME'` / `:NAME` interpolation.
 // ON_ERROR_STOP is always on: the first error throws. psql would then end the
 // session, rolling back an open transaction and dropping TEMP tables; the
 // harness does the same to the pglite instance (`ROLLBACK`, `DISCARD TEMP`),
@@ -45,6 +46,12 @@ function rowsOf(results: Results[]): string[] {
   return results.flatMap((r) =>
     r.fields.length === 0 ? [] : r.rows.map((row) => Object.values(row as object).map(String).join('|'))
   );
+}
+
+/** An included file with no meta-commands, run as SQL in the current session. */
+async function runPsqlLines(client: PGlite, lines: string[]): Promise<string[]> {
+  if (lines.some((l) => l.trim().startsWith('\\'))) throw new Error('psql harness: meta-commands in an \\i file are not supported');
+  return rowsOf(await client.exec(lines.join('\n')));
 }
 
 export async function runPsqlFile(
@@ -96,6 +103,11 @@ export async function runPsqlFile(
         branches.pop();
       } else if (!active()) {
         continue;
+      } else if (command === '\\i') {
+        // Run the included file's statements in this session, as psql does.
+        const included = interpolate(arg, vars);
+        const sub = await runPsqlLines(client, readFileSync(included, 'utf8').split('\n'));
+        out.stdout.push(...sub);
       } else if (command === '\\set') {
         const [name = '', ...value] = rest;
         vars[name] = value.join(' ');

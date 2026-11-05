@@ -15,7 +15,7 @@
     "dev:auth": "pnpm --filter ansari-auth dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck --filter=!ansari-mcp",
-    "test": "turbo run test --filter=!ansari-mcp --",
+    "test": "turbo run test --filter=!ansari-mcp -- --maxWorkers=4",
     "test:coverage": "turbo run test:coverage --filter=!ansari-mcp --",
     "build": "turbo run build --filter=!ansari-mcp",
     "mcp": "pnpm --filter ansari-mcp"

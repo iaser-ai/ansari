@@ -1,0 +1,47 @@
+I'll review the Phase 4 (`environments_and_docs`) implementation. Let me start by reading the key files.I've read the Phase 4 files, run the suite, and checked lint/format. Here's my assessment.
+
+## What's verified working
+
+- `uv run pytest tests -q` → **61 passed**; `ruff check .` → clean; `ruff format --check .` → 35 files formatted. (Run from `apps/whatsapp`.)
+- **`WA_MAINTENANCE_MODE`** (`config.py:89`, `main.py:337`) is this service's own setting, checked before auth and before any `apps/api` call. `test_environment_behaviour.py:79-108` covers notice-sent / no-chat-call, off-path, and that an exported `MAINTENANCE_MODE` (apps/api's flag) does not leak into it. Good, non-vacuous tests: the chat spy would catch a regression where the check moved after the chat call.
+- **`!d ` filter** (`main.py:354`) gated on `DEPLOYMENT_TYPE == "staging"`, with all three cases tested (staging ignores, staging without prefix processes, local with prefix processes).
+- **Railway JSON logging**: single-line JSON on stdout, level mapping, no `user_id` field, `request_id` present. `test_railway_logging.py:61-67` properly asserts stderr is empty and that an embedded newline stays inside the JSON — that's the right test for the failure mode.
+- **Sentry coverage** for the Phase 3 finding is in: `_capture()` is called for `thread_info_failure`, `thread_deletion_failure`, `thread_creation_failure`, `auth_token_failure`, `message_processing_failure` (`whatsapp_conversation_manager.py:110-115` and callers), and the context carries only `request_id`.
+- **Deploy items**: Dockerfile is uv `0.9.13` with `uv sync --frozen` on both syncs and repo-root-relative paths; `/sentry-debug` registered only outside production (`main.py:116`); `clean_logs.sh` gone; `PORT` honoured (`main.py:430`); `railway.toml` present and honest about not being read by Railway; CI job `whatsapp` added.
+
+## Findings
+
+**1. The README understates what was verified against live Meta, contradicting the plan's own record.** `README.md:130` says *"That `from_user_id` is present in every webhook, and that replying to a BSUID is accepted by Meta. Neither has been tried against live Meta."* The plan's Phase 4 section records the opposite for half of it: a real send to a BSUID returned 200 with the BSUID echoed as `user_id`, plus delivery/read webhooks, and Meta's own sample webhooks reached the service through zrok carrying `from_user_id`. `README.md:131` likewise says *"nothing here has run against a live `apps/auth` or `apps/api`"* while the plan records a real `apps/api` run that created a thread and answered. This is the docs phase; the next person reading the README will either redo work or distrust the record. Rewrite those two bullets to say precisely what was and wasn't done (BSUID send: verified once via direct HTTP, not through `MetaApiServiceReal`; a real phone's webhook: still untested; `apps/auth` `/whatsapp` route: still assumed).
+
+**2. `tests/README.md:23`** has the same overreach: *"Nothing has been run against a live `apps/auth`, `apps/api` or Meta."* True of the test suite, false of the project. Scope the sentence to the tests.
+
+**3. The new Sentry captures have no test.** No test file references `capture_exception`, `_capture`, or Sentry at all. The Phase 4 plan lists adding Sentry to the thread-list/create/delete failures as this phase's work, so the one piece of new behaviour added here is the one piece with no coverage. A `monkeypatch.setattr(sentry_sdk, "capture_exception", ...)` on the existing `test_thread_lifecycle.py` failure case would cost three lines and would catch someone deleting the `_capture` call. Reading the code, I'm confident the calls are correct — my point is only that nothing would notice if they vanished.
+
+**4. The `httpx.TimeoutException` branch in `handle_text_message` is unreachable.** `AnsariClientReal.process_message` catches `httpx.TimeoutException` at line 240 and re-raises it as `MessageProcessingError`; `AnsariClientMock` never raises it either (its only raises are `ThreadDeletionError`/`MessageProcessingError`). So `whatsapp_conversation_manager.py:284-291` — the `backend_timeout` Sentry tag and the "The request timed out" user message — can't fire. Practical effect is cosmetic (a timeout tells the user "An error occurred" and is tagged `message_processing_failure`), but the plan's Phase 4 outcome note claims "timeout … failures are captured in Sentry" as a distinct case, and it isn't. Either let the real client re-raise timeouts unwrapped, or drop the branch and the claim.
+
+**5. `test_json_logs_are_off_in_local_development_and_in_ci` (`test_railway_logging.py:74-77`) is vacuous for half its name.** `use_json_logs` is `DEPLOYMENT_TYPE not in [local, development] and GITHUB_ACTIONS != "true"`, and conftest pins `DEPLOYMENT_TYPE=local`. The assertion passes identically whether or not the `GITHUB_ACTIONS` clause exists — delete that clause and the test still goes green. If the CI guard matters, test it by building the expression with a staging deployment type and `GITHUB_ACTIONS=true`.
+
+**6. Python version drift between CI, dev and the image.** There is no `.python-version` in `apps/whatsapp` and `requires-python = ">=3.10"`, so CI's `uv sync` installs the newest compatible CPython while the Dockerfile runs `python:3.13` and this worktree's venv is 3.10.10 (I confirmed all three). CI can go green on a version that never ships. A `.python-version` pinned to 3.13 (and `setup-uv` reading it) closes that.
+
+**7. `.env.example` still documents a file that wasn't imported.** Lines 97-102 define `META_WABA_ID` "for `check_subscriptions.py` only" — that script doesn't exist in `apps/whatsapp`, and `META_WABA_ID` isn't a field in `config.py` (so `extra="ignore"` silently drops it). Delete it or say it's vestigial. Minor companion: `ORIGINS` on line 32 still carries an `ngrok` host from the legacy setup.
+
+**8. Ordering nit, no fix required:** the maintenance check (`main.py:337`) precedes the `!d ` filter (`main.py:354`), so a staging instance in maintenance mode replies to a local developer's `!d ` message with the maintenance notice — the exact double-answer the prefix exists to prevent. Harmless and legacy-faithful; mentioning so it's a choice rather than an accident.
+
+I verified the things I'd normally flag from training data rather than asserting them: `POST /api/v2/users/login` referenced in `.env.example:180` **does** exist in `apps/api` (legacy pass-through to `apps/auth`, see `apps/api/tests/contract/harness.ts:67`), so that line is correct and I'm not flagging it.
+
+Nothing here blocks the phase — the deliverables are present, tested and green. Items 1 and 2 should land before the PR description is written, since the PR will cite the same facts.
+
+---
+VERDICT: COMMENT
+SUMMARY: Phase 4 deliverables are complete and green (61 tests, clean lint/format); the issues are documentation accuracy in the very phase that owns docs, plus a few test-depth and version-drift nits.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- `README.md:130-131` claims the live-Meta BSUID send and the real `apps/api` run were never done, contradicting the plan's own Phase 4 record — fix before the PR description reuses it
+- `tests/README.md:23` overstates the same ("nothing has been run against a live … Meta"); scope it to the test suite
+- The Sentry captures added in this phase (`_capture` for thread info/create/delete, auth, timeout) have zero test coverage — nothing would notice their removal
+- `handle_text_message`'s `httpx.TimeoutException` branch is unreachable: `AnsariClientReal` wraps timeouts into `MessageProcessingError` and the mock never raises one, so the `backend_timeout` tag and timeout message never fire
+- `test_json_logs_are_off_in_local_development_and_in_ci` passes with the `GITHUB_ACTIONS` clause deleted — vacuous for the CI half of its name
+- No `.python-version`: CI resolves the newest CPython, the Dockerfile runs 3.13, this worktree runs 3.10.10
+- `.env.example:97-102` documents `META_WABA_ID` for `check_subscriptions.py`, a file that was not imported and a setting `config.py` does not define

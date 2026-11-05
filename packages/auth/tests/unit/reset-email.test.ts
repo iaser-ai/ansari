@@ -42,6 +42,16 @@ describe('createResetPasswordSender', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('refuses the noreply domain, in any case (spec 329)', async () => {
+    const sent: EmailMessage[] = [];
+    const send = createResetPasswordSender(FRONTEND, async (m) => {
+      sent.push(m);
+    });
+    await send({ user: { email: 'whatsapp-x@noreply.askansari.ai' }, token: 't' });
+    await send({ user: { email: ' Service-WhatsApp@NoReply.AskAnsari.AI ' }, token: 't' });
+    expect(sent).toHaveLength(0);
+  });
+
   it('does not wait for delivery, so a known email answers as fast as an unknown one', async () => {
     const send = createResetPasswordSender(FRONTEND, () => new Promise<void>(() => undefined));
     const result = await Promise.race([

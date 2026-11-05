@@ -1,0 +1,52 @@
+I'll start by reading both documents from disk and verifying the codebase facts they rely on.## Review — plan 329 against the approved spec
+
+Read directly from disk in `.builders/spir-329`: the plan, the spec, and every file the plan touches or reuses (`packages/auth/src/{index,limits,rate-limit-store,schema,db,reserved,users}.ts`, `apps/auth/src/{index,app}.ts`, `apps/auth/src/middleware/blocked-paths.ts`, `apps/auth/src/routes/{account,health}.ts`, `apps/auth/src/alerts.ts`, `apps/auth/scripts/grant-admin.ts`, the test harnesses, and better-auth 1.7.7's dist for `jwt/sign.mjs`, `jwt/index.mjs`, `db/internal-adapter.mjs`, `api/rate-limiter/index.mjs`). Nothing was modified; all commands were read-only.
+
+### Library behaviour I am relying on that neither document records as probed
+
+State this first because three findings below depend on it. `@better-auth/api-key@1.7.7` **is not installed** — `packages/auth/node_modules/@better-auth/` contains only `expo`. So the plugin's 7-endpoint/5-routed surface, `startingCharactersConfig.shouldStore:false`, `defaultKeyHasher`'s SHA-256/base64url output, `updateApiKey`'s field semantics, and the collapse of driver errors into `{valid:false, INVALID_API_KEY}` rest entirely on the spec's recorded specify-phase pglite probe plus the plan's phase-1 pinning tests. I could not independently verify any of them. Separately, the plugin's outage-vs-refusal classification depends on `APIError instanceof` working across a *single* copy of `better-call`; the repo resolves `better-call@1.4.0` singly today and the plugin peers `better-call 1.4.0`, so this holds now, but **nothing pins it** — a second copy arriving via a transitive bump turns every outage into a refusal (fail-open on the alerting side) with no test failing.
+
+---
+
+### Blocking
+
+**1. `signJWT` inside the `FOR NO KEY UPDATE` transaction starves the connection pool, and the spec's timeouts do not bound it.**
+The plan signs the JWT inside the locking transaction. That transaction holds one pg connection for its whole life; `auth.api.signJWT` → `resolveSigningKey` queries the `jwks` table through the drizzle adapter on the *same* `Pool` on **every** call, and because the plan uses a raw `db.transaction` rather than better-auth's `runWithTransaction`/`getCurrentAdapter`, the adapter is not bound to the open transaction — it acquires a **second** connection. `createDb()` is `new Pool({ connectionString })` with no `max` and no `connectionTimeoutMillis`, i.e. pg's defaults: 10 connections and an **unbounded** acquisition wait. At ~5–10 concurrent exchanges every connection is held by a transaction waiting for a second connection that can never be issued, and the pool is shared with sign-in, JWKS and `/api/account/*` — so the failure mode is a hang of the whole service, not a slow exchange. `lock_timeout` (55P03) and `statement_timeout` bound *lock waits* and *statement* duration; neither fires while a caller is blocked in `pool.connect()`, which is precisely the gap the spec claims those timeouts close. The spec's note that "signJWT does no database write" is also wrong on the auto-mint path: `resolveSigningKey` calls `createJwk` when no live unexpired key exists. Fix shape: resolve the identity and mint the session inside the transaction, **commit**, then sign outside it — or bind the adapter with `runWithTransaction` and set an explicit `max`/`connectionTimeoutMillis` on the pool. Either way this needs a phase-1 probe (N concurrent exchanges against real Postgres with a deliberately small `max`), because a single-request test passes under the broken design.
+
+**2. `generateId` is not reachable from `packages/auth`.**
+The plan sources the 32-char session token from `generateId(32)`. In 1.7.7 that function lives in `@better-auth/core/utils/id` and is **not** re-exported from the `better-auth` main entry, and `@better-auth/core` is not a declared dependency of `packages/auth` — under pnpm's isolated layout the import will not resolve, so phase 5 cannot build as written. This is cheap to fix (declare `@better-auth/core@1.7.7`, matching the api-key plugin's peer, and deep-import deliberately; or take the spec's `internalAdapter.createSession` alternative, which also gets `token`, `ipAddress:""`, `userAgent:""` for free). I tag it blocking rather than should-fix because the thing being generated is a 30-day bearer credential: a silent fallback to any weaker generator is a security defect, so whichever source is chosen needs a test pinning the token's length and alphabet, not just "it compiles".
+
+---
+
+### Should-fix
+
+**3. The daily exchange alert is a check that can pass by not running.**
+better-auth's DB rate limiter prunes with `deleteExpiredRows(now)`, deleting every row in the rate-limit table whose `lastRequest < now - longestObservedWindow*1000`. The repo feeds that from `rateLimitRetention`'s `LONGEST_WINDOW`, which `limits.ts` computes as the max over a **hand-maintained** array and is 3600s today. The plan specifies a per-key daily counter (1,000/day) but never says where it is stored; if it lands in `auth.rate_limit` like every other counter, it is deleted after one hour of key inactivity — and under the plan's own stated low-traffic posture, hour-long gaps are the normal case, so the daily alert can never fire. Note the trap in the obvious fix: adding 86400 to that array raises retention for the *entire* table, including `sub:` and `alert|` rows. The new per-user 900s window is safe; the daily one is not. The plan should name the storage, and either justify a separate counter outside the pruned table or state and accept the retention change — with a test that advances a clock past the prune cutoff and shows the daily counter survives.
+
+**4. Nothing pins the single-`better-call` assumption that the outage/refusal split rests on.**
+See the disclosure above. A `packages/auth` test asserting exactly one resolved `better-call` version (or that the plugin's thrown error is `instanceof` the `APIError` the service imports) costs one assertion and converts a silent fail-open into a build failure. Phase 1 is the right home, since every later phase's error mapping depends on it.
+
+**5. Phase 7's arch.md update should record the apps/api-side constraint, not just the apps/auth-side design.**
+`apps/api/lib/auth/resolve-user.ts:129` refuses first use only for `isSystemAddress(email)` — the *system* domain. WhatsApp users carry the new noreply domain and therefore pass first use, which the exchange requires. That is load-bearing and invisible from either document: a future tightening of that check to "any reserved domain" breaks WhatsApp with no failing test in this spec's suite. Record it as an invariant in arch.md and add a one-line test in apps/api asserting a noreply-domain user resolves on first use.
+
+---
+
+### Nits
+
+**6. `session.updatedAt` has no DB default.** The schema declares it `.notNull()` with `$onUpdate` only, so a direct insert that omits it fails at runtime, not at type-check. Trivial, but the plan's phase-5 insert list should name it explicitly.
+
+**7. "Indistinguishable from a better-auth session" is literally false.** `internalAdapter.createSession` writes `""` for absent `ipAddress`/`userAgent`; a hand-rolled insert writing `null` is distinguishable by a trivial query. The spec sanctions the hand-rolled path, so this is cosmetic — but if the claim is going to stand in docs, write `""` to make it true.
+
+**8. The parity test needs more than the journal-index edit.** `packages/auth/tests/migration/auth-journal-parity.test.ts` asserts `journal.map(e => e.idx)).toEqual([0])` *and* hard-codes the six-table list. The plan names the first edit but not the second; the `apikey` entry must be added or phase 1 leaves the tree red.
+
+**9. The new runbook must avoid the apply-record pattern.** While `AUTH_DEPLOYED_THROUGH` is `null`, that same test asserts `recordedApplies()` equals `[]`, scanning `RELEASE.md` and every `docs/**/*.md` for `^auth-journal-applied:\s*(\d{4}_[a-z0-9_]+)$`. A `docs/cutover/service-keys-runbook.md` that shows the apply line as a bare example — rather than inside backticks, which the pattern already rejects — turns phase 7 red for a documentation reason. Worth one sentence in the phase.
+
+**10. `users.ts`'s stale header line has ambiguous phase ownership.** The plan's "fix it once phase 6 adds one (or here, worded for phase 6)" leaves it owned by nobody. Assign it to phase 6 or drop it.
+
+---
+
+### Dimensions that came back clean
+
+Coverage and ordering are otherwise sound: every success criterion maps to a phase with a named test, and the probe ordering is right — the unproven-library probes sit in phase 1 ahead of everything built on them, and the plan states the fallback when each fails. Phase independence holds apart from findings 2 and 8. No spec contradictions found: the plan's choice to mount the exchange *before* `corsFor` and terminate every request is **stronger** than the spec, and correct — `createApp` currently puts `corsFor` first, so the spec's wording alone would have leaked CORS headers onto the exchange. I verified and found no weakening of the never-log lists, the single byte-identical 401, the relation check and its TTL, the 42P01-only boot assertion, the per-user budget's placement outside the transaction, or claim-set equality (`jwt/sign.mjs` honours an explicit `exp` and sets `iat` only when passed, so equality with `/api/auth/token` is achievable as described). Migration/deploy posture is right: 0001-numbered-by-main, migration-before-code, the pre-apply duplicate check, and the ACCESS EXCLUSIVE note on the unique constraint are all present. `errorMeta` and `urlHost` reuse are accurate precedents, `SENTRY_DSN` already exists so "no new env var" holds, no `isReservedAddress` logic change is needed in either the `user.create.before` hook or `signUpGuard`, and every reused harness (`startService`, the apps/api contract harness, the source-scan and docs tests) exists as cited. No scope creep.
+
+REQUEST CHANGES (1: move `signJWT` out of the locking transaction or bind the adapter, bound the pool, and probe concurrency; 2: make the session-token generator resolvable and pin its shape by test; 3: name the daily counter's storage so pruning cannot silence it; 4: pin the single-`better-call` assumption; 5: record the apps/api noreply-domain invariant; 6–10: nits)

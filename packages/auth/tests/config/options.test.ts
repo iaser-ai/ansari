@@ -2,10 +2,19 @@
 // Each behaviour is also proven over HTTP in the sibling suites; this file pins
 // the settings themselves, so a removal names the setting that moved.
 import type { PGlite } from '@electric-sql/pglite';
+import { apiKey } from '@better-auth/api-key';
 import { admin } from 'better-auth/plugins';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BLOCKED_AUTH_PATHS, createAuth, JWT_EXPIRATION, type Auth } from '../../src/index';
+import {
+  API_KEY_ENDPOINT_COUNT,
+  API_KEY_OPTIONS,
+  API_KEY_PATHS,
+  BLOCKED_AUTH_PATHS,
+  createAuth,
+  JWT_EXPIRATION,
+  type Auth,
+} from '../../src/index';
 import { hashPassword, verifyPassword } from '../../src/password';
 import {
   drizzleFor,
@@ -39,7 +48,7 @@ describe('createAuth() options', () => {
     expect(auth.options.advanced?.database?.generateId).toBe('uuid');
   });
 
-  it('declares the additional user fields, registered_via server-only', () => {
+  it('declares the additional user fields, registered_via server-only, and no phone number (spec 329 §5)', () => {
     const fields = auth.options.user?.additionalFields ?? {};
     expect(Object.keys(fields).sort()).toEqual(['first_name', 'last_name', 'registered_via']);
     expect(fields.registered_via?.input).toBe(false);
@@ -62,24 +71,47 @@ describe('createAuth() options', () => {
     expect(auth.options.user?.deleteUser?.enabled).toBe(false);
   });
 
-  it('runs exactly expo, bearer, jwt, admin and the rate-limit retention rule', () => {
+  it('runs exactly expo, bearer, jwt, admin, api-key and the rate-limit retention rule', () => {
     expect((auth.options.plugins as PluginLike[]).map((p) => p.id).sort()).toEqual([
       'admin',
       'ansari-rate-limit-retention',
+      'api-key',
       'bearer',
       'expo',
       'jwt',
     ]);
   });
 
-  it('disables every admin endpoint, change-email, update-user and change-password on the router', () => {
+  it('disables every admin and api-key endpoint, change-email, update-user and change-password on the router', () => {
     const adminPaths = Object.values(admin().endpoints).map((e) => e.path);
     expect(adminPaths).toContain('/admin/impersonate-user');
     expect(adminPaths).toContain('/admin/set-role');
-    expect(auth.options.disabledPaths).toEqual(
-      expect.arrayContaining([...adminPaths, '/change-email', '/update-user', '/change-password'])
-    );
-    expect(BLOCKED_AUTH_PATHS).toEqual([...adminPaths, '/change-email', '/update-user', '/change-password']);
+    const blocked = [...adminPaths, ...API_KEY_PATHS, '/change-email', '/update-user', '/change-password'];
+    expect(auth.options.disabledPaths).toEqual(expect.arrayContaining(blocked));
+    expect(BLOCKED_AUTH_PATHS).toEqual(blocked);
+    expect(BLOCKED_AUTH_PATHS).not.toContain(undefined);
+  });
+
+  it('derives the api-key paths from the installed plugin: 7 endpoints, 5 routed (spec 329)', () => {
+    // verifyApiKey and deleteAllExpiredApiKeys are server-only and have no
+    // path. A plugin bump that changes either number fails here, loudly.
+    expect(API_KEY_ENDPOINT_COUNT).toBe(7);
+    expect(Object.keys(apiKey().endpoints)).toHaveLength(7);
+    expect([...API_KEY_PATHS].sort()).toEqual([
+      '/api-key/create',
+      '/api-key/delete',
+      '/api-key/get',
+      '/api-key/list',
+      '/api-key/update',
+    ]);
+  });
+
+  it('configures api-key: metadata on, start not stored, never a session (spec 329)', () => {
+    // The settings themselves; tests/config/api-key.test.ts proves each one's
+    // behaviour against the database.
+    expect(API_KEY_OPTIONS.enableSessionForAPIKeys).toBe(false);
+    expect(API_KEY_OPTIONS.enableMetadata).toBe(true);
+    expect(API_KEY_OPTIONS.startingCharactersConfig.shouldStore).toBe(false);
   });
 
   it('runs the origin check under NODE_ENV=test too (#266)', () => {

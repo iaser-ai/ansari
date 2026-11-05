@@ -29,8 +29,8 @@ migration runbook were both proven in real releases on 2026-08-02.
   > either half on its own.
 > ### Railway service configuration (spec 48 — monorepo layout)
 >
-> Both services build with the **repo root** as their Root Directory: the pnpm
-> workspace needs the root `pnpm-lock.yaml`, and both Dockerfiles now also
+> The services build with the **repo root** as their Root Directory: the pnpm
+> workspace needs the root `pnpm-lock.yaml`, and the TypeScript Dockerfiles now also
 > `COPY packages packages`. Do **not** set Root Directory to the app folder.
 >
 > | Service | Dockerfile path |
@@ -38,6 +38,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | backend | `apps/api/Dockerfile` |
 > | frontend (web) | `apps/frontend/Dockerfile.web` |
 > | auth | `apps/auth/Dockerfile` |
+> | whatsapp | `legacy/whatsapp/Dockerfile` |
 >
 > **Watch paths** — set these per service, or Railway rebuilds *both* on every push
 > (any commit touches the root lockfile):
@@ -46,16 +47,32 @@ migration runbook were both proven in real releases on 2026-08-02.
 > backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
+> whatsapp:  legacy/whatsapp/**
 > ```
 >
-> `packages/**` is **not optional**. The shared config packages are copied into both
+> For backend, frontend and auth, `packages/**` is **not optional**. The shared config packages are copied into those
 > images, so a packages-only change alters the built artifact. Omit the pattern and
 > that change ships nothing — no rebuild, no deploy, and no error. The image simply
-> drifts from the repo.
+> drifts from the repo. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
+> `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
-> healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
+> healthcheck `/`, whatsapp healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
 > answers; timeout 300s); restart ON_FAILURE, max 3 retries.
+>
+>
+> **whatsapp service (spec 321, interim Python import; lives in `legacy/` because `apps/*` is reserved for the
+> TypeScript port)** — one listener on `PORT` (8001 by default; the public domain's target port must match).
+> Build: repo-root context, `legacy/whatsapp/Dockerfile`. Health check `/`. The Meta callback URL is
+> `https://<domain>/whatsapp/v2`, one Meta app per environment. Environment surface (full list in
+> `legacy/whatsapp/.env.example`):
+> `DEPLOYMENT_TYPE` (required, `staging` or `production`), `BACKEND_SERVER_URL` (apps/api),
+> `AUTH_SERVER_URL` and `AUTH_WHATSAPP_API_KEY` (apps/auth, issue #329),
+> `META_BUSINESS_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN_FROM_SYS_USER`, `META_ANSARI_APP_SECRET` and
+> `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
+> `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
+> The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
+> `DEPLOYMENT_TYPE=local`.
 >
 > **auth service (spec 300)** — one listener: the public domain
 > (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as
@@ -283,7 +300,7 @@ Order proven for migration `0003` on 2026-08-02:
      steps: `grant-admin.ts <email>` shows the account (id, email, created_at,
      email_verified, role) and grants nothing; `grant-admin.ts <email> --confirm
      <id>` grants exactly that account. It never creates an account or touches a
-     password, and it refuses the system domain. A new admin signs up first; a
+     password, and it never grants to a system- or noreply-domain address (`--revoke` demotes any account). A new admin signs up first; a
      warning on a recent or unverified account means: confirm the person out of
      band before `--confirm`. There is no `ADMIN_EMAILS` on `apps/auth` (spec
      H-7): the role in the auth database is the only admin truth.

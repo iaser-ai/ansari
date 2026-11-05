@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 4 is largely complete, but the database target is not displayed before writes occur.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `serviceKeys()` performs `runServiceKeys()`—including database writes—before `main()` prints the buffered hostname line. This defeats the required pre-write operator warning. Emit `Auth database: hostname:port` before invoking any write, and test temporal ordering rather than only final line order.

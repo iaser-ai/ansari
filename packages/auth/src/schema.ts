@@ -4,14 +4,18 @@
 // UUIDs and shares no Drizzle code with this module.
 //
 // Shapes follow better-auth 1.7.7's own generator for this configuration
-// (`generateId: 'uuid'`, `user.modelName: 'users'`, the jwt and admin plugins,
-// database rate-limit storage, and the additional user fields), with three
-// deliberate departures:
+// (`generateId: 'uuid'`, `user.modelName: 'users'`, the jwt, admin and api-key
+// plugins, database rate-limit storage, and the additional user fields), with
+// these deliberate departures:
 //   - every table lives in `pgSchema('auth')`, not `public`;
 //   - every timestamp is `timestamptz`, because the legacy `public.users`
 //     values being copied in are `timestamptz` (success criterion, scenario 12);
 //   - `account` carries `unique(user_id, provider_id)`, so a user has at most
-//     one credential row.
+//     one credential row, and `unique(provider_id, account_id)`, so a provider
+//     id (a WhatsApp BSUID) maps to exactly one user under concurrency (spec 329);
+//   - `apikey.reference_id` is a uuid referencing `users` with cascade delete,
+//     where the plugin declares a plain string: a key always belongs to a
+//     service user (spec 329).
 // Ids are `uuid` with a `gen_random_uuid()` default: the pg Drizzle adapter
 // reports `supportsUUIDs`, so better-auth leaves id generation to the database,
 // and the copy inserts the legacy UUIDs explicitly.
@@ -107,6 +111,7 @@ export const account = authSchema.table(
   (table) => [
     index('account_userId_idx').on(table.userId),
     unique('account_user_id_provider_id_unique').on(table.userId, table.providerId),
+    unique('account_provider_id_account_id_unique').on(table.providerId, table.accountId),
   ]
 );
 
@@ -144,6 +149,44 @@ export const rateLimit = authSchema.table('rate_limit', {
   count: integer('count').notNull(),
   lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
 });
+
+// api-key plugin (spec 329). Keys are created only by apps/auth's operator
+// script; `key` holds the SHA-256 hash, never the key itself. Defaults are the
+// plugin's own (one configuration: rate limit on, 10 per day).
+export const apikey = authSchema.table(
+  'apikey',
+  {
+    id: uuidPk(),
+    configId: text('config_id').default('default').notNull(),
+    name: text('name'),
+    start: text('start'),
+    referenceId: uuid('reference_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    prefix: text('prefix'),
+    key: text('key').notNull(),
+    refillInterval: integer('refill_interval'),
+    refillAmount: integer('refill_amount'),
+    lastRefillAt: tstz('last_refill_at'),
+    enabled: boolean('enabled').default(true),
+    rateLimitEnabled: boolean('rate_limit_enabled').default(true),
+    rateLimitTimeWindow: integer('rate_limit_time_window').default(86400000),
+    rateLimitMax: integer('rate_limit_max').default(10),
+    requestCount: integer('request_count').default(0),
+    remaining: integer('remaining'),
+    lastRequest: tstz('last_request'),
+    expiresAt: tstz('expires_at'),
+    createdAt: tstz('created_at').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+    permissions: text('permissions'),
+    metadata: text('metadata'),
+  },
+  (table) => [
+    index('apikey_configId_idx').on(table.configId),
+    index('apikey_referenceId_idx').on(table.referenceId),
+    index('apikey_key_idx').on(table.key),
+  ]
+);
 
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(session),

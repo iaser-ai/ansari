@@ -15,6 +15,7 @@ import {
 } from '../../../../packages/auth/tests/helpers/auth-db';
 import type { FailedSignInAlert, ListWalkAlert } from '../../src/alerts';
 import { createApp, createServiceAuth } from '../../src/app';
+import type { ExchangeOptions } from '../../src/routes/whatsapp';
 
 export { TEST_ADMIN_EMAIL } from '../../../../packages/auth/tests/helpers/auth-db';
 
@@ -37,6 +38,8 @@ export type ServiceOptions = {
   failedSignInAlert?: (alert: FailedSignInAlert) => void;
   /** Replaces the capturing mailer (which records into `mail`). */
   mailer?: Mailer;
+  /** The WhatsApp exchange's alerts and clock. */
+  exchange?: ExchangeOptions;
 };
 
 function listen(app: { listen: (port: number, cb: () => void) => Server }): Promise<Server> {
@@ -65,7 +68,7 @@ export async function startService(options: ServiceOptions = {}): Promise<Servic
     failedSignInAlert: options.failedSignInAlert,
     mailer: options.mailer ?? capture,
   });
-  const appOptions = { production: options.production ?? false };
+  const appOptions = { production: options.production ?? false, exchange: options.exchange };
   const publicServer = await listen(createApp({ auth, db }, appOptions));
   return {
     client,

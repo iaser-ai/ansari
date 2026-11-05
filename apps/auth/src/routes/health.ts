@@ -1,6 +1,6 @@
 // `GET /health`: 200 only once the auth database answers `select 1`, so a
 // deploy is not marked healthy while its database is unreachable.
-import { pingDatabase, type Db } from '@ansari/auth';
+import { pingDatabase, redactError, type Db } from '@ansari/auth';
 import type { Request, Response } from 'express';
 
 export function health(db: Db) {
@@ -11,7 +11,7 @@ export function health(db: Db) {
       res.status(200).json({ status: 'ok' });
     } catch (err) {
       // Never the raw driver error: it can carry connection details.
-      console.error('health: auth database unreachable', err instanceof Error ? err.name : 'unknown');
+      console.error('health: auth database unreachable', err instanceof Error ? redactError(err) : { name: 'unknown' });
       res.status(503).json({ status: 'unavailable' });
     }
   };

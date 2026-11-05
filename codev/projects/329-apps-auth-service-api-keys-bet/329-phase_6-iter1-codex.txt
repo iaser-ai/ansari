@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 6 is comprehensive, but the boot assertion does not reliably verify the required account constraint.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `packages/auth/src/db.ts:hasAuthUniqueConstraint` checks only schema, constraint name, and type. PostgreSQL permits the same constraint name on another relation, and the query never verifies `auth.account` or the `(provider_id, account_id)` columns. Thus boot can start while the required constraint is absent. Bind the catalog check to the table and columns, with a spoofed-constraint test.

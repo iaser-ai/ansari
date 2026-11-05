@@ -1,0 +1,10 @@
+---
+VERDICT: COMMENT
+SUMMARY: Gemini lane skipped — agy exited with code 3
+CONFIDENCE: LOW
+---
+
+The Gemini (Antigravity `agy`) reviewer was skipped: agy exited with code 3.
+This is a non-blocking skip; the remaining reviewers still apply. To enable the
+Gemini lane, install the CLI (https://antigravity.google/cli/install.sh) and run
+`agy` once to sign in.

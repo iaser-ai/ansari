@@ -1,0 +1,21 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Implementation is strong, but deployment prerequisites remain incomplete and grant-admin does not fully enforce the documented noreply restriction.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Merge is explicitly blocked: `AUTH_DEPLOYED_THROUGH` remains `null`, `RELEASE.md` lacks the `0001_api_key_phone` apply record, and staging migration verification has not occurred.
+- `grant-admin --revoke <noreply-address>` bypasses the reserved-domain checks and succeeds, contrary to the spec and documentation. Move the checks before the revoke branch or narrow the documented contract, with a regression test.
+
+PR_SUMMARY: |
+  ## Summary
+  Adds operator-managed service API keys and a secured WhatsApp session exchange to apps/auth. It also reserves the noreply identity domain and verifies exchanged JWTs through apps/api’s existing authentication path.
+
+  ## Key Changes
+  - Adds API-key schema, migration, operator tooling, boot checks, alerts, and blocked HTTP surfaces.
+  - Adds the WhatsApp identity/session exchange with delegation, locking, privacy, and rate-limit controls.
+  - Adds extensive integration, security, documentation, and real-Postgres probe coverage.
+
+  ## Test Plan
+  - Apply and verify migration `0001` on staging, update the journal deployment marker, then rerun the full suite.
+  - Add coverage confirming all grant-admin operations refuse noreply identities.

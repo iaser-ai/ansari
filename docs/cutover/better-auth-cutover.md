@@ -231,7 +231,7 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 - **The auth database is empty**, checked mechanically against `AUTH_DATABASE_URL`, whether it was
   created for this window (production) or already existed (staging):
   `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')"`
-  prints `0`. Step 5 then applies the `0000` auth baseline as written.
+  prints `0`. Step 5 then applies the whole auth journal as written.
 - Every **collision** the preflight lists is decided and resolved (the copy and `0011` abort on
   any), the preflight shows no NULL `created_at`/`updated_at` (the copy aborts on any: it
   copies timestamps exactly), and `not_bcrypt = 0` (the copy aborts on any hash that is not
@@ -336,15 +336,33 @@ Take a Railway snapshot (or note the PITR mark) of the **app database**, and of 
 
 ## 5. The auth baseline
 
-`packages/auth/drizzle/0000_auth_schema.sql`, from the operator environment:
+The **whole auth journal**, every migration in `packages/auth/drizzle/meta/_journal.json`, in
+its order (`0000_auth_schema`, `0001_api_key` and any later one), one
+`psql -X -v ON_ERROR_STOP=1 --single-transaction` per file, from the operator environment. It
+runs **before** the copy (step 6): the auth database is empty here, so no constraint can fail at
+apply, and the copy then runs against the final schema in its one transaction, where a duplicate
+aborts cleanly. (The duplicate pre-check in the service-keys runbook is for a database that
+already holds data, staging; not this one.)
 
 ```bash
-psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/0000_auth_schema.sql
+for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
+set -o pipefail
+node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1
 ```
 
-**Check:** `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tables where table_schema = 'auth'"`
-prints `6`, and `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from auth.users"` prints `0`.
-Record `auth-journal-applied: 0000_auth_schema` and the commit. Now the auth URL also answers
+`auth-journal.mjs` reads the journal: `files` lists the files in order, and `check` prints SQL
+that checks each migration's objects (every schema, table, column, constraint and index it
+creates), so a later migration needs no edit here. A failed apply stops the loop, and the check
+then names what is missing.
+
+`set -o pipefail` (bash and zsh) makes the check line fail when `auth-journal.mjs` fails, instead
+of psql reading empty input and exiting 0.
+
+**Check:** the check prints one `<tag>|t` line per file `files` listed, in the same order, and
+nothing else (it fails, naming the migrations, when one is not applied). **No output at all is a
+failure**: stop. And
+`psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from auth.users"` prints `0`.
+Record one `auth-journal-applied: <tag>` line per tag it printed, and the commit. Now the auth URL also answers
 for the auth schema: `psql "$AUTH_DATABASE_URL" -X -At -c "select to_regclass('auth.users')"`
 prints `auth.users`.
 **Abort:** `psql "$AUTH_DATABASE_URL" -X -c 'DROP SCHEMA auth CASCADE'`, then step 3's abort.

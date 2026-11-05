@@ -1,0 +1,76 @@
+I'll start by reading the key files to evaluate this phase.I read every file in scope from disk and ran the phase's acceptance checks. Note: I ran `ruff` and `pytest` as verification; these wrote only gitignored artifacts (`logs/`, `.pytest_cache/`, `tests/detailed_test_results_whatsapp_service.json`). I did not modify, create, or delete any tracked file.
+
+## Acceptance criteria — verified passing
+
+| Check | Result |
+|---|---|
+| `uv lock --check` | ✅ Resolved 53 packages, lock consistent with `pyproject.toml` |
+| `ruff check .` | ✅ All checks passed |
+| `ruff format --check .` | ✅ 28 files already formatted |
+| `pytest tests/ -q` | ✅ 5 passed in 8.62s |
+| `.env.example` has no secrets | ✅ placeholders only (`your_app_secret_here`, `<<THE-ZROK-...>>`) |
+| Excluded artifacts | ✅ no `zrok.exe`, no `logs/`, no `tmp/`, no personal scripts beyond `clean_logs.sh` — app-level `.gitignore` covers all of them |
+| Existing monorepo unaffected | ✅ `pnpm-workspace.yaml` globs `apps/*`; pnpm skips a directory with no `package.json`, so install/build/test are untouched |
+
+The `conftest.py` addition is a good call — `os.environ.setdefault` makes the suite runnable with no `.env` while letting real values win, and it documents that intent in one line.
+
+## Must fix
+
+**1. CI wiring is a named phase-1 plan item that was silently skipped.**
+
+The plan's phase-1 *Files to Create / Modify* says: *"Monorepo wiring only where needed (workspace and CI entries), following how other apps are registered."* `.github/workflows/ci.yml` is untouched and has no `whatsapp` job — the file list confirms it. No later phase claims CI either: phase 4 owns maintenance mode, the `!d ` filter, README and deploy notes, not workflows.
+
+Consequence: everything I verified above passes on *this* machine and nowhere else. `ruff check`, `ruff format --check` and `pytest` for `apps/whatsapp` will never run on any PR, and phases 2–4 add the substantive logic (auth exchange, thread lifecycle, maintenance mode) whose tests would be equally invisible. This is precisely the pattern `codev/resources/lessons-critical.md` warns about — *"Prefer failures that are loud over checks that are quiet"* — and the cost of deferring compounds with each phase.
+
+Related and part of the same fix: **`ruff` is not a declared dependency.** It appears in `[tool.ruff]` config but is absent from `dependencies` and from `[project.optional-dependencies].dev` (which holds only `fastapi[standard]`). I had to run it from a globally installed copy. A CI step would have no pinned version. Add it to the dev extras (or a `[dependency-groups]` block) and relock.
+
+Suggested job, mirroring the pinning discipline of the existing ones (`astral-sh/setup-uv` pinned to a full SHA with a trailing version comment):
+
+```yaml
+  whatsapp:
+    name: whatsapp (lint, format, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/whatsapp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@<sha> # vX.Y.Z
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # conftest.py supplies mock-mode defaults, so no env/secrets are needed.
+      - run: uv run pytest tests/ -v
+```
+
+Please prove it both directions before calling it done — confirm the job fails on a deliberately broken test/format, and goes green again when restored. A job that passes by not running is worse than no job.
+
+## Comments (non-blocking)
+
+**2. `README.md` and `tests/README.md` carry dangling legacy references.** `README.md` points at `setup.sh` / `setup.bat`, `git clone … && cd ansari-whatsapp`, `CLAUDE.md`, `docs/hld/architecture.md`, `docs/lld/implementation_guide.md`, `docs/lld/aws/README.md`, `docs/lld/github_actions/README.md`, `docs/whatsapp_migration_plan/migration_plan.md` — none of which were imported. Its env table also lists `HOST`, `PORT` and `DEV_MODE` (absent from `config.py`) and gives `META_API_VERSION` default `v21.0` where `config.py:51` says `v22.0`.
+
+Phase 4 owns the README rewrite, so this is scheduled rather than missing. But `tests/README.md` is *not* named in any phase's file list and has the same problem (lines 7, 72–74, 88, 112, 147, 155–156, 175 reference `../ansari-backend`). Add it to phase 4's doc scope so the fix lands everywhere, not partially — a half-fixed doc set that disagrees with itself is worse than the original.
+
+**3. `app_logger.py:40` — `os.makedirs("logs", exist_ok=True)` at import, CWD-relative, feeding a sink that is commented out.** The only consumer (the file handler at lines 173–188) is disabled, so this creates an empty directory for nothing. Root `.gitignore` has no `logs/` entry, so running anything from the repo root leaves an untracked `logs/` at the monorepo root. Cheap to delete, or move it inside the commented block so the two travel together.
+
+**4. Phone numbers and message bodies reach the logs and Sentry.** `whatsapp_webhook_utils.py` lines 175, 182 and 205 raise with the full webhook body interpolated, and line 236 logs `f"Received a supported whatsapp message from {user_whatsapp_number}: {incoming_msg_body}"`. `main.py:323–332` routes the resulting exception to `sentry_sdk.capture_exception`. Correctly out of scope for an as-is import, and phase 2's deliverable already says *"Logs and errors contain no phone numbers"* — I flag it only so that work remembers the `_redact_for_logging` helper already sitting at line 141 is the tool for exactly these four sites.
+
+**5. The spec's signature-rejection scenario has no owner.** *"Invalid or missing Meta signature: rejected"* is in the spec's Test Scenarios, but no test covers it and no later phase's file list claims it. `verify_meta_signature` is correct (it uses `hmac.compare_digest`), and the helper `_post_signed_webhook` you added at line 354 makes the negative case a three-line test — worth claiming now rather than letting it fall between phases.
+
+**6. No `codev/state/spir-321_thread.md`.** CLAUDE.md asks each builder to keep one. It is also how the next reviewer distinguishes "deferred on purpose" from "forgotten" — had a thread entry said CI was deliberately pushed to a follow-up, item 1 would read differently.
+
+**7. Trivia.** `main.py:156` annotates `verification_webhook -> str | None` but returns `HTMLResponse` (harmless — FastAPI skips response validation for `Response` returns). And confirm `clean_logs.sh` is genuinely wanted, since the plan excluded "personal scripts."
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Import is clean and all stated acceptance checks pass locally, but the phase's named CI-wiring plan item was skipped, so the suite runs nowhere but the builder's machine.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- No CI job for `apps/whatsapp`; `.github/workflows/ci.yml` untouched though phase 1 explicitly lists "CI entries", and no later phase claims it — ruff/pytest never run on any PR, and phases 2–4 inherit the blind spot
+- `ruff` is configured in `pyproject.toml` but not declared as a dependency, so there is no pinned version for CI to use
+- `README.md` and `tests/README.md` reference ~10 files that do not exist in the monorepo; `tests/README.md` is unowned by any phase (README rewrite is scheduled for phase 4 — add tests/README.md to it)
+- Spec test scenario "invalid or missing Meta signature: rejected" has no test and no owning phase
+- Non-blocking: `app_logger.py:40` creates a CWD-relative `logs/` for a disabled sink; phone numbers/message bodies logged and sent to Sentry (phase 2 scope); no builder thread log

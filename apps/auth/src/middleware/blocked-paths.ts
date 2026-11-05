@@ -1,5 +1,6 @@
-// Refuses the admin plugin's HTTP surface, the two profile-changing routes and
-// change-password before Better Auth sees the request (spec 300, Hosting and token model).
+// Refuses the admin plugin's HTTP surface, the api-key plugin's surface (spec 329),
+// the two profile-changing routes and change-password before Better Auth sees the
+// request (spec 300, Hosting and token model).
 //
 // `disabledPaths` in createAuth() covers the same routes, but better-auth
 // matches it against the exact normalized path only (dist/api/index.mjs:166-168).
@@ -8,14 +9,21 @@
 // response: 404 with an empty body.
 import { posix } from 'node:path';
 
-import { ADMIN_PATHS, BLOCKED_AUTH_PATHS } from '@ansari/auth';
+import { ADMIN_PATHS, API_KEY_PATHS, BLOCKED_AUTH_PATHS } from '@ansari/auth';
 import type { NextFunction, Request, Response } from 'express';
 
 const ADMIN_PREFIX = '/api/auth/admin';
-// Every blocked route that is not an admin path, from the one list createAuth()
+// The api-key plugin's whole surface (spec 329): keys are only ever created,
+// listed or changed by apps/auth's operator script, so every path under the
+// prefix is refused, including any endpoint a future plugin version adds.
+const API_KEY_PREFIX = '/api/auth/api-key';
+const PREFIXES = [ADMIN_PREFIX, API_KEY_PREFIX];
+// Every blocked route that is not under a prefix, from the one list createAuth()
 // also passes to `disabledPaths`, so the two cannot drift apart.
 const BLOCKED_EXACT = new Set(
-  BLOCKED_AUTH_PATHS.filter((path) => !ADMIN_PATHS.includes(path)).map((path) => `/api/auth${path}`)
+  BLOCKED_AUTH_PATHS.filter((path) => !ADMIN_PATHS.includes(path) && !API_KEY_PATHS.includes(path)).map(
+    (path) => `/api/auth${path}`
+  )
 );
 
 /** An absolute-form request target (`GET http://host/api/auth/...`). */
@@ -53,7 +61,9 @@ export function isBlockedPath(rawUrl: string): boolean {
   const path = canonicalPath(rawUrl);
   // Malformed encoding is refused rather than passed through undecided.
   if (path === null) return true;
-  return path === ADMIN_PREFIX || path.startsWith(`${ADMIN_PREFIX}/`) || BLOCKED_EXACT.has(path);
+  return (
+    PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) || BLOCKED_EXACT.has(path)
+  );
 }
 
 export function blockedPaths(req: Request, res: Response, next: NextFunction): void {

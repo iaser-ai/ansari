@@ -1,0 +1,17 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 7 is complete except the required operator documentation omits the accepted key-limit bounds.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `docs/self-hosting.md` and the runbook name `WHATSAPP_KEY_BOUNDS` but never document its actual ranges: rate max 1–100,000, window 1 second–24 hours, and daily budget 1–10,000,000. This misses the phase-7 documentation criterion. The doc test only checks that the constant exists, so it does not catch the omission.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - codev/projects/329-apps-auth-service-api-keys-bet/.codex-run.log
+  - codev/projects/329-apps-auth-service-api-keys-bet/.gemini-run.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

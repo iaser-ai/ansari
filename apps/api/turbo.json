@@ -15,6 +15,10 @@
     // apps/auth/scripts (the source scans; the cutover scripts the runbook
     // names). Without them a doc edit left ansari-api#test at the same hash
     // (verified) and a warm cache replayed a stale doc test.
+    //
+    // The root package.json is here for root-test-script.test.ts (issue #330),
+    // which pins the root `test` script's worker cap: without it, removing the
+    // cap left this task at the same hash and a warm cache replayed the pin green.
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -32,8 +36,16 @@
         "$TURBO_ROOT$/.github/scripts/**",
         "$TURBO_ROOT$/.github/workflows/**",
         "$TURBO_ROOT$/.gitleaksignore",
-        "$TURBO_ROOT$/.gitleaks.toml"
+        "$TURBO_ROOT$/.gitleaks.toml",
+        "$TURBO_ROOT$/package.json"
       ]
+    },
+
+    // CI runs the same pin through test:coverage, so it needs the root
+    // package.json too. Overriding `inputs` replaces the root task's list, so
+    // the inherited entries are repeated.
+    "test:coverage": {
+      "inputs": ["$TURBO_DEFAULT$", ".env.ci", "$TURBO_ROOT$/package.json"]
     }
   }
 }

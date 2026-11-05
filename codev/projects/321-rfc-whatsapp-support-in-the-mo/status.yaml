@@ -1,0 +1,56 @@
+id: '321'
+title: rfc-whatsapp-support-in-the-mo
+protocol: spir
+phase: verify
+plan_phases:
+  - id: import_service
+    title: Import the Python service as is
+    status: complete
+  - id: auth_token_exchange
+    title: Replace legacy user handling with the apps/auth token exchange
+    status: complete
+  - id: thread_lifecycle
+    title: One thread per user with expiry
+    status: complete
+  - id: environments_and_docs
+    title: Maintenance mode, staging filter, local testing and docs
+    status: complete
+current_plan_phase: null
+gates:
+  spec-approval:
+    status: approved
+    approved_at: '2026-10-25T08:07:52.213Z'
+  plan-approval:
+    status: approved
+    approved_at: '2026-10-25T08:16:16.104Z'
+  pr:
+    status: approved
+    requested_at: '2026-10-27T07:05:18.575Z'
+    approved_at: '2026-10-27T07:46:54.822Z'
+  verify-approval:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-25T06:51:50.273Z'
+updated_at: '2026-10-27T07:47:04.774Z'
+context_refreshes:
+  - boundary: enter:plan
+    at: '2026-10-25T08:08:13.901Z'
+    acknowledged_at: '2026-10-25T08:08:22.211Z'
+  - boundary: enter:implement
+    at: '2026-10-25T08:16:19.523Z'
+    acknowledged_at: '2026-10-25T08:16:31.277Z'
+  - boundary: plan-phase:auth_token_exchange
+    at: '2026-10-25T10:21:36.093Z'
+    acknowledged_at: '2026-10-25T14:49:39.861Z'
+  - boundary: plan-phase:thread_lifecycle
+    at: '2026-10-25T14:58:53.028Z'
+    acknowledged_at: '2026-10-25T14:59:15.993Z'
+  - boundary: plan-phase:environments_and_docs
+    at: '2026-10-25T16:14:17.696Z'
+    acknowledged_at: '2026-10-27T05:52:35.516Z'
+  - boundary: enter:review
+    at: '2026-10-27T06:09:40.030Z'
+    acknowledged_at: '2026-10-27T06:22:14.280Z'
+pr_ready_for_human: false

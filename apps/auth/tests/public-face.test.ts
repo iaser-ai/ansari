@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { limits } from '@ansari/auth';
+
 import { TEST_LAYER_ORIGIN } from '../../../packages/auth/tests/helpers/auth-db';
 import {
   BASE,
@@ -210,5 +212,33 @@ describe('health', () => {
     } finally {
       await down.close().catch(() => {});
     }
+  });
+});
+
+describe('route inventory (spec 329)', () => {
+  // Every surface the public listener serves, each proved mounted by the
+  // status an anonymous request gets. A new surface is added here on purpose.
+  it.each([
+    ['GET', '/health', 200],
+    ['GET', '/__diag/client-ip', 200],
+    ['GET', '/api/auth/jwks', 200],
+    ['GET', '/api/account/me', 401],
+    ['POST', '/api/account/revoke-sessions', 401],
+    ['DELETE', '/api/account', 401],
+    ['POST', '/api/whatsapp/session', 401],
+    ['GET', '/api/whatsapp/session', 404],
+    ['GET', '/not-a-route', 404],
+  ])('%s %s → %i', async (method, path, status) => {
+    expect((await send(service.publicUrl, path, { method })).status).toBe(status);
+  });
+
+  it('ROUTER_RULES are unchanged: every rule false, so no per-IP rule applies to the layer or the exchange', () => {
+    expect(limits.ROUTER_RULES).toEqual({
+      '/sign-in/email': false,
+      '/sign-up/email': false,
+      '/request-password-reset': false,
+      '/reset-password': false,
+      '/token': false,
+    });
   });
 });

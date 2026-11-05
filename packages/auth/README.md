@@ -14,10 +14,11 @@ tables (`public.users`, `threads`, …) live in the app database under their own
 |---|---|
 | `auth.users` | better-auth's `user` model, mapped by `user.modelName: 'users'`. Adds `first_name`, `last_name` and `registered_via`, and the admin plugin's `role`, `banned`, `ban_reason` and `ban_expires`. There is no `system_key` and no `source`. |
 | `auth.session` | `user_id` → `auth.users.id` `ON DELETE CASCADE`. Adds the admin plugin's `impersonated_by`. |
-| `auth.account` | `user_id` → `auth.users.id` `ON DELETE CASCADE`. `unique (user_id, provider_id)`: at most one credential row per user. |
+| `auth.account` | `user_id` → `auth.users.id` `ON DELETE CASCADE`. `unique (user_id, provider_id)`: at most one credential row per user. `unique (provider_id, account_id)` (`0001`): one user per provider id, so a BSUID (`provider_id = 'whatsapp'`) or a service name (`'service'`) maps to exactly one user under concurrency. |
 | `auth.verification` | Keyed by `identifier`, with no user reference. |
 | `auth.rate_limit` | Database rate-limit storage. |
 | `auth.jwks` | The jwt plugin's signing keys. |
+| `auth.apikey` | The api-key plugin's keys (`0001`, spec 329). `reference_id` → `auth.users.id` `ON DELETE CASCADE` (the service user). `key` is the SHA-256 hash, never the raw key; `start` stays null. Each row carries its own limits (`rate_limit_*`, `remaining`, `refill_*`), set only by `apps/auth/scripts/service-keys.ts`. |
 
 - **UUIDs.** Every id is `uuid` with a `gen_random_uuid()` default. `createAuth()` sets
   `advanced.database.generateId: 'uuid'`, and the pg Drizzle adapter leaves id generation to
@@ -54,8 +55,11 @@ when the plugin is removed, a 30-minute-old per-email row is pruned and the test
 
 ## Migrations
 
-`drizzle/` holds the auth database's **only** journal, a fresh `0000` generated from
-`src/schema.ts`.
+`drizzle/` holds the auth database's **only** journal, generated from `src/schema.ts`: `0000`
+(the schema at the cutover) and `0001_api_key` (spec 329: `auth.apikey` and the
+`auth.account` `unique (provider_id, account_id)`).
+`0001` is applied after a duplicate check and in a quiet window, since the constraint locks
+`auth.account` (`docs/cutover/service-keys-runbook.md`); `apps/auth` refuses to boot without it.
 
 - Change the schema, then run `pnpm --filter @ansari/auth db:generate`, and review the SQL. Never
   run `db:push`. Production SQL is human-applied at deploy (see `RELEASE.md`).
