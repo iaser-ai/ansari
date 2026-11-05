@@ -1,0 +1,66 @@
+I'll review this PR by reading the diff and the actual files on disk.A `.venv` exists in the worktree — let me check gitignore coverage, and read the spec/plan/review.I've reviewed the PR by reading the files on disk, cross-checking the Python client's assumptions against the actual `apps/api` routes, and verifying the git/branch state. I did not run `pytest`/`ruff` or mutate anything in the tree.
+
+## What's solid
+
+- **Branch hygiene**: 0 behind / 46 ahead of `origin/develop`. `.venv` is correctly gitignored (43 tracked files under `apps/whatsapp`, none from the venv). Commits are consistently `[Spec 321][Phase: x]`, atomic, well-described.
+- **Contract verification is real, not assumed.** I independently confirmed every cross-service assumption the Python client makes:
+  - `apps/api/src/app/api/v2/threads/route.ts` — `createThreadSchema` has `source: z.string().optional()`, so `"whatsapp"` is accepted.
+  - `packages/types/src/attribution.ts` — `askansari-whatsapp` matches `CLIENT_ID_PATTERN` and isn't allowlist-gated.
+  - `apps/api/lib/db/threads.ts:65` — `orderBy(desc(threads.updatedAt))`, so the client's `threads[0]`-is-newest assumption holds.
+  - `.../threads/[id]/chat/route.ts` — emits exactly `{type:'text',content}`, `{type:'error',message}`, `{type:'done'}`, matching the parser in `ansari_client_real.py:195-215`.
+- **Signature verification** uses `hmac.compare_digest` and rejects missing/malformed headers with 403.
+- **Tests** sidestep `pytest-asyncio` via `asyncio.run` (no undeclared dep), drive the real app through `TestClient` with genuine HMAC signatures, and the review documents negative controls per test.
+- **The review document is unusually honest** — it leaves the 4000-char criterion as `[ ]`, and names the unbuilt image, the missing `apps/auth` route, and the race it chose not to fix.
+
+## Issues
+
+**1. (High) Nothing stops `MOCK_AUTH_CLIENT=True` + `MOCK_AUTH_TOKEN` outside `local`.**
+
+`auth_client_mock.py:17-18` returns the *same* JWT for every BSUID when `MOCK_AUTH_TOKEN` is set. All WhatsApp users then collapse into one `apps/api` account and one thread — every user reads and continues every other user's conversation.
+
+This isn't hypothetical: the PR's stated plan is to deploy with the sign-in mocked until `apps/auth` has the route, so `MOCK_AUTH_CLIENT=True` *is* the intended deployed config, and `MOCK_AUTH_TOKEN` is exactly what makes a real `apps/api` accept it. The builder clearly knows the hazard — `conftest.py:19` says "A real token in a developer's .env would make every BSUID the same user" — but that defence lives only in the test fixture, never in `config.py`. A `model_validator` on `WhatsAppSettings` raising when `DEPLOYMENT_TYPE != "local"` and any `MOCK_*` is truthy closes it in ~6 lines, and matches your own hot lesson: *prefer failures that are loud over checks that are quiet*.
+
+**2. (Medium) `_resolve_thread` deletes a thread it never confirmed is a WhatsApp thread.**
+
+`get_last_thread_info` (`ansari_client_real.py:150`) takes `threads[0]` with no `source` filter, and `_resolve_thread` deletes it on expiry. `create_thread` tags `source: "whatsapp"`, and `GET /api/v2/threads` already returns `source`. Safe today because BSUID accounts hold only whatsapp threads — but the moment the real `/whatsapp` route maps a BSUID onto an account that also has web threads, a WhatsApp message 3 hours later silently deletes the user's web thread *and its messages*. The follow-up list already describes the sweep as "keep each user's newest `whatsapp` thread," so filtering is the intended semantics anyway.
+
+**3. (Medium) `e.response.text` is logged raw, against a documented guarantee.**
+
+`meta_api_service_real.py:66` and `:143` log Meta's raw error body. `README.md:100` states unconditionally: "Logs deliberately contain no phone numbers, BSUIDs or message text." Meta's send-failure bodies can echo the recipient. Either reduce to `{name, code}` (your hot lesson on raw error objects) or qualify the README claim — right now the doc asserts something the code doesn't enforce.
+
+**4. (Low) Dead debug block.** `ansari_client_real.py:221-237` — a commented-out "TEMPORARY: Save response to file" block. Straight "no debug code" PR-readiness item; not mentioned in the review doc.
+
+**5. (Low) Nits.** `pytest` is in `[project].dependencies` rather than the `dev` extra (ships into the image); `requires-python = ">=3.10"` / ruff `target-version = "py310"` while `.python-version` and the Dockerfile pin 3.13 (the review calls this drift "addressed" — narrowed, not closed); `main.py:251` `await request.json()` sits outside the try/except so a signature-valid non-JSON body 500s through the global handler; `verification_webhook` is annotated `-> str | None` but returns `HTMLResponse`.
+
+**On the untested splitter:** I read all four paths. The length bound *is* sound — `split_by_fixed_chunks` is the terminal fallback on every branch — and ordering is preserved. So this gap is lower-risk than the review implies, though the follow-up test is still worth writing.
+
+**Not verified by me:** I didn't run `pytest`/`ruff`, so "70 tests pass, ruff clean" is unconfirmed; the `whatsapp` CI job also hasn't run on a runner yet, so nothing independent backs it. I count 57 `def test_` functions — 70 is plausible with the parametrized cases. The Dockerfile remains the deploy artifact and has never been built; worth one `docker build && docker run` before the Railway service is created, since `CMD ["python", "src/..."]` with `PYTHONPATH=/app` depends on `uv sync` having installed the src-layout project into the venv.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Well-executed port with honest docs and verified cross-service contracts, but the mocked sign-in can silently merge all WhatsApp users into one account if deployed as planned, and thread deletion isn't scoped by source.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- No config guard prevents `MOCK_AUTH_CLIENT=True` + `MOCK_AUTH_TOKEN` outside `local`; since deploying with a mocked sign-in is the stated plan, this collapses every WhatsApp user into one account and thread (cross-user conversation exposure). Add a `model_validator` in `WhatsAppSettings`.
+- `get_last_thread_info` doesn't filter by `source`, yet `_resolve_thread` deletes what it finds — latent data loss of a user's web threads once BSUID→account linking exists. One-line filter; `GET /api/v2/threads` already returns `source`.
+- `meta_api_service_real.py:66,143` log Meta's raw `e.response.text`, contradicting README:100's unconditional "no phone numbers, BSUIDs or message text in logs."
+- Dead commented-out debug block at `ansari_client_real.py:221-237`.
+- Dockerfile (the deploy artifact) has never been built or run; `whatsapp` CI job has never run on a GitHub runner.
+
+PR_SUMMARY: |
+  ## Summary
+  Moves the legacy Python WhatsApp service into the monorepo as `apps/whatsapp`. Users are identified solely by their business-scoped user ID (BSUID) — never a phone number — exchanged for a JWT via `apps/auth`, which is then used to call `apps/api`'s `/chat` event stream. Each user keeps exactly one thread, replaced after 3 hours of silence. No `apps/api` or `apps/auth` code changes.
+
+  ## Key Changes
+  - `apps/whatsapp`: BSUID identity, `apps/auth` token exchange behind one client, `apps/api` `/chat` SSE aggregation, one-thread-per-user lifecycle, `WA_MAINTENANCE_MODE`, staging `!d ` filter, Railway-shaped single-line JSON logs carrying only `request_id`, Sentry capture for thread and sign-in failures, `PORT` support.
+  - Deploy scaffolding: `Dockerfile` (repo-root build context), `railway.toml` (git record only), `.python-version` pinned to 3.13.
+  - `.github/workflows/ci.yml`: a `whatsapp` job running lint, format check and tests, with actions pinned to commit SHAs.
+  - `codev/`: spec, plan, per-phase reviews, review document, and cold-tier arch/lessons updates.
+
+  ## Test Plan
+  - `cd apps/whatsapp && uv sync --frozen --extra dev && uv run ruff check . && uv run ruff format --check . && uv run pytest tests/ -v`
+  - Confirm the `whatsapp` CI job goes green on a GitHub runner (it has not yet run).
+  - Build and run the Docker image — never exercised, and it is the deploy artifact.
+  - Run the staging smoke test in `apps/whatsapp/README.md` once a shared staging/test number exists.
+  - Before any non-local deploy: verify that setting `MOCK_AUTH_CLIENT=True` with a `MOCK_AUTH_TOKEN` cannot route two different BSUIDs to the same thread.

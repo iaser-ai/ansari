@@ -129,9 +129,9 @@ describe('CONTRIBUTING.md', () => {
   it('names required CI checks that the workflow actually emits', () => {
     const ci = parse(readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8'));
     const emitted = Object.values(ci.jobs as Record<string, { name: string }>).map((j) => j.name);
-    // All four jobs are required on `develop`, so the doc must name each one
+    // All five jobs are required on `develop`, so the doc must name each one
     // exactly as the workflow emits it — and notice when a job is added or renamed.
-    expect(emitted.length).toBe(4);
+    expect(emitted.length).toBe(5);
     for (const check of emitted) {
       expect(doc).toContain(`\`${check}\``);
     }

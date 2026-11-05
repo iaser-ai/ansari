@@ -42,8 +42,11 @@ because it is the one place both databases are named.
 **Dry run: `copy.sh --dry-run`.** The same copy, guards and audits, with nothing committed:
 `02`'s transaction ends in `ROLLBACK` after printing the auth-side audit from inside it (another
 session cannot see uncommitted rows). If the auth database has no schema yet (staging and
-production before runbook step 5), the `0000` baseline is applied inside the same transaction and
-rolled back with it, so step 1's empty-database check still holds afterwards. The script then
+production before runbook step 5), the **whole auth journal**, in `_journal.json` order
+(`auth-journal.mjs sql`: every migration, then an assertion that each one is present), is applied
+inside the same transaction and rolled back with it, so the dry run proves the copy against the
+schema production will have, and step 1's empty-database check still holds afterwards. The SQL
+reaches `psql` through a file descriptor `copy.sh` holds open, so no file is written. The script then
 checks that the auth database is as it was (no `auth` schema, or zero users and accounts) and
 ends with `copy.sh: dry run audit OK (nothing committed)`. Every operator-environment check still
 runs, because every email and hash still streams through this machine. So a dry run against
@@ -63,6 +66,7 @@ also prints the legacy admins' addresses, because the owner approves that list b
 | `03-audit-app.sql`, `03-audit-auth.sql` | app, auth | no | The same `key\|value` lines on each side: rows, id checksum, email checksum, hash checksum, credential count, system-domain rows |
 | `03-audit-auth-query.sql` | auth | no | The auth-side audit query, included by `03-audit-auth.sql` (in a read-only transaction) and by `02` under `--dry-run`. Never run on its own |
 | `operator-env.sh` | none | no | Sourced by `copy.sh` and `complete-tombstones.sh`: the operator-environment check above |
+| `auth-journal.mjs` | none (prints SQL) | no | The auth journal in `_journal.json` order: `files` (runbook step 5 applies each with its own `psql --single-transaction`), `check` (SQL printing `<tag>\|t` per migration from the objects its SQL creates, failing on any missing) and `sql` (every file, then that check as an assertion: `copy.sh --dry-run`'s baseline). A statement kind it cannot check is refused. |
 | `copy.sh` | both | via `02` (nothing with `--dry-run`) | Refuses anything `operator-env.sh` refuses. Runs `01 \| 02`, then both audits, prints them, and exits non-zero on any difference. `--dry-run`: see above |
 | `05-audit-admins-auth.sql` | auth | no | The admin set after `grant-admin.ts` (runbook step 8). It must equal the approved list |
 | `04-tombstones-pending-app.sql` | app | no | The ids of deletions whose `apps/auth` step did not finish, as one array literal |
@@ -77,8 +81,8 @@ own transaction (`BEGIN … COMMIT`), so they are run **without** `--single-tran
 `02` must create its `TEMP` table and read the pipe outside the transaction it then opens.
 
 **Re-running.** The copy refuses a non-empty `auth.users` or `auth.account`. A second
-attempt starts by emptying the auth database and re-applying `packages/auth/drizzle/0000`
-(runbook step 5). The credential backfill is also safe to re-run on its own: `auth.account`'s
+attempt starts by emptying the auth database and re-applying the whole auth journal
+(runbook step 5, `auth-journal.mjs`). The credential backfill is also safe to re-run on its own: `auth.account`'s
 unique `(user_id, provider_id)` turns a second credential for a user into a no-op
 (`ON CONFLICT … DO NOTHING`).
 

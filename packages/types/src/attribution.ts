@@ -28,7 +28,7 @@ export const INVALID_CLIENT = 'invalid';
  * their own id (e.g. `muslimpedia`); any value matching CLIENT_ID_PATTERN is
  * accepted (spec decision D4: sanitize, don't allowlist).
  */
-export const KNOWN_CLIENTS = ['askansari-web', 'askansari-ios', 'askansari-android'] as const;
+export const KNOWN_CLIENTS = ['askansari-web', 'askansari-ios', 'askansari-android', 'askansari-whatsapp'] as const;
 
 // 1–64 chars, starts alphanumeric, then [a-z0-9._-]. Bounds cardinality and is
 // safe for logging, Sentry tags, and SQL.

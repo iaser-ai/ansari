@@ -64,6 +64,12 @@ async function keep(res: Promise<Response>): Promise<Response> {
 let service: Service;
 let failingMail: Service;
 
+// This hook's own deadline, above the config's 30 s (#292's value). Two
+// services, each a pglite cold start plus the auth journal, took 27-53 s when
+// the whole monorepo's tests ran at once on a shared machine (measured for
+// spec 329; the #290/#292/#301 class). 100 s is about twice the observed max.
+const SETUP_DEADLINE_MS = 100_000;
+
 beforeAll(async () => {
   service = await startService();
   failingMail = await startService({
@@ -72,7 +78,7 @@ beforeAll(async () => {
     },
   });
   capture();
-});
+}, SETUP_DEADLINE_MS);
 
 afterAll(async () => {
   for (const undo of restore.reverse()) undo();

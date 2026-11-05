@@ -227,3 +227,17 @@ describe('password reset', () => {
     expect(reused.status).toBe(400);
   });
 });
+
+describe('a noreply user cannot sign in (spec 329)', () => {
+  it('a passwordless noreply user signs in exactly as an unknown address does', async () => {
+    const id = randomUUID();
+    const noreply = `whatsapp-${id}@noreply.askansari.ai`;
+    await client.query(`INSERT INTO auth.users (id, name, email) VALUES ($1, 'WhatsApp user', $2)`, [id, noreply]);
+
+    const a = (await signIn(auth, noreply, STRONG)).res;
+    const b = (await signIn(auth, `unknown-${id.slice(0, 8)}@example.com`, STRONG)).res;
+    expect(a.status).toBe(401);
+    expect(a.status).toBe(b.status);
+    expect(await a.json()).toEqual(await b.json());
+  });
+});

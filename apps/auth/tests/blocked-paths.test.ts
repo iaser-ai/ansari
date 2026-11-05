@@ -1,11 +1,11 @@
-// The admin plugin's HTTP surface, change-email, update-user and change-password never answer
-// (spec 300; scenario 28). The admin endpoints are
+// The admin plugin's HTTP surface, the api-key plugin's surface (spec 329), change-email,
+// update-user and change-password never answer (spec 300; scenario 28). The admin endpoints are
 // enumerated from the installed package, so a better-auth upgrade that adds one
 // is covered without editing this file. Every request carries a VALID admin
 // session, so a pass cannot come from a missing or non-admin session.
 import { request } from 'node:http';
 
-import { BLOCKED_AUTH_PATHS } from '@ansari/auth';
+import { API_KEY_PATHS, BLOCKED_AUTH_PATHS } from '@ansari/auth';
 import { admin } from 'better-auth/plugins';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -109,6 +109,45 @@ describe('the admin surface, from the installed package', () => {
   });
 });
 
+// The api-key plugin's surface (spec 329): keys are created, listed and changed
+// only by apps/auth's operator script, so every path under /api/auth/api-key is
+// refused, the two server-only endpoints' would-be paths included.
+describe('the api-key surface, from the installed package', () => {
+  const methodOf: Record<string, string> = {
+    '/api-key/create': 'POST',
+    '/api-key/update': 'POST',
+    '/api-key/delete': 'POST',
+    '/api-key/get': 'GET',
+    '/api-key/list': 'GET',
+  };
+
+  it('blocks exactly the five routed api-key endpoints, none undefined', () => {
+    expect([...API_KEY_PATHS].sort()).toEqual(Object.keys(methodOf).sort());
+    expect(BLOCKED_AUTH_PATHS).toEqual(expect.arrayContaining([...API_KEY_PATHS]));
+    expect(BLOCKED_AUTH_PATHS).not.toContain(undefined);
+  });
+
+  it('every api-key endpoint, each variant and a suffixed path get the block response', async () => {
+    for (const path of API_KEY_PATHS) {
+      const method = methodOf[path] ?? 'POST';
+      for (const variant of [...variants(path), `/api/auth${path}/suffix`]) {
+        await expectBlocked(service.publicUrl, variant, method);
+      }
+    }
+  });
+
+  it('the server-only endpoints are blocked under the prefix too', async () => {
+    for (const path of ['/api-key/verify', '/api-key/delete-all-expired-api-keys', '/api-key']) {
+      await expectBlocked(service.publicUrl, `/api/auth${path}`, 'POST');
+    }
+  });
+
+  it('a path that only starts with "api-key" is not blocked', () => {
+    expect(isBlockedPath('/api/auth/api-keys')).toBe(false);
+    expect(isBlockedPath('/api/auth/api-key-x')).toBe(false);
+  });
+});
+
 describe('change-email, update-user and change-password', () => {
   it.each(['/change-email', '/update-user', '/change-password'])('%s and its variants get the block response', async (path) => {
     for (const variant of variants(path)) {
@@ -180,6 +219,8 @@ describe('canonicalPath', () => {
       for (const target of [
         `http://localhost:${port}/api/auth/admin/list-users`,
         `http://localhost:${port}/api/auth/change-password`,
+        ...API_KEY_PATHS.map((path) => `http://localhost:${port}/api/auth${path}`),
+        `http://localhost:${port}/api/auth/API-KEY/list`,
       ]) {
         const status = await new Promise<number>((resolve, reject) => {
           const req = request(

@@ -1,0 +1,22 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong security-oriented specification, but unresolved contract decisions and concurrency gaps prevent reliable planning.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Resolve the open questions that alter requirements: domain, BSUID storage/pattern, throttle statuses, banned response, and image guard.
+- Verification checks only `whatsapp:mint`; it must also bind `referenceId` to the designated WhatsApp service user. Add a cross-service-owner negative test.
+- “One session per WhatsApp user” is not guaranteed: replacing a near-expiry session does not delete the old one, and concurrent exchanges can create multiple sessions. Specify serialization/replacement behavior and concurrent-session tests.
+- Specify the privacy-safe email/name derivation and collision handling for generated WhatsApp users.
+- Define how plugin-originated errors are classified/redacted so database outages remain 500 and Better Auth’s logger cannot emit driver objects or sensitive identifiers.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 3 paths changed while this lane was running:
+  - packages/auth/package.json
+  - packages/auth/tests/probe-apikey.test.ts
+  - pnpm-lock.yaml
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

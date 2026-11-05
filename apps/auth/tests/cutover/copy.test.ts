@@ -28,9 +28,11 @@ import {
   isForwarderHost,
   makeHashes,
   refusal,
-  urlHost,
 } from '../../scripts/cutover/rehearsal-anomalies';
+import { urlHost } from '../../scripts/url-host';
 import { runPsqlFile } from './psql';
+// @ts-expect-error: a plain .mjs operator script, no type declarations
+import { baselineSql, migrations } from '../../scripts/cutover/auth-journal.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = resolve(here, '../../scripts/cutover');
@@ -129,11 +131,17 @@ function preflightQuery(heading: string): string {
 let app: PGlite;
 let auth: PGlite;
 
+// This hook's own deadline, above the config's 30 s (#292's value). Two
+// pglite cold starts (the app and auth journals) took 27-53 s when the whole
+// monorepo's tests ran at once on a shared machine (measured for spec 329; the
+// #290/#292/#301 class). 100 s is about twice the observed maximum.
+const SETUP_DEADLINE_MS = 100_000;
+
 beforeEach(async () => {
   bcryptHash ??= await bcrypt.hash(PASSWORD, 4);
   app = await appDatabase();
   auth = await migrate();
-});
+}, SETUP_DEADLINE_MS);
 
 afterEach(async () => {
   await app?.close();
@@ -393,13 +401,22 @@ describe('the copy and the audits', () => {
   });
 });
 
+/** The dry run's baseline file: what `auth-journal.mjs sql` prints (copy.sh hands psql a file descriptor). */
+function baselineFile(sql: string = baselineSql() as string): string {
+  const dir = mkdtempSync(resolve(tmpdir(), 'auth-journal-'));
+  const file = resolve(dir, 'baseline.sql');
+  writeFileSync(file, sql);
+  return file;
+}
+
 /** 01 | 02 as copy.sh --dry-run runs them: the auth database left as found. */
-async function dryCopy(app: PGlite, auth: PGlite, options: { baseline?: boolean } = {}) {
+async function dryCopy(app: PGlite, auth: PGlite, options: { baseline?: boolean | string } = {}) {
   const expected_rows = await expectedRows(app);
   const exported = await runPsqlFile(app, script('01-export-app.sql'));
+  const baseline = options.baseline === true ? baselineFile() : options.baseline;
   return runPsqlFile(auth, script('02-import-auth.sql'), {
     stdin: exported.stdout.join(''),
-    vars: { expected_rows, dry_run: '1', ...(options.baseline ? { dry_run_baseline: '1' } : {}) },
+    vars: { expected_rows, dry_run: '1', ...(baseline ? { dry_run_baseline: baseline } : {}) },
   });
 }
 
@@ -439,6 +456,35 @@ describe('copy.sh --dry-run: the same copy, rolled back', () => {
     } finally {
       await bare.close();
     }
+  });
+
+  it('the baseline is the whole journal: a baseline missing a later migration fails its assertion, naming it', async () => {
+    await seed(app, legacy());
+    const all = migrations() as { tag: string; file: string }[];
+    expect(all.map((m) => m.tag)).toEqual(['0000_auth_schema', '0001_api_key']);
+    // Only 0000's SQL, followed by the full journal's assertion (from the real baseline).
+    const full = baselineSql() as string;
+    const assertion = full.slice(full.indexOf('do $check$'));
+    const only0000 = `${readFileSync(all[0]!.file, 'utf8')}\n${assertion}`;
+    const bare = emptyDatabase();
+    try {
+      await expect(dryCopy(app, bare, { baseline: baselineFile(only0000) })).rejects.toThrow(
+        /auth journal check: not applied: 0001_api_key/
+      );
+      expect(await authSchemas(bare)).toBe(0);
+    } finally {
+      await bare.close();
+    }
+  });
+
+  it('the baseline carries every journal file in order, then the assertion', () => {
+    const sql = baselineSql() as string;
+    const at = (needle: string) => sql.indexOf(needle);
+    expect(at('-- 0000_auth_schema')).toBeGreaterThanOrEqual(0);
+    expect(at('-- 0001_api_key')).toBeGreaterThan(at('-- 0000_auth_schema'));
+    expect(at('CREATE TABLE "auth"."apikey"')).toBeGreaterThan(at('-- 0001_api_key'));
+    expect(at('do $check$')).toBeGreaterThan(at('CREATE TABLE "auth"."apikey"'));
+    expect(sql).not.toContain('phone_number');
   });
 
   it('the guards still fire, and a refused dry run leaves the database as found', async () => {

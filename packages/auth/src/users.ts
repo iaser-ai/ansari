@@ -1,7 +1,9 @@
 // Direct reads and operator writes on `auth.users` that are not better-auth
-// endpoints: apps/auth's account endpoints, its boot assertion, and the
-// operator scripts (grant-admin, ban-user). The admin plugin's HTTP surface is
-// blocked (spec 300), so roles and bans are set here, out of band.
+// endpoints: apps/auth's account endpoints and the operator scripts
+// (grant-admin, ban-user). apps/auth's only boot check is `assertSchema`
+// (apps/auth `src/boot.ts`, spec 329), which reads the schema, not users. The
+// admin plugin's HTTP surface is blocked (spec 300), so roles and bans are set
+// here, out of band.
 //
 // Emails are matched normalized, the way better-auth stores them.
 import { and, asc, eq, gt } from 'drizzle-orm';

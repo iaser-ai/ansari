@@ -1,0 +1,22 @@
+---
+VERDICT: COMMENT
+SUMMARY: Implementation is well-tested and security-conscious; correct the stale PR-body claim about Sentry scrubbing.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- The PR body says only the exchange is scrubbed, but `SERVICE_SENTRY_OPTIONS.beforeSend` now scrubs every apps/auth request after #334. Update the PR description to match the code and review document.
+- Migration `0001_api_key` remains a documented pre-merge staging gate; no code change is needed.
+
+PR_SUMMARY: |
+  ## Summary
+  Adds operator-managed service API keys and a WhatsApp BSUID-to-user-JWT exchange to apps/auth. Service ownership, eligibility, session creation, privacy, and migration readiness are enforced defensively.
+
+  ## Key Changes
+  - Adds the pinned Better Auth API-key plugin, schema migration, boot validation, blocked HTTP surface, and key-management CLI.
+  - Adds `POST /api/whatsapp/session`, reserved noreply identities, rate limits, alerts, and end-to-end apps/api coverage.
+  - Accepts but never reads or stores `phone_number`.
+
+  ## Test Plan
+  - Run package tests, lint, typecheck, and build.
+  - Apply and verify migration `0001_api_key` on staging before merge.
+  - Complete the staging WhatsApp smoke test before production.

@@ -1,0 +1,67 @@
+I'll start by reading the diff file and then examining the actual source files.The diff file is empty (0 bytes), so I'll read the actual files from disk as my review instructions require.Fixes #1 confirmed in config.py. Now checking the client implementations for fixes #2, #3, #4.All four iteration-1 fixes verified in code. Now checking cross-service contracts and looking for new issues.The CI job has no `env:` block, yet `WhatsAppSettings` has required fields and `whatsapp_webhook_utils.py` calls `get_settings()` at **module import time**. Let me check how tests bootstrap env.The review document is unusually thorough and honest. Now let me verify the new tests actually exist and are non-vacuous.I have verified all four iteration-1 fixes in code and confirmed each has a non-vacuous test. Here is my assessment.
+
+## Verification of iteration-1 fixes
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | `MOCK_AUTH_TOKEN` outside `local` | **Fixed** — `config.py:107-114` model validator; test at `test_bsuid_auth_flow.py:135` parametrized over local/staging/production, plus an empty-value test. Asserts the specific `ValueError` match, so it can't pass vacuously. |
+| 2 | `_resolve_thread` deleting non-WhatsApp threads | **Fixed** — `ansari_client_real.py:149` filters `t.get("source") == "whatsapp"`; `test_thread_lifecycle.py:167` proves a *newer* `web` thread is skipped in favour of an older `whatsapp` one, and that a web-only user reads as having no thread. |
+| 3 | Meta error body in logs | **Fixed** — `meta_api_service_real.py:65,141` log only `status_code`; `test_meta_sender_logging.py` asserts `"400" in log_text` **and** BSUID/body absent, so it fails both if the body returns and if nothing is logged at all. |
+| 4 | Dead commented debug block | **Fixed** — removed. |
+
+Branch is 0 commits behind `develop`, 49 ahead, commits follow `[Spec 321][Phase: X]`, review document is present and unusually honest (it lists the 4000-char splitter as explicitly untested rather than claiming coverage).
+
+## New findings (none blocking)
+
+**1. The raw-error-body fix was applied to the Meta sender but not to the apps/api client.** `ansari_client_real.py:190-192`:
+
+```python
+error_detail = await response.aread()
+logger.error(f"Error from backend API: {error_detail}")
+raise MessageProcessingError(f"Backend returned HTTP {response.status_code}: {error_detail}")
+```
+
+That exception reaches `_capture(e, "message_processing_failure")` in `whatsapp_conversation_manager.py:286`, so the body goes to **Sentry** as well as the logs. Today it leaks nothing — apps/api's error bodies are controlled (`createErrorResponse` with zod issue messages, `'Thread not found'`), and never contain a BSUID. But it's the same pattern you just removed from the Meta sender, and it contradicts apps/api's own stated convention ("No user content in logs or Sentry"). Per your own hot lesson about fixing a defect everywhere rather than where you happen to be editing, this is the one remaining instance.
+
+**2. The staging `!d ` filter crashes on unsupported media types.** `main.py:354`:
+
+```python
+if get_settings().DEPLOYMENT_TYPE == "staging" and incoming_msg_body.get("body", "").startswith("!d "):
+```
+
+For unsupported types, `parse_meta_payload` (line 222-223) sets `incoming_msg_type = "errors"` and `incoming_msg_body = incoming_msg["errors"]` — which, per your own code comment on line 220-221 and Meta's schema, is a **list**, not a dict. `.get` on a list raises `AttributeError`. This filter sits at line 354, *before* the `incoming_msg_type != "text"` guard at line 379, so in staging a video note / giphy / poll produces an unhandled `AttributeError` → the generic handler returns 500 → Meta retries for up to 24 hours. Production is unaffected (the `== "staging"` check short-circuits first). I confirmed by reading that no test exercises the `errors` path — `grep` for `errors|unsupported` across `tests/` returns only unrelated matches. Fix is `isinstance(incoming_msg_body, dict) and incoming_msg_body.get(...)`.
+
+**3. One unredacted payload interpolation.** `whatsapp_webhook_utils.py:188` is the only error path that formats payload data without `_redact_for_logging`. It contains only the business's own `display_phone_number`, not a user's, so nothing leaks — but it's inconsistent with lines 176, 183, 206 and 225, which all redact.
+
+**4. Nit.** `main.py:364` returns `"Message too old, notified user"` and the docstring (line 222) says "Returns 200 after notifying user", but no `background_tasks.add_task` sends anything. The string only reaches Meta, so this is cosmetic.
+
+## On deferred items
+
+`pytest` in runtime deps, `requires-python >= 3.10` vs the 3.13 image, and `await request.json()` outside the try block are all correctly deferred and listed in the review document's follow-ups — I'm not re-raising them. The CI job genuinely bootstraps without an `env:` block because `tests/conftest.py` sets the required settings via `os.environ.setdefault` before any module-level `get_settings()` runs; I traced that and it holds.
+
+---
+VERDICT: COMMENT
+SUMMARY: All four iteration-1 findings are genuinely fixed with non-vacuous tests; two small one-liners remain — an incomplete propagation of the error-body fix to the apps/api client, and a staging-only crash when the `!d` filter meets a list-shaped `errors` payload.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `ansari_client_real.py:190-192` logs and Sentry-reports the raw apps/api error body — the same pattern removed from the Meta sender in this iteration. No leak today (apps/api bodies are controlled), but inconsistent; log only the status code.
+- `main.py:354` calls `.get()` on `incoming_msg_body`, which is a **list** for Meta's unsupported-type payloads (`incoming_msg["errors"]`). Staging-only `AttributeError` → 500 → Meta retry loop. No test covers the `errors` path. Guard with `isinstance(..., dict)`.
+- `whatsapp_webhook_utils.py:188` is the only payload interpolation that skips `_redact_for_logging` (business metadata only, so no user data leaks).
+- Nit: `main.py:364` claims "notified user" but schedules no notification task.
+
+PR_SUMMARY: |
+  ## Summary
+  Ports the standalone Python WhatsApp service into the monorepo as `apps/whatsapp`. Users are identified solely by their Meta business-scoped user ID (BSUID) — never a phone number — which the service exchanges with `apps/auth` for a short-lived JWT, then uses to drive `apps/api`'s `/chat` SSE stream. Each user keeps exactly one thread, replaced after 3 hours of silence. No `apps/api` or `apps/auth` code changed.
+
+  ## Key Changes
+  - `apps/whatsapp`: BSUID identity, `apps/auth` token exchange, `apps/api` `/chat` event-stream client, one-thread-per-user lifecycle scoped to `source: 'whatsapp'`, `WA_MAINTENANCE_MODE`, the staging `!d ` filter, Railway-style single-line JSON logs carrying only `request_id`, Sentry capture for thread and sign-in failures.
+  - Privacy by construction: webhook payloads are structurally redacted before logging (`_redact_for_logging`), Meta error bodies are never logged, and a settings-level guard refuses `MOCK_AUTH_TOKEN` unless `DEPLOYMENT_TYPE=local` so a shared token can never merge users into one account.
+  - `apps/whatsapp/Dockerfile` (repo-root build context, uv pinned to the lockfile's revision), `railway.toml` as a reviewable record, `.python-version` pinned to 3.13.
+  - `.github/workflows/ci.yml`: a `whatsapp` job running ruff lint, format check and pytest.
+
+  ## Test Plan
+  - `cd apps/whatsapp && uv sync --frozen --extra dev && uv run ruff check . && uv run ruff format --check . && uv run pytest tests/ -v` — 77 tests, no external services required (`tests/conftest.py` supplies mock-mode env).
+  - Confirm the first CI run of the `whatsapp` job goes green on a GitHub runner, then ask a repo admin to make it a required check on `develop`.
+  - Before any non-local deploy: implement the `apps/auth` `POST /api/whatsapp/session` route (header `X-Whatsapp-Api-Key`, body `{bsuid}`, response `{token}`) and switch off the mocked sign-in — a mocked sign-in cannot serve real users outside `local`.
+  - Still unverified and tracked as follow-ups: a real phone's webhook reaching the new service (blocked on a Meta test number), the Docker image build, and the 4000-character answer splitter.

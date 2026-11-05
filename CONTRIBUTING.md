@@ -128,9 +128,10 @@ You can still target one package directly — `pnpm api lint`, `pnpm frontend we
 - **Branch from `develop` and target `develop`** — not `main`. `main` is
   production and is only ever fast-forwarded to `develop` during a release (see
   [RELEASE.md](RELEASE.md)), so PRs against it can't be merged.
-- CI must be green before a PR can merge. `develop` requires all four checks:
+- CI must be green before a PR can merge. `develop` requires all five checks:
   `api (lint, typecheck, test, build)`, `auth (lint, typecheck, test, build)`,
-  `frontend (lint, typecheck)`, and `gitleaks (secret scan)`. The
+  `frontend (lint, typecheck)`, `whatsapp (lint, format, test)`, and
+  `gitleaks (secret scan)`. The
   [Checks](#checks) above are the same tasks, so passing them locally is a good
   predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
 - Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`

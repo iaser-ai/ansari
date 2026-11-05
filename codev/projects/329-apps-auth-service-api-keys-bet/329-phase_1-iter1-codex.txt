@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Implementation is sound, but two explicit Phase 1 test deliverables remain incomplete.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Probe 1b does not prove all four limit fields change: `rateLimitTimeWindow` remains `60_000`, `refillInterval` is not asserted, and refill behavior is not exercised after update.
+- The required absolute-form request target is tested for only two of the five routed API-key endpoints, not each endpoint as specified.

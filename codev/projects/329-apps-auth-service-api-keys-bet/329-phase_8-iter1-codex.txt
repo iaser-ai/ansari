@@ -1,0 +1,7 @@
+---
+VERDICT: COMMENT
+SUMMARY: Phase 8 implementation is complete, but the review summary still describes the withdrawn phone-storage design.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Update `codev/reviews/329-apps-auth-service-api-keys-bet.md`: its summary says seven phases, and its compliance checklist still claims `auth.users.phone_number` exists and is populated. These contradict Phase 8 and the current schema.

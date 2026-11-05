@@ -1,0 +1,20 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong structure and coverage, but several security-critical implementation details remain unresolved.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Limit values remain provisional, contrary to the spec constraint that owner decision 3 be finalized from traffic data. Obtain the data or explicit owner approval for final fallback values.
+- Mounting before CORS is insufficient unless the exchange router terminates `OPTIONS`; otherwise it falls through to `corsFor`. Specify an explicit no-CORS `OPTIONS` handler.
+- Specify route-local JSON error middleware mapping malformed and oversized bodies to the exact 400 contract without Express error pages or body leakage.
+- `issueWhatsappToken` receives only `userId`, so it cannot re-check that the sole account is the exact WhatsApp/BSUID row resolved for this request. Pass the expected BSUID/account identity and verify it under the transaction.
+- Operator-script Sentry events may be lost on process exit. Require Sentry initialization and awaited `flush`/`close` after create, rotate, and revoke.
+- Add explicit tests for expired bans, delegation inputs (admin/email IDs and emails, Google account IDs), per-user rate-limit key contents, and confirmation that every key refusal creates no identity/session rows.
+
+---
+
+## ⚠️ REPOSITORY MOVED during the codex review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: 2a60f246a8d670f5e02af865197cec5be6139820 -> cd1ebb170bb3ba3a84ee43d7791c5b0e25fd3335
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

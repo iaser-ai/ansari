@@ -19,4 +19,12 @@ regexes = [
   # check while the test drives sign-up/sign-in against pglite. Literal string,
   # not a credential; trips generic-api-key purely on length + the "secret" key.
   '''test-secret-at-least-32-characters-long-000''',
+  # Spec 329 probe scripts, in branch history only: packages/auth/scripts/probes/probe-db.ts
+  # (commit 90aff8c) and packages/auth/scripts/probes/exchange-lock-probe.ts (commit 427f8fd).
+  # Synthetic BETTER_AUTH_SECRET and RESEND_API_KEY values, set on process.env so createAuth()
+  # passes its zod checks for probes run against a throwaway local Postgres. Literal strings,
+  # not credentials; adjudicated by the security architect, spec 329. Exact full literals,
+  # never a prefix or a pattern. The tip uses setAuthEnv's placeholders instead.
+  '''probe-secret-at-least-32-characters-long-00''',
+  '''re_probe_key_at_least_20_chars''',
 ]

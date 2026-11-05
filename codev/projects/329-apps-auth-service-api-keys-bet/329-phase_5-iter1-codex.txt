@@ -1,0 +1,8 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core implementation is strong, but signing after commit breaks the specification’s locking invariant.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `issueWhatsappToken` commits before `signJWT`. A concurrent ban, deletion, or admin promotion can commit between eligibility/session checks and signing, allowing issuance after promotion or producing a JWT for a deleted session. Signing must remain protected by the decision lock or the specification must be formally revised.
+- The claim-equivalence test does not directly verify `definePayload` output or JWT `kid`, despite both being explicit phase deliverables.

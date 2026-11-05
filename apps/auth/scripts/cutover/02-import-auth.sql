@@ -8,9 +8,12 @@
 -- copy.sh --dry-run passes `-v dry_run=1`: everything below runs as written,
 -- guards included, and the transaction ends in ROLLBACK, after printing the
 -- auth-side audit from inside it. Against an auth database with no schema yet
--- (the window before step 5), copy.sh also passes `-v dry_run_baseline=1`, and
--- the 0000 baseline is applied inside the same transaction, so the rollback
--- takes it away again.
+-- (the window before step 5), copy.sh also passes `-v dry_run_baseline=<file>`:
+-- the WHOLE auth journal in `_journal.json` order (`auth-journal.mjs sql`, every
+-- migration, then an assertion that each one is present), read from a file
+-- descriptor copy.sh holds open, so no file is written. It is applied inside the
+-- same transaction, so the dry run proves the copy against the schema production
+-- will have, and the rollback takes it away again.
 \set ON_ERROR_STOP on
 
 \if :{?dry_run_baseline}
@@ -47,7 +50,7 @@ CREATE TEMP TABLE import_users (
 BEGIN;
 
 \if :{?dry_run_baseline}
-\ir ../../../../packages/auth/drizzle/0000_auth_schema.sql
+\i :dry_run_baseline
 \endif
 
 -- Guards. Each aborts the whole transaction, naming a count, never an address.
@@ -56,10 +59,10 @@ DECLARE
   n bigint;
 BEGIN
   IF EXISTS (SELECT 1 FROM auth.users) THEN
-    RAISE EXCEPTION 'cutover copy: auth.users is not empty; empty the auth database and re-run from the 0000 baseline';
+    RAISE EXCEPTION 'cutover copy: auth.users is not empty; empty the auth database and re-run from the auth journal (step 5)';
   END IF;
   IF EXISTS (SELECT 1 FROM auth.account) THEN
-    RAISE EXCEPTION 'cutover copy: auth.account is not empty; empty the auth database and re-run from the 0000 baseline';
+    RAISE EXCEPTION 'cutover copy: auth.account is not empty; empty the auth database and re-run from the auth journal (step 5)';
   END IF;
   SELECT count(*) INTO n FROM import_users;
   IF n = 0 THEN

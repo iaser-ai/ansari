@@ -4,9 +4,10 @@
 #
 # Same shape as apps/api/Dockerfile, on purpose: single stage, the install CI
 # verifies, real environment variables injected by Railway at RUNTIME and none
-# baked in. The full install is kept (not prod-pruned) because the two
+# baked in. The full install is kept (not prod-pruned) because the
 # operator scripts can run in this image, from /repo/apps/auth:
-#   ./node_modules/.bin/tsx scripts/grant-admin.ts …   (and scripts/ban-user.ts)
+#   ./node_modules/.bin/tsx scripts/grant-admin.ts …   (and scripts/ban-user.ts,
+#   scripts/service-keys.ts)
 # They need tsx and the raw-TS @ansari/auth workspace link, and need no psql;
 # they also run from a checkout with the auth DATABASE_URL. The cutover itself
 # (copy, audits, migrations) runs on the owner's machine over Tailscale, not

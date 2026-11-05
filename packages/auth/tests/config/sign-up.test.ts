@@ -71,11 +71,46 @@ describe('guard order: validation → reserved/taken → strength', () => {
   it.each([
     ['any @system.ansari.chat address', 'anything@system.ansari.chat'],
     ['the system domain in mixed case', 'Leaderboard@SYSTEM.Ansari.Chat'],
+    ['any @noreply.askansari.ai address (spec 329)', 'whatsapp-anything@noreply.askansari.ai'],
+    ['the noreply domain in mixed case', 'Service-WhatsApp@NoReply.AskAnsari.AI'],
   ])('reserves %s, and creates no row', async (_label, email) => {
     const res = await signUp({ email, password: STRONG, name: 'X' });
     expect(res.status).toBe(409);
     expect((await json(res)).message).toBe(EMAIL_TAKEN_MESSAGE);
     expect(await userRow(email.toLowerCase())).toBeUndefined();
+  });
+
+  it('the answer depends only on the input shape, never on reserved / taken / fresh (no oracle)', async () => {
+    // Validation runs first (the legacy register order), so a padded address is
+    // one identical 400 for every class; unpadded, a noreply and a taken address
+    // are one identical 409. Compared byte for byte, not as separate statuses.
+    const fresh = `fresh-${Date.now()}@example.com`;
+    const answer = async (email: string) => {
+      const res = await signUp({ email, password: STRONG, name: 'X' });
+      return { status: res.status, body: await res.text() };
+    };
+    const padded = await Promise.all(
+      ['service-whatsapp@noreply.askansari.ai', 'taken@example.com', fresh].map((e) => answer(`  ${e}  `))
+    );
+    expect(padded[0]!.status).toBe(400);
+    expect(padded[1]).toEqual(padded[0]);
+    expect(padded[2]).toEqual(padded[0]);
+    expect(await userRow(fresh)).toBeUndefined();
+
+    const noreply = await answer('service-whatsapp@noreply.askansari.ai');
+    const taken = await answer('taken@example.com');
+    expect(noreply.status).toBe(409);
+    expect(taken).toEqual(noreply);
+  });
+
+  it.each([
+    ['someone@askansari.ai'],
+    ['x@noreply.askansari.ai.example.com'],
+    ['x@notnoreply.askansari.ai'],
+  ])('a near miss of the noreply domain signs up normally: %s', async (email) => {
+    const res = await signUp({ email, password: STRONG, name: 'X' });
+    expect(res.status).toBe(200);
+    expect(await userRow(email)).toBeDefined();
   });
 
   it('an address that would once have been a configured admin registers like any other (no admin list)', async () => {
@@ -135,6 +170,18 @@ describe('defence in depth: no path creates a reserved address', () => {
       })
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(await userRow('direct@system.ansari.chat')).toBeUndefined();
+  });
+
+  it('the user create hook refuses a noreply address too (spec 329)', async () => {
+    const ctx = await auth.$context;
+    await expect(
+      ctx.internalAdapter.createUser({
+        email: 'whatsapp-direct@noreply.askansari.ai',
+        name: 'Direct',
+        emailVerified: false,
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(await userRow('whatsapp-direct@noreply.askansari.ai')).toBeUndefined();
   });
 });
 

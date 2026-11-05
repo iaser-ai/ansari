@@ -144,3 +144,32 @@ export function removedHopHits(source: string): string[] {
 export function removedHopTextHits(text: string): string[] {
   return text.split('\n').filter((line) => REMOVED_HOP.some((re) => re.test(line)));
 }
+
+// ── Scan 5: apps/api has no WhatsApp-specific code (spec 329) ──
+
+/**
+ * apps/api serves a WhatsApp user exactly as a web user: the exchange token
+ * passes `requireUser` unchanged. The scope is apps/api's runtime source
+ * (`src/`, `lib/`); its tests are outside it, since the contract test names
+ * `registered_via = 'whatsapp'`. Comments count: a branch planned in a comment
+ * is WhatsApp code in waiting.
+ */
+export const WHATSAPP_SCAN_DIRS = ['apps/api/src/', 'apps/api/lib/'] as const;
+
+const WHATSAPP = /whatsapp/i;
+
+export function isInWhatsappScanScope(rel: string): boolean {
+  const posix = rel.split(path.sep).join('/');
+  return WHATSAPP_SCAN_DIRS.some((dir) => posix.startsWith(dir));
+}
+
+/** Every in-scope line naming WhatsApp (any case), by file; out-of-scope files are skipped. */
+export function whatsappHits(files: readonly { path: string; source: string }[]): Record<string, string[]> {
+  const hits: Record<string, string[]> = {};
+  for (const file of files) {
+    if (!isInWhatsappScanScope(file.path)) continue;
+    const found = file.source.split('\n').filter((line) => WHATSAPP.test(line));
+    if (found.length > 0) hits[file.path] = found;
+  }
+  return hits;
+}

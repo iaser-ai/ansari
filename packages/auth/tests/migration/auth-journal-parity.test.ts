@@ -89,9 +89,10 @@ describe('auth migration files', () => {
     expect(files).toEqual(journal.map((e) => e.tag).sort());
   });
 
-  it('the journal is the single fresh 0000 (the #59 scaffold 0000 is gone)', () => {
-    expect(journal.map((e) => e.idx)).toEqual([0]);
+  it('the journal is the fresh 0000 (the #59 scaffold 0000 is gone), then 0001 (spec 329)', () => {
+    expect(journal.map((e) => e.idx)).toEqual([0, 1]);
     expect(journal[0].tag).not.toBe('0000_better_auth_init');
+    expect(journal[1].tag).toBe('0001_api_key');
   });
 });
 
@@ -106,6 +107,7 @@ describe('Drizzle schema vs the auth journal', () => {
     const tables = declaredTables(schema);
     expect(tables.map((t) => getTableConfig(t).name).sort()).toEqual([
       'account',
+      'apikey',
       'jwks',
       'rate_limit',
       'session',

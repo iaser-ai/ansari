@@ -2,6 +2,8 @@
 // plan phase 5): the emailed link has the legacy shape, an unknown email gets
 // the identical answer and no mail, a reset kills every session, and the
 // strength check runs before the password changes.
+import { randomUUID } from 'node:crypto';
+
 import { RESET_EMAIL_FROM, RESET_EMAIL_SUBJECT, resetEmailHtml, resetLink } from '@ansari/auth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -67,6 +69,23 @@ describe('the reset email', () => {
     expect(b.status).toBe(a.status);
     expect(await b.json()).toEqual(await a.json());
     expect(service.mail.slice(before).map((m) => m.to)).toEqual([known]);
+  });
+
+  it('an existing noreply user gets the response an unknown address gets, and no email (spec 329)', async () => {
+    const id = randomUUID();
+    const noreply = `whatsapp-${id}@noreply.askansari.ai`;
+    await service.client.query(`INSERT INTO auth.users (id, name, email) VALUES ($1, 'WhatsApp user', $2)`, [
+      id,
+      noreply,
+    ]);
+    const unknown = nextEmail('unknown-noreply-pair');
+    const before = service.mail.length;
+
+    const a = await requestReset(noreply);
+    const b = await requestReset(unknown);
+    expect(a.status).toBe(b.status);
+    expect(await a.json()).toEqual(await b.json());
+    expect(service.mail.length).toBe(before);
   });
 
   it('a system address receives no email', async () => {

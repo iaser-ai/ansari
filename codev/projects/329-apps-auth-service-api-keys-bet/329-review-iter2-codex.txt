@@ -1,0 +1,29 @@
+---
+VERDICT: COMMENT
+SUMMARY: Implementation is PR-ready; one migration verification query should be tightened.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `docs/cutover/service-keys-runbook.md:148` verifies the constraint by name globally. Bind it to `auth.account`, type `u`, and ideally its ordered columns; otherwise an identically named constraint elsewhere can produce a false success.
+
+PR_SUMMARY: |
+  ## Summary
+  Adds service API keys and a secure WhatsApp-to-user JWT exchange to apps/auth, while keeping apps/api WhatsApp-agnostic. It also introduces reserved noreply identities, operational tooling, migration guards, alerts, and deployment documentation.
+
+  ## Key Changes
+  - Adds `@better-auth/api-key`, schema migration `0001`, service-key tooling, and blocked HTTP surfaces.
+  - Adds `POST /api/whatsapp/session` with delegation, locking, throttling, privacy, and outage handling.
+  - Adds comprehensive contract, security, migration, documentation, and real-Postgres probe coverage.
+
+  ## Test Plan
+  - Run `npm test -- --exclude='**/e2e/**'`, `npm run build`, typecheck, and lint.
+  - Before merge, complete the documented `0001` staging apply, verification, journal bump, and required rebase.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 1 path changed while this lane was running:
+  - packages/auth/scripts/probes/probe-db.ts
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

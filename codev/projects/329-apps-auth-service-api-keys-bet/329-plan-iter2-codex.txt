@@ -1,0 +1,11 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 8 covers §5 broadly, but key dependency-injection and concurrency details remain underspecified.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `packages/auth/src/phone.ts` cannot directly emit the required Sentry count: `@ansari/auth` has no Sentry dependency and Sentry is owned by `apps/auth/src/alerts.ts`. Specify an injected alert callback through `AuthExtensions`/`createServiceAuth`, including a distinct notice-failure alert.
+- Claim logic must explicitly handle a phone holder already having a `whatsapp` row. The existing schema enforces `unique(user_id, provider_id)`, so blindly claiming causes a constraint error rather than the required typed refusal/alert. The “second WhatsApp row” test also needs a realistic strategy given that constraint.
+- Define how the five routes’ normalized `phoneNumber` is written back into Better Auth’s request context before its exact-value lookups. Hash-only normalization permits storage, lookup, and budget keys to disagree.
+- Strengthen race assertions beyond “one holder”: verify returned outcomes, final users/accounts, session revocation, alerts, notices, and token validity so retry-driven supersede chains cannot pass.
+- Add the concrete wiring files to Phase 8: `apps/auth/src/index.ts`, service test helpers, `createPerimeterHooks`, and `ServiceDeps` construction must all carry the mailer and phone-alert callbacks.

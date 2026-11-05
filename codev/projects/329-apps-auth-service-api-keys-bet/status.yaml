@@ -1,0 +1,81 @@
+id: '329'
+title: apps-auth-service-api-keys-bet
+protocol: spir
+phase: review
+plan_phases:
+  - id: phase_1
+    title: Plugin, schema and migration 0001, blocked key surface, library probes
+    status: complete
+  - id: phase_2
+    title: Redacted Better Auth logger
+    status: complete
+  - id: phase_3
+    title: Reserved noreply domain
+    status: complete
+  - id: phase_4
+    title: Service users and key operator scripts
+    status: complete
+  - id: phase_5
+    title: WhatsApp identity and session core
+    status: complete
+  - id: phase_6
+    title: The exchange route, boot assertion and alerts
+    status: complete
+  - id: phase_7
+    title: End-to-end contract test, source scan and documentation
+    status: complete
+  - id: phase_8
+    title: Remove the phone number (owner amendment 2)
+    status: complete
+current_plan_phase: null
+gates:
+  spec-approval:
+    status: approved
+    requested_at: '2026-10-28T04:42:34.533Z'
+    approved_at: '2026-10-28T05:23:01.015Z'
+  plan-approval:
+    status: approved
+    requested_at: '2026-10-29T23:13:28.562Z'
+    approved_at: '2026-10-29T23:21:44.444Z'
+  pr:
+    status: approved
+    requested_at: '2026-10-29T23:48:25.816Z'
+    approved_at: '2026-10-30T00:41:11.575Z'
+  verify-approval:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-10-28T04:31:56.766Z'
+updated_at: '2026-10-30T00:41:11.575Z'
+context_refreshes:
+  - boundary: plan-phase:phase_2
+    at: '2026-10-28T06:20:23.009Z'
+    acknowledged_at: '2026-10-28T06:20:29.672Z'
+  - boundary: plan-phase:phase_3
+    at: '2026-10-28T07:17:36.215Z'
+    acknowledged_at: '2026-10-28T07:17:42.817Z'
+  - boundary: plan-phase:phase_4
+    at: '2026-10-28T07:36:09.447Z'
+    acknowledged_at: '2026-10-28T07:37:18.998Z'
+  - boundary: plan-phase:phase_5
+    at: '2026-10-28T08:09:33.292Z'
+    acknowledged_at: '2026-10-28T08:09:37.188Z'
+  - boundary: plan-phase:phase_6
+    at: '2026-10-28T08:39:44.585Z'
+    acknowledged_at: '2026-10-28T08:39:50.175Z'
+  - boundary: plan-phase:phase_7
+    at: '2026-10-28T09:11:23.836Z'
+    acknowledged_at: '2026-10-28T09:14:38.935Z'
+  - boundary: enter:review
+    at: '2026-10-28T09:40:21.030Z'
+    acknowledged_at: '2026-10-28T09:41:33.771Z'
+  - boundary: plan-phase:phase_8
+    at: '2026-10-29T23:35:10.124Z'
+    acknowledged_at: '2026-10-29T23:35:19.652Z'
+pr_history:
+  - phase: review
+    pr_number: 331
+    branch: builder/spir-329
+    created_at: '2026-10-28T09:44:41.643Z'
+pr_ready_for_human: false

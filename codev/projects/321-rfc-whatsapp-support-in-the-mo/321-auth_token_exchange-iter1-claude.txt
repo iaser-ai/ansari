@@ -1,0 +1,44 @@
+I'll start by reading the key files for this phase.I read the phase-2 commit (`5f1ebf3`) and every file it touched, plus the `apps/api` endpoints the new client targets, to verify the contract assumptions. I did **not** execute `pytest`/`ruff` — doing so writes into the builder's live worktree (`tests/detailed_test_results_whatsapp_service.json`, `logs/`, caches), so my findings below are from reading. Where that limits confidence I say so.
+
+## Verified against the actual codebase
+
+- `GET /api/v2/threads` really does return an array of `{thread_id, updated_at}` ordered `desc(updatedAt)`, and `createMessage` bumps `threads.updatedAt` — so `AnsariClientReal.get_last_thread_info`'s "newest-first, bumped on every message" comment is accurate, not wishful.
+- `POST /api/v2/threads` returns `thread_id` and accepts optional `source` — matches `create_thread`.
+- `POST /api/v2/threads/[id]` streams raw text with ZWSP keep-alives; `RAW_TEXT_HEARTBEAT_INITIAL_DELAY_MS` is **15 s**, not 60 s, so the client's 60 s httpx timeout has comfortable margin. `HEARTBEAT_CHAR = "\u200b"` stripping is correct.
+- `askansari-whatsapp` passes `CLIENT_ID_PATTERN` in `@ansari/types/attribution`; the allowlist is deliberately not enforced ("sanitize, don't allowlist"), so this is fine.
+- `apps/auth` has no `/api/whatsapp/session` yet — as the spec anticipated. `MOCK_AUTH_CLIENT` is the right bridge.
+- Ruff would not flag the new 132-char line in `meta_api_service_real.py:104`: it's a bare URL with no whitespace past the limit, which ruff's E501 skips (same reason the pre-existing `app_logger.py` URLs pass).
+
+## Phase deliverables
+
+All five deliverables and the three acceptance criteria are substantially met. The phone number is no longer *extracted at all* (`parse_meta_payload` reads `from_user_id` and never `from`), which is stronger than filtering it downstream. `test_logs_contain_no_phone_number_bsuid_or_message_text` is a real guard, not a vacuous one — I traced every log statement on the happy path (webhook utils, conversation manager, both mocks) and confirmed each one would have to be changed to a leaking form for the assertion to matter, and that such a change would fail it.
+
+## Findings
+
+**1. `get_subject()` can raise `AttributeError`, and that returns a raw 500 to Meta.** `token_utils.get_subject` catches `(IndexError, ValueError)`. A payload segment that is valid JSON but not an object (e.g. `"a.NQ.c"` → `5`) reaches `payload.get("sub")` → `AttributeError`. In `whatsapp_conversation_manager.py:133` that call sits *outside* the try/except, so it propagates through `main_webhook` (line 372, unguarded) to `general_exception_handler`, which returns 500 **bypassing `create_response_for_meta`** — Meta retries. One-line fix: add `AttributeError, TypeError` to the `except` in `get_subject`, or move line 133 inside the existing try.
+
+**2. The token exchange is awaited inline, with a 15 s timeout, before Meta gets its response.** `AuthClientReal` sets `timeout=15.0`, and `authenticate_user()` is awaited before `create_response_for_meta`. The service's own docstring in `whatsapp_webhook_utils.py` states Meta wants 200 within ~5 s. Legacy registration had the same shape, so this isn't a regression — but 15 s is a number chosen in *this* phase, and spec decision 5 explicitly accepts no duplicate suppression, so a slow `apps/auth` turns into duplicate answers. Suggest dropping the auth timeout to ~5 s (it's a single DB-backed token mint), or moving auth into the background task alongside `handle_text_message`.
+
+**3. The typing-indicator loop is never cancelled on the auth-failure path.** `send_typing_indicator_then_start_loop` is scheduled at `main.py:360`, before the auth check at 372. On failure the background queue runs the loop (5-minute cap, 26 s interval) *and then* the "couldn't sign you in" notice — so a user who just got an error keeps seeing "typing…" for five minutes. Same applies to the message-too-old and unsupported-type returns. Cheapest fix: schedule the typing loop only after authentication succeeds.
+
+**4. The apps/api half of the "no phone number" criterion isn't asserted.** The plan says "No outgoing call to `apps/auth` **or `apps/api`** carries a phone number (asserted in tests)." `test_phone_visible_user_is_identified_and_replied_to_by_bsuid_only` asserts the auth request and the Meta recipient, but the webhook flow runs against `AnsariClientMock`, so no apps/api wire bytes are inspected. The risk is genuinely near-zero (no phone number is ever parsed), but the criterion is literal. You already have `_use_transport` — pointing the *real* ansari client at a `MockTransport` inside the webhook test would close it cheaply.
+
+**5. Mid-stream apps/api errors reach the user verbatim.** `apps/api` appends `\n\nError: <message>` to the 200 stream on facilitator error or empty answer. `process_message` returns that as a normal answer, so the user gets the raw error text and the WhatsApp side logs nothing. The spec's test scenario asks for "a failure notice, error logged." Detecting a trailing `\n\nError: ` sentinel is brittle; worth at least recording as a known gap for Phase 4.
+
+**6. `from_user_id` is now a hard requirement, and the outgoing BSUID send path is untested.** Any payload without `from_user_id` now produces the "Meta sent your message in an unexpected format" reply. `from_user_id` presence depends on the webhook subscription's Graph API version, and `META_API_VERSION` defaults to `v22.0`; your own comment in `meta_api_service_real.py:99-104` notes Meta marks BSUID *sending* as "coming soon" in one place and July 2026 in another. This is correct per baked decision 2, but it's a deploy-blocking unknown — the plan asked for findings to be recorded rather than scope-widened, and this is the one worth writing down before the staging smoke test.
+
+**7. Minor.** `test_token_exchange_failure_notifies_user_and_is_reported` asserts the notice but nothing about reporting — rename or assert. `AuthClientReal.close()` exists but is never called (same as `AnsariClientReal` — pre-existing). `README.md:108-115` still documents the six deleted legacy endpoints; Phase 4 owns this per the iteration-1 rebuttal, so I'm only flagging it so it isn't lost.
+
+---
+VERDICT: COMMENT
+SUMMARY: BSUID-only identity and the auth/api client split are correctly implemented and verified against the real apps/api contract; a few cheap robustness fixes and one untested-criterion gap are worth closing before Phase 3.
+CONFIDENCE: MEDIUM
+---
+KEY_ISSUES:
+- `get_subject()` can raise an uncaught `AttributeError` outside `authenticate_user()`'s try block, returning a raw 500 to Meta instead of an OK (one-line fix).
+- Token exchange awaited inline with a 15 s timeout delays Meta's response past the documented ~5 s window; lower the timeout or move auth into the background task.
+- Typing-indicator loop is scheduled before the auth check and never cancelled on failure — a user who was told sign-in failed sees "typing…" for 5 minutes.
+- Plan acceptance criterion "no outgoing call to apps/api carries a phone number (asserted in tests)" is not asserted; the webhook test uses the mock ansari client.
+- Mid-stream `apps/api` errors arrive as HTTP 200 with inline `Error:` text and are relayed to the user unlogged, short of the spec's "failure notice, error logged".
+- Hard dependency on `from_user_id` plus an untested `recipient`-based Meta send path (`META_API_VERSION` defaults to v22.0) should be recorded as a deploy finding before the staging smoke test.
+- Not executed: `pytest` and `ruff` were not run, to avoid writing artifacts into the live worktree; CI green is unverified by me.

@@ -17,8 +17,11 @@
 # `--dry-run` runs the same copy, guards and audits, and commits nothing: 02's
 # transaction ends in ROLLBACK after printing the auth-side audit from inside
 # it. Against an auth database with no schema yet (the window before step 5),
-# the 0000 baseline is applied inside that transaction too, so the database is
-# left as found; the script checks that it was. The rows still stream through
+# the WHOLE auth journal, in _journal.json order (auth-journal.mjs), is applied
+# inside that transaction too, so the dry run proves the copy against the
+# schema production will have, and the database is left as found; the script
+# checks that it was. The journal SQL reaches psql through a file descriptor,
+# so this still writes no file. The rows still stream through
 # this machine, so every operator-environment check still applies.
 #
 # Usage: copy.sh [--dry-run] [--allow-local]
@@ -53,13 +56,17 @@ if [ "$dry_run" = 1 ]; then
   baseline_vars=()
   no_schema="$(psql_auth -At -c "select to_regclass('auth.users') is null")"
   if [ "$no_schema" = "t" ]; then
-    echo "copy.sh: DRY RUN: the auth database has no schema; the 0000 baseline is applied inside the transaction and rolled back with it" >&2
-    baseline_vars=(-v dry_run_baseline=1)
+    echo "copy.sh: DRY RUN: the auth database has no schema; the whole auth journal (_journal.json order) is applied inside the transaction and rolled back with it" >&2
+    # Read the journal once here so an unreadable one stops the run before any pipe.
+    node "$here/auth-journal.mjs" files >/dev/null || die "the auth journal could not be read"
+    exec 9< <(node "$here/auth-journal.mjs" sql)
+    baseline_vars=(-v dry_run_baseline=/dev/fd/9)
   fi
   echo "copy.sh: dry run: copying $expected non-system user(s) (app → auth)"
   auth_audit="$(psql_app -f "$here/01-export-app.sql" \
     | psql_auth -v expected_rows="$expected" -v dry_run=1 ${baseline_vars[@]+"${baseline_vars[@]}"} -f "$here/02-import-auth.sql")"
   if [ "${#baseline_vars[@]}" -gt 0 ]; then
+    exec 9<&-
     left="$(psql_auth -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'")"
   else
     left="$(psql_auth -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)")"
@@ -84,7 +91,7 @@ if [ "$app_audit" != "$auth_audit" ]; then
   if [ "$dry_run" = 1 ]; then
     echo "copy.sh: DRY RUN AUDIT MISMATCH — the real copy would fail its audit here; nothing was committed" >&2
   else
-    echo "copy.sh: AUDIT MISMATCH — do NOT run the app window migration; empty the auth database and start again from the 0000 baseline" >&2
+    echo "copy.sh: AUDIT MISMATCH — do NOT run the app window migration; empty the auth database and start again from the auth journal (step 5)" >&2
   fi
   diff <(echo "$app_audit") <(echo "$auth_audit") >&2 || true
   exit 1

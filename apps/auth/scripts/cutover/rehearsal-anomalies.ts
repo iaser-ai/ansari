@@ -30,6 +30,8 @@
  */
 import { createRequire } from 'node:module';
 
+import { urlHost } from '../url-host';
+
 // apps/auth depends on bcrypt but not on its type package (the library code
 // that uses it lives in packages/auth); these are the two calls this script makes.
 const bcrypt = createRequire(import.meta.url)('bcrypt') as {
@@ -48,16 +50,6 @@ const forwarderHost = (env: CutoverEnv) =>
   new RegExp(
     `^[a-z0-9]([a-z0-9-]*[a-z0-9])?-${env}-tailscale-forwarder(-[0-9]+)?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?\\.ts\\.net)?\\.?$`
   );
-
-/** The host of a postgres URL, lower-cased, or null when it does not parse. */
-export function urlHost(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname.toLowerCase() || null;
-  } catch {
-    return null;
-  }
-}
 
 export function isForwarderHost(host: string | null, env: CutoverEnv): boolean {
   return host !== null && forwarderHost(env).test(host);

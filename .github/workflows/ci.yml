@@ -177,6 +177,33 @@ jobs:
       - name: Build
         run: pnpm exec turbo run build --filter ansari-frontend...
 
+  # Python WhatsApp service (spec 321). Not part of the pnpm/turbo graph, so it
+  # gets its own job. conftest.py supplies mock-mode defaults, so no env or
+  # repository secrets are needed.
+  whatsapp:
+    name: whatsapp (lint, format, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: legacy/whatsapp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Install
+        run: uv sync --frozen --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Test
+        run: uv run pytest tests/ -v
+
   gitleaks:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
