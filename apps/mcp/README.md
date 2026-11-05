@@ -32,15 +32,14 @@ User-provided capture of the Dev answer card in Claude, showing Arabic text, RTL
 
 ## Dependencies
 
-SAGA is the 1.0 release candidate, `0.0.0-candidate.g8b4d987dd233`: the stack `@saga-a2ui/react-mcp-stack` plus its exact-version
-siblings `@saga-a2ui/core`, `@saga-a2ui/components`, `@saga-a2ui/mcp` and `@saga-a2ui/react`, packed from the SDK's source at commit
-`8b4d987` and committed under `candidates/` until `1.0.0-rc.1` is on the npm registry. The manifest pins that exact version; the root
-`pnpm-workspace.yaml` overrides the five siblings to those tarballs, and the lockfile records their integrity. No private registry or
-credential is involved. Moving to the registry release replaces the pin and the overrides and deletes `candidates/`.
+SAGA is installed from the public npm registry at one exact release, `1.0.0-rc.1` (the `next` tag): the stack `@saga-a2ui/react-mcp-stack`
+plus its exact-version siblings `@saga-a2ui/core`, `@saga-a2ui/components`, `@saga-a2ui/mcp` and `@saga-a2ui/react`. No private registry,
+credential, SDK tarball, SDK workspace link or SDK-package override is involved, and the manifest pins an exact version rather than a tag or range.
+The root `pnpm-workspace.yaml` keeps the SDK's documented `dompurify` and `@hono/node-server` overrides.
 The card's address names its compatibility line, `ui://views/answer-card.v1.html` (`VIEW_MAJOR` in `src/server/view-artifact.ts`), not its
 bytes: every compatible release is served at the same address, and only a change an already-loaded card cannot handle increases it.
-`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile, and refuses the candidate; `--target production` additionally refuses a
-prerelease. The Beta and Production deploy scripts run the corresponding gate before any build or deployment, so neither deploys until the release is published. Dev accepts the candidate.
+`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile; `--target production` additionally refuses a
+prerelease, so Production waits for the stable SAGA release. The Beta and Production deploy scripts run the corresponding gate before any build or deployment.
 
 The application depends on one SAGA package, the stack `@saga-a2ui/react-mcp-stack`, plus React and React DOM, and imports
 only its subpaths: `/faithful-card` (`FaithfulCardApp`, `startFaithfulCardApp`, and the definition's one `.result(...)` reader that reads the whole delivered result,
