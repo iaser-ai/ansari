@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {request as httpRequest} from 'node:http';
 import {after, before, describe, it} from 'node:test';
@@ -130,9 +129,9 @@ export function defineParityCases(kind: RuntimeKind): void {
           assert.ok(uri);
           assert.deepEqual((await client.listResources()).resources.map(resource => resource.uri), [uri]);
           const text = ((await client.readResource({uri})).contents[0] as {text: string}).text;
-          // Release stamping precedes hashing: the served bytes are the built card with the release stamped, and the identity is theirs.
+          // The served bytes are the built card with the release stamped; the address names the card's compatibility line.
           assert.equal(text, stampHtmlRevision(builtCard, RELEASE));
-          assert.equal(uri, `ui://views/answer-card.${createHash('sha256').update(text).digest('hex').slice(0, 32)}.html`);
+          assert.equal(uri, 'ui://views/answer-card.v1.html');
           await assert.rejects(client.readResource({uri: 'ui://obsolete.html'}));
         });
       });

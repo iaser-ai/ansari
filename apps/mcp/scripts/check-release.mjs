@@ -52,11 +52,12 @@ const RELEASE_CONTENT = {
 const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const CANDIDATE = /^0\.0\.0-candidate\.g[0-9a-f]{12}$/;
 /**
- * A managed local SAGA tarball as the lockfile records it: `file:candidates/saga-<version>/saga-a2ui-<name>-<version>.tgz`,
+ * A managed local SAGA tarball as the lockfile records it: `file:candidates/saga-<version>/saga-a2ui-<name>-<version>.tgz`
+ * (`file:apps/mcp/candidates/...` in this monorepo, whose lockfile and overrides are at the repository root),
  * the directory and file naming one version. That is a snapshot candidate (0.0.0-candidate.g...) or the SDK's unpublished
  * local release artifacts (a real version such as 0.7.6-rc.1). Neither is a registry release.
  */
-const LOCAL_FILE = /^file:candidates\/saga-([^/]+)\/saga-a2ui-(?:core|components|mcp|react|lit|lit-mcp-stack|react-mcp-stack)-\1\.tgz$/;
+const LOCAL_FILE = /^file:(?:apps\/mcp\/)?candidates\/saga-([^/]+)\/saga-a2ui-(?:core|components|mcp|react|lit|lit-mcp-stack|react-mcp-stack)-\1\.tgz$/;
 const localVersion = ref => LOCAL_FILE.exec(ref)?.[1];
 const defaultRoot = fileURLToPath(new URL('../', import.meta.url));
 const isPrerelease = version => version.includes('-');

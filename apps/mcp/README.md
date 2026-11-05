@@ -1,6 +1,6 @@
 # Ansari MCP
 
-A standalone MCP application. `answer_islamic_question` calls the Ansari API and returns its complete answer and attribution unchanged. SAGA links each result to one content-addressed, self-contained React card. The application owns Ansari branding, floral artwork, theme mapping and Hono HTTP hosting; SAGA owns content interpretation, FaithfulCard rendering, content policy, consent and MCP view linkage.
+A standalone MCP application. `answer_islamic_question` calls the Ansari API and returns its complete answer and attribution unchanged. SAGA links each result to one self-contained React card at a stable, versioned address. The application owns Ansari branding, floral artwork, theme mapping and Hono HTTP hosting; SAGA owns content interpretation, FaithfulCard rendering, content policy, consent and MCP view linkage.
 
 ## How it works
 
@@ -32,11 +32,15 @@ User-provided capture of the Dev answer card in Claude, showing Arabic text, RTL
 
 ## Dependencies
 
-SAGA is installed from the public npm registry at one exact release, `0.7.6` (stable), from the [0.7.6 release branch](https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6): the stack `@saga-a2ui/react-mcp-stack`
-plus its exact-version siblings `@saga-a2ui/core`, `@saga-a2ui/components`, `@saga-a2ui/mcp` and `@saga-a2ui/react`. No private registry,
-credential, SDK tarball, SDK workspace link or SDK-package override is involved, and the manifest pins an exact version rather than a tag or range.
-`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile; `--target production` additionally refuses a
-prerelease. The Beta and Production deploy scripts run the corresponding gate before any build or deployment.
+SAGA is the 1.0 release candidate, `0.0.0-candidate.g8b4d987dd233`: the stack `@saga-a2ui/react-mcp-stack` plus its exact-version
+siblings `@saga-a2ui/core`, `@saga-a2ui/components`, `@saga-a2ui/mcp` and `@saga-a2ui/react`, packed from the SDK's source at commit
+`8b4d987` and committed under `candidates/` until `1.0.0-rc.1` is on the npm registry. The manifest pins that exact version; the root
+`pnpm-workspace.yaml` overrides the five siblings to those tarballs, and the lockfile records their integrity. No private registry or
+credential is involved. Moving to the registry release replaces the pin and the overrides and deletes `candidates/`.
+The card's address names its compatibility line, `ui://views/answer-card.v1.html` (`VIEW_MAJOR` in `src/server/view-artifact.ts`), not its
+bytes: every compatible release is served at the same address, and only a change an already-loaded card cannot handle increases it.
+`pnpm check:release --target beta` checks the pinned release against the registry and the lockfile, and refuses the candidate; `--target production` additionally refuses a
+prerelease. The Beta and Production deploy scripts run the corresponding gate before any build or deployment, so neither deploys until the release is published. Dev accepts the candidate.
 
 The application depends on one SAGA package, the stack `@saga-a2ui/react-mcp-stack`, plus React and React DOM, and imports
 only its subpaths: `/faithful-card` (`FaithfulCardApp`, `startFaithfulCardApp`, and the definition's one `.result(...)` reader that reads the whole delivered result,
@@ -100,7 +104,7 @@ The Worker takes the variables in the table below as Wrangler `vars` or secrets,
 | `MCP_VIEW_DIAGNOSTICS_ORIGIN` | Set only on a deployment being diagnosed: its own public origin, such as `https://ansari-mcp-development.up.railway.app`. The card may then connect to that one origin and reports its start-up milestones to `POST /diag/view`; this changes the card's bytes, address and permissions. Unset, the card, its address and its closed permissions are unchanged and the route does not exist. A value that is not a bare `https` origin (`http` only for localhost) stops startup. Implies `MCP_LOG_LEVEL=debug`. See [First-load diagnosis](#first-load-diagnosis). |
 | `MCP_LOG_LEVEL` | `info` (default) or `debug`. `debug` also writes the first-load measurement records; set it only on a deployment being measured. Any other value, or `info` together with `MCP_VIEW_DIAGNOSTICS_ORIGIN`, stops startup. |
 
-`POST /mcp` serves stateless MCP requests through Hono and the official MCP request handler. Modern requests need no initialization; older hosts can use the handler’s stateless compatibility path. No MCP session IDs, session map, expiry timer or replay store are retained. `GET /mcp` and `DELETE /mcp` return 405. `/health` exposes the release. The HTML is supplied by the hosting target (read from `dist/` at Node start, bundled into the Worker), revision-stamped and fingerprinted once before the first request is served: the release is stamped first, so equal final bytes have equal identities and a release change legitimately changes the hash. Each request creates its own lightweight MCP server using that prepared view; resource bytes and identity stay fixed until restart. No demo, font server, alternative renderer or historical resource is served. Tool calls have a fresh 60-second budget; timeout yields a safe error and leaves subsequent calls usable. The same lifetime signal aborts the upstream fetch and response-body read when the request ends or the budget expires.
+`POST /mcp` serves stateless MCP requests through Hono and the official MCP request handler. Modern requests need no initialization; older hosts can use the handler’s stateless compatibility path. No MCP session IDs, session map, expiry timer or replay store are retained. `GET /mcp` and `DELETE /mcp` return 405. `/health` exposes the release. The HTML is supplied by the hosting target (read from `dist/` at Node start, bundled into the Worker), revision-stamped once before the first request is served. The release stamp changes the card's bytes, not its address, which is `ui://views/answer-card.v1.html` for every compatible release. Each request creates its own lightweight MCP server using that prepared view; resource bytes and identity stay fixed until restart. No demo, font server, alternative renderer or historical resource is served. Tool calls have a fresh 60-second budget; timeout yields a safe error and leaves subsequent calls usable. The same lifetime signal aborts the upstream fetch and response-body read when the request ends or the budget expires.
 
 Closing a request server releases its budget even if it was never connected to a transport. On SIGINT or SIGTERM the listener stops accepting requests, closes MCP handlers and HTTP connections, and exits; unfinished calls are interrupted, including older-host SSE calls. Fetch cancellation does not guarantee that the remote backend has stopped processing. Caller-disconnect propagation depends on the host transport; the local Workers runtime does not establish immediate upstream cancellation from a client disconnect. Actual fetch cancellation at the request deadline is covered on both hosting targets.
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {existsSync, readFileSync, readdirSync, realpathSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -25,33 +26,45 @@ test('packaged HTML is self-contained and assets contain bytes',()=>{
   }
 });
 
-// ---- The SAGA packages: one exact public npm release, never a tag, range, tarball or local file.
-// The expected values below were read from the public npm registry (`npm view @saga-a2ui/<name>@0.7.6 dist.integrity`),
-// not from the files they are compared with.
-const SDK_VERSION='0.7.6';
-const SDK_INTEGRITY:Record<string,string>={
-  core:'sha512-m+ynUS2+f36exYwqimAnnjxtVKJ1+Xm2Zscja+kWI9iFoDxVtT6C2lYxO6exSSXyi4LreJMgFhQsKh0hsaMVDg==',
-  components:'sha512-Gpm2uc2VbXNrxfWNy2uHfdJYdzNf5ewZKTpsaO5nsLSF0ymDjwzJ45h0BiVD77zyO4KXmDb2QipuCraTbqFApQ==',
-  mcp:'sha512-LBBOUhhagKZszb+Y6ooZSNDvJs3GZ6EE+Ysk8gsSVkxWrGRdcg5j3GgY/jcYF8K1NzEFQw75rm1KhM+C210ZAA==',
-  react:'sha512-6oz4GAWZzLjsysHSPKw6zOqYFF5D+bAcp9CtGJ5Exc/9Z+x2OM4Sn7oHMdul47iDMEJi9WNbrI5+DSGvii1a3g==',
-  'react-mcp-stack':'sha512-ZYv9uL9FAjVRrfboabT6YRu6zHO8JOQKXc9D2pYskpacCRpezsVrQpNtjbh2TUDOdaY+SYEDIAl8+Js1U0oJqQ==',
+// ---- The SAGA packages: one exact version from one source, never a tag, range or machine path.
+// A public release resolves from the npm registry with the integrity below, read from the registry
+// (`npm view @saga-a2ui/<name>@<version> dist.integrity`), not from the files compared with it. Until a release is on the
+// registry, a private candidate (`0.0.0-candidate.g<commit>`) resolves from the tarballs committed under candidates/,
+// and the lockfile must record exactly their bytes.
+const REGISTRY_INTEGRITY:Record<string,Record<string,string>>={
+  '0.7.6':{
+    core:'sha512-m+ynUS2+f36exYwqimAnnjxtVKJ1+Xm2Zscja+kWI9iFoDxVtT6C2lYxO6exSSXyi4LreJMgFhQsKh0hsaMVDg==',
+    components:'sha512-Gpm2uc2VbXNrxfWNy2uHfdJYdzNf5ewZKTpsaO5nsLSF0ymDjwzJ45h0BiVD77zyO4KXmDb2QipuCraTbqFApQ==',
+    mcp:'sha512-LBBOUhhagKZszb+Y6ooZSNDvJs3GZ6EE+Ysk8gsSVkxWrGRdcg5j3GgY/jcYF8K1NzEFQw75rm1KhM+C210ZAA==',
+    react:'sha512-6oz4GAWZzLjsysHSPKw6zOqYFF5D+bAcp9CtGJ5Exc/9Z+x2OM4Sn7oHMdul47iDMEJi9WNbrI5+DSGvii1a3g==',
+    'react-mcp-stack':'sha512-ZYv9uL9FAjVRrfboabT6YRu6zHO8JOQKXc9D2pYskpacCRpezsVrQpNtjbh2TUDOdaY+SYEDIAl8+Js1U0oJqQ==',
+  },
 };
-const SIBLINGS=Object.keys(SDK_INTEGRITY);
+const SIBLINGS=['core','components','mcp','react','react-mcp-stack'];
 const pinned:string=JSON.parse(readFileSync(join(root,'package.json'),'utf8')).dependencies['@saga-a2ui/react-mcp-stack'];
+const SDK_VERSION=pinned;
+const CANDIDATE=/^0\.0\.0-candidate\.g([0-9a-f]{12})$/.exec(pinned);
+const CANDIDATE_DIR=`candidates/saga-${pinned}`;
+const candidateFile=(sibling:string)=>`${CANDIDATE_DIR}/saga-a2ui-${sibling}-${pinned}.tgz`;
+const digest=(algorithm:string,file:string,encoding:'hex'|'base64')=>createHash(algorithm).update(readFileSync(join(root,file))).digest(encoding);
+/** The integrity each sibling must resolve with: the registry's for a release, the committed tarball's for a candidate. */
+function expectedIntegrity(sibling:string):string{
+  if(CANDIDATE) return `sha512-${digest('sha512',candidateFile(sibling),'base64')}`;
+  const known=REGISTRY_INTEGRITY[SDK_VERSION];
+  assert.ok(known,`record the registry integrity of every SAGA package at ${SDK_VERSION} (npm view @saga-a2ui/<name>@${SDK_VERSION} dist.integrity)`);
+  return known[sibling];
+}
 const node=(...args:string[])=>execFileSync(process.execPath,args,{cwd:root,encoding:'utf8'});
 
-test('the manifest pins one exact public version for every SAGA package it imports',()=>{
+test('the manifest pins one exact version for every SAGA package it imports',()=>{
   const manifest=JSON.parse(readFileSync(join(root,'package.json'),'utf8'));
   const saga=Object.entries<string>({...manifest.dependencies,...manifest.devDependencies}).filter(([name])=>name.startsWith('@saga-a2ui/'));
   assert.deepEqual(saga.map(([name])=>name).sort(),['@saga-a2ui/react-mcp-stack']);
-  for(const [name,version] of saga) {
-    assert.match(version,/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,`${name} is an exact version, never a tag or range`);
-    assert.equal(version,SDK_VERSION,name);
-  }
+  for(const [name,version] of saga) assert.match(version,/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,`${name} is an exact version, never a tag or range`);
   assert.equal(manifest.devDependencies.typescript, 'catalog:');
   assert.equal(manifest.devDependencies.eslint, 'catalog:');
   assert.equal(manifest.devDependencies['@ansari/eslint-config'], 'workspace:*');
-  assert.ok(!/"(?:file|link|workspace|git\+?[a-z]*|https?):/.test(JSON.stringify({...manifest.dependencies,overrides:manifest.overrides,pnpm:manifest.pnpm})),'no local, tarball or workspace dependency source');
+  assert.ok(!/"(?:file|link|workspace|git\+?[a-z]*|https?):/.test(JSON.stringify({...manifest.dependencies,overrides:manifest.overrides,pnpm:manifest.pnpm})),'no local, tarball or workspace dependency source in the manifest');
 });
 
 // The lockfile that installs this application: the workspace root's. The application has none of its own (asserted below).
@@ -61,31 +74,37 @@ assert.equal(existsSync(join(root,'pnpm-workspace.yaml')), false, 'only the root
 const workspaceLock=join(root,'../../pnpm-lock.yaml');
 if(existsSync(workspaceLock)&&existsSync(join(root,'../../pnpm-workspace.yaml'))) lockfiles.push({label:'workspace root',text:readFileSync(workspaceLock,'utf8'),prefix:'apps/mcp'});
 
-test('every lockfile resolves the five SAGA packages to the public registry with the registry integrity',()=>{
+test('every lockfile resolves the five SAGA packages from one source with that source\'s integrity',()=>{
   assert.ok(lockfiles.length>0,'at least one lockfile installs this application');
-  for(const {label,text} of lockfiles) {
+  for(const {label,text,prefix} of lockfiles) {
+    const ref=(sibling:string)=>CANDIDATE?`file:${prefix}/${candidateFile(sibling)}`:SDK_VERSION;
     for(const sibling of SIBLINGS) {
-      const key=`'@saga-a2ui/${sibling}@${SDK_VERSION}':\n    resolution: {integrity: ${SDK_INTEGRITY[sibling]}}`;
-      assert.ok(text.includes(key),`${label} lockfile locks ${sibling} to the registry release with its integrity`);
+      const resolution=CANDIDATE?`{integrity: ${expectedIntegrity(sibling)}, tarball: ${ref(sibling)}}`:`{integrity: ${expectedIntegrity(sibling)}}`;
+      assert.ok(text.includes(`'@saga-a2ui/${sibling}@${ref(sibling)}':\n    resolution: ${resolution}`),`${label} lockfile locks ${sibling} to ${CANDIDATE?'the committed candidate tarball':'the registry release'} with its integrity`);
     }
-    // Nothing else from @saga-a2ui, no second SAGA version, and no local source of any kind for it.
-    const resolved=[...new Set([...text.matchAll(/^ {2}'(@saga-a2ui\/[a-z-]+)@([^':(]+)':$/gm)].map(match=>`${match[1]}@${match[2]}`))].sort();
-    assert.deepEqual(resolved,SIBLINGS.map(sibling=>`@saga-a2ui/${sibling}@${SDK_VERSION}`).sort(),`${label} lockfile: exactly the five packages at one version`);
-    assert.doesNotMatch(text,/@saga-a2ui\/[a-z-]+@file:|tarball: file:|@saga-a2ui\/lit/,`${label} lockfile: no local file or Lit package`);
+    // Nothing else from @saga-a2ui, no second SAGA version, and no other local source for it.
+    const resolved=[...new Set([...text.matchAll(/^ {2}'(@saga-a2ui\/[a-z-]+)@([^'(]+)':$/gm)].map(match=>`${match[1]}@${match[2]}`))].sort();
+    assert.deepEqual(resolved,SIBLINGS.map(sibling=>`@saga-a2ui/${sibling}@${ref(sibling)}`).sort(),`${label} lockfile: exactly the five packages from one source`);
+    if(!CANDIDATE) assert.doesNotMatch(text,/@saga-a2ui\/[a-z-]+@file:|tarball: file:/,`${label} lockfile: no local file`);
+    assert.doesNotMatch(text,/@saga-a2ui\/lit/,`${label} lockfile: no Lit package`);
     assert.doesNotMatch(text,/(?:\/tmp\/|\/opt\/|\/Users\/|\/home\/|[A-Za-z]:\\)/,`${label} lockfile records no machine path`);
   }
 });
 
-test('no workspace file overrides a SAGA package',()=>{
+test('workspace overrides name a SAGA package only to install a committed candidate',()=>{
   const files=[join(root,'pnpm-workspace.yaml'),join(root,'../../pnpm-workspace.yaml')].filter(file=>existsSync(file));
   assert.ok(files.length>0);
   for(const file of files) {
     const workspace=readFileSync(file,'utf8');
-    assert.doesNotMatch(workspace,/@saga-a2ui/,`${file} does not override or mention a SAGA package`);
-    assert.doesNotMatch(workspace,/file:|link:/,`${file} has no local-file dependency source`);
+    const overrides=[...workspace.matchAll(/^ {2}['"]?(@saga-a2ui\/[^'":]+)['"]?\s*:\s*['"]?([^'"\n]+)['"]?$/gm)].map(([,name,value])=>`${name}=${value}`).sort();
+    assert.deepEqual(overrides,CANDIDATE?SIBLINGS.map(sibling=>`@saga-a2ui/${sibling}=file:apps/mcp/${candidateFile(sibling)}`).sort():[],`${file}: ${CANDIDATE?'every sibling, and only the siblings, from the candidate set':'no SAGA override'}`);
+    if(!CANDIDATE) assert.doesNotMatch(workspace,/file:|link:/,`${file} has no local-file dependency source`);
+    assert.doesNotMatch(workspace,/link:/,`${file} links no local package`);
     assert.match(workspace,/['"]@a2ui\/react@0\.13\.0>@a2ui\/markdown-it['"]\s*:\s*['"]0\.2\.1['"]/,`${file} pins the A2UI Markdown adapter`);
   }
-  assert.equal(existsSync(join(root,'candidates')),false,'no local SAGA inputs are committed');
+  if(!CANDIDATE) assert.equal(existsSync(join(root,'candidates')),false,'no local SAGA inputs are committed');
+  else assert.deepEqual(readdirSync(join(root,'candidates')),[`saga-${pinned}`],'one candidate set, the pinned one');
+  if(CANDIDATE) assert.deepEqual(readdirSync(join(root,CANDIDATE_DIR)).sort(),SIBLINGS.map(sibling=>`saga-a2ui-${sibling}-${pinned}.tgz`).sort(),'the candidate set holds exactly the five tarballs');
 });
 
 test('the installed tree has strict same-version siblings and one framework runtime',()=>{
@@ -124,15 +143,20 @@ test('production code imports SAGA only through the one stack, and the browser b
   assert.ok(!html.includes('The MCP server already ends a different request lifetime.'),'the view bundle holds no server lifetime module');
 });
 
-// ---- The card document names the SDK release it was built from, beside the application release.
-test('the emitted card document carries the registry SDK identity beside the application release',()=>{
+// ---- The card document names the SDK it was built from, beside the application release.
+test('the emitted card document carries the SDK identity beside the application release',()=>{
   const html=readFileSync(join(root,'dist/view.html'),'utf8');
-  const expected={kind:'registry',version:SDK_VERSION,source:'none','stack-sha256':'none','set-sha256':'none'};
+  // A candidate is named by its source commit and the bytes of its tarballs, recomputed here from the committed files.
+  const set=CANDIDATE?createHash('sha256').update(SIBLINGS.map(sibling=>`saga-a2ui-${sibling}-${pinned}.tgz`).sort().map(name=>`${name} ${digest('sha256',`${CANDIDATE_DIR}/${name}`,'hex')}\n`).join('')).digest('hex'):'none';
+  const identity=CANDIDATE
+    ?{kind:'candidate',version:SDK_VERSION,source:CANDIDATE[1],stackSha256:digest('sha256',candidateFile('react-mcp-stack'),'hex'),setSha256:set}
+    :{kind:'registry',version:SDK_VERSION,source:'none',stackSha256:'none',setSha256:'none'};
+  const expected={kind:identity.kind,version:identity.version,source:identity.source,'stack-sha256':identity.stackSha256,'set-sha256':identity.setSha256};
   const body=/<body\b[^>]*>/.exec(html)?.[0]??'';
   for(const [name,value] of Object.entries(expected)) assert.equal(body.match(new RegExp(`\\sdata-sdk-${name}="([^"]*)"`))?.[1],value,`data-sdk-${name}`);
   assert.equal(body.match(/\sdata-release="([^"]*)"/)?.[1],JSON.parse(readFileSync(join(root,'package.json'),'utf8')).version,'the application release stays beside the SDK identity');
   assert.ok(html.includes(`<meta name="ansari-sdk" content="${SDK_VERSION}"`));
-  assert.deepEqual(JSON.parse(node('scripts/sdk-identity.mjs')),{kind:'registry',version:SDK_VERSION,source:'none',stackSha256:'none',setSha256:'none'});
+  assert.deepEqual(JSON.parse(node('scripts/sdk-identity.mjs')),identity);
 });
 
 test('distributed HTML retains complete installed SAGA and font licence notices', () => {

@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import http from 'node:http';
 import {Client, StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createContentPolicy} from '@saga-a2ui/react-mcp-stack/content-policy';
-import {viewUriForHtml} from '@saga-a2ui/react-mcp-stack/server';
 import {chromium, type Frame, type Page} from '@playwright/test';
 import {build, preview} from 'vite';
 import {createHttpServer as createBaseHttpServer} from '../src/node/http-server.ts';
@@ -74,11 +73,11 @@ async function main() {
   await client.connect(transport);
 
   // ---- The served resource: exact bytes, identity, resource rules ---------------------------------
-  const viewUri = viewUriForHtml(stampHtmlRevision(html), VIEW_FILENAME);
+  const viewUri = 'ui://views/answer-card.v1.html';
   const resource = await client.readResource({uri: viewUri});
   const bytes = String((resource.contents[0] as {text: string}).text);
   check('resource:exact-served-bytes', () => assert.equal(bytes, stampHtmlRevision(html)));
-  check('resource:uri-is-sha256-fingerprint-of-served-bytes', () => assert.equal(viewUri, `ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.${sha(bytes).slice(0, 32)}.html`));
+  check('resource:uri-names-the-compatibility-line', () => assert.equal(viewUri, `ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.v1.html`));
   const meta = (resource.contents[0] as any)._meta;
   check('resource:closed-csp-no-origins', () => assert.deepEqual(meta.ui.csp, {connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: []}));
   const callTool = (question: string) => client.callTool({name: 'answer_islamic_question', arguments: {question}});
@@ -329,7 +328,7 @@ async function main() {
   check('links:successful-credit-is-silent', () => assert.equal(creditNotice, ''));
   const creditOpened = await page.evaluate(id => (window as any).hostProbe.state(id).openLinks, first.id);
   check('links:saga-credit-follows-unchanged-answer-and-uses-host', () => {
-    assert.deepEqual(creditOpened, ['https://ansari.chat/', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6']);
+    assert.deepEqual(creditOpened, ['https://ansari.chat/', 'https://github.com/MachineWisdomAI/saga-a2ui']);
     assert.ok(!shownA.cardText.includes('Built with'));
   });
 
@@ -338,7 +337,7 @@ async function main() {
   await deliver(unavailable.id, resultA);
   for (const [button, status, destination] of [
     ['.saga-card-link', '.saga-card-link-status', 'https://ansari.chat/'],
-    ['.saga-credit button', '.saga-credit [role="status"]', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6'],
+    ['.saga-credit button', '.saga-credit [role="status"]', 'https://github.com/MachineWisdomAI/saga-a2ui'],
   ] as const) {
     await unavailable.frame.locator(button).click();
     await unavailable.frame.locator(status).filter({hasText: 'This host cannot open links.'}).waitFor();
