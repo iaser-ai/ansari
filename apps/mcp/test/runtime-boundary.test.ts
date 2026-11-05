@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import {DEFAULT_RELEASE} from '../src/server/operation-log.ts';
@@ -33,17 +32,19 @@ test('the Workers bundle holds the shared application and none of the Node hosti
   assert.doesNotMatch(bundle, /createAdaptorServer|SIGTERM/, 'no Node listener or signal lifecycle');
 });
 
-test('release stamping precedes hashing: equal final bytes share an identity and a release change moves it', () => {
+test('the address names the compatibility line: a release changes the card bytes, never its address', () => {
   const unstamped = '<html><body class="card">one</body></html>';
   const stamped = '<html><body class="card" data-revision="old">one</body></html>';
   const a = prepareAnswerView(unstamped, 'r1');
   const b = prepareAnswerView(stamped, 'r1');
   assert.equal(a.html, b.html, 'both end as the same final bytes');
-  assert.equal(a.uri, b.uri);
-  assert.equal(a.uri, `ui://views/answer-card.${createHash('sha256').update(a.html).digest('hex').slice(0, 32)}.html`);
+  assert.equal(a.uri, 'ui://views/answer-card.v1.html');
   assert.match(a.html, /data-revision="r1"/);
-  assert.notEqual(prepareAnswerView(unstamped, 'r2').uri, a.uri, 'a legitimate release change moves the hash');
-  assert.equal(prepareAnswerView(unstamped, 'r1').uri, a.uri, 'preparing again changes nothing');
+  // A host holding a tool descriptor from before a deploy still names an address that is served (#335).
+  const next = prepareAnswerView(unstamped, 'r2');
+  assert.notEqual(next.html, a.html, 'a release change reaches the bytes');
+  assert.equal(next.uri, a.uri, 'and keeps the address');
+  assert.equal(prepareAnswerView('<html><body class="card">two</body></html>', 'r1').uri, a.uri, 'so does a compatible card change');
 });
 
 test('settings come from the supplied bindings, with the same rules under both hosts', () => {

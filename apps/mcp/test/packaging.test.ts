@@ -25,19 +25,20 @@ test('packaged HTML is self-contained and assets contain bytes',()=>{
   }
 });
 
-// ---- The SAGA packages: one exact public npm release, never a tag, range, tarball or local file.
-// The expected values below were read from the public npm registry (`npm view @saga-a2ui/<name>@0.7.6 dist.integrity`),
-// not from the files they are compared with.
-const SDK_VERSION='0.7.6';
-const SDK_INTEGRITY:Record<string,string>={
-  core:'sha512-m+ynUS2+f36exYwqimAnnjxtVKJ1+Xm2Zscja+kWI9iFoDxVtT6C2lYxO6exSSXyi4LreJMgFhQsKh0hsaMVDg==',
-  components:'sha512-Gpm2uc2VbXNrxfWNy2uHfdJYdzNf5ewZKTpsaO5nsLSF0ymDjwzJ45h0BiVD77zyO4KXmDb2QipuCraTbqFApQ==',
-  mcp:'sha512-LBBOUhhagKZszb+Y6ooZSNDvJs3GZ6EE+Ysk8gsSVkxWrGRdcg5j3GgY/jcYF8K1NzEFQw75rm1KhM+C210ZAA==',
-  react:'sha512-6oz4GAWZzLjsysHSPKw6zOqYFF5D+bAcp9CtGJ5Exc/9Z+x2OM4Sn7oHMdul47iDMEJi9WNbrI5+DSGvii1a3g==',
-  'react-mcp-stack':'sha512-ZYv9uL9FAjVRrfboabT6YRu6zHO8JOQKXc9D2pYskpacCRpezsVrQpNtjbh2TUDOdaY+SYEDIAl8+Js1U0oJqQ==',
+// ---- The SAGA packages: exact public npm releases, never a tag, range, tarball or local file.
+// SAGA versions its packages independently: the stack pins each sibling to one exact version, which need not be its own.
+// The versions and integrity below were read from the public npm registry (`npm view @saga-a2ui/react-mcp-stack@1.0.1
+// dependencies`, then `npm view @saga-a2ui/<name>@<version> dist.integrity`), not from the files they are compared with.
+const SDK_VERSION='1.0.1';
+const SDK_PACKAGES:Record<string,{version:string;integrity:string}>={
+  core:{version:'1.0.0',integrity:'sha512-vrL4nuxLzFWs98vJKp1P5v3eVFxPAgyu7b17TkHaYqIIAwWDjAN7ZRdyABk5a8MKG7NIWyPFiqLEK04mfn62rA=='},
+  components:{version:'1.0.0',integrity:'sha512-SLNlcsw6IrRSd087fTp2uGgBHoqdpUnE+o3G3OZvmRqdRCPZhfjO45mofSGnH2VsrpUQjHTtWSUv0X1NPPHq5g=='},
+  mcp:{version:'1.0.2',integrity:'sha512-gbskrVWOXLnrkS6tSl5FUQMSvx/lankpzQGJFMg/9nHMBup+BoV5kkdjdKyzrHMlrzD5WmpEXIZtAJ403r+hPQ=='},
+  react:{version:'1.0.0',integrity:'sha512-Pay/Mz2yNcnsoDLkJo8twFEYUoIx3te6n/w/FOo2jfuSrVh7A0HSS7UVEFuo/oT6pkouwJoEZPO5Sqf6NUojOw=='},
+  'react-mcp-stack':{version:SDK_VERSION,integrity:'sha512-5uu8h9NAZGs9sfvjmFKfxQzWMTpm/0DjKrb5x1TtlyDRkiRCUSuD2qmxQVFI7f5/TIMymc4XYxGAROwacx/XNg=='},
 };
-const SIBLINGS=Object.keys(SDK_INTEGRITY);
-const pinned:string=JSON.parse(readFileSync(join(root,'package.json'),'utf8')).dependencies['@saga-a2ui/react-mcp-stack'];
+const SIBLINGS=Object.keys(SDK_PACKAGES);
+const ref=(sibling:string)=>`@saga-a2ui/${sibling}@${SDK_PACKAGES[sibling].version}`;
 const node=(...args:string[])=>execFileSync(process.execPath,args,{cwd:root,encoding:'utf8'});
 
 test('the manifest pins one exact public version for every SAGA package it imports',()=>{
@@ -65,12 +66,12 @@ test('every lockfile resolves the five SAGA packages to the public registry with
   assert.ok(lockfiles.length>0,'at least one lockfile installs this application');
   for(const {label,text} of lockfiles) {
     for(const sibling of SIBLINGS) {
-      const key=`'@saga-a2ui/${sibling}@${SDK_VERSION}':\n    resolution: {integrity: ${SDK_INTEGRITY[sibling]}}`;
+      const key=`'${ref(sibling)}':\n    resolution: {integrity: ${SDK_PACKAGES[sibling].integrity}}`;
       assert.ok(text.includes(key),`${label} lockfile locks ${sibling} to the registry release with its integrity`);
     }
     // Nothing else from @saga-a2ui, no second SAGA version, and no local source of any kind for it.
-    const resolved=[...new Set([...text.matchAll(/^ {2}'(@saga-a2ui\/[a-z-]+)@([^':(]+)':$/gm)].map(match=>`${match[1]}@${match[2]}`))].sort();
-    assert.deepEqual(resolved,SIBLINGS.map(sibling=>`@saga-a2ui/${sibling}@${SDK_VERSION}`).sort(),`${label} lockfile: exactly the five packages at one version`);
+    const resolved=[...new Set([...text.matchAll(/^ {2}'(@saga-a2ui\/[a-z-]+)@([^'(]+)':$/gm)].map(match=>`${match[1]}@${match[2]}`))].sort();
+    assert.deepEqual(resolved,SIBLINGS.map(ref).sort(),`${label} lockfile: exactly the five packages, each at the version the stack pins`);
     assert.doesNotMatch(text,/@saga-a2ui\/[a-z-]+@file:|tarball: file:|@saga-a2ui\/lit/,`${label} lockfile: no local file or Lit package`);
     assert.doesNotMatch(text,/(?:\/tmp\/|\/opt\/|\/Users\/|\/home\/|[A-Za-z]:\\)/,`${label} lockfile records no machine path`);
   }
@@ -88,15 +89,15 @@ test('no workspace file overrides a SAGA package',()=>{
   assert.equal(existsSync(join(root,'candidates')),false,'no local SAGA inputs are committed');
 });
 
-test('the installed tree has strict same-version siblings and one framework runtime',()=>{
+test('the installed siblings are the versions the stack pins, with one framework runtime',()=>{
   const modules=join(root,'node_modules');
   const scope=dirname(realpathSync(join(modules,'@saga-a2ui/react-mcp-stack')));
   for(const sibling of SIBLINGS) {
     const installed=JSON.parse(readFileSync(join(scope,sibling,'package.json'),'utf8'));
     assert.equal(installed.name,`@saga-a2ui/${sibling}`);
-    assert.equal(installed.version,pinned,`${sibling} is the pinned SAGA version`);
-    // Every SDK sibling it depends on or needs as a peer is the same version.
-    for(const field of ['dependencies','peerDependencies']) for(const [dependency,range] of Object.entries<string>(installed[field]??{})) if(dependency.startsWith('@saga-a2ui/')) assert.equal(range,pinned,`${sibling} ${field} ${dependency}`);
+    assert.equal(installed.version,SDK_PACKAGES[sibling].version,`${sibling} is the version the stack pins`);
+    // Every SDK sibling it depends on or needs as a peer is pinned to exactly the installed version of that sibling.
+    for(const field of ['dependencies','peerDependencies']) for(const [dependency,range] of Object.entries<string>(installed[field]??{})) if(dependency.startsWith('@saga-a2ui/')) assert.equal(range,SDK_PACKAGES[dependency.slice('@saga-a2ui/'.length)]?.version,`${sibling} ${field} ${dependency}`);
   }
   // Only those five are installed.
   assert.deepEqual(readdirSync(scope).sort(),SIBLINGS.slice().sort());
@@ -117,7 +118,7 @@ test('production code imports SAGA only through the one stack, and the browser b
   const sources=(dir:string):string[]=>readdirSync(join(root,dir),{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?sources(`${dir}/${entry.name}`):/\.(?:ts|tsx)$/.test(entry.name)?[`${dir}/${entry.name}`]:[]);
   for(const file of [...sources('src'),'scripts/build.ts']) {
     const imported=[...readFileSync(join(root,file),'utf8').matchAll(/from\s+'(@saga-a2ui\/[^']+)'/g)].map(match=>match[1]);
-    for(const specifier of imported) assert.match(specifier,/^@saga-a2ui\/react-mcp-stack(?:\/(?:faithful-card|faithful-card\.css|content-policy|server))?$/,`${file} imports ${specifier}`);
+    for(const specifier of imported) assert.match(specifier,/^@saga-a2ui\/react-mcp-stack(?:\/(?:faithful-card|faithful-card\.css|content-policy|server|server\/http))?$/,`${file} imports ${specifier}`);
     if(file.startsWith('src/view/')) assert.ok(!imported.some(specifier=>specifier.endsWith('/server')),`${file} (browser graph) imports no server entry`);
   }
   const html=readFileSync(join(root,'dist/view.html'),'utf8');
@@ -145,5 +146,5 @@ test('distributed HTML retains complete installed SAGA and font licence notices'
   assert.ok(notices.includes(readFileSync(join(dirname(stack), 'components/THIRD_PARTY_NOTICES.md'), 'utf8').trim()));
   assert.ok(notices.includes(readFileSync(join(root, 'assets/fonts/OFL.txt'), 'utf8').trim()));
   assert.ok(notices.includes(readFileSync(join(root, 'assets/NOTICE.md'), 'utf8').trim()));
-  for (const name of SIBLINGS) assert.ok(notices.includes(`@saga-a2ui/${name}@${SDK_VERSION}`));
+  for (const name of SIBLINGS) assert.ok(notices.includes(ref(name)), ref(name));
 });

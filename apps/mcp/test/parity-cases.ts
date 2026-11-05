@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {request as httpRequest} from 'node:http';
 import {after, before, describe, it} from 'node:test';
@@ -130,9 +129,9 @@ export function defineParityCases(kind: RuntimeKind): void {
           assert.ok(uri);
           assert.deepEqual((await client.listResources()).resources.map(resource => resource.uri), [uri]);
           const text = ((await client.readResource({uri})).contents[0] as {text: string}).text;
-          // Release stamping precedes hashing: the served bytes are the built card with the release stamped, and the identity is theirs.
+          // The served bytes are the built card with the release stamped; the address names the card's compatibility line.
           assert.equal(text, stampHtmlRevision(builtCard, RELEASE));
-          assert.equal(uri, `ui://views/answer-card.${createHash('sha256').update(text).digest('hex').slice(0, 32)}.html`);
+          assert.equal(uri, 'ui://views/answer-card.v1.html');
           await assert.rejects(client.readResource({uri: 'ui://obsolete.html'}));
         });
       });
@@ -181,8 +180,10 @@ export function defineParityCases(kind: RuntimeKind): void {
       });
     });
 
-    describe(`${kind} ${mode}: Host and Origin checks, body bounds and requested progress`, () => {
-      it('rejects an untrusted Host or Origin and a malformed body before calling Ansari, and accepts a configured Origin', async () => {
+    // The SDK's fetch app owns Host/Origin admission and body bounds and tests them itself; these check that each built
+    // target applies Ansari's configured lists.
+    describe(`${kind} ${mode}: Ansari's Host and Origin settings and requested progress`, () => {
+      it('rejects a Host or Origin outside Ansari\'s settings before calling Ansari, and accepts a configured Origin', async () => {
         const origin = runtime().origin;
         const before = upstream.seen.length;
         const params = {name: 'answer_islamic_question', arguments: {question: 'guarded'}};
@@ -192,8 +193,6 @@ export function defineParityCases(kind: RuntimeKind): void {
         });
         assert.equal(hostStatus, 403);
         assert.equal((await post(origin, 'tools/call', params, {headers: {origin: 'https://other.example'}})).status, 403);
-        const malformed = await fetch(`${origin}/mcp`, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'}, body: '{'});
-        assert.equal(malformed.status, 400);
         assert.equal(upstream.seen.length, before, 'no rejected request reached Ansari');
         assert.equal((await post(origin, 'tools/call', params, {headers: {origin: 'http://localhost:1234'}})).status, 403, 'configured origins do not inherit localhost');
         assert.equal(upstream.seen.length, before);
@@ -204,13 +203,6 @@ export function defineParityCases(kind: RuntimeKind): void {
         }
       });
 
-      for (const modern of [true, false]) it(`${modern ? 'modern' : 'older-host'} refuses a body over the SDK limit before calling Ansari`, async () => {
-        const before = upstream.seen.length;
-        const response = await post(runtime().origin, 'tools/call', {name: 'answer_islamic_question', arguments: {question: 'x'.repeat(4 * 1024 * 1024)}}, {modern});
-        assert.equal(response.status, 413);
-        assert.match(await response.text(), /Payload Too Large/);
-        assert.equal(upstream.seen.length, before);
-      });
 
       it('delivers the answer, and sends progress only when requested and only over SSE', async () => {
         const origin = runtime().origin;

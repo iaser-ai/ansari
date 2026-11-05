@@ -2,6 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // First-load diagnosis (#335), active only in a card served with an `ansari-diagnostics` address (a deployment
+      // under diagnosis); otherwise it returns at once. It runs before the bundle is parsed and reports by itself at
+      // `load`, at `pagehide` and after 15 s without a start, so a bundle that never runs still produces a report.
+      // Names, kinds and times only; the bundle adds its milestones through src/view/diagnostics.ts.
+      (function () {
+        var address = document.querySelector('meta[name="ansari-diagnostics"]');
+        if (!address) return;
+        var endpoint = address.getAttribute('content');
+        var bytes = crypto.getRandomValues(new Uint8Array(8));
+        var id = Array.prototype.map.call(bytes, function (b) { return (b + 256).toString(16).slice(1); }).join('');
+        var record = window.__ansariDiag = {id: id, marks: {script: performance.now()}, errors: [], settled: false};
+        var token = function (value) { return typeof value === 'string' && value ? value.slice(0, 80) : undefined; };
+        var push = function (entry) { if (record.errors.length < 20) record.errors.push(entry); };
+        addEventListener('error', function (event) {
+          var target = event.target && event.target !== window ? event.target.tagName : undefined;
+          push({type: 'error', name: token(event.error && event.error.name) || (target ? 'resource-' + target : 'Error')});
+        }, true);
+        addEventListener('unhandledrejection', function (event) {
+          push({type: 'rejection', name: token(event.reason && event.reason.name) || typeof event.reason});
+        });
+        addEventListener('securitypolicyviolation', function (event) {
+          push({type: 'csp', directive: token(event.effectiveDirective), blocked: token(String(event.blockedURI).split(':')[0])});
+        });
+        // When the host's messages arrive, by method name only. This reads the MCP Apps protocol directly for this
+        // experiment; if the observation proves necessary it belongs in the SDK's view lifecycle, not in the card.
+        var arrivals = {'ui/notifications/tool-input': 'toolInput', 'ui/notifications/tool-result': 'toolResult', 'ui/notifications/tool-cancelled': 'toolCancelled', 'ui/resource-teardown': 'teardownRequested'};
+        addEventListener('message', function (event) {
+          var data = event.data;
+          if (event.source !== window.parent || !data || data.jsonrpc !== '2.0') return;
+          var now = performance.now();
+          if (record.marks.hostMessage === undefined) record.marks.hostMessage = now;
+          var name = arrivals[data.method];
+          if (name && record.marks[name] === undefined) record.marks[name] = now;
+        });
+        record.report = function (reason) {
+          performance.getEntriesByType('paint').forEach(function (entry) {
+            var name = entry.name === 'first-paint' ? 'firstPaint' : entry.name === 'first-contentful-paint' ? 'firstContentfulPaint' : undefined;
+            if (name && record.marks[name] === undefined) record.marks[name] = entry.startTime;
+          });
+          var report = {v: 1, id: id, release: (document.body && (document.body.dataset.revision || document.body.dataset.release)) || 'unknown',
+            reason: reason, visibility: document.visibilityState === 'hidden' ? 'hidden' : 'visible', marks: record.marks, errors: record.errors};
+          if (record.host) report.host = record.host;
+          if (record.failure) report.failure = record.failure;
+          var body = JSON.stringify(report);
+          console.info('[ansari-view]', body);
+          try {
+            if (!navigator.sendBeacon(endpoint, new Blob([body], {type: 'text/plain'}))) {
+              fetch(endpoint, {method: 'POST', body: body, mode: 'no-cors', keepalive: true}).catch(function () {});
+            }
+          } catch (error) { /* Diagnosis never disturbs the card. */ }
+        };
+        addEventListener('load', function () { record.report('load'); });
+        addEventListener('pagehide', function () { record.report('pagehide'); }, {once: true});
+        setTimeout(function () { if (!record.settled) record.report('timeout'); }, 15000);
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!--
       No Content-Security-Policy here: the build derives it from the application's content policy and

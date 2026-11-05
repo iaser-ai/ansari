@@ -1,6 +1,5 @@
 // Run through docker exec: the container has no external network or mounted files.
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {setTimeout as delay} from 'node:timers/promises';
 const answer='3. Synthetic complete answer\n   1. Nested item\n\nالإجابة العربية\n\n*Answered by [Ansari](https://askansari.ai).*\n';
@@ -47,7 +46,8 @@ try {
   assert.deepEqual(result.content,[{type:'text',text:answer}]);
   assert.equal(result._meta.ui.resourceUri,uri);
   const resource=await rpc('resources/read',{uri});const html=resource.contents[0].text;
-  assert.equal(uri,`ui://views/answer-card.${createHash('sha256').update(html).digest('hex').slice(0,32)}.html`);
+  // The address names the card's compatibility line; the release stamp is in the bytes.
+  assert.equal(uri,'ui://views/answer-card.v1.html');
   assert.ok(html.includes('ci-public-smoke'));
   assert.ok(!html.includes('version https://git-lfs.github.com/spec/v1'));
   const failure=await rpc('tools/call',{name:'answer_islamic_question',arguments:{question:'fail'}});

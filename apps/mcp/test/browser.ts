@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import {Client, StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createContentPolicy} from '@saga-a2ui/react-mcp-stack/content-policy';
-import {viewUriForHtml} from '@saga-a2ui/react-mcp-stack/server';
 import {chromium, type Frame, type Page} from '@playwright/test';
 import {build, preview} from 'vite';
 import {createHttpServer as createBaseHttpServer} from '../src/node/http-server.ts';
 import {stampHtmlRevision} from '../src/server/operation-log.ts';
-import {VIEW_FILENAME} from '../src/server/view-artifact.ts';
+import {VIEW_DIAGNOSTICS_PATH, VIEW_FILENAME, prepareAnswerView} from '../src/server/view-artifact.ts';
+import {parseViewReport} from '../src/server/view-report.ts';
 import {ANSWER_A, ANSWER_B, ANSWER_C, ANSWER_HOSTILE, ATTRIBUTION_CASES, QUESTION_A, QUESTION_B} from './react-answers.ts';
 
 const root = new URL('./', import.meta.url).pathname;
@@ -30,8 +30,10 @@ const ports: number[] = [];
 const evidence: Record<string, unknown> = {};
 const check = (name: string, f: () => void) => { f(); checks.push({name, pass: true}); if (process.env.REACT_BROWSER_TRACE) console.error('ok', name); };
 
-let browser: any, host: any, child: any, service: any, mcpClient: Client | undefined;
+let browser: any, host: any, child: any, beacon: any, service: any, mcpClient: Client | undefined;
 const served = new Map<string, string>();
+const beacons: string[] = [];
+const viewReportLines: string[] = [];
 const requests: {url: string; from: string}[] = [];
 
 async function main() {
@@ -46,6 +48,16 @@ async function main() {
   });
   await new Promise<void>(r => child.listen(0, '127.0.0.1', r));
   ports.push(child.address().port);
+  // The Dev diagnostics beacon (#335): records each report body exactly as the card sent it.
+  beacon = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => { if (req.method === 'POST' && req.url === VIEW_DIAGNOSTICS_PATH) beacons.push(body); res.writeHead(204, {'access-control-allow-origin': '*'}).end(); });
+  });
+  await new Promise<void>(r => beacon.listen(0, '127.0.0.1', r));
+  const diagnosticsOrigin = `http://127.0.0.1:${beacon.address().port}`;
+  ports.push(beacon.address().port);
 
   const logs: any[] = [];
   service = createBaseHttpServer({
@@ -61,11 +73,11 @@ async function main() {
   await client.connect(transport);
 
   // ---- The served resource: exact bytes, identity, resource rules ---------------------------------
-  const viewUri = viewUriForHtml(stampHtmlRevision(html), VIEW_FILENAME);
+  const viewUri = 'ui://views/answer-card.v1.html';
   const resource = await client.readResource({uri: viewUri});
   const bytes = String((resource.contents[0] as {text: string}).text);
   check('resource:exact-served-bytes', () => assert.equal(bytes, stampHtmlRevision(html)));
-  check('resource:uri-is-sha256-fingerprint-of-served-bytes', () => assert.equal(viewUri, `ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.${sha(bytes).slice(0, 32)}.html`));
+  check('resource:uri-names-the-compatibility-line', () => assert.equal(viewUri, `ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.v1.html`));
   const meta = (resource.contents[0] as any)._meta;
   check('resource:closed-csp-no-origins', () => assert.deepEqual(meta.ui.csp, {connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: []}));
   const callTool = (question: string) => client.callTool({name: 'answer_islamic_question', arguments: {question}});
@@ -92,9 +104,9 @@ async function main() {
   await page.setViewportSize({width: 1700, height: 9000});
   page.setDefaultTimeout(7000);
   page.on('pageerror', e => errors.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+  page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); if (m.text().startsWith('[ansari-view]')) viewReportLines.push(m.text()); });
   // Runtime networking is unavailable to the view: only the host fixture and the view document are reachable.
-  const allowedOrigins = () => [`http://127.0.0.1:${ports[0]}`, `http://127.0.0.1:${ports[1]}`];
+  const allowedOrigins = () => [`http://127.0.0.1:${ports[0]}`, `http://127.0.0.1:${ports[1]}`, diagnosticsOrigin];
   await context.route('**/*', (route: any) => {
     const url = route.request().url();
     const frame = route.request().frame();
@@ -316,7 +328,7 @@ async function main() {
   check('links:successful-credit-is-silent', () => assert.equal(creditNotice, ''));
   const creditOpened = await page.evaluate(id => (window as any).hostProbe.state(id).openLinks, first.id);
   check('links:saga-credit-follows-unchanged-answer-and-uses-host', () => {
-    assert.deepEqual(creditOpened, ['https://ansari.chat/', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6']);
+    assert.deepEqual(creditOpened, ['https://ansari.chat/', 'https://github.com/MachineWisdomAI/saga-a2ui']);
     assert.ok(!shownA.cardText.includes('Built with'));
   });
 
@@ -325,7 +337,7 @@ async function main() {
   await deliver(unavailable.id, resultA);
   for (const [button, status, destination] of [
     ['.saga-card-link', '.saga-card-link-status', 'https://ansari.chat/'],
-    ['.saga-credit button', '.saga-credit [role="status"]', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6'],
+    ['.saga-credit button', '.saga-credit [role="status"]', 'https://github.com/MachineWisdomAI/saga-a2ui'],
   ] as const) {
     await unavailable.frame.locator(button).click();
     await unavailable.frame.locator(status).filter({hasText: 'This host cannot open links.'}).waitFor();
@@ -799,6 +811,54 @@ async function main() {
     assert.equal(opensAfter, opensBefore);
   });
 
+  // ---- First-load diagnosis: a diagnostic card reports how far it got, in a shape the server accepts --------
+  // Every card above is a closed card: it made no request (network check), sent no report and wrote no report line.
+  check('diagnostics:closed-cards-are-silent', () => {
+    assert.deepEqual(beacons, []);
+    assert.deepEqual(viewReportLines, []);
+  });
+  const diagnosticBytes = prepareAnswerView(html, undefined, diagnosticsOrigin).html;
+  const waitForReports = async (count: number) => { for (let waited = 0; beacons.length < count && waited < 4000; waited += 50) await new Promise(r => setTimeout(r, 50)); };
+  const diagnostic = await openView(760, 900, diagnosticBytes);
+  await deliver(diagnostic.id, resultA);
+  await diagnostic.frame.locator('[data-testid="answer-card"]').waitFor();
+  await waitForReports(3);
+  const reports = beacons.splice(0).map(parseViewReport);
+  const lastReport = reports.at(-1);
+  check('diagnostics:card-reports-load-ready-and-result-accepted-by-the-server', () => {
+    assert.ok(reports.length === 3 && reports.every(r => r !== undefined), 'every report is exactly the accepted shape');
+    assert.deepEqual(reports.map(r => r!.reason).sort(), ['load', 'ready', 'result']);
+    assert.equal(lastReport!.reason, 'result');
+    assert.equal(new Set(reports.map(r => r!.view)).size, 1, 'one card, one id');
+    // The one known violation: zod's capability probe (`try { new Function('') } catch`) under the card's script-src,
+    // which has no 'unsafe-eval'. It is caught and harmless; any other error, rejection or violation fails here.
+    assert.deepEqual(lastReport!.errors, [{type: 'csp', directive: 'script-src', blocked: 'eval'}]);
+  });
+  check('diagnostics:milestones-are-recorded-in-start-order', () => {
+    const m = lastReport!.marks;
+    for (const name of ['script', 'main', 'hostMessage', 'fonts', 'context', 'ready', 'toolResult', 'result']) assert.equal(typeof m[name], 'number', name);
+    assert.ok(m.script! <= m.main! && m.main! <= m.hostMessage! && m.hostMessage! <= m.context! && m.fonts! <= m.ready! && m.context! <= m.ready!);
+    assert.ok(m.ready! <= m.result! && m.toolResult! <= m.result!);
+  });
+  check('diagnostics:reports-carry-no-answer-text', () => assert.ok(!JSON.stringify(reports).includes(ANSWER_A.slice(0, 40))));
+  evidence.diagnostics = lastReport;
+
+  // A bundle that fails before it runs: the early script still reports, and the report shows the bundle never ran.
+  const bundle = /(<script type="module"[^>]*>)[\s\S]*?(<\/script>)/;
+  assert.ok(bundle.test(diagnosticBytes), 'the card has one inline module bundle');
+  const brokenBundle = diagnosticBytes.replace(bundle, '$1export const broken = ;$2');
+  const broken = await openStartFailure(brokenBundle, true);
+  await waitForReports(1);
+  const brokenReport = parseViewReport(beacons.splice(0)[0] ?? '');
+  check('diagnostics:a-bundle-that-never-runs-is-still-reported', () => {
+    assert.equal(brokenReport?.reason, 'load');
+    assert.equal(typeof brokenReport?.marks.script, 'number');
+    assert.equal(brokenReport?.marks.main, undefined, 'the bundle never evaluated');
+    assert.ok(brokenReport?.errors.some(e => e.type === 'error' && e.name === 'SyntaxError'), JSON.stringify(brokenReport?.errors));
+  });
+  await page.evaluate(id => document.getElementById(id)?.remove(), broken.id);
+  errors.splice(0, errors.length, ...errors.filter(e => !/SyntaxError|Unexpected token/.test(e)));
+
   const states = await page.evaluate(() => Array.from(document.querySelectorAll('iframe')).map(f => (window as any).hostProbe.state(f.id)));
   check('host:no-view-initiated-tool-calls-and-no-host-errors', () => {
     for (const s of states) { assert.equal(s.answerCalls, 0); assert.deepEqual(s.hostErrors, []); }
@@ -822,6 +882,7 @@ try {
   if (service) { service.server.closeAllConnections?.(); await bounded(service.close?.()); }
   if (host) await bounded(new Promise<void>(r => (host.httpServer.closeAllConnections(), host.httpServer.close(() => r()))));
   if (child) await bounded(new Promise<void>(r => (child.closeAllConnections(), child.close(() => r()))));
+  if (beacon) await bounded(new Promise<void>(r => (beacon.closeAllConnections(), beacon.close(() => r()))));
   fs.writeFileSync(`${out}/react-results.json`, JSON.stringify({checks, errors, ports, evidence, failed: failure === undefined ? undefined : String(failure), scope: 'built from packed SAGA packages; real MCP server and connection; sandboxed iframe in a local AppBridge fixture; local Chromium; not actual-host evidence'}, null, 2) + '\n');
 }
 if (failure !== undefined) process.exit(1);

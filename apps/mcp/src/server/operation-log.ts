@@ -1,4 +1,11 @@
+/**
+ * How much a record matters. `debug` records exist only for first-load measurement (#335): they are written only
+ * while a deployment is configured to measure (`MCP_LOG_LEVEL=debug`), so a reader can drop them as one class.
+ */
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+
 export type OperationRecord = {
+  level: LogLevel;
   event: string;
   method?: string;
   requestId?: string | number | null;
