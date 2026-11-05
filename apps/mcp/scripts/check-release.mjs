@@ -103,6 +103,23 @@ function lockedPackages(lock) {
   return result;
 }
 
+/**
+ * Every exact `@saga-a2ui/*` version a resolved SAGA package pins, from the lockfile's snapshots: who pins what, at which
+ * version. SAGA versions its packages independently, so the siblings need not share one version; each pin must name the
+ * version the lockfile resolves.
+ */
+function sagaPins(lock) {
+  const pins = [];
+  for (const [, key, block] of section(lock, 'snapshots').matchAll(/^ {2}'?([^'\n]+?)'?:\n((?: {4}.*\n?)*)/gm)) {
+    const owner = /^(@saga-a2ui\/[^@]+)@/.exec(key)?.[1];
+    if (!owner) continue;
+    for (const [, name, value] of block.matchAll(/^ {6}'?(@saga-a2ui\/[^':]+)'?: '?([^'(\s]+)/gm)) {
+      pins.push({owner, name, version: value.startsWith('file:') ? localVersion(value) ?? value : value});
+    }
+  }
+  return pins;
+}
+
 /** pnpm-workspace.yaml `overrides:` entries for SAGA packages. */
 function sagaOverrides(workspace) {
   return [...(workspace ?? '').matchAll(/^ {2}'?(@saga-a2ui\/[^':]+)'?: '?([^'\n]+)'?$/gm)].map(([, name, value]) => ({name, value}));
@@ -141,7 +158,8 @@ export function validateRelease({appRoot = defaultRoot, target} = {}) {
     for (const name of manifestOverrides) problems.push(`package.json overrides ${name}: remove every SAGA override for ${target}.`);
   }
 
-  // 3. The resolved graph: one version across every SAGA sibling, equal to the direct pin, from the registry.
+  // 3. The resolved graph: one version of each SAGA package, each pinned sibling at exactly its resolved version, the stack
+  // at the direct pin, from the registry.
   let packages = [];
   if (lock === undefined) problems.push('pnpm-lock.yaml is missing: commit the resolved graph.');
   else {
@@ -156,9 +174,15 @@ export function validateRelease({appRoot = defaultRoot, target} = {}) {
     for (const entry of locked.filter(item => item.name !== STACK)) problems.push(`pnpm-lock.yaml records a redundant direct dependency ${entry.name}.`);
     packages = lockedPackages(lock);
     if (!packages.some(entry => entry.name === STACK)) problems.push(`pnpm-lock.yaml resolves no ${STACK}.`);
-    const versions = [...new Set(packages.map(entry => entry.version ?? `unrecognised:${entry.ref}`))];
-    if (versions.length > 1) problems.push(`The resolved SAGA siblings are inconsistent: ${packages.map(entry => `${entry.name}@${entry.version ?? entry.ref}`).join(', ')}. They must share one version.`);
-    if (versions.length === 1 && stack !== undefined && versions[0] !== stack) problems.push(`The resolved SAGA siblings are ${versions[0]}, but the direct pin is ${stack}.`);
+    const resolved = new Map();
+    for (const entry of packages) resolved.set(entry.name, [...(resolved.get(entry.name) ?? []), entry.version ?? `unrecognised:${entry.ref}`]);
+    for (const [name, versions] of resolved) if (new Set(versions).size > 1) problems.push(`The resolved SAGA siblings are inconsistent: ${name} resolves to ${[...new Set(versions)].join(' and ')}. Each SAGA package must resolve to one version.`);
+    for (const pin of sagaPins(lock)) {
+      const actual = resolved.get(pin.name);
+      if (actual !== undefined && !actual.includes(pin.version)) problems.push(`The resolved SAGA siblings are inconsistent: ${pin.owner} pins ${pin.name}@${pin.version}, but the lockfile resolves ${pin.name}@${actual.join(', ')}.`);
+    }
+    const resolvedStack = resolved.get(STACK);
+    if (resolvedStack !== undefined && stack !== undefined && !resolvedStack.includes(stack)) problems.push(`The resolved ${STACK} is ${resolvedStack.join(', ')}, but the direct pin is ${stack}.`);
     const notRegistry = packages.filter(entry => entry.source !== 'registry');
     if (release && notRegistry.length > 0) problems.push(`${notRegistry.length} resolved SAGA package(s) are not public registry releases with an integrity hash (${[...new Set(notRegistry.map(entry => entry.source))].join(', ')}); ${target} accepts only registry releases: ${notRegistry.map(entry => entry.name).join(', ')}.`);
     const localRelease = packages.filter(entry => entry.source === 'file' && entry.version !== undefined && !CANDIDATE.test(entry.version));
