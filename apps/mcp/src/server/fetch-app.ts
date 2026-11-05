@@ -48,7 +48,7 @@ export function createFetchApp(options: FetchAppOptions): FetchApp {
   const log = (record: OperationRecord) => {
     if (record.level !== 'debug' || measuring) writeOperationLog(record, logger, release);
   };
-  // The view is prepared once: release stamping first, then the resource identity from the final bytes.
+  // The view is prepared once, release-stamped, at its compatibility-line address.
   const view = prepareAnswerView(options.html, release, options.viewDiagnosticsOrigin);
   // Both modern MCP and its older-host fallback are stateless; only the prepared view is shared.
   const mcp = createMcpFetchApp({
@@ -63,7 +63,7 @@ export function createFetchApp(options: FetchAppOptions): FetchApp {
   });
   const app = new Hono();
   app.get('/health', c => c.json({ok: true, mcp: MCP_PATH, release}));
-  // The exact card this instance serves: a diagnostic card differs from the closed one in bytes, address and permissions.
+  // The exact card this instance serves: a diagnostic card differs from the closed one in bytes and permissions, not address.
   log({level: 'debug', event: 'view.prepared', at: Date.now(), uri: view.uri, bytes: new TextEncoder().encode(view.html).byteLength, diagnostics: options.viewDiagnosticsOrigin !== undefined, connectDomains: view.csp.connectDomains.join(',')});
   app.all(MCP_PATH, async c => {
     log({level: 'info', event: 'mcp.request', method: c.req.method});
