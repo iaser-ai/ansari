@@ -8,23 +8,33 @@ A standalone MCP application. `answer_islamic_question` calls the Ansari API and
 
 ## Screenshots
 
+### Web, on SAGA 1.0.1
+
+New conversations in Claude web and ChatGPT web on November 5, 2026. The card was served by the Dev deployment of this application on SAGA `1.0.1` (release `68dba3e8ce291be7c3c4c35d995fe9a7c8a1e84b`), at its stable address `ui://views/answer-card.v1.html`. Each host shows the card and then its own text reply with Ansari's attribution.
+
+![Answer card in Claude web on SAGA 1.0.1, with the complete answer, floral branding, attribution and SAGA credit](docs/screenshots/claude-web-saga-1.0.jpg)
+
+![Answer card in ChatGPT web on SAGA 1.0.1, with the complete answer, floral branding, attribution and SAGA credit](docs/screenshots/chatgpt-web-saga-1.0.jpg)
+
+### Earlier baseline
+
 English and Arabic answer cards rendered in ChatGPT desktop web through the Dev connection on October 23, 2026. Both rendered on first load with application revision `ee7ea4a78933544c4a96577d7ffd7276df8ae037` and public npm SAGA SDK `0.7.6-rc.1`. Arabic headings, paragraphs and lists use RTL layout and the embedded Kitab fonts. The application owner also supplied the ChatGPT and Claude mobile captures below. These captures retain their original revision identity. The application owner accepts the existing ChatGPT, Claude and earlier Alexa baseline; the [consolidated host and release evidence](https://github.com/MachineWisdomAI/saga-a2ui/pull/321) records each observation and its limits. Earlier Alexa evidence is not presented as a fresh stable-version run, and the 239 successful RC HTTP requests measure transport activity rather than rendered answers.
 
-### English
+#### English
 
 ![English answer card in ChatGPT Dev, showing the complete answer, floral branding, attribution and SAGA credit](docs/screenshots/chatgpt-dev-english.jpg)
 
-### Arabic
+#### Arabic
 
 ![Arabic answer card in ChatGPT Dev, showing RTL text, numbered floral markers and attribution](docs/screenshots/chatgpt-dev-arabic.jpg)
 
-### ChatGPT mobile
+#### ChatGPT mobile
 
 User-provided capture of the Dev answer card in ChatGPT, showing English text and floral branding.
 
 ![Ansari MCP Dev card in ChatGPT mobile](docs/screenshots/chatgpt-dev-mobile.jpg)
 
-### Claude mobile
+#### Claude mobile
 
 User-provided capture of the Dev answer card in Claude, showing Arabic text, RTL layout and numbered floral markers.
 
