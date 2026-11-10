@@ -1,0 +1,39 @@
+# Railway settings for the `mcp` service (apps/mcp), kept in version control.
+#
+# NOT READ BY RAILWAY IN THIS PROJECT (the same as apps/api/railway.toml; see the
+# "Railway service configuration" block in RELEASE.md). The dashboard is the live
+# configuration; this file is the reviewable record of what it should contain.
+# The service exists in Railway's staging environment only
+# (mcp-staging.askansari.ai), not in production: confirm every value there.
+# The Cloudflare Workers target (wrangler.jsonc) is not this deployment.
+#
+# Keep the two in sync: if you change a dashboard setting, update this file in the
+# same PR.
+#
+# Build context: the repo root (docker build -f apps/mcp/Dockerfile .), never
+# apps/mcp: the Dockerfile copies the root manifest, lockfile and workspace file
+# and packages/, and the build runs the root `mcp` script.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/mcp/Dockerfile"
+watchPatterns = [
+  "apps/mcp/**",
+  # Shared workspace packages are COPYied into this image (see the Dockerfile),
+  # so a packages-only change alters the built artifact. Without this pattern the
+  # change ships nothing: no rebuild, no deploy, no error.
+  "packages/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  # The image builds from the repo root, so this file decides what the build can see.
+  ".dockerignore",
+]
+
+[deploy]
+# /health answers {ok, mcp, release}. The app listens on PORT (3000 by default);
+# the domain's target port must match.
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -39,6 +39,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | frontend (web) | `apps/frontend/Dockerfile.web` |
 > | auth | `apps/auth/Dockerfile` |
 > | whatsapp | `legacy/whatsapp/Dockerfile` |
+> | mcp | `apps/mcp/Dockerfile` |
 >
 > **Watch paths** — set these per service, or Railway rebuilds *both* on every push
 > (any commit touches the root lockfile):
@@ -48,18 +49,19 @@ migration runbook were both proven in real releases on 2026-08-02.
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > whatsapp:  legacy/whatsapp/**  .dockerignore
+> mcp:       apps/mcp/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .dockerignore
 > ```
 >
-> For backend, frontend and auth, `packages/**` is **not optional**. The shared config packages are copied into those
+> For backend, frontend, auth and mcp, `packages/**` is **not optional**. The shared config packages are copied into those
 > images, so a packages-only change alters the built artifact. Omit the pattern and
 > that change ships nothing — no rebuild, no deploy, and no error. The image simply
 > drifts from the repo. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
-> It does add `.dockerignore`: the image builds from the repo root, so that file decides what the build can see.
+> whatsapp and mcp add `.dockerignore`: their images build from the repo root, so that file decides what the build can see.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
 > healthcheck `/`, whatsapp healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
-> answers; timeout 300s); restart ON_FAILURE, max 3 retries.
+> answers; timeout 300s), mcp healthcheck `/health` (timeout 300s); restart ON_FAILURE, max 3 retries.
 >
 >
 > **whatsapp service (spec 321, interim Python import; lives in `legacy/` because `apps/*` is reserved for the
@@ -74,6 +76,22 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
 > `DEPLOYMENT_TYPE=local`.
+>
+> **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000 by default; the public domain's
+> target port must match). Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
+> the workspace file and `packages/` and runs the root `mcp` script. Health check `/health`. Hosts connect at
+> `https://<domain>/mcp`. Its settings are recorded in `apps/mcp/railway.toml`. Environment, for staging
+> (`mcp-staging.askansari.ai`; full list in `apps/mcp/README.md`):
+>
+> | Variable | Value |
+> |---|---|
+> | `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai` (the server refuses any other Host on `/mcp`) |
+> | `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai` (the default is production) |
+> | `ANSARI_CLIENT` | `ansari-mcp-staging` |
+>
+> `ANSARI_RELEASE` is **not** set: the release falls back to `RAILWAY_GIT_COMMIT_SHA`. `MCP_ALLOWED_ORIGINS` is left
+> unset at first: it defaults to the allowed hosts, and requests without an Origin pass. The Cloudflare Workers path
+> (`apps/mcp/wrangler.jsonc`) is not this deployment.
 >
 > **auth service (spec 300)** — one listener: the public domain
 > (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as
