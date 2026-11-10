@@ -1,0 +1,14 @@
+id: '364'
+title: apps-mcp-railway-staging-recor
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-10T22:47:14.565Z'
+updated_at: '2026-11-10T22:47:14.566Z'
