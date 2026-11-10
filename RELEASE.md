@@ -47,7 +47,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
-> whatsapp:  legacy/whatsapp/**
+> whatsapp:  legacy/whatsapp/**  .dockerignore
 > ```
 >
 > For backend, frontend and auth, `packages/**` is **not optional**. The shared config packages are copied into those
@@ -55,6 +55,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > that change ships nothing — no rebuild, no deploy, and no error. The image simply
 > drifts from the repo. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
+> It does add `.dockerignore`: the image builds from the repo root, so that file decides what the build can see.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
 > healthcheck `/`, whatsapp healthcheck `/`, auth healthcheck `/health` (200 only when the auth database

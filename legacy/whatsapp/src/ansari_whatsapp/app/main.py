@@ -259,6 +259,7 @@ async def main_webhook(
             incoming_msg_body,
             message_id,
             message_unix_time,
+            sender_phone,
         ) = await parse_meta_payload(data)
 
         # Check if this webhook is intended for our WhatsApp business phone number
@@ -330,6 +331,7 @@ async def main_webhook(
         incoming_msg_body=incoming_msg_body,
         message_id=message_id,
         message_unix_time=message_unix_time,
+        sender_phone=sender_phone,
     )
 
     # Check if the WhatsApp service is enabled

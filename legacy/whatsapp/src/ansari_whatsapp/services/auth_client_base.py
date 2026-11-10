@@ -18,6 +18,9 @@ class AuthClientBase(ABC):
             str: The JWT, sent as the bearer token on every apps/api call.
 
         Raises:
-            AuthTokenError: If the exchange fails.
+            AuthTokenError: If the exchange fails (a subclass says why).
         """
         pass
+
+    def forget(self, bsuid: str) -> None:
+        """Drop any token kept for this BSUID, so the next get_token asks apps/auth for a fresh one."""

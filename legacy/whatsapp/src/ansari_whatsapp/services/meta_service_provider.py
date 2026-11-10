@@ -15,6 +15,8 @@ def get_meta_api_service() -> MetaApiServiceBase:
     This function implements the Service Provider pattern, returning either:
     - MetaApiServiceReal: Makes actual HTTP calls to Meta WhatsApp API (production)
     - MetaApiServiceMock: Simulates API responses without network calls (development/testing)
+    - Side note: By "production" we mean "not mocked",
+        so if you want, you could disable mocking and still be in a staging/test environment.
 
     The choice is controlled by the MOCK_META_API environment variable.
 
