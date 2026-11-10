@@ -162,7 +162,8 @@ describe('RELEASE.md consistency', () => {
         const toml = readToml(rel);
         expect(toml.dockerfilePath).toBeTruthy();
         expect(toml.restart).toBe('ON_FAILURE');
-        expect(doc).toMatch(new RegExp(`^> \\| ${service}( \\(web\\))? \\| \`${toml.dockerfilePath}\` \\|$`, 'm'));
+        const dockerfile = toml.dockerfilePath!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        expect(doc).toMatch(new RegExp(`^> \\| ${service}( \\(web\\))? \\| \`${dockerfile}\` \\|$`, 'm'));
 
         const line = doc.match(new RegExp(`^> ${service}:(.*)$`, 'm'))?.[1];
         expect(line, `no watch-path line for ${service}`).toBeDefined();
@@ -179,6 +180,7 @@ describe('RELEASE.md consistency', () => {
       expect(doc).toContain('| `ANSARI_CLIENT` | `ansari-mcp-staging` |');
       expect(doc).toContain('`ANSARI_RELEASE` is **not** set');
       expect(doc).toContain('`https://<domain>/mcp`');
+      expect(doc.replace(/\n> /g, ' ')).toContain('set `PORT=3000` as a service variable so Railway does not assign its own');
     });
   });
 

@@ -41,7 +41,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | whatsapp | `legacy/whatsapp/Dockerfile` |
 > | mcp | `apps/mcp/Dockerfile` |
 >
-> **Watch paths** — set these per service, or Railway rebuilds *both* on every push
+> **Watch paths** — set these per service, or Railway rebuilds *every* service on every push
 > (any commit touches the root lockfile):
 >
 > ```
@@ -52,10 +52,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 > mcp:       apps/mcp/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .dockerignore
 > ```
 >
-> For backend, frontend, auth and mcp, `packages/**` is **not optional**. The shared config packages are copied into those
+> For backend, frontend and auth, `packages/**` is **not optional**. The shared config packages are copied into those
 > images, so a packages-only change alters the built artifact. Omit the pattern and
 > that change ships nothing — no rebuild, no deploy, and no error. The image simply
-> drifts from the repo. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
+> drifts from the repo. **mcp watches it defensively:** its build stage copies `packages/` and installs from it, but
+> its only workspace dependency is a devDependency (`@ansari/eslint-config`) and its final image is `dist` plus
+> `package.json`, so today a packages-only change does not alter the shipped image. The pattern stays so that a future
+> runtime dependency cannot ship silently. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
 > whatsapp and mcp add `.dockerignore`: their images build from the repo root, so that file decides what the build can see.
 >
@@ -77,8 +80,8 @@ migration runbook were both proven in real releases on 2026-08-02.
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
 > `DEPLOYMENT_TYPE=local`.
 >
-> **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000 by default; the public domain's
-> target port must match). Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
+> **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000): set `PORT=3000` as a
+> service variable so Railway does not assign its own, and make the public domain's target port match. Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
 > the workspace file and `packages/` and runs the root `mcp` script. Health check `/health`. Hosts connect at
 > `https://<domain>/mcp`. Its settings are recorded in `apps/mcp/railway.toml`. Environment, for staging
 > (`mcp-staging.askansari.ai`; full list in `apps/mcp/README.md`):
