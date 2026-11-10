@@ -1,0 +1,28 @@
+{
+  // Used by the `typecheck` script ONLY. `next build` and editors keep using
+  // tsconfig.json, which Next owns and rewrites.
+  //
+  // It keeps `tsc` out of `.next/` entirely, so a concurrent `next build`
+  // rewriting `.next/types/**` cannot break a typecheck (issue #52). Two entries
+  // do that, and BOTH are required:
+  //   - `.next/types/**/*.ts` is dropped from `include`;
+  //   - `next-env.d.ts` is excluded, because it carries a
+  //     `/// <reference path="./.next/types/routes.d.ts" />` that pulls `.next`
+  //     back in regardless of `include`.
+  //
+  // `exclude` REPLACES the inherited list rather than extending it, so the base
+  // entries are repeated here. tests/tsconfig-typecheck.test.ts fails if the two
+  // lists drift.
+  "extends": "./tsconfig.json",
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": [
+    "node_modules",
+    "scripts/**",
+    "tests/**",
+    "vitest.config.ts",
+    ".builders/**",
+    "experiments/**",
+    ".next/**",
+    "next-env.d.ts"
+  ]
+}
