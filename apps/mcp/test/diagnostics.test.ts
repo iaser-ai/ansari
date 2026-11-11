@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {createFetchApp} from '../src/server/fetch-app.ts';
 import type {OperationRecord} from '../src/server/operation-log.ts';
 import {settingsFromEnv} from '../src/server/runtime-config.ts';
-import {MAX_INSPECTED_BODY, readBounded} from '../src/server/exchange-log.ts';
+import {MAX_INSPECTED_BODY, inspectRequest, readBounded} from '../src/server/exchange-log.ts';
 import {VIEW_DIAGNOSTICS_META, VIEW_DIAGNOSTICS_PATH, prepareAnswerView} from '../src/server/view-artifact.ts';
 import {VIEW_REPORTS_PER_MINUTE} from '../src/server/view-report.ts';
 
@@ -240,6 +240,22 @@ test('request inspection is bounded by bytes read, not by the declared length, a
     assert.equal(logs.find(r => r.event === 'mcp.rpc')?.rpc, 'oversize');
     assert.equal(logs.find(r => r.event === 'mcp.response')?.rpc, 'oversize', 'the handler still answered the request');
   } finally { await app.close(); }
+});
+
+test('a body declared over the inspection bound is recorded from its header and never copied or read', async () => {
+  let pulls = 0;
+  const body = new ReadableStream<Uint8Array>({pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(1024)); }});
+  const request = new Request('http://localhost/mcp', {
+    method: 'POST', headers: {'content-type': 'application/json', 'content-length': String(4 * 1024 * 1024 + 1)}, body, duplex: 'half',
+  } as RequestInit);
+  assert.equal(request.headers.get('content-length'), String(4 * 1024 * 1024 + 1), 'the runtime keeps the declared length');
+  // Bounded: an inspector that reads this endless body never settles, which fails here instead of hanging the run.
+  const summary = await Promise.race([inspectRequest(request, 'ui://views/answer-card.v1.html'), new Promise(resolve => setTimeout(() => resolve('still reading'), 1000))]);
+  assert.deepEqual(summary, {rpc: 'oversize'});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(pulls <= 1, true, `the body was not read for inspection (pulls: ${pulls})`);
+  assert.equal(request.bodyUsed, false);
+  assert.equal(request.body!.locked, false, 'the handler still gets the untouched body');
 });
 
 test('beacon reports are limited per minute and the limit is noted once', async () => {

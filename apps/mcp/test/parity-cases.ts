@@ -65,7 +65,8 @@ export function defineParityCases(kind: RuntimeKind): void {
   let json!: Runtime;
   before(async () => {
     upstream = await startUpstream();
-    const started = await Promise.allSettled([false, true].map(mode => startRuntime(kind, {json: mode, upstream: upstream.url})));
+    // The SSE instance measures (debug: each request's body is also read by the exchange log); the JSON instance does not.
+    const started = await Promise.allSettled([false, true].map(mode => startRuntime(kind, {json: mode, upstream: upstream.url, logLevel: mode ? 'info' : 'debug'})));
     const failed = started.find(result => result.status === 'rejected');
     if (failed) {
       // Never leave the instance that did start running.
@@ -181,8 +182,8 @@ export function defineParityCases(kind: RuntimeKind): void {
     });
 
     // The SDK's fetch app owns Host/Origin admission and body bounds and tests them itself; these check that each built
-    // target applies Ansari's configured lists.
-    describe(`${kind} ${mode}: Ansari's Host and Origin settings and requested progress`, () => {
+    // target, as this application assembles it, applies Ansari's configured lists and the body bounds.
+    describe(`${kind} ${mode}: Ansari's Host and Origin settings, body bounds and requested progress`, () => {
       it('rejects a Host or Origin outside Ansari\'s settings before calling Ansari, and accepts a configured Origin', async () => {
         const origin = runtime().origin;
         const before = upstream.seen.length;
@@ -203,6 +204,25 @@ export function defineParityCases(kind: RuntimeKind): void {
         }
       });
 
+
+      it('refuses a malformed body (400) and an oversized body (413) before calling Ansari', async () => {
+        const origin = runtime().origin;
+        const before = upstream.seen.length;
+        const malformed = await fetch(`${origin}/mcp`, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'}, body: '{'});
+        assert.equal(malformed.status, 400);
+        // A host declares its body's length. The refusal is read before any body bytes are sent, so the check does not
+        // depend on whether a local runtime keeps reading an upload it has already refused (Wrangler's sometimes resets).
+        const oversized = await new Promise<{status?: number; text: string}>((resolve, reject) => {
+          const req = httpRequest(`${origin}/mcp`, {method: 'POST', headers: {
+            'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(4 * 1024 * 1024 + 1),
+          }}, res => { let text = ''; res.setEncoding('utf8'); res.on('data', chunk => text += chunk); res.on('end', () => { req.destroy(); resolve({status: res.statusCode, text}); }); });
+          req.on('error', reject);
+          req.flushHeaders();
+        });
+        assert.equal(oversized.status, 413);
+        assert.match(oversized.text, /Payload Too Large/);
+        assert.equal(upstream.seen.length, before, 'neither request reached Ansari');
+      });
 
       it('delivers the answer, and sends progress only when requested and only over SSE', async () => {
         const origin = runtime().origin;

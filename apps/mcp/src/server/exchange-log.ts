@@ -102,6 +102,10 @@ export async function readBounded(stream: ReadableStream<Uint8Array>, limit: num
 export function inspectRequest(request: Request, currentUri: string): Promise<RpcSummary> {
   if (request.method !== 'POST') return Promise.resolve({rpc: 'none'});
   if (request.body === null) return Promise.resolve({rpc: 'empty'});
+  // A body declared larger than the inspection bound is recorded from its header, without copying or reading it: there
+  // is nothing to learn from its first bytes, and the handler refuses an oversized body on its own.
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_INSPECTED_BODY) return Promise.resolve({rpc: 'oversize'});
   const copy = request.clone().body!;
   return readBounded(copy, MAX_INSPECTED_BODY).then(
     read => 'exceeded' in read ? {rpc: 'oversize'} : summarizeRpc(read.text, currentUri),
