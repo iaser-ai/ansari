@@ -631,6 +631,33 @@ describe('MCP alert dedup (unit, injected clock)', () => {
     expect(kinds()).toEqual([...once, ...once].sort());
   });
 
+  it('a key over MCP_VERIFY_KEY_ALERT in every 60 s key window alerts once per EXCHANGE_ALERT_WINDOW, not once per key window', () => {
+    const sent: McpVerifyAlert[] = [];
+    const fake = new Clock();
+    const tracker = createMcpVerifyAlerts({ send: (a) => sent.push(a), now: fake.now });
+    const keyWindowMs = limits.MCP_KEY_INITIAL.rateLimitTimeWindow;
+    const usage = {
+      id: '00000000-0000-4000-8000-0000000000aa',
+      requestCount: limits.MCP_VERIFY_KEY_ALERT,
+      rateLimitTimeWindow: keyWindowMs,
+      remaining: null,
+      refillAmount: null,
+      lastRefillAt: null,
+      createdAt: new Date(fake.at).toISOString(),
+    };
+    const alertWindowMs = limits.EXCHANGE_ALERT_WINDOW * 1000;
+    expect(alertWindowMs / keyWindowMs).toBeGreaterThanOrEqual(2);
+    // Every key window inside one alert window crosses the threshold.
+    for (let t = 0; t < alertWindowMs; t += keyWindowMs) {
+      tracker.keyVerified(usage);
+      fake.advance(keyWindowMs);
+    }
+    expect(sent.filter((a) => a.kind === 'key-window-volume')).toHaveLength(1);
+    // The next alert window may fire again.
+    tracker.keyVerified(usage);
+    expect(sent.filter((a) => a.kind === 'key-window-volume')).toHaveLength(2);
+  });
+
   it('sends under the MCP message and mcp-verify-<kind> tags, never the WhatsApp ones', () => {
     expect(MCP_VERIFY_ALERT_MESSAGE).toBe('auth: MCP key verify alert');
     expect(EXCHANGE_ALERT_MESSAGE).not.toBe(MCP_VERIFY_ALERT_MESSAGE);

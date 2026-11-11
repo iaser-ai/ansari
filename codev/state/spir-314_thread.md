@@ -44,3 +44,4 @@
 - Security architect ruled: amend the spec (Amendment 1, plugin fact, no owner gate; architect informs the owner). Done: scenario 2 wording + dated note under the title + References line. The test now asserts the expired row is GONE (and every other refused row kept), so a plugin bump that changes it fails.
 - For the review's lessons (spec 329): an expired service key leaves no row behind, so never use expiry on a key whose audit trail matters.
 - Also added a pure MCP alert-dedup unit test with an injected clock (plan test-plan item).
+- Iter 2: Gemini APPROVE; Codex REQUEST_CHANGES: MCP key-window-volume could fire once per 60 s key window (5× per 5-min alert window). Fixed with a `keyWindowFloorMs` option (MCP = EXCHANGE_ALERT_WINDOW, WhatsApp = 0, unchanged); unit test mutation-checked.

@@ -192,6 +192,13 @@ export type KeyAlertThresholds = { keyWindow: number; daily: number; unauthorize
 
 export type KeyAlertOptions<A extends { kind: string }> = {
   thresholds: KeyAlertThresholds;
+  /**
+   * The shortest gap between two window-volume alerts for one key, in ms. A
+   * key's alert otherwise repeats once per its own rate-limit window; the MCP
+   * route sets EXCHANGE_ALERT_WINDOW so every MCP kind fires at most once per
+   * alert window (spec 314 §1). 0 keeps the exchange's behaviour (spec 329).
+   */
+  keyWindowFloorMs?: number;
   send: (alert: A) => void;
   now?: () => number;
 };
@@ -212,6 +219,7 @@ type KeyAlertCore = KeyAlerts & {
  */
 function createKeyAlerts<A extends { kind: string }>({
   thresholds,
+  keyWindowFloorMs = 0,
   send: sendAlert,
   now = Date.now,
 }: KeyAlertOptions<A>): KeyAlertCore {
@@ -242,7 +250,8 @@ function createKeyAlerts<A extends { kind: string }>({
     keyVerified(key) {
       const keyWindowMs = key.rateLimitTimeWindow ?? 0;
       const firedAt = keyWindowFiredAt.get(key.id);
-      if (key.requestCount >= thresholds.keyWindow && (firedAt === undefined || now() - firedAt >= keyWindowMs)) {
+      const gapMs = Math.max(keyWindowMs, keyWindowFloorMs);
+      if (key.requestCount >= thresholds.keyWindow && (firedAt === undefined || now() - firedAt >= gapMs)) {
         keyWindowFiredAt.set(key.id, now());
         send({
           kind: 'key-window-volume',
@@ -326,6 +335,7 @@ export function createMcpVerifyAlerts({ send = sendMcpVerifyAlert, now = Date.no
       daily: limits.MCP_VERIFY_DAILY_ALERT,
       unauthorized: limits.MCP_VERIFY_UNAUTHORIZED_ALERT.max,
     },
+    keyWindowFloorMs: limits.EXCHANGE_ALERT_WINDOW * 1000,
     send,
     now,
   });
