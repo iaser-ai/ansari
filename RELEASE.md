@@ -112,8 +112,10 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `./node_modules/.bin/tsx scripts/…` (tsx directly: the image has no pnpm for its non-root user).
 >
 > **`ENVIRONMENT` on `backend` and auth (#314 Amendment 3)** — the deployment label, also each
-> service's Sentry environment and the environment in every service key's prefix. Both refuse to
-> boot under `NODE_ENV=production` without it (or set to `development`):
+> service's Sentry environment and the environment in every service key's prefix. It has **no
+> default in any process** (owner, 2026-11-12): every deployed service, every operator shell that
+> runs an apps/auth script, and local dev (`development`) set it. Under `NODE_ENV=production` both
+> services refuse to boot without it, or with `development`:
 >
 > | Service | staging | production |
 > |---|---|---|

@@ -42,7 +42,10 @@ refused, since both are printed by `list` and sent to Sentry. Without `SENTRY_DS
 prints the key-log banner and exits 3 (no record is attempted). The script
 prints the database as `hostname:port` only, and under it `ENVIRONMENT`, which the script reads
 from its process env (the auth service's own variable, so the Railway shell has it) and refuses
-to run without (#314 Amendment 3). A new key's prefix carries it: `ansari_wa_production_`,
+to run without (#314 Amendment 3). `ENVIRONMENT` has **no default in any process** (owner,
+2026-11-12): each deployed service, every operator shell that runs this script (an off-Railway
+shell, e.g. a checkout over the Tailscale route, must export it as the service has it), and local
+dev (`development` in `apps/*/.env`). A new key's prefix carries it: `ansari_wa_production_`,
 `ansari_mcp_staging_`, …, and each environment's routes refuse a key labelled for another, so
 check the two lines agree before `--confirm`. Limits have no defaults and are checked against the
 bounds in `packages/auth/src/limits.ts`; there is no expiry option and no budget without a
