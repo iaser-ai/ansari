@@ -29,12 +29,14 @@ Spec 329 already built the credential: the `@better-auth/api-key` plugin, the `a
 4. The facilitator runs to completion. Its result is persisted as an assistant message, or as orphan tool calls on an error or empty final turn.
 5. The route answers `text/plain` 200, 400, 429, 500, or 502 (empty answer).
 
-**The MCP server** (`apps/mcp`) POSTs to the route.
+**The MCP servers.**
 
-- It already sends an optional `Authorization` header taken verbatim from its `ANSARI_API_AUTHORIZATION` Worker secret, which is unset today.
-- It sends `X-Ansari-Client` from `ANSARI_CLIENT`, set per Worker environment: `ansari-mcp-dev`, `ansari-mcp-beta`, `ansari-mcp-production`.
-- A non-200 from the route becomes the tool's "could not complete" text.
-- No code change is needed there: the secret's value becomes `Bearer ansari_mcp_<64 letters>`.
+- The live MCP server is the owner-operated `mcp.ansari.chat`, which lives in its own repository. It gets its key as a service variable there, as an owner step.
+- This repository's `apps/mcp` (a Cloudflare Worker) POSTs to the route the same way:
+  - it already sends an optional `Authorization` header taken verbatim from its `ANSARI_API_AUTHORIZATION` Worker secret, which is unset today;
+  - it sends `X-Ansari-Client` from `ANSARI_CLIENT`, set per Worker environment: `ansari-mcp-dev`, `ansari-mcp-beta`, `ansari-mcp-production`;
+  - a non-200 from the route becomes the tool's "could not complete" text.
+- No `apps/mcp` code change is needed: the secret's value becomes `Bearer ansari_mcp_<64 letters>`.
 
 **Other callers.**
 
@@ -75,24 +77,35 @@ It is a public route at apps/auth's public origin, built like the WhatsApp excha
 
 | | |
 |---|---|
-| Request | JSON `{ "key": "<api key>", "permissions": { "mcp": ["complete"] } }`, parsed by the route itself with a strict byte limit |
-| 200 valid | `{ "valid": true, "client_id": "<key metadata clientId>", "key_id": "<apikey.id>" }` |
-| 200 refused | `{ "valid": false }`, byte-identical for every refusal: unknown, revoked, disabled, expired, budget exhausted, rate limited, wrong permission, owned by another service |
-| 400 | `{ "message": "Invalid request" }`: not JSON, over the byte limit, `key` not a bounded string, or `permissions` not exactly a set the route serves |
+| Request | `Content-Type: application/json`, body `{ "key": "<api key>", "permissions": { "mcp": ["complete"] } }`, parsed by the route itself with a 1 KiB byte limit. `key` is a string of 1 to 256 characters, printable ASCII with no whitespace (a real key is 75). Any other field is ignored |
+| 200 valid | `{ "valid": true, "client_id": "<key metadata clientId>", "key_id": "<apikey.id>" }`. Both fields are always present |
+| 200 refused | `{ "valid": false }`, byte-identical for every refusal: unknown, revoked, disabled, expired, budget exhausted, rate limited, wrong permission (a WhatsApp key), owned by another service, missing or malformed `client_id` |
+| 400 | `{ "message": "Invalid request" }`, one body that names no field or permission: not JSON, wrong content type, over the byte limit, `key` outside its bounds, or `permissions` not exactly the set the route serves |
 | 500 | `{ "message": "Internal error" }`: database outage, `auth.apikey` missing, service user unresolvable or not unique |
 
 How the route reaches a verdict:
 
-- **Permissions are a closed set, not caller-chosen.** The route serves exactly `{ mcp: ['complete'] }` and binds it to the `ansari-mcp` service user. Any other permission set is a 400 and never reaches the plugin. So the route cannot be used to verify, or spend, a WhatsApp key under the WhatsApp permission. The field stays in the contract so a later consumer can be added as a new, explicit entry.
+- **Permissions are a closed set, not caller-chosen.** The route serves exactly `{ mcp: ['complete'] }` and binds it to the `ansari-mcp` service user.
+  - A request **asking** for any other permission set gets a 400 before any key is touched: no plugin call, no lookup, no budget spent. So the route cannot be used to verify, or spend, a WhatsApp key under the WhatsApp permission.
+  - A **well-formed** request presenting a key that **lacks** the permission (a WhatsApp key) is refused like an unknown key (`valid: false`, which becomes apps/api's one 401). Whether the key's budget is spent is left to the plugin. Probed in spec 329: a permission refusal leaves `remaining` untouched.
+  - The `permissions` field stays in the contract so a later consumer can be added as a new, explicit entry.
 - **Verification** is `auth.api.verifyApiKey({ key, permissions })` in process.
-  - On success, the key's `referenceId` must equal the `ansari-mcp` service user's id, found by its `service` account row (`findServiceUser`). A key owned by anyone else is refused.
-  - If that service user cannot be resolved, or resolves to more than one user, the route answers 500 and alerts. It never answers `valid: false` for this.
+  - **Order:** the service user is looked up only after the plugin accepts the key. A refused key is `valid: false` whatever the service user's state, since no state of the service user could make it valid.
+  - After a successful verify, the key's `referenceId` must equal the `ansari-mcp` service user's id, found by its `service` account row (`findServiceUser`). A key owned by anyone else is refused.
+  - If, after a successful verify, that service user cannot be resolved or resolves to more than one user, the route answers 500 and alerts. It never answers `valid: false` for this.
+  - The key's `metadata.clientId` is read in whatever runtime form the plugin returns it (object or JSON text, pinned by a pglite test).
 - **Outage versus refusal.** On every plugin refusal, the route runs the same `auth.apikey` relation check as the exchange, with the same cache TTL. A failed check is a 500, never `valid: false`, so apps/api can tell "bad key" from "apps/auth cannot answer". Both routes have the same accepted residuals: an outage that starts inside the check's window is misread as a refusal.
 - **The throttle** is the plugin's own: each verify spends one unit of the key's daily budget and one rate-limit slot. apps/api verifies once per request, so the key's limits count MCP requests.
-- **Alerts.** The WhatsApp exchange's alert kinds apply here too: per-key window volume, per-key daily volume, `USAGE_EXCEEDED` / `RATE_LIMITED`, refusal volume, service user unresolvable. Each fires once per window, with MCP thresholds and an MCP message, and carries key ids and counts only.
-- **No key material out.** No response, log line or Sentry event carries the key, a prefix of it, the hash or the request body. `client_id` and `key_id` are not secrets: `list` already prints them.
+- **Alerts.** The WhatsApp exchange's alert kinds apply here too: per-key window volume, per-key daily volume, `USAGE_EXCEEDED` / `RATE_LIMITED`, refusal volume, service user unresolvable. One kind is new: `client-id-invalid`, for a key that passed but whose `client_id` is missing or malformed; it carries the key id. Each kind fires at most once per alert window (`EXCHANGE_ALERT_WINDOW`), with MCP thresholds and an MCP message, and carries key ids and counts only.
+- **No key material out.** No response, log line or Sentry event carries the key, any substring of its random part, the hash or the request body. `client_id` and `key_id` are not secrets. The public prefix `ansari_mcp_` is not a secret either: the plugin stores it in `apikey.prefix`, and the secret-scanning pattern publishes it.
 
-**`client_id` is required on an `ansari-mcp` key.** `service-keys.ts create-key ansari-mcp` and `rotate ansari-mcp` refuse without `--client-id`. A key verified without one (one created outside the script) is answered `valid: false` and raises an alert. It is never served with an unattributed client.
+**`client_id` is required on an `ansari-mcp` key, and is constrained.**
+
+- `service-keys.ts create-key ansari-mcp` and `rotate ansari-mcp` refuse without `--client-id`.
+- The value must be `ansari-mcp`, or `ansari-mcp-` followed by a suffix (e.g. `ansari-mcp-production`, `ansari-mcp-beta`). It must also match apps/api's client-id pattern (`[a-z0-9][a-z0-9._-]{0,63}`). The script refuses anything else, with nothing written.
+- This keeps per-client attribution and the open-tier evidence query clean: every keyed thread is `ansari-mcp*`.
+- The verify route applies the same rule to the key it is shown. A passing key whose `client_id` is missing or breaks the rule (a key created outside the script) is answered `valid: false` and raises `client-id-invalid`. It is never served with an unattributed or off-pattern client.
+- `service-keys.ts list` prints each key's `client_id` (from `metadata`), so the operator can check a key's attribution. Today it does not select `metadata`.
 
 **`ansari-mcp` gets its own bounds and initial values in `limits.ts`**, no longer `WHATSAPP_KEY_BOUNDS`. **They are global.** One key serves every Claude, ChatGPT and other user of the MCP server (one key per Worker environment), so its rate limit and daily budget cap the aggregate public MCP traffic, and the daily budget is in effect a daily Gemini spend ceiling for MCP. When that budget is exhausted, every MCP user is refused until the refill. The script already forces a daily refill, so exhaustion throttles the key rather than deleting it. The plan picks the numbers by judgement, from current `ai-skill` volume when available:
 
@@ -106,19 +119,23 @@ Per request, after the existing per-IP cap:
 
 1. **Bearer.** A missing or malformed `Authorization` header gets 401, with no call to apps/auth.
 2. **Verify.** POST the key to `/api/service/verify-key` through `authServiceFetch`, with its existing 3 s timeout:
-   - `valid: true` lets the request through;
+   - `valid: true`, with a `key_id` string and a `client_id` that passes the `ansari-mcp` rule, lets the request through;
    - `valid: false` gets 401;
-   - no answer, a timeout, a non-200, or a body of the wrong shape is `AuthServiceUnavailableError` and gets **503**. Nothing is persisted and Gemini is not called (the admin-role posture).
+   - no answer, a timeout, a non-200, or a body of the wrong shape (including `valid: true` missing either field, or with an off-pattern `client_id`) is `AuthServiceUnavailableError` and gets **503**. Nothing is persisted and Gemini is not called (the admin-role posture).
 3. **Then** the body or query is validated (400), and the rest of today's behaviour runs unchanged.
 
 A caller without a valid key never learns anything about request validation, and costs no parsing.
 
-**Responses.** Every key refusal gets the same 401: one JSON body, identical for missing, malformed, unknown, revoked, expired, exhausted, rate-limited, wrong-permission and wrong-owner keys. A 503 has its own body. The response shapes otherwise stay as they are (JSON errors, `text/plain` 200).
+**Responses**, in the route's existing `{ error }` envelope:
+
+- every key refusal gets the same 401, `{ "error": "Unauthorized" }`, identical for missing, malformed, unknown, revoked, expired, exhausted, rate-limited, wrong-permission and wrong-owner keys;
+- an apps/auth failure gets 503, `{ "error": "Authentication service unavailable" }`;
+- the other shapes stay as they are (JSON errors, `text/plain` 200).
 
 **Attribution (#320).** On a valid key, the thread's and messages' `client` is the key's `client_id`, never the header or `?src=`.
 
-- If `X-Ansari-Client` is present and disagrees (after the usual normalisation), the route sends a Sentry warning tagged with both ids and ignores the header.
-- If they agree, there is no event.
+- **The header** is parsed alone, with `parseClientId` on the header only; `getClientId` is not called. If `X-Ansari-Client` is present and either malformed or a valid id that differs from the key's, the route sends **one** Sentry warning: `mcp-complete client mismatch`, tags with the key's `client_id`, and the header's normalised id or `invalid` (malformed raw values are never sent). The header is then ignored. A matching header sends no event.
+- **`?src=`** is ignored on a keyed request, and sends no event.
 - The thread still belongs to the `ai-skill` system user with `source = 'ai-skill'`. The key identifies the integration, not a user. No session or JWT is ever minted for the service user (spec 329 rule), and the `{sub, sid}` JWT contract is untouched.
 
 **No verdict cache beyond the request.** Each request is verified at apps/auth, so a revocation takes effect on the next request. Nothing caches a verdict in apps/api.
@@ -129,25 +146,35 @@ A caller without a valid key never learns anything about request validation, and
 
 ### 3. Rollout: log-only, then enforce
 
-The mode is an apps/api setting.
+The mode is an apps/api env var, `MCP_COMPLETE_KEY_MODE`.
 
-- **Enforce** is the default when the setting is absent: a forgotten variable fails safe, as the "loud over quiet" lesson asks.
-- **Log-only** must be set explicitly for the transition week.
+- **The schema** in apps/api's Zod config accepts exactly `log-only` or `enforce`.
+- **Absent means `enforce`**: a forgotten variable fails safe, as the "loud over quiet" lesson asks.
+- **Any other value is rejected** by config validation, which runs at production boot (`validateEnvAtBoot`), so a typo stops the server instead of picking a mode silently.
+- **Four-way derivation.** The var is listed every way arch-critical asks: the Zod schema, the static `process.env.X` read through `config`, the dynamic-read check, and `docs/self-hosting.md` plus `.env.example`.
+- **The `turbo.json` `globalEnv` hunk is main's.** `architect:main` is messaged when the plan names the variable.
 
-In log-only mode the route verifies exactly as above, records the verdict, and then serves anyway:
+In log-only mode the route verifies exactly as above, records the verdict, and then **always serves**, including when apps/auth is unreachable. Otherwise log-only would not be a safe rollback.
 
-- **What is recorded:** a structured log line and a Sentry breadcrumb or tag naming the verdict (`valid`, `missing`, `refused`, `unavailable`) and the `key_id` when valid. Never the key.
-- **Attribution in log-only:** with a valid key, the key's `client_id` wins as in enforce mode. Otherwise the header or `?src=` is used, as today.
+- **What is recorded:** a structured log line and a Sentry tag naming the verdict, plus the `key_id` when valid. Never the key. The verdicts are:
+  - `valid`;
+  - `missing` (no or malformed bearer);
+  - `refused` (`valid: false`);
+  - `unverified` (apps/auth gave no usable answer). This one also raises a Sentry warning.
+- **Attribution in log-only:** with a valid key, the key's `client_id` wins as in enforce mode. Otherwise `getClientId` (header or `?src=`) is used, as today.
+- **Latency:** in log-only, an apps/auth timeout adds up to `AUTH_SERVICE_TIMEOUT_MS` (3 s) before the facilitator starts. That is accepted for the transition week; the MCP servers' upstream timeouts already exceed it.
 
 Order of operations:
 
-1. Create the `ansari-mcp` service user and one key per Worker environment that calls a deployed apps/api, with `--client-id` set to that environment's `ANSARI_CLIENT`.
-2. Set each Worker's `ANSARI_API_AUTHORIZATION`. Today's route ignores the header, so this is safe at any time.
-3. Deploy apps/api with the mode set to log-only. The verify route ships with apps/auth before, or with, this deploy.
-4. Watch the verdicts for one week. Expect zero `missing` or `refused` from the Worker, and confirm the open-tier traffic the owner decided on.
-5. Remove the setting, which enforces.
+1. Create the `ansari-mcp` service user and one key per MCP deployment that calls a deployed apps/api: the live `mcp.ansari.chat` (owner-operated), plus each `apps/mcp` Worker environment in use. Each key's `--client-id` is that caller's `ansari-mcp*` id (for a Worker, its `ANSARI_CLIENT`).
+2. Set each caller's upstream `Authorization` (`ANSARI_API_AUTHORIZATION` for `apps/mcp`; the owner's own variable for `mcp.ansari.chat`). Today's route ignores the header, so this is safe at any time.
+3. Deploy apps/api with `MCP_COMPLETE_KEY_MODE=log-only`. The verify route ships with apps/auth before, or with, this deploy.
+4. Watch the verdicts for one week. Expect zero `missing` or `refused` from the MCP servers, and confirm the open-tier traffic against the owner's decision.
+5. Remove the variable, which enforces.
 
-If the owner keeps an open tier (Open Questions, Critical 1), log-only becomes that tier's behaviour for header-less requests only.
+**Dated follow-up.** At step 5, open an issue due one week after the enforce date: remove log-only mode, `MCP_COMPLETE_KEY_MODE` and its `turbo.json` entry, so a transition switch does not live on as a way to turn auth off. The review records the issue number and its due date.
+
+If the owner keeps an open tier (Open Questions, Critical 1), header-less requests get option (b)'s separately capped tier after enforcement, not log-only. A request that presents a failing key is still 401.
 
 ### 4. Rotation
 
@@ -168,7 +195,7 @@ These docs change:
 - `docs/cutover/service-keys-runbook.md`: the `ansari-mcp` issuance, limits, alerts and rotation;
 - `apps/mcp/README.md`: the `ANSARI_API_AUTHORIZATION` line gives the `Bearer ansari_mcp_…` form;
 - `apps/api/README.md`;
-- the published integration snippet and the MCP setup page, wherever they live (Open Questions, Important 2).
+- **Out of repository:** the published integration snippet, the MCP setup page on the public site, and the `mcp.ansari.chat` service variable. The review records these as owner steps, at the locations the owner names.
 
 No `apps/mcp` code changes.
 
@@ -182,10 +209,12 @@ No `apps/mcp` code changes.
 - [ ] The verify route answers `{ valid: true, client_id, key_id }` for a valid `ansari-mcp` key and a byte-identical `{ valid: false }` for every refusal. It answers 400 for any permission set other than `{ mcp: ['complete'] }`, and 500 (not `valid: false`) when `auth.apikey` is missing or the database is down, or when the service user is unresolvable.
 - [ ] A WhatsApp key presented to the verify route (and through apps/api) is refused, by permission and by owner, and its `remaining` is not spent.
 - [ ] A key owned by a user other than the `ansari-mcp` service user, carrying `mcp: complete`, is refused.
-- [ ] An `ansari-mcp` key without a `client_id` is refused and alerts. The script refuses to create one.
+- [ ] An `ansari-mcp` key whose `client_id` is missing or not `ansari-mcp*` is refused and raises `client-id-invalid`. The script refuses to create one, and `list` prints each key's `client_id`.
+- [ ] `MCP_COMPLETE_KEY_MODE` accepts exactly `log-only` and `enforce`, means `enforce` when absent, and rejects any other value at production boot.
+- [ ] In log-only mode, apps/auth unreachable still serves the request, records `unverified`, and raises a Sentry warning.
 - [ ] Each verify spends one unit of the key's budget. An exhausted key is refused until its daily refill, and the row is kept.
 - [ ] No response from the verify route carries CORS headers, preflight included.
-- [ ] No response, log line, Sentry event or DB column, in either app, contains the raw key or any prefix of it. A test scans the captured logs and Sentry events for the key.
+- [ ] No response, log line, Sentry event or DB column, in either app, contains the raw key or any substring of its random part (the public `ansari_mcp_` prefix in `apikey.prefix` is exempt). A test scans the captured logs, Sentry events and the `apikey` row for the key.
 - [ ] Log-only mode: every verdict is recorded and the request is served. Enforce is the behaviour when the setting is absent.
 - [ ] Tests run against pglite for the verify route (real plugin, real `auth.apikey`) and for the apps/api route (real app DB, apps/auth answered by a stub of the verify contract), including the forged-header and WhatsApp-key cases.
 - [ ] Docs updated (§5). The runbook covers `ansari-mcp` issuance and rotation.
@@ -213,7 +242,8 @@ No `apps/mcp` code changes.
 
 - #329 is merged and `0001_api_key` is applied on staging (security architect, 2026-11-11).
 - The Worker's existing `ANSARI_API_AUTHORIZATION` passthrough sends the header verbatim on every upstream call (to be confirmed in the plan by reading `ansari-client.ts` and its tests).
-- Each Worker environment calls exactly one apps/api deployment, so one key per environment is enough (production Worker → production apps/api; beta and dev → staging).
+- Each MCP deployment calls exactly one apps/api deployment, so one key per deployment is enough (the live server and the production Worker → production apps/api; beta and dev → staging).
+- **The open tier closes (option (a)),** per the architect's direction (2026-11-11), until the owner's `threads.client` numbers say otherwise at the gate. Option (b) stays specified as the alternative.
 - The 3 s `AUTH_SERVICE_TIMEOUT_MS` is acceptable latency on the MCP path. A verify adds one round trip (apps/api → apps/auth → auth DB) ahead of a Gemini call that takes seconds.
 - The owner's `threads.client` numbers for `ai-skill` traffic are available before the spec gate (Open Questions, Critical 1).
 
@@ -283,15 +313,16 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
      The builder has no production access; the owner or an architect runs it.
    - **Recommendation: (a)**, unless the query shows real non-Worker traffic. The security architect agrees.
 
+### Resolved by the security architect (2026-11-11)
+
+- **The rollout mode** is an env var defaulting to enforce, and exactly two values are valid (§3).
+- **The snippet and the setup page** live outside this repository (the public site; `mcp.ansari.chat` is its own repo). The review records them as owner steps (§5).
+- **The verify route serves a closed permission set**, and the `ansari-mcp*` `client_id` is required (§1).
+
 ### Important (shapes design; resolved in the plan unless the reviewers object)
 
-1. **The rollout-mode setting:** an env var (`MCP_COMPLETE_KEY_MODE=log-only`, absent → enforce), or a code constant flipped by a follow-up PR.
-   - The env var allows an instant rollback to log-only without a code change, but needs a `turbo.json` / `globalEnv` hunk from main and a `docs/self-hosting.md` entry.
-   - The constant needs neither, but a rollback needs a PR.
-   - Recommendation: the env var, defaulting to enforce.
-2. **Where the published integration snippet and the MCP setup page live.** Neither is in this repository. `apps/mcp/docs/show-me-ansari-mcp.html` is an internal walkthrough. The architect is asked to point to them. If they live in another repo or on a site, this PR updates the in-repo docs and the review records the out-of-repo edits as operator or owner steps.
-3. **The `ansari-mcp` numbers.** The initial rate limit, window and daily budget, and the alert thresholds, depend on current `ai-skill` volume (the query above). The plan proposes values by judgement; `update-limits` can change them without a deploy.
-4. **One key per Worker environment.** Production gets its own key on the production auth database. Beta and dev share staging; the recommendation is one key per environment so their attribution stays distinct.
+1. **The `ansari-mcp` numbers.** The initial rate limit, window and daily budget, and the alert thresholds, depend on current `ai-skill` volume (the query above). The plan proposes values by judgement; `update-limits` can change them without a deploy.
+2. **One key per MCP deployment.** Production keys live on the production auth database. Beta and dev share staging; the recommendation is one key per deployment, so their attribution stays distinct.
 
 ### Nice-to-know
 
@@ -304,32 +335,33 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 
 1. A valid `ansari-mcp` key with `{ mcp: ['complete'] }` → 200 `{ valid: true, client_id, key_id }`, and `remaining` decremented by 1.
 2. Unknown key, revoked (`enabled = false`), expired (a row set to expire), budget exhausted, rate-limited → the byte-identical `{ valid: false }`, with each row kept.
-3. A WhatsApp key (`ansari_wa_…`, `{ whatsapp: ['mint'] }`) with `{ mcp: ['complete'] }` → `{ valid: false }`, and its `remaining` is untouched.
-4. `{ whatsapp: ['mint'] }`, an empty object, an extra permission, or a missing `permissions` field → 400, with the plugin never called.
+3. **A well-formed request with a key that lacks the permission:** a WhatsApp key (`ansari_wa_…`, `{ whatsapp: ['mint'] }`) asked for `{ mcp: ['complete'] }` → the same `{ valid: false }` as an unknown key. Its `remaining` and rate-limit counters are whatever the plugin leaves (pinned: untouched).
+4. **A request asking for a permission outside the set:** `{ whatsapp: ['mint'] }`, an empty object, an extra permission, an extra action, or a missing `permissions` field → 400 with the one body (no permission named). The plugin is never called, and a real key sent with it keeps its `remaining`, `requestCount` and `lastRequest` unchanged.
 5. A key carrying `mcp: complete` but owned by a non-service user → `{ valid: false }`.
-6. An `ansari-mcp` key without `client_id` metadata → `{ valid: false }` and an alert.
-7. Service user missing, or duplicated by a forced second row → 500 and an alert.
+6. An `ansari-mcp` key with no `client_id`, or with `client_id` `claude-skill` (off-pattern), each created outside the script → `{ valid: false }` and one `client-id-invalid` alert per window.
+7. Service user missing, or duplicated by a forced second row: with a valid key → 500 and an alert; with an unknown key → `{ valid: false }` (the lookup never runs).
 8. `auth.apikey` dropped, or the DB stopped under the running app → 500, not `valid: false`.
-9. Not JSON, wrong content type, oversized body, `key` not a string or over the bound → 400.
+9. Not JSON, wrong content type, a body over 1 KiB, `key` not a string, empty, over 256 characters or containing whitespace → 400.
 10. `OPTIONS` and POST from a browser origin → no `Access-Control-*` header.
 11. No path under `/api/auth/api-key/*` becomes reachable, and the blocked-path assertions still pass.
 12. Captured logs and Sentry events across scenarios 1–9 contain neither the key nor its first 12 characters.
 13. Alerts: window volume, daily volume, `USAGE_EXCEEDED`, `RATE_LIMITED` and refusal volume each fire once per window, with ids and counts only.
-14. Script: `create-key ansari-mcp` and `rotate ansari-mcp` without `--client-id` are refused, with nothing written.
+14. Script: `create-key ansari-mcp` and `rotate ansari-mcp` without `--client-id`, or with a `--client-id` that is not `ansari-mcp` / `ansari-mcp-<suffix>`, are refused with nothing written. `list` shows each key's `client_id`.
+15. `metadata.clientId` is read correctly from the shape the plugin actually returns.
 
 **apps/api route** (pglite app DB; apps/auth's verify endpoint stubbed at the HTTP boundary to the contract above):
 
 1. POST and GET without `Authorization` → 401, with no fetch to apps/auth, no thread row and no facilitator call.
 2. `Authorization: Basic …`, `Bearer` with an empty token, or a token containing whitespace → 401, with no fetch.
 3. Stub `{ valid: false }` → 401 with the same body as case 1, no thread and no facilitator call.
-4. Stub `{ valid: true, client_id: 'ansari-mcp-production' }` → 200 with today's body. The thread and all messages have `client = 'ansari-mcp-production'`, `source = 'ai-skill'`, and belong to the `ai-skill` user.
-5. Case 4 with `X-Ansari-Client: claude-skill` → `client` is still the key's, and one Sentry warning carries both ids.
-6. Case 4 with `?src=evil` → `client` is the key's.
-7. Stub network error, a delay past the 3 s timeout, 500, 429, and a 200 with a malformed body → 503, with no thread, no facilitator call, and the response arriving within the timeout plus a margin.
+4. Stub `{ valid: true, client_id: 'ansari-mcp-production', key_id: '<uuid>' }` → 200 with today's body. The thread and all messages have `client = 'ansari-mcp-production'`, `source = 'ai-skill'`, and belong to the `ai-skill` user.
+5. Case 4 with `X-Ansari-Client: claude-skill` → `client` is still the key's, and exactly one `mcp-complete client mismatch` warning carries both ids. With a malformed header: one warning tagged `invalid`, the raw value never sent, and no separate `invalid X-Ansari-Client header` event. With a matching header: no event.
+6. Case 4 with `?src=evil` → `client` is the key's, and no event.
+7. Stub network error, a delay past the 3 s timeout, 500, 429, a 200 with a malformed body, and `valid: true` missing `key_id` or `client_id`, or with an off-pattern `client_id` → 503 `{ error: 'Authentication service unavailable' }`. No thread and no facilitator call, and the response arrives within the timeout plus a margin.
 8. A valid key with an invalid body → 400 (verify happens first). No key with an invalid body → 401.
 9. The per-IP cap still answers 429 before any verify.
-10. Log-only mode: cases 1, 3 and 7 are served 200 with the verdict recorded. Case 4 attributes by the key.
-11. Mode absent → enforce.
+10. Log-only mode: cases 1, 3 and 7 are served 200 with the verdicts `missing`, `refused` and `unverified` recorded. `unverified` also raises a Sentry warning. Case 4 attributes by the key.
+11. Mode absent → enforce. `MCP_COMPLETE_KEY_MODE=enforce` → enforce. `MCP_COMPLETE_KEY_MODE=log_only`, `LOG-ONLY` or empty → config validation throws, and the boot check refuses.
 12. The captured console output and Sentry envelopes for every case contain no part of the key.
 13. A WhatsApp key end to end, through a real apps/auth app on pglite where the test harness allows it, otherwise through the stub contract plus apps/auth scenario 3 → 401.
 
@@ -348,6 +380,7 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 | The verify route is used to spend or test a WhatsApp key | Low | Medium | Closed permission set (400) and owner binding; tested |
 | Closing the open tier cuts off real browsing-AI users | Depends on the data | Medium | Owner decision on evidence (Critical 1); option (b) is specified |
 | The rollout env var is forgotten in `turbo.json` and is invisible under strict env mode | Medium | Medium | A missing var means enforce (safe default); main adds the `globalEnv` hunk; a test pins the default |
+| Log-only mode outlives the transition and becomes a way to switch auth off | Medium | High | Dated follow-up issue to remove it a week after enforcement (§3); only two values are valid |
 
 ## References
 
