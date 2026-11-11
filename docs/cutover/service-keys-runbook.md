@@ -271,7 +271,7 @@ working, check the alerts and the key's last request for use you cannot explain,
 the key log. Then remove the key from the repository's history; revoking first matters more.
 
 **The prefix change of 2026-10-30.** Keys were first issued as `wa_` followed by 64 letters, and
-are now `ansari_wa_` (and `ansari_mcp_`). A `wa_` key still verifies, because a key is checked by
+are now `ansari_wa_` (and `ansari_mcp_`). A `wa_` key still verifies during the compatibility window below, because a key is checked by
 the hash of the whole key, so nothing breaks; but replace it: `rotate whatsapp` (prints an
 `ansari_wa_` key once), switch the consumer's variable to it, then `revoke` the old key. Keep the
 old organisation pattern (`wa_` followed by 64 letters) registered beside the new ones until the
@@ -290,9 +290,10 @@ its hash, and `apikey.prefix` is written then and never rewritten. Adding the en
 re-issues nothing: the staging `ansari_wa_` keys keep their format and keep verifying under the
 compatibility window.
 
-**Rotate legacy keys (the compatibility window).** An unlabelled key (`ansari_wa_` or
-`ansari_mcp_` followed directly by 64 letters; `list` shows its `prefix`) is still accepted while
-`LEGACY_UNLABELLED_KEYS` is `true`. Replace it, never reissue it in place: `rotate <service> …` in
+**Rotate legacy keys (the compatibility window).** An unlabelled key (`ansari_wa_`, `ansari_mcp_`,
+or WhatsApp's pre-rename `wa_`, followed directly by 64 letters; `list` shows its `prefix`) is
+still accepted while `LEGACY_UNLABELLED_KEYS` is `true` (`LEGACY_PREFIXES` in
+`service-users.ts`). Replace it, never reissue it in place: `rotate <service> …` in
 that environment's auth shell (a labelled key), hand it off to the consumer's variable, then
 `revoke` the old one. Staging has at least one (the
 WhatsApp smoke key). When `list whatsapp` and `list ansari-mcp` show no live unlabelled key on any

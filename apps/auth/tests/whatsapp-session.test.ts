@@ -286,8 +286,14 @@ describe('key refusals: one byte-identical 401, no rows', () => {
 });
 
 describe('the exchange', () => {
+  it('a pre-rename wa_ key (issued before 2026-10-30) still exchanges during the compatibility window (codex, PR #372)', async () => {
+    const legacy = await createKey({ prefix: 'wa_' });
+    expect(legacy.startsWith('wa_')).toBe(true);
+    expect((await exchange(newBsuid(), newPhone(), { bearer: legacy })).status).toBe(200);
+  });
+
   it.each([...serviceUsers.acceptedKeyPrefixes('whatsapp', HERE)])(
-    'a key with the accepted prefix %s → 200 (this environment\'s label and, while legacy keys live, the bare prefix)',
+    'a key with the accepted prefix %s → 200 (this environment\'s label and, while legacy keys live, the bare and pre-rename wa_ prefixes)',
     async (prefix) => {
       const labelled = await createKey({ prefix });
       expect(labelled.startsWith(prefix)).toBe(true);

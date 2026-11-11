@@ -64,14 +64,25 @@ export const LEGACY_UNLABELLED_KEYS = true;
 
 /**
  * The prefixes a route of `service` running as `environment` accepts: that
- * environment's, plus the bare legacy prefix while LEGACY_UNLABELLED_KEYS
- * holds. Any other stored prefix (another environment's, another service's, a
+ * environment's, plus the legacy unlabelled prefixes (LEGACY_PREFIXES) while
+ * LEGACY_UNLABELLED_KEYS holds. Any other stored prefix (another environment's, another service's, a
  * hand-made one) is the route's ordinary refusal.
  */
 export function acceptedKeyPrefixes(service: ServiceName, environment: Environment): readonly string[] {
   const own = keyPrefix(service, environment);
-  return LEGACY_UNLABELLED_KEYS ? [own, SERVICES[service].prefix] : [own];
+  return LEGACY_UNLABELLED_KEYS ? [own, ...LEGACY_PREFIXES[service]] : [own];
 }
+
+/**
+ * The unlabelled prefixes keys were issued with before #314, per service: the
+ * bare base prefix, and for WhatsApp also `wa_`, the prefix before the
+ * 2026-10-30 rename (the runbook's "prefix change"), since a live `wa_` key
+ * cannot be ruled out. Accepted only while LEGACY_UNLABELLED_KEYS holds.
+ */
+export const LEGACY_PREFIXES: Readonly<Record<ServiceName, readonly string[]>> = {
+  whatsapp: ['ansari_wa_', 'wa_'],
+  'ansari-mcp': ['ansari_mcp_'],
+};
 
 /** True when a verified key's stored prefix is one `service`'s route in `environment` accepts. */
 export function isAcceptedKeyPrefix(service: ServiceName, environment: Environment, prefix: unknown): boolean {

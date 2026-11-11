@@ -384,6 +384,7 @@ describe('the stored prefix (#314 Amendments 2 and 3)', () => {
     ...ENVIRONMENTS.filter((e) => e !== here).map((e) => [`another environment's label (${e})`, `ansari_mcp_${e}_`]),
     ['a foreign prefix', 'evil_'],
     ["a WhatsApp prefix for this environment", serviceUsers.keyPrefix('whatsapp', here)],
+    ["WhatsApp's pre-rename legacy prefix", 'wa_'],
     ['an unknown environment', 'ansari_mcp_qa_'],
     ['no prefix', undefined],
   ])('%s → the same { valid: false }', async (_name, prefix) => {
