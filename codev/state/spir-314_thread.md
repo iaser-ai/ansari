@@ -45,3 +45,11 @@
 - For the review's lessons (spec 329): an expired service key leaves no row behind, so never use expiry on a key whose audit trail matters.
 - Also added a pure MCP alert-dedup unit test with an injected clock (plan test-plan item).
 - Iter 2: Gemini APPROVE; Codex REQUEST_CHANGES: MCP key-window-volume could fire once per 60 s key window (5× per 5-min alert window). Fixed with a `keyWindowFloorMs` option (MCP = EXCHANGE_ALERT_WINDOW, WhatsApp = 0, unchanged); unit test mutation-checked.
+
+## 2026-11-11 phase 3 — apps/api verify client + MCP_COMPLETE_KEY_MODE
+- `verifyServiceKey(key)` in `apps/api/lib/auth-service/client.ts` (`SERVICE_VERIFY_PATH` defined locally). Only an exact 200 `{valid:false}` is a refusal; any non-200, non-JSON, wrong shape, extra field on a refusal, or a client_id off `isMcpClientId` throws `AuthServiceUnavailableError` (route will 503). Mutation-checked: loosening the schema fails 5 tests.
+- `MCP_COMPLETE_KEY_MODE` (`log-only` | `enforce`, absent = enforce) -> `config.mcpCompleteKeyMode`; docs row, `.env.example` line (appended from shell), boot-check test.
+- turbo.json: direct `afx send architect:main` was refused by the spoofing check; the security architect relayed. Main's answer: carry the `globalEnv` hunk in this PR (done, with a dated removal follow-up, 2026-12-15); main reviews it on the PR.
+- Surprise: the plan assumed `self-hosting-docs.test.ts` already checked the whole env surface. It didn't. Added a check that every key of apps/api's `envSchema` (now exported) appears in docs/self-hosting.md; it fails without the new row and passes with it. All existing vars were already documented.
+- Flaky once: `tests/auth/require-user.test.ts` (13 tests, `sign-up failed: 404` from the in-process apps/auth) failed in one full `npm test` run, passed in isolation (18/18) and on a full rerun. The file isn't touched by this phase. I documented it rather than skipping it, because skipping would drop the admin-auth coverage.
+- New orders for phase 5 (from main, via security): mcp-staging.askansari.ai needs its own key (`--client-id ansari-mcp-staging`) before apps/api staging deploys #314. The `Bearer ansari_mcp_<64 letters>` form goes in apps/mcp README, apps/mcp/.env.example (required once enforcing) and the RELEASE.md mcp rows. Rebase onto develop before phase 5.

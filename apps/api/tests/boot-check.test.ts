@@ -66,6 +66,14 @@ describe('validateEnvAtBoot', () => {
     expect(() => validateEnvAtBoot()).not.toThrow();
   });
 
+  it('a production boot with a bad MCP_COMPLETE_KEY_MODE throws, naming it (#314)', () => {
+    process.env = { ...process.env, ...BASE_ENV, ...AUTH_ENV, ...SERVER, MCP_COMPLETE_KEY_MODE: 'log_only' };
+    expect(() => validateEnvAtBoot()).toThrow(/MCP_COMPLETE_KEY_MODE/);
+    resetEnvCache();
+    process.env.MCP_COMPLETE_KEY_MODE = 'log-only';
+    expect(() => validateEnvAtBoot()).not.toThrow();
+  });
+
   it('a build or a dev server never parses the env', () => {
     process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
     delete process.env.DATABASE_URL;

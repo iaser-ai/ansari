@@ -1,5 +1,6 @@
 import { decodeJwt } from 'jose';
 import { z } from 'zod';
+import { isMcpClientId } from '@ansari/types/attribution';
 import { config } from '@/lib/config';
 
 /**
@@ -128,4 +129,42 @@ export async function deleteAuthUser(sub: string, jwt: string): Promise<void> {
   if (tokenSub !== sub) throw new NotTheSubjectError();
   const response = await authServiceFetch(ACCOUNT_PATH, { method: 'DELETE', bearer: jwt });
   if (response.status !== 204) throw new AuthServiceUnavailableError(response.status);
+}
+
+/**
+ * apps/auth's service-key verify route (#314; apps/auth
+ * `routes/service-verify.ts`). Mounted at the public origin, it takes no
+ * credential of its own: the key in the body is the caller's.
+ */
+export const SERVICE_VERIFY_PATH = '/api/service/verify-key';
+
+const verifyServiceKeySchema = z.union([
+  z.object({
+    valid: z.literal(true),
+    client_id: z.string().refine(isMcpClientId),
+    key_id: z.string().min(1),
+  }),
+  z.object({ valid: z.literal(false) }).strict(),
+]);
+
+export type ServiceKeyVerdict =
+  | { valid: true; clientId: string; keyId: string }
+  | { valid: false };
+
+/**
+ * Ask apps/auth whether `key` is a live service key holding `mcp: ['complete']`.
+ * `{ valid: false }` only when apps/auth said so in exactly that shape; any
+ * other answer (no response, a non-200, a body of the wrong shape, a client id
+ * off the `ansari-mcp` pattern) throws AuthServiceUnavailableError, and the
+ * caller fails closed. The key is never logged: it is the caller's secret.
+ */
+export async function verifyServiceKey(key: string): Promise<ServiceKeyVerdict> {
+  const response = await authServiceFetch(SERVICE_VERIFY_PATH, {
+    body: { key, permissions: { mcp: ['complete'] } },
+  });
+  if (response.status !== 200) throw new AuthServiceUnavailableError(response.status);
+  const parsed = verifyServiceKeySchema.safeParse(await response.json().catch(() => undefined));
+  if (!parsed.success) throw new AuthServiceUnavailableError(response.status);
+  if (!parsed.data.valid) return { valid: false };
+  return { valid: true, clientId: parsed.data.client_id, keyId: parsed.data.key_id };
 }

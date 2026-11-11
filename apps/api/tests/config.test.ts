@@ -301,3 +301,30 @@ describe('apps/auth config', () => {
     }
   });
 });
+
+// #314: how /v2/mcp-complete treats its service key during the rollout.
+// Absent means enforce (fail closed); only the two exact values parse, so a
+// typo can never quietly put the route in log-only.
+describe('MCP_COMPLETE_KEY_MODE (#314)', () => {
+  function withMode(value: string | undefined) {
+    if (value === undefined) delete process.env.MCP_COMPLETE_KEY_MODE;
+    else process.env.MCP_COMPLETE_KEY_MODE = value;
+    resetEnvCache();
+  }
+
+  it('absent → enforce', () => {
+    withMode(undefined);
+    expect(config.mcpCompleteKeyMode).toBe('enforce');
+  });
+
+  it.each(['enforce', 'log-only'] as const)('%s → %s', (mode) => {
+    withMode(mode);
+    expect(config.mcpCompleteKeyMode).toBe(mode);
+  });
+
+  it.each(['log_only', 'LOG-ONLY', 'Enforce', '', ' enforce', 'off'])('%j fails validation', (value) => {
+    withMode(value);
+    expect(() => getEnv()).toThrow(/MCP_COMPLETE_KEY_MODE/);
+    expect(() => config.mcpCompleteKeyMode).toThrow(/Environment validation failed/);
+  });
+});

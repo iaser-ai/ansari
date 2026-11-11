@@ -7,7 +7,7 @@ const AUTH_SERVICE_VARS = [
   'AUTH_LAYER_ORIGIN',
 ] as const;
 
-const envSchema = z.object({
+export const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
@@ -112,6 +112,12 @@ const envSchema = z.object({
   // External evaluation harnesses (e.g. IslamicMMLU leaderboard) authenticate
   // against /v1/chat/completions with this bearer token. Optional in dev.
   LEADERBOARD_API_KEY: z.string().min(32).optional(),
+
+  // How /v2/mcp-complete treats its service key (#314): `log-only` verifies
+  // and records the verdict but serves anyway (the rollout week); `enforce`
+  // (the default when unset) refuses a missing or invalid key. Any other value
+  // fails validation, so a typo can never quietly open the route.
+  MCP_COMPLETE_KEY_MODE: z.enum(['log-only', 'enforce']).optional(),
 
   // App version control
   MAINTENANCE_MODE: z
@@ -268,6 +274,11 @@ export const config = {
     return {
       apiKey: getEnv().LEADERBOARD_API_KEY,
     };
+  },
+
+  /** /v2/mcp-complete's key rollout mode (#314); `enforce` when unset. */
+  get mcpCompleteKeyMode(): 'log-only' | 'enforce' {
+    return getEnv().MCP_COMPLETE_KEY_MODE ?? 'enforce';
   },
 
   get appVersion() {
