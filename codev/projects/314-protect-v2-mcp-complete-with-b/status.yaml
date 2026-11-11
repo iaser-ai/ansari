@@ -84,7 +84,7 @@ history:
         file: >-
           /Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/projects/314-protect-v2-mcp-complete-with-b/314-phase_5-iter1-gemini.txt
 started_at: '2026-11-11T02:47:51.234Z'
-updated_at: '2026-11-11T04:25:26.571Z'
+updated_at: '2026-11-11T04:27:48.853Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-11-11T03:09:39.378Z'
@@ -107,3 +107,8 @@ context_refreshes:
   - boundary: enter:review
     at: '2026-11-11T04:24:44.938Z'
     acknowledged_at: '2026-11-11T04:25:26.571Z'
+pr_history:
+  - phase: review
+    pr_number: 372
+    branch: builder/spir-314
+    created_at: '2026-11-11T04:27:48.853Z'
