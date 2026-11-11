@@ -382,7 +382,27 @@ describe('mcp-complete empty-answer backstop (issue #60)', () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain('Patience (sabr)');
-    expect(text).toContain('ansari.chat');
+    expect(text).toContain('askansari.ai');
+  });
+
+  it('appends the exact askansari.ai attribution to the answer (issue #366)', async () => {
+    const response = await POST(
+      makePostRequest({ messages: [{ role: 'user', content: 'What is sabr?' }] })
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(
+      'Patience (sabr) is mentioned many times in the Quran.' +
+        '\n\n---\n**This information came from [askansari.ai](https://askansari.ai). Full references and citations are available upon request.**'
+    );
+    const assistantCall = mockCreateMessage.mock.calls.find(([m]) => m.role === 'assistant');
+    expect(assistantCall?.[0].content).toEqual([
+      {
+        type: 'text',
+        text:
+          'Patience (sabr) is mentioned many times in the Quran.' +
+          '\n\n---\n**This information came from [askansari.ai](https://askansari.ai). Full references and citations are available upon request.**',
+      },
+    ]);
   });
 });
 

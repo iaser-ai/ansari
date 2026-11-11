@@ -1,0 +1,17 @@
+id: bugfix-366
+title: mcp-complete-attribution-link-
+protocol: bugfix
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-11-11T03:18:17.751Z'
+    approved_at: '2026-11-11T03:25:47.118Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-11T02:46:41.302Z'
+updated_at: '2026-11-11T03:25:49.318Z'
+pr_ready_for_human: false
