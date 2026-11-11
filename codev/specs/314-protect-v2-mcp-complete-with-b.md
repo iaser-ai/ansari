@@ -344,7 +344,7 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 9. Not JSON, wrong content type, a body over 1 KiB, `key` not a string, empty, over 256 characters or containing whitespace → 400.
 10. `OPTIONS` and POST from a browser origin → no `Access-Control-*` header.
 11. No path under `/api/auth/api-key/*` becomes reachable, and the blocked-path assertions still pass.
-12. Captured logs and Sentry events across scenarios 1–9 contain neither the key nor its first 12 characters.
+12. Captured logs, Sentry events and responses across scenarios 1–9 contain neither the key nor any 16-character window of its 64-letter random part. The public `ansari_mcp_` prefix is exempt (§1), so the scan never keys on it.
 13. Alerts: window volume, daily volume, `USAGE_EXCEEDED`, `RATE_LIMITED` and refusal volume each fire once per window, with ids and counts only.
 14. Script: `create-key ansari-mcp` and `rotate ansari-mcp` without `--client-id`, or with a `--client-id` that is not `ansari-mcp` / `ansari-mcp-<suffix>`, are refused with nothing written. `list` shows each key's `client_id`.
 15. `metadata.clientId` is read correctly from the shape the plugin actually returns.
@@ -362,7 +362,7 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 9. The per-IP cap still answers 429 before any verify.
 10. Log-only mode: cases 1, 3 and 7 are served 200 with the verdicts `missing`, `refused` and `unverified` recorded. `unverified` also raises a Sentry warning. Case 4 attributes by the key.
 11. Mode absent → enforce. `MCP_COMPLETE_KEY_MODE=enforce` → enforce. `MCP_COMPLETE_KEY_MODE=log_only`, `LOG-ONLY` or empty → config validation throws, and the boot check refuses.
-12. The captured console output and Sentry envelopes for every case contain no part of the key.
+12. The captured console output, Sentry envelopes and responses for every case contain neither the key nor any 16-character window of its random part (the `ansari_mcp_` prefix exempt).
 13. A WhatsApp key end to end, through a real apps/auth app on pglite where the test harness allows it, otherwise through the stub contract plus apps/auth scenario 3 → 401.
 
 **Non-functional:** a staging smoke test with a real `ansari-mcp` key from the beta Worker: a valid answer, a revoked key giving 401, and the verdict visible in logs. It is recorded in the review, with no key in the record.
