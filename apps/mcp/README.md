@@ -79,7 +79,7 @@ pnpm exec tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rat
 ANSARI_API_AUTHORIZATION=Bearer ansari_mcp_development_<64 letters>
 ```
 
-or run apps/api with `MCP_COMPLETE_KEY_MODE=log-only`, which serves requests without a key and logs the verdict `missing`. Without either, every tool call fails: apps/api answers 401, and the dev server warns at start. The dev entry is for local work only; deployments run `pnpm start` (`dist/`) or the Worker entry.
+or run apps/api with `MCP_COMPLETE_KEY_MODE=log-only`, which serves requests without a key and logs the verdict `missing`. To try the tools by hand, `pnpm mcp inspect` opens the MCP Inspector (latest, via npx) connected to `http://localhost:3001/mcp` over Streamable HTTP; call `answer_islamic_question` from its Tools tab. Without either, every tool call fails: apps/api answers 401, and the dev server warns at start. The dev entry is for local work only; deployments run `pnpm start` (`dist/`) or the Worker entry.
 
 ### Two hosting targets, one application
 
