@@ -21,6 +21,7 @@ async function run(argv: string[], recorder: ReturnType<typeof scriptRecorder>) 
   const lines: string[] = [];
   const result = await serviceKeys(argv, {
     databaseUrl: 'postgres://db.example:6543/auth',
+    environment: 'staging',
     connect: () => ({ db: service.db, auth: service.auth }),
     recorder,
     print: (line) => lines.push(line),
@@ -46,7 +47,7 @@ it('no DSN: nothing is captured or flushed; the write stands, the banner names t
     recorder
   );
   expect(keyed.exitCode, keyed.text).toBe(EXIT_UNRECORDED);
-  const keyId = /Created key ([0-9a-f-]{36})/.exec(keyed.text)![1]!;
+  const keyId = /Created \w+ key ([0-9a-f-]{36})/.exec(keyed.text)![1]!;
   const banner = keyed.text.slice(keyed.text.indexOf('THE SENTRY RECORD'));
   expect(banner).toContain('SENTRY_DSN is not set: no record was attempted.');
   expect(banner).toContain(`key ${keyId}`);

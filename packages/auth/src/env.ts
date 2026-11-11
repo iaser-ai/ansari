@@ -10,6 +10,7 @@
 // env is absent (e.g. `tsc`/`tsdown` never execute the module; tests set env
 // explicitly). It runs the first time `getEnv()` is called — which is inside
 // `createAuth()`/`createDb()`.
+import { DEFAULT_ENVIRONMENT, ENVIRONMENTS, environmentIssue } from '@ansari/types/environment';
 import { z } from 'zod';
 
 /** Exported for the env-template test (apps/auth/tests/env-templates.test.ts). */
@@ -31,6 +32,10 @@ export const envSchema = z.object({
     )
     .pipe(z.array(z.url('CORS_ORIGIN must be a comma list of URLs')).min(1)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // The deployment label (#314 Amendment 3): the Sentry environment and the
+  // service-key prefix's environment. Required, and staging or production,
+  // under NODE_ENV=production (the refinement below); development otherwise.
+  ENVIRONMENT: z.enum(ENVIRONMENTS).default(DEFAULT_ENVIRONMENT),
   // apps/api's own origin, sent as `Origin` by its /v2/users/* layer, whose
   // server-side fetch carries Sec-Fetch-Mode and so meets better-auth's CSRF
   // check. It joins trustedOrigins ONLY, never the CORS allowlist, so a
@@ -53,6 +58,11 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   // apps/auth's Sentry project (the list-walk alert). Unset disables sending.
   SENTRY_DSN: z.string().url('SENTRY_DSN must be a valid URL').optional(),
+}).superRefine((env, ctx) => {
+  // The default fills an absent value in before this runs, so an absent
+  // ENVIRONMENT in production reads as `development` here and is refused too.
+  const issue = environmentIssue(env.NODE_ENV, env.ENVIRONMENT);
+  if (issue) ctx.addIssue({ code: 'custom', path: ['ENVIRONMENT'], message: issue });
 });
 
 export type AuthEnv = z.output<typeof envSchema>;
@@ -78,7 +88,8 @@ export function getEnv(): AuthEnv {
       `@ansari/auth env validation failed for: ${vars}. ` +
         `Set these before running the auth service — see apps/auth/.env.example ` +
         `(BETTER_AUTH_SECRET must be >= 32 chars, RESEND_API_KEY >= 20; ` +
-        `BETTER_AUTH_URL, AUTH_JWT_ISSUER and FRONTEND_URL must be URLs; CORS_ORIGIN a comma list of URLs).`
+        `BETTER_AUTH_URL, AUTH_JWT_ISSUER and FRONTEND_URL must be URLs; CORS_ORIGIN a comma list of URLs; ` +
+        `ENVIRONMENT staging or production when NODE_ENV=production).`
     );
   }
 

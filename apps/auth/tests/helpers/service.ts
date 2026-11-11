@@ -58,6 +58,12 @@ function listen(app: { listen: (port: number, cb: () => void) => Server }): Prom
 
 const urlOf = (server: Server) => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
+/** Serves another app (e.g. over the same db with other options) on an ephemeral port; close it when done. */
+export async function serveApp(app: { listen: (port: number, cb: () => void) => Server }): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = await listen(app);
+  return { url: urlOf(server), close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
 export async function startService(options: ServiceOptions = {}): Promise<Service> {
   setAuthEnv(BASE);
   const client = await migrate();

@@ -10,7 +10,7 @@ import { inspect } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { limits, serviceUsers } from '@ansari/auth';
+import { ENVIRONMENTS, getEnv, limits, serviceUsers } from '@ansari/auth';
 
 import { createMcpVerifyAlerts, EXCHANGE_ALERT_MESSAGE, MCP_VERIFY_ALERT_MESSAGE, type McpVerifyAlert } from '../src/alerts';
 import { createApp } from '../src/app';
@@ -18,7 +18,7 @@ import { SERVICE_VERIFY_PATH } from '../src/routes/service-verify';
 import { WHATSAPP_SESSION_PATH } from '../src/routes/whatsapp';
 import { parseArgs, runServiceKeys } from '../scripts/service-keys';
 import { keyWindows, leakedWindows } from './helpers/leak-scan';
-import { BASE, signUpTokens, startService, type Service } from './helpers/service';
+import { BASE, serveApp, signUpTokens, startService, type Service } from './helpers/service';
 
 const MCP = { mcp: ['complete'] };
 
@@ -83,11 +83,13 @@ async function serviceUserOf(on: Service, name: ServiceName): Promise<string> {
 /** A key made by the service-keys script's create-key, as an operator would; returns the raw key and its id. */
 async function scriptKey(name: ServiceName = 'ansari-mcp', on: Service = service, flags = LIMIT_FLAGS[name]) {
   const userId = await serviceUserOf(on, name);
-  const result = await runServiceKeys({ db: on.db, auth: on.auth }, parseArgs(['create-key', name, ...flags, '--confirm', userId]));
+  // The script issues under the same ENVIRONMENT the app under test serves (getEnv(): development here).
+  const environment = getEnv().ENVIRONMENT;
+  const result = await runServiceKeys({ db: on.db, auth: on.auth, environment }, parseArgs(['create-key', name, ...flags, '--confirm', userId]));
   expect(result.exitCode).toBe(0);
-  const { prefix } = serviceUsers.SERVICES[name];
+  const prefix = serviceUsers.keyPrefix(name, environment);
   const raw = result.lines.find((l) => l.startsWith(prefix) && l.length > prefix.length + 60);
-  const id = /Created key ([0-9a-f-]{36})/.exec(result.lines.join('\n'))?.[1];
+  const id = /Created \w+ key ([0-9a-f-]{36})/.exec(result.lines.join('\n'))?.[1];
   if (!raw || !id) throw new Error('no key in the script output');
   return { key: remember(raw), id };
 }
@@ -348,6 +350,63 @@ describe('the owner and the client id', () => {
     expect(alertsOf('client-id-invalid').slice(sent)).toEqual([
       { kind: 'client-id-invalid', keyId: first.id, windowSeconds: limits.EXCHANGE_ALERT_WINDOW },
     ]);
+  });
+});
+
+describe('the stored prefix (#314 Amendments 2 and 3)', () => {
+  const served = { metadata: { clientId: 'ansari-mcp-production' } };
+  const here = getEnv().ENVIRONMENT;
+
+  it.each([
+    ["this environment's label", serviceUsers.keyPrefix('ansari-mcp', here)],
+    ['the legacy bare prefix (compatibility window)', 'ansari_mcp_'],
+  ])('%s → served', async (_name, prefix) => {
+    const made = await outsideKey(mcpUserId, { ...served, prefix });
+    expect(made.key.startsWith(prefix)).toBe(true);
+    expect(JSON.parse((await verify(made.key)).text)).toEqual({
+      valid: true,
+      client_id: 'ansari-mcp-production',
+      key_id: made.id,
+    });
+  });
+
+  it('the longest prefix the table produces fits the plugin (created with it, not a cited limit)', async () => {
+    const all = (Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[]).flatMap((name) =>
+      ENVIRONMENTS.map((env) => serviceUsers.keyPrefix(name, env))
+    );
+    const longest = all.reduce((a, b) => (b.length > a.length ? b : a));
+    expect(longest).toBe('ansari_mcp_development_');
+    const made = await outsideKey(mcpUserId, { ...served, prefix: longest });
+    expect(made.key.startsWith(longest)).toBe(true);
+  });
+
+  it.each([
+    ...ENVIRONMENTS.filter((e) => e !== here).map((e) => [`another environment's label (${e})`, `ansari_mcp_${e}_`]),
+    ['a foreign prefix', 'evil_'],
+    ["a WhatsApp prefix for this environment", serviceUsers.keyPrefix('whatsapp', here)],
+    ['an unknown environment', 'ansari_mcp_qa_'],
+    ['no prefix', undefined],
+  ])('%s → the same { valid: false }', async (_name, prefix) => {
+    const made = await outsideKey(mcpUserId, { ...served, prefix });
+    expectRefused(await verify(made.key));
+  });
+
+  it('a staging-labelled key is refused by a production-configured app, and served by a staging one', async () => {
+    const made = await outsideKey(mcpUserId, { ...served, prefix: 'ansari_mcp_staging_' });
+    for (const [environment, valid] of [['production', false], ['staging', true]] as const) {
+      const app = await serveApp(createApp({ auth: service.auth, db: service.db }, { environment, production: false }));
+      try {
+        const res = await fetch(`${app.url}${SERVICE_VERIFY_PATH}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ key: made.key, permissions: MCP }),
+        });
+        expect(res.status).toBe(200);
+        expect(((await res.json()) as { valid: boolean }).valid, environment).toBe(valid);
+      } finally {
+        await app.close();
+      }
+    }
   });
 });
 

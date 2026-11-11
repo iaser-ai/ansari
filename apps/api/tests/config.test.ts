@@ -280,6 +280,7 @@ describe('apps/auth config', () => {
     }
     setAuthEnv();
     process.env.NODE_ENV = 'production';
+    process.env.ENVIRONMENT = 'staging'; // required in production too (#314 Amendment 3)
     resetEnvCache();
     expect(() => getEnv()).not.toThrow();
   });

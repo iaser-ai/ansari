@@ -28,7 +28,12 @@
  * thread attribution apps/api stores for every request the key makes.
  *
  * - It prints the database as `hostname:port` only, never the URL.
- * - Permissions and the key prefix are fixed per service (SERVICES); limits are
+ * - The script reads `ENVIRONMENT` (development, staging or production; #314
+ *   Amendment 3) from its process env and refuses to run without it. It is
+ *   printed under the database line before anything connects, and a new key's
+ *   prefix carries it (`ansari_<service>_<environment>_`); the routes refuse a
+ *   key labelled for another environment.
+ * - Permissions and the base key prefix are fixed per service (SERVICES); limits are
  *   required flags with no defaults, checked against limits.ts's bounds. The
  *   budget is daily and always refills: a budget without a refill deletes the
  *   key the first time it is exhausted. There is no expiry option: a key lives
@@ -46,6 +51,7 @@ import * as Sentry from '@sentry/node';
 import {
   createAuth,
   createDb,
+  ENVIRONMENTS,
   getEnv,
   isMcpClientId,
   limits,
@@ -53,7 +59,9 @@ import {
   serviceUsers,
   type Auth,
   type Db,
+  type Environment,
 } from '@ansari/auth';
+
 
 import { urlHostPort } from './url-host';
 
@@ -78,7 +86,15 @@ export const USAGE = [
   '       tsx scripts/service-keys.ts update-limits <service> --key <key id> --rate-max <n> --rate-window <seconds> --daily <n> [--confirm <key id>]',
   '       tsx scripts/service-keys.ts revoke <service> --key <key id> [--confirm <key id>]',
   `Services: ${Object.keys(serviceUsers.SERVICES).join(', ')}`,
+  `ENVIRONMENT (${ENVIRONMENTS.join(', ')}) must be set, as on the auth service: a new key's prefix carries it`,
+  '(ansari_<service>_<environment>_), and each environment\'s routes refuse a key labelled for another. Check it against the',
+  'database line before --confirm.',
 ].join('\n');
+
+/** The refusal when ENVIRONMENT is absent or not one of ENVIRONMENTS: fixed words, never the value. */
+export const ENVIRONMENT_RULE = `ENVIRONMENT is not set to one of ${ENVIRONMENTS.join(', ')} (set it as on the auth service). Refusing to run.`;
+
+const isEnvironment = (value: string): value is Environment => (ENVIRONMENTS as readonly string[]).includes(value);
 
 /** The exit code of a run that wrote nothing on purpose (show step, confirm mismatch). */
 export const EXIT_NOTHING_WRITTEN = 2;
@@ -142,7 +158,6 @@ function limitsFrom(flags: Map<string, string>): KeyLimits {
   };
 }
 
-/** Parses the command line; throws RefusedError with the reason when it is not a valid command. */
 /** A key name or client id: printed by list and sent to Sentry, so a bounded, inert charset. */
 const LABEL = /^[A-Za-z0-9 ._-]{1,64}$/;
 
@@ -273,7 +288,8 @@ export type KeyEvent = {
 
 export type ScriptResult = { lines: string[]; exitCode: number; events: KeyEvent[] };
 
-export type ScriptContext = { db: Db; auth: Auth; now?: Date };
+/** `environment` is the validated ENVIRONMENT: a new key's prefix names it. */
+export type ScriptContext = { db: Db; auth: Auth; environment: Environment; now?: Date };
 
 const describeLimits = (l: {
   rateLimitMax: number | null;
@@ -343,7 +359,8 @@ async function createKey(
   flags: KeyFlags
 ): Promise<{ id: string; key: string; name: string }> {
   const checked = checkKeyLimits(service, flags.limits);
-  const { permissions, prefix } = serviceUsers.SERVICES[service];
+  const { permissions } = serviceUsers.SERVICES[service];
+  const prefix = serviceUsers.keyPrefix(service, ctx.environment);
   // Default name: the service and the minute it was created, so a rotation's two keys differ.
   const name = flags.name ?? `${service} ${(ctx.now ?? new Date()).toISOString().slice(0, 16)}Z`;
   const created = await ctx.auth.api.createApiKey({
@@ -430,7 +447,8 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
         ...userLines(cmd.service, user),
         `${live.length} live key(s): ${live.map((k) => k.id).join(', ') || 'none'}`,
         `This would create a key with ${describeLimits(cmd.limits)}.`,
-        'Nothing was written. If this is the service you mean, run:',
+        `  environment ${ctx.environment} (prefix ${serviceUsers.keyPrefix(cmd.service, ctx.environment)})`,
+        'Nothing was written. If this is the service and environment you mean, run:',
         command(`${cmd.kind} ${cmd.service} ${flagsText(cmd.limits)}${extra ? ` ${extra}` : ''} --confirm ${user.id}`),
       ]);
     }
@@ -447,7 +465,7 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
         : [];
     return {
       lines: [
-        `Created key ${created.id} (${created.name}) for ${cmd.service}: ${describeLimits(cmd.limits)}.`,
+        `Created ${ctx.environment} key ${created.id} (${created.name}) for ${cmd.service}: ${describeLimits(cmd.limits)}.`,
         ...rawKeyLines(created.key),
         ...rotated,
       ],
@@ -566,7 +584,9 @@ export function scriptError(err: unknown): string {
 
 export type ScriptDeps = {
   databaseUrl: string | undefined;
-  connect: () => ScriptContext;
+  /** ENVIRONMENT as the process has it, unvalidated: the script refuses an absent or unknown value. */
+  environment: string | undefined;
+  connect: () => Omit<ScriptContext, 'environment'>;
   recorder: Recorder;
   /** Prints one line at once (console.log in the script). */
   print: (line: string) => void;
@@ -597,10 +617,16 @@ export async function serviceKeys(argv: readonly string[], deps: ScriptDeps): Pr
     return { lines, exitCode: 1 };
   }
   emit(`Auth database: ${host}`);
+  const environment = deps.environment;
+  if (environment === undefined || !isEnvironment(environment)) {
+    emit(ENVIRONMENT_RULE);
+    return { lines, exitCode: 1 };
+  }
+  emit(`Environment: ${environment} (a new key's prefix carries it: ansari_<service>_${environment}_)`);
   let result: ScriptResult;
   try {
     const cmd = parseArgs(argv);
-    result = await runServiceKeys(deps.connect(), cmd);
+    result = await runServiceKeys({ ...deps.connect(), environment }, cmd);
   } catch (err) {
     emit(`service-keys refused: ${scriptError(err)}`);
     return { lines, exitCode: 1 };
@@ -641,6 +667,7 @@ async function main(): Promise<void> {
   const recorder = scriptRecorder(process.env.SENTRY_DSN);
   const { exitCode } = await serviceKeys(process.argv.slice(2), {
     databaseUrl: process.env.DATABASE_URL,
+    environment: process.env.ENVIRONMENT,
     connect: () => {
       try {
         getEnv();

@@ -25,7 +25,7 @@
 // so no response carries an `Access-Control-*` header. It is outside Better
 // Auth's handler path, so no router per-IP rule applies: apps/api calls from
 // its egress IP.
-import { isMcpClientId, limits, redactError, serviceUsers } from '@ansari/auth';
+import { getEnv, isMcpClientId, limits, redactError, serviceUsers, type Environment } from '@ansari/auth';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 
 import { createMcpVerifyAlerts, type KeyRefusalCode, type McpVerifyAlerts } from '../alerts';
@@ -44,6 +44,11 @@ const KEY = new RegExp(`^[\\x21-\\x7E]{1,${limits.VERIFY_KEY_MAX_LENGTH}}$`);
 const KEY_REFUSAL_CODES: readonly string[] = ['USAGE_EXCEEDED', 'RATE_LIMITED'] satisfies KeyRefusalCode[];
 
 export type VerifyOptions = {
+  /**
+   * This deployment's ENVIRONMENT (#314 Amendment 3): only a key whose stored
+   * prefix names it (or the legacy bare prefix) is served. Defaults to getEnv().
+   */
+  environment?: Environment;
   alerts?: McpVerifyAlerts;
   /** The clock for the relation-check cache; tests advance it. */
   now?: () => number;
@@ -79,6 +84,7 @@ const internalError = (res: Response) => res.status(500).json({ message: 'Intern
 export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOptions = {}): Router {
   const alerts = options.alerts ?? createMcpVerifyAlerts();
   const checkApiKeyRelation = createApiKeyRelationCheck(db, options.now ?? Date.now);
+  const environment = options.environment ?? getEnv().ENVIRONMENT;
   const permissions = { [SERVED_RESOURCE]: [...SERVED_ACTIONS] };
   const router = Router();
 
@@ -128,6 +134,11 @@ export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOp
         return fail(res, new Error('ansari-mcp service user unresolvable'));
       }
       if (verified.key.referenceId !== owner.user.id) return refuse(res);
+      // A key whose stored prefix is not this service's and this environment's
+      // (another environment's label, another service's, a hand-made one) is
+      // the same refusal (#314 Amendment 3). The legacy bare prefix is accepted
+      // while serviceUsers.LEGACY_UNLABELLED_KEYS holds.
+      if (!serviceUsers.isAcceptedKeyPrefix(SERVICE, environment, verified.key.prefix)) return refuse(res);
 
       const clientId = serviceUsers.clientIdOf(verified.key.metadata);
       if (clientId === null || !isMcpClientId(clientId)) {

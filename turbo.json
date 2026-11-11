@@ -145,6 +145,11 @@
     // variable and the log-only branch one week after enforcement; the issue
     // is opened at enforce (rollout step 6).
     "MCP_COMPLETE_KEY_MODE",
+    // #314 Amendment 3: the deployment label (development, staging,
+    // production) in apps/api and apps/auth's Zod schemas, the Sentry
+    // environment of both, and the service-key prefix's environment. Required
+    // under NODE_ENV=production; read at runtime only, never at build.
+    "ENVIRONMENT",
     "MAINTENANCE_MODE",
     "IOS_MINIMUM_BUILD_VERSION",
     "IOS_LATEST_BUILD_VERSION",

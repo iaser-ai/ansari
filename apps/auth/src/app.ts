@@ -7,7 +7,7 @@
 //   /api/whatsapp/session  the WhatsApp token exchange, bound to a service key
 //   /api/service/verify-key  the MCP key verify route (#314), for apps/api
 //   /health and the diag route
-import { createAuth, getEnv, type Auth, type Db, type Mailer } from '@ansari/auth';
+import { createAuth, getEnv, type Auth, type Db, type Environment, type Mailer } from '@ansari/auth';
 import { toNodeHandler } from 'better-auth/node';
 import express, { type Express, type Request, type Response } from 'express';
 
@@ -30,6 +30,8 @@ export type AppOptions = {
   exchange?: ExchangeOptions;
   /** The MCP verify route's alerts and clock; the defaults in production. */
   verify?: VerifyOptions;
+  /** This deployment's ENVIRONMENT for both key routes (#314 Amendment 3); defaults to getEnv(). */
+  environment?: Environment;
 };
 
 const AUTH_ROUTE = '/api/auth{/*path}';
@@ -71,8 +73,9 @@ export function createApp({ auth, db }: ServiceDeps, options: AppOptions = {}): 
   // OPTIONS itself, so a route after it would get CORS for the configured
   // origin. Each router answers every request to its path, so nothing reaches
   // corsFor; a browser can never read a response from either.
-  app.use(WHATSAPP_SESSION_PATH, whatsappRouter({ auth, db }, options.exchange));
-  app.use(SERVICE_VERIFY_PATH, serviceVerifyRouter({ auth, db }, options.verify));
+  const environment = options.environment;
+  app.use(WHATSAPP_SESSION_PATH, whatsappRouter({ auth, db }, { ...options.exchange, ...(environment && { environment }) }));
+  app.use(SERVICE_VERIFY_PATH, serviceVerifyRouter({ auth, db }, { ...options.verify, ...(environment && { environment }) }));
   app.use(corsFor(getEnv().CORS_ORIGIN));
   app.use(mergeExposedHeaders);
   app.use(blockedPaths);

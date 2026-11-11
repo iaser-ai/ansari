@@ -1,3 +1,4 @@
+import { DEFAULT_ENVIRONMENT, ENVIRONMENTS, environmentIssue } from '@ansari/types/environment';
 import { z } from 'zod';
 
 const AUTH_SERVICE_VARS = [
@@ -133,7 +134,13 @@ export const envSchema = z.object({
 
   // Optional
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // The deployment label (#314 Amendment 3): the Sentry environment. Required,
+  // and staging or production, under NODE_ENV=production (below); development
+  // otherwise. Enforced at production boot (lib/boot-check.ts), never at build.
+  ENVIRONMENT: z.enum(ENVIRONMENTS).default(DEFAULT_ENVIRONMENT),
 }).superRefine((env, ctx) => {
+  const environment = environmentIssue(env.NODE_ENV, env.ENVIRONMENT);
+  if (environment) ctx.addIssue({ code: 'custom', path: ['ENVIRONMENT'], message: environment });
   if (env.NODE_ENV === 'production') {
     for (const name of AUTH_SERVICE_VARS) {
       if (!env[name]) {

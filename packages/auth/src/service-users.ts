@@ -4,12 +4,14 @@
 // Only apps/auth's service-keys script creates one; its keys are created and
 // changed in process through the api-key plugin, whose HTTP surface is blocked.
 //
-// Permissions and key prefixes are fixed here, per service, so the script
+// Permissions and base key prefixes are fixed here, per service, so the script
 // takes no free-form permissions: a key for one service is refused at
-// another's route.
+// another's route. A key's full prefix adds its environment (keyPrefix).
 import { and, asc, eq } from 'drizzle-orm';
 
 import type { Db } from './db';
+import { ENVIRONMENTS, type Environment } from '@ansari/types/environment';
+
 import { MCP_KEY_BOUNDS, WHATSAPP_KEY_BOUNDS } from './limits';
 import { serviceAddress } from './reserved';
 import { account, apikey, users } from './schema';
@@ -37,13 +39,64 @@ export function isServiceName(name: string): name is ServiceName {
 }
 
 /**
- * GitHub custom secret-scanning patterns, one per key prefix: the prefix and
- * the plugin's 64-letter key. The runbook asks the owner to register exactly
- * these (`.source`) for the organisation.
+ * A key's prefix names the environment it was issued in (#314, owner
+ * 2026-11-12, Amendments 2 and 3): `ansari_<service>_<environment>_`, e.g.
+ * `ansari_wa_production_`, `ansari_mcp_staging_`, where the environment is the
+ * issuing apps/auth's ENVIRONMENT (one vocabulary with apps/api, the frontend
+ * and Sentry). The script reads it from its process env; each route accepts
+ * only its own environment's prefix, so a key leaked from one environment is
+ * readable as such and refused in another.
+ */
+export function keyPrefix(service: ServiceName, environment: Environment): string {
+  return `${SERVICES[service].prefix}${environment}_`;
+}
+
+/**
+ * Keys issued before #314 carry the bare service prefix (`ansari_wa_`, no
+ * environment): at least one live staging WhatsApp key does. While this is
+ * true the routes still accept that prefix, the secret-scanning patterns
+ * still catch it and the script still refuses it pasted into a flag. The
+ * compatibility window closes when `list` shows no live unlabelled key on any
+ * database: set this to false and re-register the scanning patterns (the
+ * runbook's "Rotate legacy keys" step and its follow-up issue).
+ */
+export const LEGACY_UNLABELLED_KEYS = true;
+
+/**
+ * The prefixes a route of `service` running as `environment` accepts: that
+ * environment's, plus the bare legacy prefix while LEGACY_UNLABELLED_KEYS
+ * holds. Any other stored prefix (another environment's, another service's, a
+ * hand-made one) is the route's ordinary refusal.
+ */
+export function acceptedKeyPrefixes(service: ServiceName, environment: Environment): readonly string[] {
+  const own = keyPrefix(service, environment);
+  return LEGACY_UNLABELLED_KEYS ? [own, SERVICES[service].prefix] : [own];
+}
+
+/** True when a verified key's stored prefix is one `service`'s route in `environment` accepts. */
+export function isAcceptedKeyPrefix(service: ServiceName, environment: Environment, prefix: unknown): boolean {
+  return typeof prefix === 'string' && acceptedKeyPrefixes(service, environment).includes(prefix);
+}
+
+/** The plugin's key body: 64 letters (its default length and alphabet). */
+const KEY_BODY = '[A-Za-z]{64}';
+
+function scanningPattern(service: ServiceName): RegExp {
+  const envs = `(?:${ENVIRONMENTS.join('|')})_`;
+  return new RegExp(`${SERVICES[service].prefix}${LEGACY_UNLABELLED_KEYS ? `(?:${envs})?` : envs}${KEY_BODY}`);
+}
+
+/**
+ * GitHub custom secret-scanning patterns, one per service, derived from the
+ * same table as keyPrefix: the base prefix, any ENVIRONMENT segment (optional
+ * while LEGACY_UNLABELLED_KEYS holds), and the plugin's 64-letter key. The
+ * script's pasted-key refusal uses these too, so the three never disagree. The
+ * runbook asks the owner to register exactly these (`.source`) for the
+ * organisation.
  */
 export const SECRET_SCANNING_PATTERNS: Readonly<Record<ServiceName, RegExp>> = {
-  whatsapp: /ansari_wa_[A-Za-z]{64}/,
-  'ansari-mcp': /ansari_mcp_[A-Za-z]{64}/,
+  whatsapp: scanningPattern('whatsapp'),
+  'ansari-mcp': scanningPattern('ansari-mcp'),
 };
 
 export type ServiceUser = { id: string; email: string; createdAt: Date };

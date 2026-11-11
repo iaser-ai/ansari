@@ -543,7 +543,9 @@ describe('the service-keys runbook (spec 329)', () => {
 
   it('gives exactly the secret-scanning patterns the code defines, and where the owner registers them', () => {
     const scanning = section('Secret scanning');
-    const rows = [...scanning.matchAll(/^\| `([a-z-]+)` \| `([^`]+)` \|$/gm)].map((m) => [m[1], m[2]]);
+    // A `|` inside a GFM table cell must be written `\|` (even in code), or it splits the cell;
+    // the owner copies the rendered text, so the escape is undone before comparing.
+    const rows = [...scanning.matchAll(/^\| `([a-z-]+)` \| `([^`]+)` \|$/gm)].map((m) => [m[1], m[2]?.replace(/\\\|/g, '|')]);
     expect(rows).toEqual(Object.entries(serviceUsers.SECRET_SCANNING_PATTERNS).map(([name, re]) => [name, re.source]));
     expect(scanning).toContain('Settings → Code security → Secret scanning → Custom patterns');
     expect(scanning).toMatch(/\*\*revoke the key at once\*\*/);

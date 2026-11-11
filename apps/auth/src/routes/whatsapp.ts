@@ -26,7 +26,7 @@
 // Better Auth's handler path, so no router per-IP rule applies: the WhatsApp
 // service calls from one egress IP, and the key's own limits and the per-user
 // budget are the throttle.
-import { consumeWindow, limits, redactError, serviceUsers, whatsapp } from '@ansari/auth';
+import { consumeWindow, limits, redactError, getEnv, serviceUsers, whatsapp, type Environment } from '@ansari/auth';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 
 import {
@@ -54,6 +54,11 @@ const BSUID = /^[^\s\p{Cc}\p{Cf}]{1,256}$/u;
 export const exchangeLimitKey = (userId: string) => `sub:${userId}|${WHATSAPP_SESSION_PATH}`;
 
 export type ExchangeOptions = {
+  /**
+   * This deployment's ENVIRONMENT (#314 Amendment 3): only a key whose stored
+   * prefix names it (or the legacy bare prefix) is served. Defaults to getEnv().
+   */
+  environment?: Environment;
   alerts?: ExchangeAlerts;
   /** The clock for the relation-check cache; tests advance it. */
   now?: () => number;
@@ -90,6 +95,7 @@ const internalError = (res: Response) => res.status(500).json({ message: 'Intern
 export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptions = {}): Router {
   const alerts = options.alerts ?? createExchangeAlerts();
   const now = options.now ?? Date.now;
+  const environment = options.environment ?? getEnv().ENVIRONMENT;
   const router = Router();
 
   const checkApiKeyRelation = createApiKeyRelationCheck(db, now);
@@ -125,6 +131,11 @@ export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptio
         return fail(res, new Error('whatsapp service user unresolvable'));
       }
       if (verified.key.referenceId !== owner.user.id) return refuse(res);
+      // A key whose stored prefix is not this service's and this environment's
+      // (another environment's label, another service's, a hand-made one) is
+      // the same refusal (#314 Amendment 3). The legacy bare prefix is accepted
+      // while serviceUsers.LEGACY_UNLABELLED_KEYS holds.
+      if (!serviceUsers.isAcceptedKeyPrefix(SERVICE, environment, verified.key.prefix)) return refuse(res);
       next();
     } catch (err) {
       fail(res, err);

@@ -11,7 +11,7 @@ import { inspect } from 'node:util';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { limits, serviceUsers } from '@ansari/auth';
+import { ENVIRONMENTS, getEnv, limits, serviceUsers, type Environment } from '@ansari/auth';
 
 import { TEST_JWT_AUDIENCE, TEST_JWT_ISSUER } from '../../../packages/auth/tests/helpers/auth-db';
 import {
@@ -23,6 +23,9 @@ import {
 import { createApp } from '../src/app';
 import { exchangeLimitKey, WHATSAPP_SESSION_PATH } from '../src/routes/whatsapp';
 import { BASE, rateLimitRow, send, signUpTokens, startService, type Service } from './helpers/service';
+
+/** The ENVIRONMENT the app under test runs as (the test env sets none, so the default); pinned in beforeAll. */
+const HERE: Environment = 'development';
 
 const WHATSAPP = { whatsapp: ['mint'] };
 
@@ -78,6 +81,7 @@ function startExchangeService(): Promise<Service> {
 
 beforeAll(async () => {
   service = await startExchangeService();
+  expect(getEnv().ENVIRONMENT).toBe(HERE);
   serviceUserId = (await serviceUsers.createServiceUser(service.db, 'whatsapp')).id;
   key = await createKey();
 });
@@ -219,6 +223,14 @@ describe('key refusals: one byte-identical 401, no rows', () => {
     ],
     ['a key with mcp: complete only', async () => ({ bearer: await createKey({ permissions: { mcp: ['complete'] } }) })],
     ['a key with no permissions', async () => ({ bearer: await seededKey('update auth.apikey set permissions = null where key = $1') })],
+    // #314 Amendment 3: a stored prefix that is not this service's and this environment's.
+    ...ENVIRONMENTS.filter((e) => e !== HERE).map(
+      (e) => [`a key labelled for ${e}`, async () => ({ bearer: await createKey({ prefix: `ansari_wa_${e}_` }) })] as [string, () => Promise<PostOptions>]
+    ),
+    ['a key with a foreign prefix', async () => ({ bearer: await createKey({ prefix: 'evil_' }) })],
+    ['a key with an MCP prefix', async () => ({ bearer: await createKey({ prefix: serviceUsers.keyPrefix('ansari-mcp', HERE) }) })],
+    ['a key with an unknown environment', async () => ({ bearer: await createKey({ prefix: 'ansari_wa_qa_' }) })],
+    ['a key with no prefix', async () => ({ bearer: await createKey({ prefix: undefined }) })],
     [
       "another service's whatsapp: mint key",
       async () => {
@@ -274,6 +286,15 @@ describe('key refusals: one byte-identical 401, no rows', () => {
 });
 
 describe('the exchange', () => {
+  it.each([...serviceUsers.acceptedKeyPrefixes('whatsapp', HERE)])(
+    'a key with the accepted prefix %s → 200 (this environment\'s label and, while legacy keys live, the bare prefix)',
+    async (prefix) => {
+      const labelled = await createKey({ prefix });
+      expect(labelled.startsWith(prefix)).toBe(true);
+      expect((await exchange(newBsuid(), newPhone(), { bearer: labelled })).status).toBe(200);
+    }
+  );
+
   it('a new BSUID → 200 with a JWT for a new WhatsApp user and its one session', async () => {
     const bsuid = newBsuid();
     const before = await rowCounts();

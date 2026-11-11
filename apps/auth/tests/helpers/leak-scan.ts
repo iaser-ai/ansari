@@ -1,15 +1,18 @@
 // The key-material scan (#314): a raw key, or any 16-character window of its
-// random part, in some text. The public prefix (`ansari_mcp_`, stored in
+// random part, in some text. The public prefix (`ansari_mcp_<environment>_`, stored in
 // `apikey.prefix` and published as the secret-scanning pattern) is exempt, so
 // the scan never keys on it. Negative-tested in service-verify.test.ts against
 // a known-bad line and the bare prefix (a verification pattern is code).
-import { serviceUsers } from '@ansari/auth';
+import { ENVIRONMENTS, serviceUsers } from '@ansari/auth';
 
 export const LEAK_WINDOW = 16;
 
-const PREFIXES = Object.values(serviceUsers.SERVICES).map((s) => s.prefix);
+// Longest first, so `ansari_mcp_staging_` is stripped whole, never just `ansari_mcp_`.
+const PREFIXES = (Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[])
+  .flatMap((name) => [serviceUsers.SERVICES[name].prefix, ...ENVIRONMENTS.map((env) => serviceUsers.keyPrefix(name, env))])
+  .sort((a, b) => b.length - a.length);
 
-/** Every 16-character window of the key's random part (the part after its service prefix). */
+/** Every 16-character window of the key's random part (the part after its prefix, environment included). */
 export function keyWindows(key: string): string[] {
   const prefix = PREFIXES.find((p) => key.startsWith(p)) ?? '';
   const random = key.slice(prefix.length);
