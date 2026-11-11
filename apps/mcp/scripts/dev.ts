@@ -10,6 +10,14 @@
 import {existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
+// The built card (dist/view.html) is read at start. Under turbo (`pnpm dev`,
+// `pnpm dev:mcp`) apps/mcp/turbo.json's `dev` dependsOn `build`, a cached task;
+// run directly, build first.
+if (!existsSync(fileURLToPath(new URL('../dist/view.html', import.meta.url)))) {
+  console.error('[mcp dev] dist/view.html is missing: run `pnpm dev` or `pnpm dev:mcp` (they build first), or `pnpm mcp build`.');
+  process.exit(1);
+}
+
 const envFile = fileURLToPath(new URL('../.env', import.meta.url));
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 

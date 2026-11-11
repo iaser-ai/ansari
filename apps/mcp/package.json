@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsx scripts/build.ts",
     "start": "node dist/server/index.js",
-    "dev": "pnpm build && tsx scripts/dev.ts",
+    "dev": "tsx scripts/dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:browser": "tsx test/browser.ts",

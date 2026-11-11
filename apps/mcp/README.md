@@ -62,7 +62,7 @@ pnpm mcp test:browser
 pnpm mcp start
 ```
 
-`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` builds, then runs the Node entry source through `scripts/dev.ts` (see below). The synthetic browser harness is test-only and uses no credentials or live answers.
+`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` runs the Node entry source through `scripts/dev.ts` (see below) and needs `dist/view.html`: under turbo (`pnpm dev`, `pnpm dev:mcp`) the cached `build` task runs first (it shows as its own task, `ansari-mcp#build`); run directly, `pnpm mcp build` first. The synthetic browser harness is test-only and uses no credentials or live answers.
 
 ### Local development
 

@@ -13,7 +13,7 @@
     "dev": "turbo run dev --ui=tui",
     "dev:no-auth": "turbo run dev --ui=tui --filter=!ansari-auth --filter=!ansari-mcp",
     "dev:auth": "pnpm --filter ansari-auth dev",
-    "dev:mcp": "pnpm --filter ansari-mcp dev",
+    "dev:mcp": "turbo run dev --ui=tui --filter=ansari-mcp",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck --filter=!ansari-mcp",
     "test": "turbo run test --filter=!ansari-mcp -- --maxWorkers=4",
