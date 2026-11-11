@@ -11,14 +11,14 @@ plan_phases:
     status: complete
   - id: phase_3
     title: apps/api verify client and MCP_COMPLETE_KEY_MODE setting
-    status: in_progress
+    status: complete
   - id: phase_4
     title: mcp-complete key gate, key attribution and log-only mode
-    status: pending
+    status: in_progress
   - id: phase_5
     title: Docs, runbook and architecture notes
     status: pending
-current_plan_phase: phase_3
+current_plan_phase: phase_4
 gates:
   spec-approval:
     status: approved
@@ -32,8 +32,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 2
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_2
@@ -72,7 +72,7 @@ history:
         file: >-
           /Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/projects/314-protect-v2-mcp-complete-with-b/314-phase_3-iter1-gemini.txt
 started_at: '2026-11-11T02:47:51.234Z'
-updated_at: '2026-11-11T04:01:49.569Z'
+updated_at: '2026-11-11T04:03:07.171Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-11-11T03:09:39.378Z'
@@ -86,3 +86,5 @@ context_refreshes:
   - boundary: plan-phase:phase_3
     at: '2026-11-11T03:51:38.337Z'
     acknowledged_at: '2026-11-11T03:51:42.587Z'
+  - boundary: plan-phase:phase_4
+    at: '2026-11-11T04:03:07.170Z'
