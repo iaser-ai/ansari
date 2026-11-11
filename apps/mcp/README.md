@@ -131,6 +131,8 @@ Artwork is embedded as actual SVG/PNG data in application-local TypeScript modul
 
 The `MCP application` workflow runs for app, lockfile, workspace, root manifest/ignore, workflow and shared lint configuration changes on PRs and develop/main pushes. It installs the root lockfile frozen, then runs app lint, typechecking, both builds, tests and browser checks. `bash apps/mcp/scripts/verify-container.sh` performs one uncached root-context Docker build and verifies health, synthetic tool calls, full attribution, safe failure/recovery and resource identity in a container with no external network or mounted files. It removes its container and image on exit. Node 22, pnpm 10.33, Docker and Chromium system dependencies are required.
 
+The Docker image is deployed to Railway **staging** only (`mcp-staging.askansari.ai`; hosts connect at `https://<domain>/mcp`). Its settings are recorded in `apps/mcp/railway.toml` (not read by Railway: the dashboard is the live configuration) and its staging environment in `RELEASE.md`. The Workers path is not deployed.
+
 This job needs no host credentials. Deployment and actual
 ChatGPT, Claude and Alexa rendering remain separate integration checks.
 

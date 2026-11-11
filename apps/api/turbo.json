@@ -19,6 +19,10 @@
     // The root package.json is here for root-test-script.test.ts (issue #330),
     // which pins the root `test` script's worker cap: without it, removing the
     // cap left this task at the same hash and a warm cache replayed the pin green.
+    //
+    // The railway tomls are here for release-doc.test.ts (issue #364), which
+    // checks each one against RELEASE.md: without them a toml-only edit left this
+    // task at the same hash and a warm cache replayed the check green.
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -37,7 +41,9 @@
         "$TURBO_ROOT$/.github/workflows/**",
         "$TURBO_ROOT$/.gitleaksignore",
         "$TURBO_ROOT$/.gitleaks.toml",
-        "$TURBO_ROOT$/package.json"
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/*/railway.toml",
+        "$TURBO_ROOT$/legacy/*/railway.toml"
       ]
     },
 
