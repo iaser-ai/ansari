@@ -78,7 +78,7 @@
   //      (apps/auth's env; apps/auth reads nothing else).
   //   2. STATIC reads:  grep -rn "process\.env\.[A-Z]" apps packages
   //      (DATABASE_URL in both drizzle configs, NEXT_RUNTIME, NODE_ENV,
-  //       RAILWAY_ENVIRONMENT, SENTRY_DSN, VITEST)
+  //       ENVIRONMENT in sentry.server.config.ts, SENTRY_DSN, VITEST)
   //   3. DYNAMIC reads: grep -rn "process\.env\[" apps  — then follow each
   //      call site to the string literals passed in. A static `process.env.X`
   //      pattern CANNOT see `process.env[name]`, and the failure is silent: the
@@ -159,7 +159,6 @@
     "FRONTEND_URL",
     "MARKETMAKER_URL",
     "NEXT_RUNTIME",
-    "RAILWAY_ENVIRONMENT",
     "RESEND_API_KEY",
     "SENTRY_DSN",
     // Build-time only, consumed by withSentryConfig (not by our source) for
