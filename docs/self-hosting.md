@@ -117,13 +117,13 @@ empty-final retry ladder still applies as same-model retries.
 | `ANDROID_MINIMUM_BUILD_VERSION` | `1` | |
 | `ANDROID_LATEST_BUILD_VERSION` | `1` | |
 | `NODE_ENV` | `development` | `development` / `production` / `test` |
+| `ENVIRONMENT` | `development` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth` and the frontend's `EXPO_PUBLIC_ENVIRONMENT`. It is the Sentry environment. **Required when `NODE_ENV=production`**, and then only `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
 
 ### Outside the config schema (direct `process.env` reads)
 
 | Variable | Where used | Notes |
 |----------|-----------|-------|
 | `SENTRY_DSN` | `sentry.*.config.ts` | Optional. Sentry is disabled when unset (and always disabled under test). No user content is ever sent to Sentry |
-| `RAILWAY_ENVIRONMENT` | `sentry.server.config.ts` | Auto-injected by Railway; used as the Sentry environment tag. Falls back to `NODE_ENV`; never set manually |
 | `SENTRY_AUTH_TOKEN` | build-time only | Optional — source-map uploads during `next build`. The build succeeds without it |
 
 ### Provisioning admins
@@ -227,6 +227,13 @@ Verify admins with `grant-admin.ts --list` from `apps/auth/`.
 
 `apps/api`'s own boot check is the environment validation above; it queries nothing.
 
+Both services require `ENVIRONMENT` (`staging` or `production`) when `NODE_ENV=production`
+(#314 Amendment 3): it labels their Sentry events and is the environment segment of every service
+key's prefix (`ansari_<service>_<ENVIRONMENT>_`). Set it on each deployed `apps/api` and `apps/auth`
+**before** deploying a version that requires it, or the new deployment fails its boot (on
+Railway, a failed healthcheck keeps the previous deployment serving). Nothing reads it at build
+time.
+
 ### Service keys and the WhatsApp exchange (spec 329)
 
 `apps/auth` issues API keys to services (the WhatsApp service, and `ansari-mcp` for
@@ -235,7 +242,12 @@ Verify admins with `grant-admin.ts --list` from `apps/auth/`.
 plugin's HTTP surface is blocked, so keys are created, listed, rotated, changed and revoked only
 with `apps/auth/scripts/service-keys.ts`, run from `apps/auth/` in the auth service's shell
 (`create-service`, `create-key`, `list`, `rotate`, `update-limits`, `revoke`; every write is
-shown first and confirmed by id). The create and rotate commands print the raw key once.
+shown first and confirmed by id). The create and rotate commands print the raw key once. The
+script reads `ENVIRONMENT` from its process env (it refuses to run without it) and puts it in the
+key's prefix: `ansari_<service>_<ENVIRONMENT>_`, e.g. `ansari_wa_production_`. Each route serves
+only a key whose stored prefix names its own service and its own `ENVIRONMENT`, so a key leaked
+from one environment is refused in another; a key issued before #314 (bare `ansari_wa_` /
+`ansari_mcp_`) is still accepted during the compatibility window the runbook describes.
 `docs/cutover/service-keys-runbook.md` is the operator's procedure: issuance, handoff, rotation,
 revocation, the alerts and the eligibility repair.
 
@@ -282,5 +294,5 @@ In `enforce` mode (`MCP_COMPLETE_KEY_MODE`, above) a missing or refused key is `
 (`AUTH_SERVICE_TIMEOUT_MS` in `apps/api/lib/auth-service/client.ts`, 3 s), is `503 {"error":"Authentication service unavailable"}`, with nothing persisted and no
 model call. The thread's `client` is the key's client id; a different `X-Ansari-Client` is
 ignored. The route's per-IP cap (120 a minute) stays. An MCP server built from `apps/mcp` sends
-its `ANSARI_API_AUTHORIZATION` verbatim, so that variable holds `Bearer ` and the key. Issuance,
+its `ANSARI_API_AUTHORIZATION` verbatim, so that variable holds `Bearer ` and the key (`Bearer ansari_mcp_<environment>_<64 letters>`). Issuance,
 handoff, rollout, limits, alerts and rotation: `docs/cutover/service-keys-runbook.md`.

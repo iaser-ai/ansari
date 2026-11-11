@@ -91,7 +91,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai` (the server refuses any other Host on `/mcp`) |
 > | `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai` (the default is production) |
 > | `ANSARI_CLIENT` | `ansari-mcp-staging` |
-> | `ANSARI_API_AUTHORIZATION` | `Bearer ansari_mcp_<64 letters>`: the staging key, made with `--client-id ansari-mcp-staging` and set **before** apps/api staging deploys #314 (`docs/cutover/service-keys-runbook.md`) |
+> | `ANSARI_API_AUTHORIZATION` | `Bearer ansari_mcp_staging_<64 letters>`: the staging key, made in the staging auth shell with `--client-id ansari-mcp-staging` and set **before** apps/api staging deploys #314 (`docs/cutover/service-keys-runbook.md`) |
 >
 > `ANSARI_RELEASE` is **not** set: the release falls back to `RAILWAY_GIT_COMMIT_SHA`. `MCP_ALLOWED_ORIGINS` is left
 > unset at first: it defaults to the allowed hosts, and requests without an Origin pass. The Cloudflare Workers path
@@ -110,6 +110,19 @@ migration runbook were both proven in real releases on 2026-08-02.
 > a checkout with the auth database's `DATABASE_URL` (`pnpm exec tsx scripts/grant-admin.ts …`,
 > `… scripts/ban-user.ts …`), or in the image from `/repo/apps/auth` with
 > `./node_modules/.bin/tsx scripts/…` (tsx directly: the image has no pnpm for its non-root user).
+>
+> **`ENVIRONMENT` on `backend` and auth (#314 Amendment 3)** — the deployment label, also each
+> service's Sentry environment and the environment in every service key's prefix. Both refuse to
+> boot under `NODE_ENV=production` without it (or set to `development`):
+>
+> | Service | staging | production |
+> |---|---|---|
+> | `backend` (apps/api) | `ENVIRONMENT=staging` | `ENVIRONMENT=production` |
+> | auth (apps/auth) | `ENVIRONMENT=staging` | `ENVIRONMENT=production` |
+>
+> **Deploy order:** set `ENVIRONMENT` on `backend` and auth, in staging and in production,
+> **before** the deploy that carries #314. A deploy without it fails its healthcheck and Railway
+> keeps the previous deployment.
 >
 > **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
 > and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so both are set on the

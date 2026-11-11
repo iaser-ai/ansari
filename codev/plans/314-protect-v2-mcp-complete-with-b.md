@@ -390,3 +390,33 @@ The order is the real protection: every MCP caller holds its key **before** apps
 - `codev/resources/arch-critical.md` (the amended JWT-only fact and its map line) and `codev/resources/arch.md` (Phase 5).
 - `codev/resources/lessons-learned.md` in the review phase.
 - Out of repository, as owner steps: the published snippet, the MCP setup page, and `mcp.ansari.chat`'s variable.
+
+## Addendum: Amendments 2 and 3 (2026-11-12, review phase, on PR #372)
+
+The owner expanded the scope after the PR consult. Following the security architect's porch route,
+this addendum is built as review-phase commits on #372 (no rollback), then the PR consult is re-run
+and the `pr` gate re-requested.
+
+1. **`ENVIRONMENT`** (`packages/types/src/environment.ts`: `ENVIRONMENTS`, `environmentIssue`),
+   re-exported by `@ansari/auth`. Added to `packages/auth/src/env.ts` and `apps/api/lib/config.ts`
+   (default `development`; under `NODE_ENV=production` required and `staging` or `production`).
+   Enforced only where each schema is already enforced: apps/api's `validateEnvAtBoot` (never
+   during `next build`), apps/auth's `getEnv()` at the top of `src/index.ts` (never at image build).
+2. **Sentry:** apps/auth `initSentry(env.SENTRY_DSN, env.ENVIRONMENT)`; apps/api
+   `sentry.server.config.ts` `environment: process.env.ENVIRONMENT || "development"`.
+3. **Prefixes:** `keyPrefix(service, environment)`, `acceptedKeyPrefixes`/`isAcceptedKeyPrefix`
+   (own environment, plus the bare prefix while `LEGACY_UNLABELLED_KEYS`), and the scanning
+   patterns derived from the same table.
+4. **Script:** reads `ENVIRONMENT` from its process env (no flag); refuses without it; prints it
+   under the database line; new keys carry it.
+5. **Routes:** the exchange and the verify route refuse a key whose stored prefix is not theirs
+   (`environment` option, default `getEnv().ENVIRONMENT`; `createApp` passes `options.environment`).
+6. **Tests:** schema and boot (both services), the script, both routes (own label served, legacy
+   served, other environments, foreign and absent prefixes refused, a staging key refused by a
+   production-configured app), the longest prefix created through the plugin, the derived scanning
+   sources. Mutation-checked: dropping the environment comparison fails 5 tests.
+7. **Surfaces:** `turbo.json` `globalEnv` (main's hunk), `.env.example` and `.env.ci` of apps/api
+   and apps/auth, `docs/self-hosting.md`, `docs/cutover/deploy-guide.md`, RELEASE.md (rows and a
+   deploy-order line), the runbook (scanning table, environment labels, existing keys unchanged,
+   rotate legacy keys), apps/mcp README and `.env.example`, `arch.md`.
+

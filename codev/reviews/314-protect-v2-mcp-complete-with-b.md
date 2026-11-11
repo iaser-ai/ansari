@@ -2,7 +2,11 @@
 
 ## Summary
 
-`POST/GET /api/v2/mcp-complete` now requires `Authorization: Bearer <ansari-mcp key>`. apps/api checks the key on every request at a new public apps/auth route, `POST /api/service/verify-key`. That route is the second consumer of spec 329's api-key plugin. It answers `{valid, client_id, key_id}` or a byte-identical `{valid:false}`. The thread's `client` comes from the key's metadata. A missing or refused key gets 401. An apps/auth outage gets 503: fail closed, nothing persisted, no Gemini call. `MCP_COMPLETE_KEY_MODE=log-only` gives a one-week transition in which every verdict is recorded and every request is served. The work shipped in five plan phases, all on one branch: key rules, verify route, apps/api client and mode, route gate, docs.
+`POST/GET /api/v2/mcp-complete` now requires `Authorization: Bearer <ansari-mcp key>`. apps/api checks the key on every request at a new public apps/auth route, `POST /api/service/verify-key`. That route is the second consumer of spec 329's api-key plugin. It answers `{valid, client_id, key_id}` or a byte-identical `{valid:false}`. The thread's `client` comes from the key's metadata. A missing or refused key gets 401. An apps/auth outage gets 503: fail closed, nothing persisted, no Gemini call. `MCP_COMPLETE_KEY_MODE=log-only` gives a one-week transition in which every verdict is recorded and every request is served. The work shipped in five plan phases, all on one branch: key rules, verify route, apps/api client and mode, route gate, docs. During the PR review the owner widened the scope (spec Amendments 2 and 3):
+
+- every service key's prefix now names its environment (`ansari_<service>_<ENVIRONMENT>_`);
+- apps/api and apps/auth gain an `ENVIRONMENT` variable, which becomes their Sentry environment and is required in production;
+- each key route refuses a key labelled for another environment.
 
 ## Spec Compliance
 
@@ -23,10 +27,16 @@
 - [x] Log-only records every verdict and serves. Enforce is the behaviour when the setting is absent (Phases 3 and 4).
 - [x] pglite tests for the verify route (real plugin, real `auth.apikey`) and for the apps/api route (real app DB, apps/auth answered by a `fetch` stub of the verify contract, real `verifyServiceKey`), including the forged-header and WhatsApp-key cases (Phases 2 and 4).
 - [x] Docs (§5): `docs/self-hosting.md`, `docs/cutover/service-keys-runbook.md` (issuance per deployment, Bearer hand-off, rollout, limits, alerts, rotation, plugin-upgrade check), `apps/api/README.md`, `apps/mcp/README.md`, `apps/mcp/.env.example`, the RELEASE.md staging row (Phase 5).
+- [x] Amendment 2: one prefix table derives the prefixes, the accepted set, the scanning patterns and the pasted-key check. Existing keys are unchanged; unlabelled keys are accepted during a compatibility window (review phase).
+- [x] Amendment 3: `ENVIRONMENT` in both schemas, required in production. Both services refuse to boot without it, shown in tests and in recorded runs:
+  - apps/auth exits with "env validation failed for: ENVIRONMENT";
+  - apps/api's boot check logs the rule and `/api/health` answers 500.
+  `next build` and the auth build pass with it unset. It is the Sentry environment of both services and the prefix segment. Both routes refuse another environment's label, including a staging key presented to a production-configured app (review phase).
 - [ ] **Operator steps, outside the repository. Not done by this PR; the owner must do them before enforce:**
   1. Create one key per MCP deployment with `apps/auth/scripts/service-keys.ts` and `--client-id`. That means production `mcp.ansari.chat` (`ansari-mcp`) and `mcp-staging.askansari.ai` (`--client-id ansari-mcp-staging`). The staging key must exist **before apps/api staging deploys this change**, because the default mode is enforce.
   2. Set each Worker's/service's `ANSARI_API_AUTHORIZATION` to `Bearer ansari_mcp_<64 letters>`, prefix included.
   3. Update the published integration snippet and the MCP setup page on the public site. Their locations are still pending from the owner, via the security architect.
+  0. Set `ENVIRONMENT=staging` / `ENVIRONMENT=production` on `backend` and auth in each environment **before** this deploys (RELEASE.md), or both services refuse to boot.
   4. Run the rollout: deploy with `MCP_COMPLETE_KEY_MODE=log-only`, watch the `mcp_key_verdict` tag for a week, then remove the variable (enforce). At enforce, open the follow-up that removes log-only and the `turbo.json` hunk one week later.
 
 ## Deviations from Plan
@@ -45,6 +55,10 @@
   - Security architect order (04:10Z): `alerts.keyVerified()` moved after the owner and client-id checks in `service-verify.ts`, so only a served key counts toward the volume alerts. A test pins the order and fails under the old one. The WhatsApp exchange order is unchanged.
 - **Phase 5:** rebased onto develop (#365, #368, #370) first. #366 had changed the attribution link to `askansari.ai`, so scenario 4's expectation followed it in its own commit. Architect orders added the `mcp-staging` key, the `Bearer` form in all three apps/mcp docs, and the RELEASE.md staging row.
 - **Review (PR consult):** the route checks the bearer token's shape (printable ASCII, 1–256 characters, apps/auth's bound) before calling apps/auth. The plan's bearer rule (one token, no whitespace) let an over-long or non-ASCII token through, and apps/auth's 400 turned it into a 503.
+- **Review phase, Amendments 2 and 3 (owner, 2026-11-12):** the owner asked on the PR why the MCP client needed special handling, then directed that every service key's prefix carry its environment.
+  - The first design took the environment from an `--env` flag, with routes that would never compare the label to their own environment.
+  - The owner then directed an `ENVIRONMENT` variable (Amendment 3). With it, the script reads the environment from its process env, the label is the environment's own name, and each route compares the prefix to its own environment. That turns the label into real hardening.
+  - Built as review-phase commits on #372, on the security architect's porch route; the plan addendum lists the steps.
 - **`turbo.json`:** this PR carries the `MCP_COMPLETE_KEY_MODE` `globalEnv` hunk, on main's instruction. Main reviews it on the PR.
 
 ## Consultation Feedback
@@ -146,6 +160,8 @@ No `CONSULT_ERROR` occurred in any round.
 - Grep a route's real callers before a plan names the suites a change touches. Four of the seven named suites never called the route.
 - Put every "count this as success" side effect after the last check in a verify path from the start, and pin the order with a test.
 
+- The env-label design went through two shapes in an hour: a `--env` flag, then `ENVIRONMENT`. The first was built because apps/auth had no environment discriminator; the owner's answer was to add one. Next time, when a design needs a fact the system lacks, ask whether to add that fact before designing around its absence.
+
 ### Methodology Improvements
 
 - A plan that names existing test files to change should list how each one calls the code under change (route vs helper), so the count is checked at plan review.
@@ -154,6 +170,7 @@ No `CONSULT_ERROR` occurred in any round.
 ## Architecture Updates
 
 - Routed: hot — `arch-critical.md` JWT fact — amended in place (Phase 5): apps/api accepts only apps/auth's JWT **except** `/v2/mcp-complete`, which takes an `ansari-mcp` service key verified on every request at `/api/service/verify-key` (401 refused, 503 outage). The map's Authentication line now names "service keys (WhatsApp exchange, MCP verify)". No fact was added, so no demotion was needed.
+- Routed: cold — `arch.md` service-keys paragraph — key prefixes name `ENVIRONMENT`, routes refuse another environment's label, `LEGACY_UNLABELLED_KEYS` window (Amendments 2 and 3). The verify-route paragraph also records the bearer envelope (401, no call). No hot change: `arch-critical.md` is at its 10-fact cap, and `ENVIRONMENT` is a deployment setting documented in self-hosting and RELEASE.md.
 - Routed: cold — `arch.md` Authentication & Authorization — new verify-route paragraph (Phase 5): the closed permission set, owner and client-id binding, refusal shape, no CORS, no per-IP rule, `MCP_COMPLETE_KEY_MODE`.
 
 ## Lessons Learned Updates
@@ -165,6 +182,11 @@ No `CONSULT_ERROR` occurred in any round.
   - pin a remote verdict's refusal shape on both sides.
 - Routed: hot — `lessons-critical.md` map line for spec 329 extended to "+ MCP key verify (spec 314)", with a consult trigger for gating a route on a remote verify. No lesson was added: the hot file is at its cap, and none of these is cross-cutting enough to displace an entry.
 
+## Sentry environment continuity (Amendment 3)
+
+- **apps/api** sent `RAILWAY_ENVIRONMENT || NODE_ENV`, and now sends `ENVIRONMENT`. Railway's environment names are `staging` and `production`, so with `ENVIRONMENT` set to match, api events keep the same labels. RELEASE.md does not state these names; they come from the repository's Railway-created GitHub Environments (`ansari-backend / staging`, `ansari-backend / production`).
+- **apps/auth** sent `NODE_ENV`, which is `production` on both staging and production. Today its staging events are therefore labelled `production`. After this change they are labelled `staging`. This is a deliberate correction, and the owner should check the auth Sentry project's alert rules and filters.
+
 ## Flaky Tests
 
 Neither test was skipped. Both are pre-existing, outside this change, and passed in isolation and on a full rerun. The security architect owns this class (#330 lineage) and ordered that it not be chased here.
@@ -173,6 +195,9 @@ Neither test was skipped. Both are pre-existing, outside this change, and passed
 - `apps/auth/tests/whatsapp-session.test.ts` > "auth.apikey dropped under the running service → 500 …": got 404 where it expected 401, once, in Phase 4 under the same full parallel run. It passed 3/3 alone and on a full rerun.
 
 ## Follow-up Items
+
+- **Close the legacy-key compatibility window:** once `list` shows no live unlabelled key on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
+- **`RAILWAY_ENVIRONMENT` in `turbo.json` `globalEnv`:** no code reads it any more. Removing it is main's call.
 
 - **Remove log-only:** open the issue at enforce (rollout step 6). It removes `MCP_COMPLETE_KEY_MODE` from `config.ts` and the `turbo.json` `globalEnv` hunk one week after enforcement. The issue number is to be recorded when it exists.
 - **Limit sizing:** `MCP_KEY_INITIAL` (120/60 s, 5,000/day) and the alert thresholds are judgement values. The owner should resize them with `update-limits` (no deploy) once the `threads.client` query numbers are in.

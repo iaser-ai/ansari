@@ -73,3 +73,10 @@
 ## 2026-11-11 review
 - Review written (`codev/reviews/314-protect-v2-mcp-complete-with-b.md`). Spec 314 lessons appended to the spec 329 section of lessons-learned.md (expired key leaves no row; read the published package; count success after the last check; two-sided refusal pin). Hot map line extended; no hot lesson added (at cap).
 - Open owner items carried into the PR: keys per deployment (staging key before apps/api staging deploys, since default is enforce), the snippet and setup page locations, the threads.client numbers for limit sizing, and the log-only removal issue (opened at enforce).
+
+## 2026-11-12 review — owner scope expansion (Amendments 2 and 3)
+- The owner asked on PR #372 why the MCP client needed special handling, then directed: environment in every service-key prefix, for all services, in this PR. First built with an `--env` flag (Amendment 2); the owner then directed an `ENVIRONMENT` var in apps/api + apps/auth, required in production, used as the Sentry environment and verbatim as the prefix segment (Amendment 3). Security relayed both; main set five conditions (boot-path-only enforcement, Sentry continuity, env templates, RELEASE.md rows + deploy order, existing-keys note).
+- Built: `packages/types/src/environment.ts`; both schemas; the script reads ENVIRONMENT (no flag); both routes refuse a key whose stored prefix is not theirs and their environment's (legacy bare prefix accepted while `LEGACY_UNLABELLED_KEYS`); scanning patterns derived from one table.
+- Proof: apps/auth real boot without ENVIRONMENT → "env validation failed for: ENVIRONMENT"; with staging it listens. apps/api `next start` without it → boot check logs the rule, health 500 (Next still prints Ready, as for any boot-check failure); with it, health 503 (no DB). `npm run build` green with ENVIRONMENT unset. Mutation: dropping the env comparison fails 5 tests.
+- Surprise: the runbook's scanning table needs `\|` inside code cells (GFM), so cutover-docs' exact-match test now unescapes before comparing.
+- Railway env names (`staging`/`production`) come from the repo's Railway GitHub Environments, not RELEASE.md.
