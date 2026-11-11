@@ -342,7 +342,7 @@ describe.each(['POST', 'GET'] as const)('%s, enforce mode', (method) => {
     const res = await call(method);
     expect(res.status).toBe(200);
     expect(res.text).toContain('A fine answer.');
-    expect(res.text).toContain('ansari.chat');
+    expect(res.text).toContain('askansari.ai');
     expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
 
     // The real verifyServiceKey asked apps/auth about this key, for mcp: complete.
