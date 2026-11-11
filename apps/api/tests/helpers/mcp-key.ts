@@ -46,6 +46,7 @@ const DEFAULT_ENV: Record<string, string> = {
   DATABASE_URL: 'postgres://test:test@localhost:5432/test',
   KALEMAT_API_KEY: 'placeholder',
   USUL_API_TOKEN: 'placeholder',
+  ENVIRONMENT: 'development',
   AUTH_URL: MCP_TEST_AUTH_URL,
   AUTH_JWT_ISSUER: MCP_TEST_AUTH_URL,
   AUTH_JWT_AUDIENCE: 'ansari-api-mcp-key-test',

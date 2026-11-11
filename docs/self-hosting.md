@@ -50,6 +50,7 @@ calling its account endpoints with the user's own JWT.
 | `DATABASE_URL` | Postgres connection string |
 | `KALEMAT_API_KEY` | Non-empty required — see caveat above |
 | `USUL_API_TOKEN` | Non-empty required — see caveat above |
+| `ENVIRONMENT` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth`, named after the legacy frontend's `EXPO_PUBLIC_ENVIRONMENT` (apps/frontend has no such variable). It is the Sentry environment. **No default** (owner, 2026-11-12): local and CI processes set `development` (the `.env.example` and `.env.ci` files do). When `NODE_ENV=production` it must be `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
 
 ### Auth service (`apps/auth`; required when `NODE_ENV=production`)
 
@@ -117,7 +118,6 @@ empty-final retry ladder still applies as same-model retries.
 | `ANDROID_MINIMUM_BUILD_VERSION` | `1` | |
 | `ANDROID_LATEST_BUILD_VERSION` | `1` | |
 | `NODE_ENV` | `development` | `development` / `production` / `test` |
-| `ENVIRONMENT` | `development` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth`, named after the legacy frontend's `EXPO_PUBLIC_ENVIRONMENT` (apps/frontend has no such variable). It is the Sentry environment. **Required when `NODE_ENV=production`**, and then only `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
 
 ### Outside the config schema (direct `process.env` reads)
 

@@ -104,6 +104,7 @@ function setEnv(mode?: string): void {
   vi.stubEnv('DATABASE_URL', 'postgres://test:test@localhost:5432/test');
   vi.stubEnv('KALEMAT_API_KEY', 'placeholder');
   vi.stubEnv('USUL_API_TOKEN', 'placeholder');
+  vi.stubEnv('ENVIRONMENT', 'development');
   vi.stubEnv('AUTH_URL', AUTH_URL);
   vi.stubEnv('AUTH_JWT_ISSUER', AUTH_URL);
   vi.stubEnv('AUTH_JWT_AUDIENCE', 'ansari-api-gate-test');

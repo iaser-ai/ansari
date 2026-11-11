@@ -16,6 +16,7 @@ const BASE_ENV = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   KALEMAT_API_KEY: 'placeholder',
   USUL_API_TOKEN: 'placeholder',
+  ENVIRONMENT: 'development',
 };
 const AUTH_ENV = {
   AUTH_URL: 'https://auth.askansari.ai',
@@ -89,7 +90,7 @@ describe('validateEnvAtBoot', () => {
     expect(() => validateEnvAtBoot()).not.toThrow();
   });
 
-  it('next build and dev run without ENVIRONMENT; outside production it defaults to development', async () => {
+  it('next build never parses the env; outside a build ENVIRONMENT is required, with no default (owner, 2026-11-12)', async () => {
     process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
     delete process.env.ENVIRONMENT;
     expect(() => validateEnvAtBoot()).not.toThrow();
@@ -98,6 +99,10 @@ describe('validateEnvAtBoot', () => {
     resetEnvCache();
     const { getEnv } = await import('@/lib/config');
     expect(getEnv().ENVIRONMENT).toBe('development');
+    // Absent in a dev process: the first config access fails, naming it.
+    delete process.env.ENVIRONMENT;
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/ENVIRONMENT/);
   });
 
   it('a build or a dev server never parses the env', () => {

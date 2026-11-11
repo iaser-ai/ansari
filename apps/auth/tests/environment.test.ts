@@ -2,8 +2,8 @@
 // Sentry environment and the service-key prefix's environment. Under
 // NODE_ENV=production it is required and must be staging or production, so a
 // deployed apps/auth without it refuses to boot (src/index.ts calls getEnv()
-// before anything else) and names the variable, never a value. Outside
-// production it defaults to development. Nothing reads it at build time: the
+// before anything else) and names the variable, never a value. It has no
+// default (owner, 2026-11-12): every process sets it. Nothing reads it at build time: the
 // image build runs tsc/tsdown, which never executes getEnv().
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -41,9 +41,16 @@ describe('ENVIRONMENT in the schema', () => {
     expect(result.success && result.data.ENVIRONMENT).toBe(environment);
   });
 
-  it.each([['development'], ['test'], [undefined]])('NODE_ENV=%s without ENVIRONMENT is development', (nodeEnv) => {
-    const result = envSchema.safeParse({ ...COMPLETE, NODE_ENV: nodeEnv });
-    expect(result.success && result.data.ENVIRONMENT).toBe('development');
+  it.each([['development'], ['test'], [undefined]])(
+    'NODE_ENV=%s without ENVIRONMENT is refused too: no default anywhere (owner, 2026-11-12)',
+    (nodeEnv) => {
+      expect(issuesOf({ ...COMPLETE, NODE_ENV: nodeEnv })).toEqual(['ENVIRONMENT']);
+    }
+  );
+
+  it.each([['development'], ['staging'], ['production']])('NODE_ENV=development with ENVIRONMENT=%s parses', (environment) => {
+    const result = envSchema.safeParse({ ...COMPLETE, NODE_ENV: 'development', ENVIRONMENT: environment });
+    expect(result.success && result.data.ENVIRONMENT).toBe(environment);
   });
 });
 

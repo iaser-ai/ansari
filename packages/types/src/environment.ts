@@ -4,14 +4,13 @@
  * apps/auth. It is the Sentry environment of both services and the
  * environment segment of every service-key prefix (`ansari_<service>_<environment>_`).
  * NODE_ENV keeps its own jobs (test detection, production hardening);
- * ENVIRONMENT says which deployment this is.
+ * ENVIRONMENT says which deployment this is. It has NO default (owner,
+ * 2026-11-12): every process sets it, as it sets its secrets; local and CI
+ * processes say `development` (the .env.example and .env.ci files do).
  */
 export const ENVIRONMENTS = ['development', 'staging', 'production'] as const;
 
 export type Environment = (typeof ENVIRONMENTS)[number];
-
-/** Absent outside production: a local or CI process is `development`. */
-export const DEFAULT_ENVIRONMENT: Environment = 'development';
 
 /**
  * Why `environment` is not acceptable for a process running with `nodeEnv`,

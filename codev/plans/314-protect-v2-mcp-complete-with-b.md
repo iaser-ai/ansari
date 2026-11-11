@@ -399,7 +399,7 @@ and the `pr` gate re-requested.
 
 1. **`ENVIRONMENT`** (`packages/types/src/environment.ts`: `ENVIRONMENTS`, `environmentIssue`),
    re-exported by `@ansari/auth`. Added to `packages/auth/src/env.ts` and `apps/api/lib/config.ts`
-   (default `development`; under `NODE_ENV=production` required and `staging` or `production`).
+   (required everywhere with no default, owner 2026-11-12; under `NODE_ENV=production` only `staging` or `production`).
    Enforced only where each schema is already enforced: apps/api's `validateEnvAtBoot` (never
    during `next build`), apps/auth's `getEnv()` at the top of `src/index.ts` (never at image build).
 2. **Sentry:** apps/auth `initSentry(env.SENTRY_DSN, env.ENVIRONMENT)`; apps/api
