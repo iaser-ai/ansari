@@ -1,7 +1,7 @@
 id: bugfix-369
 title: apps-mcp-tests-ansari-attribut
 protocol: bugfix
-phase: fix
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-11T03:33:19.479Z'
-updated_at: '2026-11-11T03:33:52.818Z'
+updated_at: '2026-11-11T04:32:18.726Z'
