@@ -8,7 +8,7 @@ import { inspect } from 'node:util';
 import * as Sentry from '@sentry/node';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { limits, serviceUsers } from '@ansari/auth';
+import { getEnv, limits, serviceUsers } from '@ansari/auth';
 
 import { MCP_VERIFY_ALERT_MESSAGE, SERVICE_SENTRY_OPTIONS } from '../src/alerts';
 import { SERVICE_VERIFY_PATH } from '../src/routes/service-verify';
@@ -51,7 +51,7 @@ afterAll(async () => {
 
 async function mcpKey(userId: string, metadata: unknown = { clientId: 'ansari-mcp-production' }) {
   const { key } = await service.auth.api.createApiKey({
-    body: { userId, prefix: 'ansari_mcp_', permissions: MCP, metadata, rateLimitEnabled: false },
+    body: { userId, prefix: serviceUsers.keyPrefix('ansari-mcp', getEnv().ENVIRONMENT), permissions: MCP, metadata, rateLimitEnabled: false },
   });
   rawKeys.push(key);
   return key;
@@ -69,7 +69,7 @@ describe('Sentry events and logs from the verify route', () => {
     const owner = await serviceUsers.createServiceUser(service.db, 'ansari-mcp');
     const good = await mcpKey(owner.id);
     const offPattern = await mcpKey(owner.id, { clientId: 'claude-skill' });
-    const unknown = `ansari_mcp_${'Z'.repeat(64)}`;
+    const unknown = `${serviceUsers.keyPrefix('ansari-mcp', getEnv().ENVIRONMENT)}${'Z'.repeat(64)}`;
     rawKeys.push(unknown);
 
     expect((await post({ key: good, permissions: MCP })).status).toBe(200);

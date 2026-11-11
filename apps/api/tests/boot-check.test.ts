@@ -93,7 +93,8 @@ describe('validateEnvAtBoot', () => {
     process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
     delete process.env.ENVIRONMENT;
     expect(() => validateEnvAtBoot()).not.toThrow();
-    process.env = { ...process.env, ...BASE_ENV, NODE_ENV: 'development', NEXT_PHASE: undefined };
+    process.env = { ...process.env, ...BASE_ENV, NODE_ENV: 'development' };
+    delete process.env.NEXT_PHASE; // absent, not the string 'undefined'
     resetEnvCache();
     const { getEnv } = await import('@/lib/config');
     expect(getEnv().ENVIRONMENT).toBe('development');
@@ -103,7 +104,8 @@ describe('validateEnvAtBoot', () => {
     process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
     delete process.env.DATABASE_URL;
     expect(() => validateEnvAtBoot()).not.toThrow();
-    process.env = { ...process.env, NODE_ENV: 'development', NEXT_PHASE: undefined };
+    process.env = { ...process.env, NODE_ENV: 'development' };
+    delete process.env.NEXT_PHASE; // absent, not the string 'undefined'
     expect(() => validateEnvAtBoot()).not.toThrow();
   });
 });

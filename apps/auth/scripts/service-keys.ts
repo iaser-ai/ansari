@@ -558,14 +558,23 @@ export const unrecordedRecorder: Recorder = {
 /**
  * The script's Sentry init: its events carry ENVIRONMENT, like apps/auth's own
  * (#314 Amendment 3), never NODE_ENV, which is `production` on staging too. An
- * absent ENVIRONMENT never reaches a write: serviceKeys refuses to run first.
+ * absent or unknown ENVIRONMENT never gets here: main() refuses it first.
  */
-export function scriptSentryInit(dsn: string, environment: string | undefined) {
-  return { dsn, environment: environment ?? 'development', ...SCRIPT_SENTRY_OPTIONS };
+export function scriptSentryInit(dsn: string, environment: Environment) {
+  return { dsn, environment, ...SCRIPT_SENTRY_OPTIONS };
+}
+
+/**
+ * The validated ENVIRONMENT, or null when it is absent or not one of
+ * ENVIRONMENTS. main() checks it before scriptRecorder, so Sentry is never
+ * initialised under an operator's typo (second review, finding 8).
+ */
+export function validEnvironment(value: string | undefined): Environment | null {
+  return value !== undefined && isEnvironment(value) ? value : null;
 }
 
 /** The script's recorder: Sentry when a DSN is set (initialised here), otherwise none. */
-export function scriptRecorder(dsn: string | undefined, environment: string | undefined): Recorder {
+export function scriptRecorder(dsn: string | undefined, environment: Environment): Recorder {
   if (!dsn) return unrecordedRecorder;
   Sentry.init(scriptSentryInit(dsn, environment));
   return sentryRecorder;
@@ -673,7 +682,12 @@ export function printLine(line: string): void {
 }
 
 async function main(): Promise<void> {
-  const recorder = scriptRecorder(process.env.SENTRY_DSN, process.env.ENVIRONMENT);
+  const environment = validEnvironment(process.env.ENVIRONMENT);
+  if (environment === null) {
+    printLine(ENVIRONMENT_RULE);
+    process.exit(1);
+  }
+  const recorder = scriptRecorder(process.env.SENTRY_DSN, environment);
   const { exitCode } = await serviceKeys(process.argv.slice(2), {
     databaseUrl: process.env.DATABASE_URL,
     environment: process.env.ENVIRONMENT,

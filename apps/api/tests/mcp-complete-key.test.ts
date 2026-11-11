@@ -64,7 +64,7 @@ const AUTH_URL = 'https://auth.mcp-gate-test.example';
 const VERIFY_URL = `${AUTH_URL}${SERVICE_VERIFY_PATH}`;
 const KEY_CLIENT = 'ansari-mcp-production';
 const KEY_ID = '7d0c2f4e-5b1a-4c3d-9e8f-0a1b2c3d4e5f';
-const PREFIX = 'ansari_mcp_prod_';
+const PREFIX = 'ansari_mcp_staging_'; // keyPrefix('ansari-mcp', 'staging'): a shape the script can issue
 const LEAK_WINDOW = 16;
 
 /** A key in the issued shape: the public prefix and 64 random letters, fresh per run. */

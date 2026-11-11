@@ -9,7 +9,11 @@ export const LEAK_WINDOW = 16;
 
 // Longest first, so `ansari_mcp_staging_` is stripped whole, never just `ansari_mcp_`.
 const PREFIXES = (Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[])
-  .flatMap((name) => [serviceUsers.SERVICES[name].prefix, ...ENVIRONMENTS.map((env) => serviceUsers.keyPrefix(name, env))])
+  .flatMap((name) => [
+    serviceUsers.SERVICES[name].prefix,
+    ...serviceUsers.LEGACY_PREFIXES[name],
+    ...ENVIRONMENTS.map((env) => serviceUsers.keyPrefix(name, env)),
+  ])
   .sort((a, b) => b.length - a.length);
 
 /** Every 16-character window of the key's random part (the part after its prefix, environment included). */

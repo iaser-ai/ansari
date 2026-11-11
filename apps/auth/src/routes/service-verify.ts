@@ -25,7 +25,7 @@
 // so no response carries an `Access-Control-*` header. It is outside Better
 // Auth's handler path, so no router per-IP rule applies: apps/api calls from
 // its egress IP.
-import { getEnv, isMcpClientId, limits, redactError, serviceUsers, type Environment } from '@ansari/auth';
+import { isMcpClientId, limits, redactError, serviceUsers, type Environment } from '@ansari/auth';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 
 import { createMcpVerifyAlerts, type KeyRefusalCode, type McpVerifyAlerts } from '../alerts';
@@ -44,11 +44,6 @@ const KEY = new RegExp(`^[\\x21-\\x7E]{1,${limits.VERIFY_KEY_MAX_LENGTH}}$`);
 const KEY_REFUSAL_CODES: readonly string[] = ['USAGE_EXCEEDED', 'RATE_LIMITED'] satisfies KeyRefusalCode[];
 
 export type VerifyOptions = {
-  /**
-   * This deployment's ENVIRONMENT (#314 Amendment 3): only a key whose stored
-   * prefix names it (or the legacy bare prefix) is served. Defaults to getEnv().
-   */
-  environment?: Environment;
   alerts?: McpVerifyAlerts;
   /** The clock for the relation-check cache; tests advance it. */
   now?: () => number;
@@ -81,10 +76,14 @@ const REFUSED = { valid: false } as const;
 const invalidRequest = (res: Response) => res.status(400).json({ message: 'Invalid request' });
 const internalError = (res: Response) => res.status(500).json({ message: 'Internal error' });
 
-export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOptions = {}): Router {
+/**
+ * `environment` is this deployment's ENVIRONMENT (#314 Amendment 3): only a key
+ * whose stored prefix names it, or a legacy prefix while the window is open, is
+ * served. createApp passes it; it is the one place it is set.
+ */
+export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOptions, environment: Environment): Router {
   const alerts = options.alerts ?? createMcpVerifyAlerts();
   const checkApiKeyRelation = createApiKeyRelationCheck(db, options.now ?? Date.now);
-  const environment = options.environment ?? getEnv().ENVIRONMENT;
   const permissions = { [SERVED_RESOURCE]: [...SERVED_ACTIONS] };
   const router = Router();
 

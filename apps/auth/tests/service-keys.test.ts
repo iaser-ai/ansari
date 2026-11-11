@@ -813,37 +813,56 @@ describe('SECRET_SCANNING_PATTERNS', () => {
     expect(hits.filter(Boolean)).toHaveLength(2);
   });
 
-  it('the registered sources, derived from the prefix table (the runbook prints exactly these)', () => {
-    expect(serviceUsers.LEGACY_UNLABELLED_KEYS).toBe(true);
-    expect(serviceUsers.SECRET_SCANNING_PATTERNS.whatsapp.source).toBe(
-      'ansari_wa_(?:(?:development|staging|production)_)?[A-Za-z]{64}'
-    );
-    expect(serviceUsers.SECRET_SCANNING_PATTERNS['ansari-mcp'].source).toBe(
-      'ansari_mcp_(?:(?:development|staging|production)_)?[A-Za-z]{64}'
-    );
-  });
+  const NAMES = Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[];
+  const BODY = 'Q'.repeat(64);
 
-  it('every labelled prefix and the legacy bare prefix are caught; an unknown environment is not', () => {
-    const body = 'Q'.repeat(64);
-    for (const name of Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[]) {
-      const pattern = serviceUsers.SECRET_SCANNING_PATTERNS[name];
-      const prefixes = [serviceUsers.SERVICES[name].prefix, ...ENVIRONMENTS.map((e) => serviceUsers.keyPrefix(name, e))];
-      for (const prefix of prefixes) expect(pattern.test(`${prefix}${body}`), prefix).toBe(true);
-      expect(pattern.test(`${serviceUsers.SERVICES[name].prefix}qa_${body}`)).toBe(false);
-    }
-  });
-
-  it('every prefix a route accepts, in any environment, is caught by the main or a legacy pattern (codex, PR #372)', () => {
-    const body = 'Q'.repeat(64);
-    for (const name of Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[]) {
-      const patterns = [serviceUsers.SECRET_SCANNING_PATTERNS[name], ...serviceUsers.LEGACY_SCANNING_PATTERNS[name]];
-      const accepted = new Set(ENVIRONMENTS.flatMap((e) => serviceUsers.acceptedKeyPrefixes(name, e)));
-      for (const prefix of accepted) {
-        expect(patterns.some((p) => p.test(`${prefix}${body}`)), `${name} ${prefix}`).toBe(true);
+  // Both states of the legacy window are live code (second review, finding 2):
+  // the builders take the state, and every assertion below runs for both, so
+  // closing the window (LEGACY_UNLABELLED_KEYS = false) breaks nothing here.
+  describe.each([true, false])('the legacy window open: %s', (legacy) => {
+    it('the main pattern catches every labelled prefix, and the bare prefix only where the window accepts it', () => {
+      for (const name of NAMES) {
+        const pattern = serviceUsers.scanningPatternFor(name, legacy);
+        for (const env of ENVIRONMENTS) expect(pattern.test(`${serviceUsers.keyPrefix(name, env)}${BODY}`), `${name} ${env}`).toBe(true);
+        const bare = serviceUsers.SERVICES[name].prefix;
+        expect(pattern.test(`${bare}${BODY}`), `${name} bare`).toBe(legacy && serviceUsers.LEGACY_PREFIXES[name].includes(bare));
+        expect(pattern.test(`${bare}qa_${BODY}`)).toBe(false);
       }
+    });
+
+    it('every prefix a route accepts, in every environment, is caught by the main or a legacy pattern (codex, PR #372)', () => {
+      for (const name of NAMES) {
+        const patterns = [serviceUsers.scanningPatternFor(name, legacy), ...serviceUsers.legacyScanningPatternsFor(name, legacy)];
+        for (const env of ENVIRONMENTS) {
+          for (const prefix of serviceUsers.acceptedKeyPrefixesFor(name, env, legacy)) {
+            expect(patterns.some((p) => p.test(`${prefix}${BODY}`)), `${name} ${env} ${prefix}`).toBe(true);
+          }
+        }
+      }
+    });
+
+    it('accepts exactly its own environment\'s prefix, plus the legacy prefixes only while open', () => {
+      for (const name of NAMES) {
+        for (const env of ENVIRONMENTS) {
+          expect(serviceUsers.acceptedKeyPrefixesFor(name, env, legacy)).toEqual(
+            legacy ? [serviceUsers.keyPrefix(name, env), ...serviceUsers.LEGACY_PREFIXES[name]] : [serviceUsers.keyPrefix(name, env)]
+          );
+        }
+        if (!legacy) expect(serviceUsers.legacyScanningPatternsFor(name, legacy)).toEqual([]);
+      }
+    });
+  });
+
+  it('the window today: WhatsApp keeps ansari_wa_ and wa_, ansari-mcp has none (second review, finding 1)', () => {
+    expect(serviceUsers.LEGACY_PREFIXES).toEqual({ whatsapp: ['ansari_wa_', 'wa_'], 'ansari-mcp': [] });
+    expect(serviceUsers.legacyScanningPatternsFor('whatsapp', true).map((p) => p.source)).toEqual(['wa_[A-Za-z]{64}']);
+    expect(serviceUsers.legacyScanningPatternsFor('ansari-mcp', true)).toEqual([]);
+    // The exported constants are the builders under the current state, whatever it is.
+    for (const name of NAMES) {
+      expect(serviceUsers.SECRET_SCANNING_PATTERNS[name].source).toBe(
+        serviceUsers.scanningPatternFor(name, serviceUsers.LEGACY_UNLABELLED_KEYS).source
+      );
     }
-    expect(serviceUsers.LEGACY_SCANNING_PATTERNS.whatsapp.map((p) => p.source)).toEqual(['wa_[A-Za-z]{64}']);
-    expect(serviceUsers.LEGACY_SCANNING_PATTERNS['ansari-mcp']).toEqual([]);
   });
 
   it('the runbook names every legacy pattern by its source', () => {

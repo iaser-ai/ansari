@@ -260,11 +260,13 @@ per prefix, with exactly these patterns (the `.source` of `SECRET_SCANNING_PATTE
 | Service | Pattern |
 |---|---|
 | `whatsapp` | `ansari_wa_(?:(?:development\|staging\|production)_)?[A-Za-z]{64}` |
-| `ansari-mcp` | `ansari_mcp_(?:(?:development\|staging\|production)_)?[A-Za-z]{64}` |
+| `ansari-mcp` | `ansari_mcp_(?:development\|staging\|production)_[A-Za-z]{64}` |
 
 These replace the patterns registered before #314 (`ansari_wa_[A-Za-z]{64}` and
 `ansari_mcp_[A-Za-z]{64}`), which miss an environment-labelled key: edit each pattern in place.
-The environment segment is optional while unlabelled keys are live (next paragraph).
+The WhatsApp pattern's environment segment is optional while unlabelled WhatsApp keys are live
+(next paragraphs); the `ansari-mcp` pattern's is not, since no unlabelled MCP key can exist (its
+key path ships with #314).
 
 When one fires: **revoke the key at once** (`list`, then `revoke`), rotate so the consumer keeps
 working, check the alerts and the key's last request for use you cannot explain, and record it in
@@ -291,18 +293,27 @@ its hash, and `apikey.prefix` is written then and never rewritten. Adding the en
 re-issues nothing: the staging `ansari_wa_` keys keep their format and keep verifying under the
 compatibility window.
 
-**Rotate legacy keys (the compatibility window).** An unlabelled key (`ansari_wa_`, `ansari_mcp_`,
-or WhatsApp's pre-rename `wa_`, followed directly by 64 letters; `list` shows its `prefix`) is
-still accepted while `LEGACY_UNLABELLED_KEYS` is `true` (`LEGACY_PREFIXES` in
-`service-users.ts`). Replace it, never reissue it in place: `rotate <service> …` in
+**Rotate legacy keys (the compatibility window, WhatsApp only).** An unlabelled WhatsApp key
+(`ansari_wa_`, or the pre-rename `wa_`, followed directly by 64 letters; `list` shows its
+`prefix`) is still accepted while `LEGACY_UNLABELLED_KEYS` is `true` (`LEGACY_PREFIXES` in
+`service-users.ts`). `ansari-mcp` has no window: its verify route accepts only labelled keys.
+Before this deploys, `list ansari-mcp` on each auth database should show no key with the bare
+`ansari_mcp_` prefix; one made by hand on staging would be refused, so rotate it. Replace it, never reissue it in place: `rotate <service> …` in
 that environment's auth shell (a labelled key), hand it off to the consumer's variable, then
 `revoke` the old one. Staging has at least one (the
 WhatsApp smoke key). When `list whatsapp` and `list ansari-mcp` show no live unlabelled key on any
 database, retire the legacy form in one change: set `LEGACY_UNLABELLED_KEYS` to `false` in
-`packages/auth/src/service-users.ts` (the routes then refuse the bare prefix, and the script and
-the patterns stop accepting it), deploy, and re-register both patterns with the new `.source`
-(`ansari_wa_(?:development|staging|production)_[A-Za-z]{64}`, likewise for `ansari_mcp_`). The
-follow-up issue that closes the window is opened with this change's enforcement step.
+`packages/auth/src/service-users.ts` (the routes then refuse the legacy prefixes, and the script
+and the patterns stop accepting them), deploy, remove the `wa_` pattern, and re-register the
+patterns with their closed-window `.source` (`scanningPatternFor(service, false)`; tests pin
+these strings to the code):
+
+| Service | Pattern after the window closes |
+|---|---|
+| `whatsapp` | `ansari_wa_(?:development\|staging\|production)_[A-Za-z]{64}` |
+| `ansari-mcp` | `ansari_mcp_(?:development\|staging\|production)_[A-Za-z]{64}` |
+
+The follow-up issue that closes the window is opened with this change's enforcement step.
 
 ## The `ansari-mcp` key (#314)
 
@@ -325,6 +336,11 @@ revoked alone and its traffic is attributed to it:
 | `mcp.ansari.chat` | the owner (owner-operated, outside this repository) | the owner's choice of `ansari-mcp*` id | the production auth shell (`ansari_mcp_production_`) |
 | `mcp-staging.askansari.ai` (apps/mcp on Railway, see `RELEASE.md`) | the operator, as a Railway service variable | `ansari-mcp-staging` (its `ANSARI_CLIENT`) | the staging auth shell (`ansari_mcp_staging_`) |
 | each apps/mcp Worker environment in use (apps/mcp's `wrangler.jsonc`) | the operator, as a Worker secret | its `ANSARI_CLIENT`: `ansari-mcp-dev`, `ansari-mcp-beta` or `ansari-mcp-production` | the auth shell of the environment whose apps/api that Worker calls |
+
+**Accepted residual: the label binds a key to its auth, not apps/api to its auth.** A production
+apps/api whose `AUTH_URL` points at staging auth (a dashboard mistake) verifies staging-labelled keys
+with every check passing, and nothing refuses or alerts. Check `AUTH_URL` against `ENVIRONMENT`
+on each apps/api deploy; a boot assertion pairing the two is a possible follow-up.
 
 1. apps/auth is deployed with the verify route (it ships with this change; there is no new
    migration: `auth.apikey` is spec 329's `0001`).

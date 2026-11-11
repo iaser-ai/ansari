@@ -73,9 +73,10 @@ export function createApp({ auth, db }: ServiceDeps, options: AppOptions = {}): 
   // OPTIONS itself, so a route after it would get CORS for the configured
   // origin. Each router answers every request to its path, so nothing reaches
   // corsFor; a browser can never read a response from either.
-  const environment = options.environment;
-  app.use(WHATSAPP_SESSION_PATH, whatsappRouter({ auth, db }, { ...options.exchange, ...(environment && { environment }) }));
-  app.use(SERVICE_VERIFY_PATH, serviceVerifyRouter({ auth, db }, { ...options.verify, ...(environment && { environment }) }));
+  // The one environment knob for both key routes (second review, finding 7).
+  const environment = options.environment ?? getEnv().ENVIRONMENT;
+  app.use(WHATSAPP_SESSION_PATH, whatsappRouter({ auth, db }, options.exchange ?? {}, environment));
+  app.use(SERVICE_VERIFY_PATH, serviceVerifyRouter({ auth, db }, options.verify ?? {}, environment));
   app.use(corsFor(getEnv().CORS_ORIGIN));
   app.use(mergeExposedHeaders);
   app.use(blockedPaths);

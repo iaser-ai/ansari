@@ -12,6 +12,8 @@ import {
   databaseUrlHits,
   isExcludedFromDatabaseUrlScan,
   legacySqlHits,
+  RAILWAY_ALLOWLIST,
+  railwayEnvHits,
   readSource,
   removedHopHits,
   removedHopTextHits,
@@ -284,3 +286,47 @@ describe('scan 5: apps/api has no WhatsApp-specific code (spec 329)', () => {
     expect(hits).toEqual({});
   });
 });
+
+describe('scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12, #314)', () => {
+  // apps/api, apps/auth (with packages/auth) and apps/mcp's server source.
+  const MCP_RUNTIME = sourceFiles('apps/mcp/src');
+
+  it('catches planted lines, whatever the access path', () => {
+    for (const bad of [
+      'const env = process.env.RAILWAY_ENVIRONMENT;',
+      "const name = process.env['RAILWAY_ENVIRONMENT_NAME'];",
+      'const sha = process.env[`RAILWAY_GIT_COMMIT_SHA`];',
+      "const release = setting(env, 'RAILWAY_GIT_COMMIT_SHA');",
+      "Sentry.init({ environment: process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV });",
+    ]) {
+      expect(railwayEnvHits(bad), bad).not.toEqual([]);
+    }
+  });
+
+  it('ignores near-misses', () => {
+    for (const fine of [
+      '// Railway injects RAILWAY_ENVIRONMENT; we read ENVIRONMENT instead',
+      '/* RAILWAY_GIT_COMMIT_SHA is not read */ const x = 1;',
+      "const host = 'postgres.railway.internal';",
+      "const file = 'apps/api/railway.toml';",
+      'const environment = process.env.ENVIRONMENT;',
+      "const name = 'MY_RAILWAY';",
+    ]) {
+      expect(railwayEnvHits(fine), fine).toEqual([]);
+    }
+  });
+
+  it('the allowlist is exact: its one entry is present, and nothing else is', () => {
+    const files = [...API_RUNTIME, ...AUTH_RUNTIME, ...MCP_RUNTIME];
+    expect(MCP_RUNTIME.length).toBeGreaterThan(10);
+    expect(files.length).toBeGreaterThan(100);
+    const hits = scanTree(files, railwayEnvHits);
+    report('RAILWAY_* reads (apps/api + apps/auth + apps/mcp runtime)', files, hits);
+    // Every allowlisted read still exists (a stale entry would hide a regression)...
+    for (const [file, names] of Object.entries(RAILWAY_ALLOWLIST)) expect(hits[file], file).toEqual(names);
+    // ...and no read is outside it.
+    const unexpected = Object.fromEntries(Object.entries(hits).filter(([file]) => !(file in RAILWAY_ALLOWLIST)));
+    expect(unexpected).toEqual({});
+  });
+});
+

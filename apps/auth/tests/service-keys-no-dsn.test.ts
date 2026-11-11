@@ -5,7 +5,7 @@
 import * as Sentry from '@sentry/node';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { EXIT_UNRECORDED, scriptRecorder, scriptSentryInit, serviceKeys, unrecordedRecorder } from '../scripts/service-keys';
+import { EXIT_UNRECORDED, scriptRecorder, scriptSentryInit, serviceKeys, unrecordedRecorder, validEnvironment } from '../scripts/service-keys';
 import { startService, type Service } from './helpers/service';
 
 let service: Service;
@@ -67,6 +67,9 @@ describe('the script\'s Sentry environment (#314 Amendment 3, codex)', () => {
     try {
       expect(scriptSentryInit('https://public@o0.ingest.sentry.io/0', 'staging').environment).toBe('staging');
       expect(scriptSentryInit('https://public@o0.ingest.sentry.io/0', 'production').environment).toBe('production');
+      // main() validates before scriptRecorder: a typo never reaches Sentry.init.
+      for (const bad of [undefined, '', 'prod', 'Production', 'test']) expect(validEnvironment(bad), String(bad)).toBeNull();
+      for (const good of ['development', 'staging', 'production']) expect(validEnvironment(good)).toBe(good);
     } finally {
       process.env.NODE_ENV = before;
     }

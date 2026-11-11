@@ -24,7 +24,10 @@ export const MCP_TEST_LAYER_ORIGIN = 'https://api.mcp-key-test.example';
 export const MCP_TEST_CLIENT_ID = 'ansari-mcp-test';
 export const MCP_TEST_KEY_ID = 'key-00000000-0000-4000-8000-000000000314';
 /** A key in the issued shape: the public prefix and 64 random letters. */
-export const MCP_TEST_KEY = `ansari_mcp_prod_${'kQ'.repeat(32)}`;
+// A shape the service-keys script can issue: keyPrefix('ansari-mcp', 'staging')
+// in packages/auth/src/service-users.ts. A literal, since apps/api may not
+// import @ansari/auth (source-scan 3).
+export const MCP_TEST_KEY = `ansari_mcp_staging_${'kQ'.repeat(32)}`;
 
 const VERIFY_PATH = '/api/service/verify-key';
 

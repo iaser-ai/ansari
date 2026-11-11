@@ -42,8 +42,7 @@ export function isServiceName(name: string): name is ServiceName {
  * A key's prefix names the environment it was issued in (#314, owner
  * 2026-11-12, Amendments 2 and 3): `ansari_<service>_<environment>_`, e.g.
  * `ansari_wa_production_`, `ansari_mcp_staging_`, where the environment is the
- * issuing apps/auth's ENVIRONMENT (one vocabulary with apps/api, the frontend
- * and Sentry). The script reads it from its process env; each route accepts
+ * issuing apps/auth's ENVIRONMENT (one vocabulary with apps/api and Sentry). The script reads it from its process env; each route accepts
  * only its own environment's prefix, so a key leaked from one environment is
  * readable as such and refused in another.
  */
@@ -52,37 +51,46 @@ export function keyPrefix(service: ServiceName, environment: Environment): strin
 }
 
 /**
- * Keys issued before #314 carry the bare service prefix (`ansari_wa_`, no
- * environment): at least one live staging WhatsApp key does. While this is
- * true the routes still accept that prefix, the secret-scanning patterns
- * still catch it and the script still refuses it pasted into a flag. The
- * compatibility window closes when `list` shows no live unlabelled key on any
- * database: set this to false and re-register the scanning patterns (the
- * runbook's "Rotate legacy keys" step and its follow-up issue).
+ * The compatibility window for keys issued before #314 (no environment in the
+ * prefix): at least one live staging WhatsApp key is one. While it is open the
+ * WhatsApp routes still accept LEGACY_PREFIXES, the secret-scanning patterns
+ * still catch them, and the script still refuses them pasted into a flag. It
+ * closes when `list` shows no live unlabelled key on any database: set this to
+ * false and re-register the scanning patterns (the runbook's "Rotate legacy
+ * keys" step and its follow-up issue). Typed `boolean`, so both states are
+ * live code: the pure builders below take the state as a parameter, and the
+ * tests run both.
  */
-export const LEGACY_UNLABELLED_KEYS = true;
+export const LEGACY_UNLABELLED_KEYS: boolean = true;
 
 /**
- * The prefixes a route of `service` running as `environment` accepts: that
- * environment's, plus the legacy unlabelled prefixes (LEGACY_PREFIXES) while
- * LEGACY_UNLABELLED_KEYS holds. Any other stored prefix (another environment's, another service's, a
- * hand-made one) is the route's ordinary refusal.
- */
-export function acceptedKeyPrefixes(service: ServiceName, environment: Environment): readonly string[] {
-  const own = keyPrefix(service, environment);
-  return LEGACY_UNLABELLED_KEYS ? [own, ...LEGACY_PREFIXES[service]] : [own];
-}
-
-/**
- * The unlabelled prefixes keys were issued with before #314, per service: the
- * bare base prefix, and for WhatsApp also `wa_`, the prefix before the
- * 2026-10-30 rename (the runbook's "prefix change"), since a live `wa_` key
- * cannot be ruled out. Accepted only while LEGACY_UNLABELLED_KEYS holds.
+ * The unlabelled prefixes keys were issued with before #314, per service:
+ * WhatsApp's bare base prefix and `wa_`, the prefix before the 2026-10-30
+ * rename (the runbook's "prefix change"), since a live `wa_` key cannot be
+ * ruled out. None for `ansari-mcp`: its key path ships with #314, so no
+ * unlabelled MCP key can exist, and the MCP window is closed from the start
+ * (second review, finding 1).
  */
 export const LEGACY_PREFIXES: Readonly<Record<ServiceName, readonly string[]>> = {
   whatsapp: ['ansari_wa_', 'wa_'],
-  'ansari-mcp': ['ansari_mcp_'],
+  'ansari-mcp': [],
 };
+
+/**
+ * The prefixes a route of `service` running as `environment` accepts, with the
+ * window open (`legacy`) or closed: that environment's, plus LEGACY_PREFIXES
+ * while the window is open. Any other stored prefix (another environment's,
+ * another service's, a hand-made one) is the route's ordinary refusal.
+ */
+export function acceptedKeyPrefixesFor(service: ServiceName, environment: Environment, legacy: boolean): readonly string[] {
+  const own = keyPrefix(service, environment);
+  return legacy ? [own, ...LEGACY_PREFIXES[service]] : [own];
+}
+
+/** acceptedKeyPrefixesFor with the window as it stands (LEGACY_UNLABELLED_KEYS). */
+export function acceptedKeyPrefixes(service: ServiceName, environment: Environment): readonly string[] {
+  return acceptedKeyPrefixesFor(service, environment, LEGACY_UNLABELLED_KEYS);
+}
 
 /** True when a verified key's stored prefix is one `service`'s route in `environment` accepts. */
 export function isAcceptedKeyPrefix(service: ServiceName, environment: Environment, prefix: unknown): boolean {
@@ -92,42 +100,47 @@ export function isAcceptedKeyPrefix(service: ServiceName, environment: Environme
 /** The plugin's key body: 64 letters (its default length and alphabet). */
 const KEY_BODY = '[A-Za-z]{64}';
 
-function scanningPattern(service: ServiceName): RegExp {
+/**
+ * The GitHub custom secret-scanning pattern for `service`, window open
+ * (`legacy`) or closed: the base prefix, an ENVIRONMENT segment (optional only
+ * while the window is open and the bare base prefix is a legacy prefix of the
+ * service), and the plugin's 64-letter key.
+ */
+export function scanningPatternFor(service: ServiceName, legacy: boolean): RegExp {
+  const base = SERVICES[service].prefix;
   const envs = `(?:${ENVIRONMENTS.join('|')})_`;
-  return new RegExp(`${SERVICES[service].prefix}${LEGACY_UNLABELLED_KEYS ? `(?:${envs})?` : envs}${KEY_BODY}`);
+  const bareAccepted = legacy && LEGACY_PREFIXES[service].includes(base);
+  return new RegExp(`${base}${bareAccepted ? `(?:${envs})?` : envs}${KEY_BODY}`);
 }
 
 /**
- * GitHub custom secret-scanning patterns, one per service, derived from the
- * same table as keyPrefix: the base prefix, any ENVIRONMENT segment (optional
- * while LEGACY_UNLABELLED_KEYS holds), and the plugin's 64-letter key. The
- * script's pasted-key refusal uses these too, so the three never disagree. The
- * runbook asks the owner to register exactly these (`.source`) for the
- * organisation.
+ * The extra patterns the window needs for `service`: one per legacy prefix the
+ * main pattern does not already cover (today only WhatsApp's `wa_`); none
+ * once the window is closed.
+ */
+export function legacyScanningPatternsFor(service: ServiceName, legacy: boolean): RegExp[] {
+  if (!legacy) return [];
+  return LEGACY_PREFIXES[service].filter((prefix) => prefix !== SERVICES[service].prefix).map((prefix) => new RegExp(`${prefix}${KEY_BODY}`));
+}
+
+/**
+ * The patterns to register now (LEGACY_UNLABELLED_KEYS applied), derived from
+ * the same table as keyPrefix. The script's pasted-key refusal uses these too,
+ * so the three never disagree. The runbook asks the owner to register exactly
+ * these (`.source`) for the organisation, and prints the closed-window sources
+ * (scanningPatternFor(service, false)) for the day the window closes; tests
+ * assert both against the runbook.
  */
 export const SECRET_SCANNING_PATTERNS: Readonly<Record<ServiceName, RegExp>> = {
-  whatsapp: scanningPattern('whatsapp'),
-  'ansari-mcp': scanningPattern('ansari-mcp'),
+  whatsapp: scanningPatternFor('whatsapp', LEGACY_UNLABELLED_KEYS),
+  'ansari-mcp': scanningPatternFor('ansari-mcp', LEGACY_UNLABELLED_KEYS),
 };
 
-/**
- * The extra patterns the legacy window needs, derived from LEGACY_PREFIXES: one
- * per legacy prefix that the main pattern does not already cover (today only
- * WhatsApp's pre-rename `wa_`). Registered beside the main ones until the
- * window closes; empty once LEGACY_UNLABELLED_KEYS is false. Every prefix a
- * route accepts is caught by one of the two lists (tested).
- */
+/** The legacy patterns to register beside them now (empty once the window closes). Every accepted prefix is caught by one of the two lists (tested). */
 export const LEGACY_SCANNING_PATTERNS: Readonly<Record<ServiceName, readonly RegExp[]>> = {
-  whatsapp: legacyScanningPatterns('whatsapp'),
-  'ansari-mcp': legacyScanningPatterns('ansari-mcp'),
+  whatsapp: legacyScanningPatternsFor('whatsapp', LEGACY_UNLABELLED_KEYS),
+  'ansari-mcp': legacyScanningPatternsFor('ansari-mcp', LEGACY_UNLABELLED_KEYS),
 };
-
-function legacyScanningPatterns(service: ServiceName): RegExp[] {
-  if (!LEGACY_UNLABELLED_KEYS) return [];
-  return LEGACY_PREFIXES[service]
-    .filter((prefix) => prefix !== SERVICES[service].prefix)
-    .map((prefix) => new RegExp(`${prefix}${KEY_BODY}`));
-}
 
 export type ServiceUser = { id: string; email: string; createdAt: Date };
 

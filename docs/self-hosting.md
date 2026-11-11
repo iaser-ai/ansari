@@ -117,7 +117,7 @@ empty-final retry ladder still applies as same-model retries.
 | `ANDROID_MINIMUM_BUILD_VERSION` | `1` | |
 | `ANDROID_LATEST_BUILD_VERSION` | `1` | |
 | `NODE_ENV` | `development` | `development` / `production` / `test` |
-| `ENVIRONMENT` | `development` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth` and the frontend's `EXPO_PUBLIC_ENVIRONMENT`. It is the Sentry environment. **Required when `NODE_ENV=production`**, and then only `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
+| `ENVIRONMENT` | `development` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth`, named after the legacy frontend's `EXPO_PUBLIC_ENVIRONMENT` (apps/frontend has no such variable). It is the Sentry environment. **Required when `NODE_ENV=production`**, and then only `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
 
 ### Outside the config schema (direct `process.env` reads)
 

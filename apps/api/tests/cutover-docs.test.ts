@@ -545,8 +545,16 @@ describe('the service-keys runbook (spec 329)', () => {
     const scanning = section('Secret scanning');
     // A `|` inside a GFM table cell must be written `\|` (even in code), or it splits the cell;
     // the owner copies the rendered text, so the escape is undone before comparing.
-    const rows = [...scanning.matchAll(/^\| `([a-z-]+)` \| `([^`]+)` \|$/gm)].map((m) => [m[1], m[2]?.replace(/\\\|/g, '|')]);
-    expect(rows).toEqual(Object.entries(serviceUsers.SECRET_SCANNING_PATTERNS).map(([name, re]) => [name, re.source]));
+    const rowsOf = (text: string) =>
+      [...text.matchAll(/^\| `([a-z-]+)` \| `([^`]+)` \|$/gm)].map((m) => [m[1], m[2]?.replace(/\\\|/g, '|')]);
+    // Two tables: the patterns to register now, and (#314) the ones for the day the
+    // legacy-key window closes, both derived from the code, never typed by hand.
+    const [now, closed] = scanning.split('| Service | Pattern after the window closes |');
+    expect(closed, 'the closed-window table').toBeDefined();
+    const names = Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[];
+    expect(rowsOf(now ?? '')).toEqual(names.map((name) => [name, serviceUsers.SECRET_SCANNING_PATTERNS[name].source]));
+    expect(rowsOf(closed ?? '')).toEqual(names.map((name) => [name, serviceUsers.scanningPatternFor(name, false).source]));
+    for (const legacy of Object.values(serviceUsers.LEGACY_SCANNING_PATTERNS).flat()) expect(now).toContain(`\`${legacy.source}\``);
     expect(scanning).toContain('Settings → Code security → Secret scanning → Custom patterns');
     expect(scanning).toMatch(/\*\*revoke the key at once\*\*/);
   });

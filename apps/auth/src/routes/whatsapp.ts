@@ -26,7 +26,7 @@
 // Better Auth's handler path, so no router per-IP rule applies: the WhatsApp
 // service calls from one egress IP, and the key's own limits and the per-user
 // budget are the throttle.
-import { consumeWindow, limits, redactError, getEnv, serviceUsers, whatsapp, type Environment } from '@ansari/auth';
+import { consumeWindow, limits, redactError, serviceUsers, whatsapp, type Environment } from '@ansari/auth';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 
 import {
@@ -54,11 +54,6 @@ const BSUID = /^[^\s\p{Cc}\p{Cf}]{1,256}$/u;
 export const exchangeLimitKey = (userId: string) => `sub:${userId}|${WHATSAPP_SESSION_PATH}`;
 
 export type ExchangeOptions = {
-  /**
-   * This deployment's ENVIRONMENT (#314 Amendment 3): only a key whose stored
-   * prefix names it (or the legacy bare prefix) is served. Defaults to getEnv().
-   */
-  environment?: Environment;
   alerts?: ExchangeAlerts;
   /** The clock for the relation-check cache; tests advance it. */
   now?: () => number;
@@ -92,10 +87,14 @@ const unauthorized = (res: Response) => res.status(401).json({ message: 'Unautho
 const invalidRequest = (res: Response) => res.status(400).json({ message: 'Invalid request' });
 const internalError = (res: Response) => res.status(500).json({ message: 'Internal error' });
 
-export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptions = {}): Router {
+/**
+ * `environment` is this deployment's ENVIRONMENT (#314 Amendment 3): only a key
+ * whose stored prefix names it, or a legacy prefix while the window is open, is
+ * served. createApp passes it; it is the one place it is set.
+ */
+export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptions, environment: Environment): Router {
   const alerts = options.alerts ?? createExchangeAlerts();
   const now = options.now ?? Date.now;
-  const environment = options.environment ?? getEnv().ENVIRONMENT;
   const router = Router();
 
   const checkApiKeyRelation = createApiKeyRelationCheck(db, now);
@@ -124,7 +123,6 @@ export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptio
         await checkApiKeyRelation();
         return refuse(res);
       }
-      alerts.keyVerified(verified.key);
       const owner = await serviceUsers.findServiceUser(db, SERVICE);
       if (owner.kind !== 'one') {
         alerts.serviceUserUnresolvable(owner.kind === 'many' ? owner.ids.length : 0);
@@ -136,6 +134,10 @@ export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptio
       // the same refusal (#314 Amendment 3). The legacy bare prefix is accepted
       // while serviceUsers.LEGACY_UNLABELLED_KEYS holds.
       if (!serviceUsers.isAcceptedKeyPrefix(SERVICE, environment, verified.key.prefix)) return refuse(res);
+      // Counted only for a key that is served, as on the verify route: a wrong
+      // owner or prefix is a refusal, already counted by refuse() (second
+      // review, finding 6; supersedes leaving the exchange's order as it was).
+      alerts.keyVerified(verified.key);
       next();
     } catch (err) {
       fail(res, err);

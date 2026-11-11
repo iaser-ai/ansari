@@ -97,7 +97,8 @@ async function scriptKey(name: ServiceName = 'ansari-mcp', on: Service = service
 /** A key the script would refuse to make (a key created outside it): in process, owned by `userId`. */
 async function outsideKey(userId: string, body: Record<string, unknown> = {}, on: Service = service) {
   const created = await on.auth.api.createApiKey({
-    body: { userId, prefix: 'ansari_mcp_', name: 'outside', permissions: MCP, rateLimitEnabled: false, ...body },
+    // This environment's label by default, so the other checks are what the tests reach.
+    body: { userId, prefix: serviceUsers.keyPrefix('ansari-mcp', getEnv().ENVIRONMENT), name: 'outside', permissions: MCP, rateLimitEnabled: false, ...body },
   });
   return { key: remember(created.key), id: created.id };
 }
@@ -357,10 +358,7 @@ describe('the stored prefix (#314 Amendments 2 and 3)', () => {
   const served = { metadata: { clientId: 'ansari-mcp-production' } };
   const here = getEnv().ENVIRONMENT;
 
-  it.each([
-    ["this environment's label", serviceUsers.keyPrefix('ansari-mcp', here)],
-    ['the legacy bare prefix (compatibility window)', 'ansari_mcp_'],
-  ])('%s → served', async (_name, prefix) => {
+  it.each([["this environment's label", serviceUsers.keyPrefix('ansari-mcp', here)]])('%s → served', async (_name, prefix) => {
     const made = await outsideKey(mcpUserId, { ...served, prefix });
     expect(made.key.startsWith(prefix)).toBe(true);
     expect(JSON.parse((await verify(made.key)).text)).toEqual({
@@ -385,6 +383,8 @@ describe('the stored prefix (#314 Amendments 2 and 3)', () => {
     ['a foreign prefix', 'evil_'],
     ["a WhatsApp prefix for this environment", serviceUsers.keyPrefix('whatsapp', here)],
     ["WhatsApp's pre-rename legacy prefix", 'wa_'],
+    // No MCP window (second review, finding 1): no unlabelled MCP key can exist.
+    ['the bare ansari_mcp_ prefix', 'ansari_mcp_'],
     ['an unknown environment', 'ansari_mcp_qa_'],
     ['no prefix', undefined],
   ])('%s → the same { valid: false }', async (_name, prefix) => {

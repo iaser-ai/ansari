@@ -70,13 +70,12 @@ let key: string;
 /** A fresh exchange-alert window, so one test's counts never reach the next. */
 const nextAlertWindow = () => clock.advance(limits.EXCHANGE_ALERT_WINDOW * 1000);
 
+/** The alerts object of the service last started here, so a test can spy on what the route calls. */
+let exchangeAlerts: ReturnType<typeof createExchangeAlerts>;
+
 function startExchangeService(): Promise<Service> {
-  return startService({
-    exchange: {
-      alerts: createExchangeAlerts({ send: (alert) => alerts.push(alert), now: clock.now }),
-      now: clock.now,
-    },
-  });
+  exchangeAlerts = createExchangeAlerts({ send: (alert) => alerts.push(alert), now: clock.now });
+  return startService({ exchange: { alerts: exchangeAlerts, now: clock.now } });
 }
 
 beforeAll(async () => {
@@ -96,7 +95,9 @@ type KeyBody = Record<string, unknown>;
 /** A key created in process, as the service-keys script does, owned by `userId`. */
 async function createKey(body: KeyBody = {}, on: Service = service, userId = serviceUserId) {
   const created = await on.auth.api.createApiKey({
-    body: { userId, prefix: 'ansari_wa_', name: 'test', permissions: WHATSAPP, rateLimitEnabled: false, ...body },
+    // This environment's label by default (second review, finding 2); the legacy
+    // prefixes have their own dedicated tests.
+    body: { userId, prefix: serviceUsers.keyPrefix('whatsapp', HERE), name: 'test', permissions: WHATSAPP, rateLimitEnabled: false, ...body },
   });
   remember(keyHash(created.key));
   return remember(created.key);
@@ -286,6 +287,30 @@ describe('key refusals: one byte-identical 401, no rows', () => {
 });
 
 describe('the exchange', () => {
+  it('keyVerified counts only a served key: never one refused for its prefix (second review, finding 6)', async () => {
+    const spy = vi.spyOn(exchangeAlerts, 'keyVerified');
+    try {
+      for (const prefix of [
+        ...ENVIRONMENTS.filter((e) => e !== HERE).map((e) => `ansari_wa_${e}_`),
+        'evil_',
+        serviceUsers.keyPrefix('ansari-mcp', HERE),
+      ]) {
+        const refused = await createKey({ prefix });
+        expect((await exchange(newBsuid(), newPhone(), { bearer: refused })).status, prefix).toBe(401);
+      }
+      expect(spy).not.toHaveBeenCalled();
+      expect((await exchange(newBsuid(), newPhone(), { bearer: await createKey() })).status).toBe(200);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a bare ansari_wa_ key (issued before #314) still exchanges during the compatibility window', async () => {
+    const legacy = await createKey({ prefix: 'ansari_wa_' });
+    expect((await exchange(newBsuid(), newPhone(), { bearer: legacy })).status).toBe(200);
+  });
+
   it('a pre-rename wa_ key (issued before 2026-10-30) still exchanges during the compatibility window (codex, PR #372)', async () => {
     const legacy = await createKey({ prefix: 'wa_' });
     expect(legacy.startsWith('wa_')).toBe(true);
@@ -686,7 +711,7 @@ describe('alerts', () => {
     const id = (await service.auth.api.createApiKey({
       body: {
         userId: serviceUserId,
-        prefix: 'ansari_wa_',
+        prefix: serviceUsers.keyPrefix('whatsapp', HERE),
         name: 'volume',
         permissions: WHATSAPP,
         rateLimitEnabled: true,
@@ -715,7 +740,7 @@ describe('alerts', () => {
     const created = await service.auth.api.createApiKey({
       body: {
         userId: serviceUserId,
-        prefix: 'ansari_wa_',
+        prefix: serviceUsers.keyPrefix('whatsapp', HERE),
         name: 'daily',
         permissions: WHATSAPP,
         rateLimitEnabled: false,

@@ -1,6 +1,6 @@
 /**
  * The deployment label (#314 Amendment 3, owner 2026-11-12): `ENVIRONMENT`,
- * named to match the frontend's `EXPO_PUBLIC_ENVIRONMENT`, in apps/api and
+ * named after the legacy frontend's `EXPO_PUBLIC_ENVIRONMENT` (apps/frontend has no such variable; parity there is a separate follow-up), in apps/api and
  * apps/auth. It is the Sentry environment of both services and the
  * environment segment of every service-key prefix (`ansari_<service>_<environment>_`).
  * NODE_ENV keeps its own jobs (test detection, production hardening);
