@@ -69,3 +69,7 @@
 - Runbook: new `## The \`ansari-mcp\` key (#314)` with `###` subsections (issuance per deployment incl. mcp-staging `--client-id ansari-mcp-staging` before staging deploys #314, Bearer handoff for Worker/Railway/owner, rollout, limits, alerts incl. `client-id-invalid`, rotation, plugin-upgrade check). Kept `###` so `cutover-docs.test.ts`'s `section('Limits')`/`section('Alerts')` still read only the WhatsApp tables.
 - Surprise: the runbook path scan's regex reads `apps/mcp/wrangler.jsonc` as `apps/mcp/wrangler.json` (no end anchor after the extension), which does not exist. Reworded to "apps/mcp's `wrangler.jsonc`" rather than touch the scan.
 - self-hosting.md: new MCP key subsection; "ansari-mcp reserved" wording fixed there and in arch.md and the runbook intro. apps/mcp README + .env.example + RELEASE.md staging table: `Bearer ansari_mcp_<64 letters>`. arch-critical JWT fact amended in place; arch.md gains the verify-route paragraph.
+
+## 2026-11-11 review
+- Review written (`codev/reviews/314-protect-v2-mcp-complete-with-b.md`). Spec 314 lessons appended to the spec 329 section of lessons-learned.md (expired key leaves no row; read the published package; count success after the last check; two-sided refusal pin). Hot map line extended; no hot lesson added (at cap).
+- Open owner items carried into the PR: keys per deployment (staging key before apps/api staging deploys, since default is enforce), the snippet and setup page locations, the threads.client numbers for limit sizing, and the log-only removal issue (opened at enforce).
