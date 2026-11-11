@@ -274,8 +274,9 @@ the key log. Then remove the key from the repository's history; revoking first m
 are now `ansari_wa_` (and `ansari_mcp_`). A `wa_` key still verifies during the compatibility window below, because a key is checked by
 the hash of the whole key, so nothing breaks; but replace it: `rotate whatsapp` (prints an
 `ansari_wa_` key once), switch the consumer's variable to it, then `revoke` the old key. Keep the
-old organisation pattern (`wa_` followed by 64 letters) registered beside the new ones until the
-last `wa_` key is revoked, then remove it.
+old organisation pattern (`wa_[A-Za-z]{64}`, the `.source` of `LEGACY_SCANNING_PATTERNS.whatsapp`
+in `service-users.ts`) registered beside the new ones until the last `wa_` key is revoked, then
+remove it.
 
 **Environment labels (#314 Amendments 2 and 3, owner 2026-11-12).** Keys are now issued as
 `ansari_<service>_<ENVIRONMENT>_` followed by 64 letters, where `ENVIRONMENT` is the issuing auth

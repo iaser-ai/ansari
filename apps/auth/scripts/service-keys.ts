@@ -555,10 +555,19 @@ export const unrecordedRecorder: Recorder = {
   reason: 'SENTRY_DSN is not set: no record was attempted.',
 };
 
+/**
+ * The script's Sentry init: its events carry ENVIRONMENT, like apps/auth's own
+ * (#314 Amendment 3), never NODE_ENV, which is `production` on staging too. An
+ * absent ENVIRONMENT never reaches a write: serviceKeys refuses to run first.
+ */
+export function scriptSentryInit(dsn: string, environment: string | undefined) {
+  return { dsn, environment: environment ?? 'development', ...SCRIPT_SENTRY_OPTIONS };
+}
+
 /** The script's recorder: Sentry when a DSN is set (initialised here), otherwise none. */
-export function scriptRecorder(dsn: string | undefined): Recorder {
+export function scriptRecorder(dsn: string | undefined, environment: string | undefined): Recorder {
   if (!dsn) return unrecordedRecorder;
-  Sentry.init({ dsn, environment: process.env.NODE_ENV ?? 'development', ...SCRIPT_SENTRY_OPTIONS });
+  Sentry.init(scriptSentryInit(dsn, environment));
   return sentryRecorder;
 }
 
@@ -664,7 +673,7 @@ export function printLine(line: string): void {
 }
 
 async function main(): Promise<void> {
-  const recorder = scriptRecorder(process.env.SENTRY_DSN);
+  const recorder = scriptRecorder(process.env.SENTRY_DSN, process.env.ENVIRONMENT);
   const { exitCode } = await serviceKeys(process.argv.slice(2), {
     databaseUrl: process.env.DATABASE_URL,
     environment: process.env.ENVIRONMENT,

@@ -110,6 +110,25 @@ export const SECRET_SCANNING_PATTERNS: Readonly<Record<ServiceName, RegExp>> = {
   'ansari-mcp': scanningPattern('ansari-mcp'),
 };
 
+/**
+ * The extra patterns the legacy window needs, derived from LEGACY_PREFIXES: one
+ * per legacy prefix that the main pattern does not already cover (today only
+ * WhatsApp's pre-rename `wa_`). Registered beside the main ones until the
+ * window closes; empty once LEGACY_UNLABELLED_KEYS is false. Every prefix a
+ * route accepts is caught by one of the two lists (tested).
+ */
+export const LEGACY_SCANNING_PATTERNS: Readonly<Record<ServiceName, readonly RegExp[]>> = {
+  whatsapp: legacyScanningPatterns('whatsapp'),
+  'ansari-mcp': legacyScanningPatterns('ansari-mcp'),
+};
+
+function legacyScanningPatterns(service: ServiceName): RegExp[] {
+  if (!LEGACY_UNLABELLED_KEYS) return [];
+  return LEGACY_PREFIXES[service]
+    .filter((prefix) => prefix !== SERVICES[service].prefix)
+    .map((prefix) => new RegExp(`${prefix}${KEY_BODY}`));
+}
+
 export type ServiceUser = { id: string; email: string; createdAt: Date };
 
 export type ServiceUserLookup =

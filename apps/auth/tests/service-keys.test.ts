@@ -3,6 +3,8 @@
 // posture, against the auth database on pglite. Script functions are driven
 // directly; Sentry through a spy transport.
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import * as Sentry from '@sentry/node';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -828,6 +830,26 @@ describe('SECRET_SCANNING_PATTERNS', () => {
       const prefixes = [serviceUsers.SERVICES[name].prefix, ...ENVIRONMENTS.map((e) => serviceUsers.keyPrefix(name, e))];
       for (const prefix of prefixes) expect(pattern.test(`${prefix}${body}`), prefix).toBe(true);
       expect(pattern.test(`${serviceUsers.SERVICES[name].prefix}qa_${body}`)).toBe(false);
+    }
+  });
+
+  it('every prefix a route accepts, in any environment, is caught by the main or a legacy pattern (codex, PR #372)', () => {
+    const body = 'Q'.repeat(64);
+    for (const name of Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[]) {
+      const patterns = [serviceUsers.SECRET_SCANNING_PATTERNS[name], ...serviceUsers.LEGACY_SCANNING_PATTERNS[name]];
+      const accepted = new Set(ENVIRONMENTS.flatMap((e) => serviceUsers.acceptedKeyPrefixes(name, e)));
+      for (const prefix of accepted) {
+        expect(patterns.some((p) => p.test(`${prefix}${body}`)), `${name} ${prefix}`).toBe(true);
+      }
+    }
+    expect(serviceUsers.LEGACY_SCANNING_PATTERNS.whatsapp.map((p) => p.source)).toEqual(['wa_[A-Za-z]{64}']);
+    expect(serviceUsers.LEGACY_SCANNING_PATTERNS['ansari-mcp']).toEqual([]);
+  });
+
+  it('the runbook names every legacy pattern by its source', () => {
+    const runbook = readFileSync(fileURLToPath(new URL('../../../docs/cutover/service-keys-runbook.md', import.meta.url)), 'utf8');
+    for (const pattern of Object.values(serviceUsers.LEGACY_SCANNING_PATTERNS).flat()) {
+      expect(runbook).toContain(`\`${pattern.source}\``);
     }
   });
 
