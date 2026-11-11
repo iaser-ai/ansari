@@ -229,8 +229,8 @@ Verify admins with `grant-admin.ts --list` from `apps/auth/`.
 
 ### Service keys and the WhatsApp exchange (spec 329)
 
-`apps/auth` issues API keys to services (the WhatsApp service today; `ansari-mcp` is reserved
-for #314) through `@better-auth/api-key`. A service is one auth user under
+`apps/auth` issues API keys to services (the WhatsApp service, and `ansari-mcp` for
+`/api/v2/mcp-complete`, #314) through `@better-auth/api-key`. A service is one auth user under
 `@noreply.askansari.ai` with no credential. Keys are stored hashed in `auth.apikey`; the
 plugin's HTTP surface is blocked, so keys are created, listed, rotated, changed and revoked only
 with `apps/auth/scripts/service-keys.ts`, run from `apps/auth/` in the auth service's shell
@@ -263,3 +263,24 @@ auth database (after the duplicate check in the runbook, in a quiet window: it l
 without it. On a deployment that tracks Ansari's own order: staging gets `0001` before the merge,
 and production gets the whole auth journal, in order, at its cutover
 (`docs/cutover/better-auth-cutover.md`).
+
+### MCP completions need a service key (#314)
+
+`POST /api/v2/mcp-complete` on `apps/api` requires `Authorization: Bearer <key>` (the scheme word
+in any case), where the key is an `ansari-mcp` service key made with `service-keys.ts`
+(`create-key ansari-mcp … --client-id <ansari-mcp id>`; the client id is required and must be
+`ansari-mcp` or `ansari-mcp-<suffix>`). For every request, `apps/api` asks `apps/auth` at its
+public origin, `POST /api/service/verify-key` with `{"key": "...", "permissions": {"mcp":
+["complete"]}}`; the route serves that permission set only, so a WhatsApp key is refused. It
+answers `200 {valid: true, client_id, key_id}` or one `200 {valid: false}` for every refusal,
+`400` for a malformed body and `500` otherwise; it sits outside Better Auth's router (no per-IP
+rule, no CORS) and carries no credential but the key itself, which also spends one unit of the
+key's own budget and window.
+
+In `enforce` mode (`MCP_COMPLETE_KEY_MODE`, above) a missing or refused key is `401
+{"error":"Unauthorized"}`, and `apps/auth` unreachable, or slower than apps/api's client timeout
+(`AUTH_SERVICE_TIMEOUT_MS` in `apps/api/lib/auth-service/client.ts`, 3 s), is `503 {"error":"Authentication service unavailable"}`, with nothing persisted and no
+model call. The thread's `client` is the key's client id; a different `X-Ansari-Client` is
+ignored. The route's per-IP cap (120 a minute) stays. An MCP server built from `apps/mcp` sends
+its `ANSARI_API_AUTHORIZATION` verbatim, so that variable holds `Bearer ` and the key. Issuance,
+handoff, rollout, limits, alerts and rotation: `docs/cutover/service-keys-runbook.md`.

@@ -91,6 +91,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai` (the server refuses any other Host on `/mcp`) |
 > | `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai` (the default is production) |
 > | `ANSARI_CLIENT` | `ansari-mcp-staging` |
+> | `ANSARI_API_AUTHORIZATION` | `Bearer ansari_mcp_<64 letters>`: the staging key, made with `--client-id ansari-mcp-staging` and set **before** apps/api staging deploys #314 (`docs/cutover/service-keys-runbook.md`) |
 >
 > `ANSARI_RELEASE` is **not** set: the release falls back to `RAILWAY_GIT_COMMIT_SHA`. `MCP_ALLOWED_ORIGINS` is left
 > unset at first: it defaults to the allowed hosts, and requests without an Origin pass. The Cloudflare Workers path
