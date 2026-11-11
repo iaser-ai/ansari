@@ -290,6 +290,9 @@ describe('scan 5: apps/api has no WhatsApp-specific code (spec 329)', () => {
 describe('scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12, #314)', () => {
   // apps/api, apps/auth (with packages/auth) and apps/mcp's server source.
   const MCP_RUNTIME = sourceFiles('apps/mcp/src');
+  // apps/api's operator scripts too (codex): API_RUNTIME is what `next build`
+  // compiles, but a script reading RAILWAY_* breaks the rule just as well.
+  const API_SCRIPTS = sourceFiles('apps/api/scripts');
 
   it('catches planted lines, whatever the access path', () => {
     for (const bad of [
@@ -317,8 +320,9 @@ describe('scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12
   });
 
   it('the allowlist is exact: its one entry is present, and nothing else is', () => {
-    const files = [...API_RUNTIME, ...AUTH_RUNTIME, ...MCP_RUNTIME];
+    const files = [...API_RUNTIME, ...API_SCRIPTS, ...AUTH_RUNTIME, ...MCP_RUNTIME];
     expect(MCP_RUNTIME.length).toBeGreaterThan(10);
+    expect(API_SCRIPTS.length).toBeGreaterThan(0);
     expect(files.length).toBeGreaterThan(100);
     const hits = scanTree(files, railwayEnvHits);
     report('RAILWAY_* reads (apps/api + apps/auth + apps/mcp runtime)', files, hits);

@@ -131,7 +131,7 @@ export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptio
       if (verified.key.referenceId !== owner.user.id) return refuse(res);
       // A key whose stored prefix is not this service's and this environment's
       // (another environment's label, another service's, a hand-made one) is
-      // the same refusal (#314 Amendment 3). The legacy bare prefix is accepted
+      // the same refusal (#314 Amendment 3). The legacy prefixes (`ansari_wa_`, `wa_`) are accepted
       // while serviceUsers.LEGACY_UNLABELLED_KEYS holds.
       if (!serviceUsers.isAcceptedKeyPrefix(SERVICE, environment, verified.key.prefix)) return refuse(res);
       // Counted only for a key that is served, as on the verify route: a wrong

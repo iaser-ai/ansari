@@ -78,8 +78,8 @@ const internalError = (res: Response) => res.status(500).json({ message: 'Intern
 
 /**
  * `environment` is this deployment's ENVIRONMENT (#314 Amendment 3): only a key
- * whose stored prefix names it, or a legacy prefix while the window is open, is
- * served. createApp passes it; it is the one place it is set.
+ * whose stored prefix names it is served. `ansari-mcp` has no legacy window
+ * (LEGACY_PREFIXES['ansari-mcp'] is empty). createApp passes it; it is the one place it is set.
  */
 export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOptions, environment: Environment): Router {
   const alerts = options.alerts ?? createMcpVerifyAlerts();
@@ -135,8 +135,8 @@ export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOp
       if (verified.key.referenceId !== owner.user.id) return refuse(res);
       // A key whose stored prefix is not this service's and this environment's
       // (another environment's label, another service's, a hand-made one) is
-      // the same refusal (#314 Amendment 3). The legacy bare prefix is accepted
-      // while serviceUsers.LEGACY_UNLABELLED_KEYS holds.
+      // the same refusal (#314 Amendment 3). No legacy prefix is accepted here:
+      // the MCP window is closed (second external review, finding 1).
       if (!serviceUsers.isAcceptedKeyPrefix(SERVICE, environment, verified.key.prefix)) return refuse(res);
 
       const clientId = serviceUsers.clientIdOf(verified.key.metadata);
