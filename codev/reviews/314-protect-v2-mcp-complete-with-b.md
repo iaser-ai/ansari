@@ -55,6 +55,7 @@
   - Security architect order (04:10Z): `alerts.keyVerified()` moved after the owner and client-id checks in `service-verify.ts`, so only a served key counts toward the volume alerts. A test pins the order and fails under the old one. The WhatsApp exchange order is unchanged.
 - **Phase 5:** rebased onto develop (#365, #368, #370) first. #366 had changed the attribution link to `askansari.ai`, so scenario 4's expectation followed it in its own commit. Architect orders added the `mcp-staging` key, the `Bearer` form in all three apps/mcp docs, and the RELEASE.md staging row.
 - **Review (PR consult):** the route checks the bearer token's shape (printable ASCII, 1–256 characters, apps/auth's bound) before calling apps/auth. The plan's bearer rule (one token, no whitespace) let an over-long or non-ASCII token through, and apps/auth's 400 turned it into a 503.
+- **Owner directive (2026-11-12, via main): no code reads `RAILWAY_*` variables, only our own names.** `RAILWAY_ENVIRONMENT` is gone from `turbo.json` `globalEnv` and from its comment, and nothing in apps/api, apps/auth or packages reads `RAILWAY_*`. (apps/mcp's `RAILWAY_GIT_COMMIT_SHA` fallback belongs to main. The `RAILWAY_ENVIRONMENT_NAME` fixture in `apps/auth/tests/cutover/copy.test.ts` checks that the cutover script ignores Railway's variables.)
 - **Review phase, Amendments 2 and 3 (owner, 2026-11-12):** the owner asked on the PR why the MCP client needed special handling, then directed that every service key's prefix carry its environment.
   - The first design took the environment from an `--env` flag, with routes that would never compare the label to their own environment.
   - The owner then directed an `ENVIRONMENT` variable (Amendment 3). With it, the script reads the environment from its process env, the label is the environment's own name, and each route compares the prefix to its own environment. That turns the label into real hardening.
@@ -207,7 +208,7 @@ Apart from those Gemini skips, no `CONSULT_ERROR` occurred.
 
 ## Sentry environment continuity (Amendment 3)
 
-- **apps/api** sent `RAILWAY_ENVIRONMENT || NODE_ENV`, and now sends `ENVIRONMENT`. Railway's environment names are `staging` and `production`, so with `ENVIRONMENT` set to match, api events keep the same labels. RELEASE.md does not state these names; they come from the repository's Railway-created GitHub Environments (`ansari-backend / staging`, `ansari-backend / production`).
+- **apps/api** sent `RAILWAY_ENVIRONMENT || NODE_ENV`, and now sends `ENVIRONMENT`. The owner set `ENVIRONMENT` on `backend` and auth in staging and production (2026-11-12), so checking it against Railway's environment names no longer matters.
 - **apps/auth** sent `NODE_ENV`, which is `production` on both staging and production. Today its staging events are therefore labelled `production`. After this change they are labelled `staging`. This is a deliberate correction, and the owner should check the auth Sentry project's alert rules and filters.
 
 ## Flaky Tests
@@ -220,7 +221,6 @@ Neither test was skipped. Both are pre-existing, outside this change, and passed
 ## Follow-up Items
 
 - **Close the legacy-key compatibility window:** once `list` shows no live unlabelled key (`ansari_wa_`, `ansari_mcp_`, or pre-rename `wa_`) on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
-- **`RAILWAY_ENVIRONMENT` in `turbo.json` `globalEnv`:** no code reads it any more. Removing it is main's call.
 
 - **Remove log-only:** open the issue at enforce (rollout step 6). It removes `MCP_COMPLETE_KEY_MODE` from `config.ts` and the `turbo.json` `globalEnv` hunk one week after enforcement. The issue number is to be recorded when it exists.
 - **Limit sizing:** `MCP_KEY_INITIAL` (120/60 s, 5,000/day) and the alert thresholds are judgement values. The owner should resize them with `update-limits` (no deploy) once the `threads.client` query numbers are in.
