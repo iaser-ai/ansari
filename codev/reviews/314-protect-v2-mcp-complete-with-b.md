@@ -135,7 +135,30 @@ No concerns raised. Approved in both rounds.
 #### Gemini
 No concerns raised. Approved.
 
-No `CONSULT_ERROR` occurred in any round.
+### Review / PR #372 (Round 2)
+Codex and Gemini approved with no issues.
+
+### Review / PR #372 (Round 3, after Amendments 2 and 3; run by hand on the security architect's porch route)
+
+#### Codex (REQUEST_CHANGES)
+- **Concern**: keys from before the 2026-10-30 prefix rename (`wa_`) would now be refused with 401, although the runbook says they still verify → **Addressed**: `wa_` joins the compatibility window (`LEGACY_PREFIXES`), with an explicit test written independently of the list and both runbook passages updated.
+- **Concern**: the branch was 9 commits behind `develop` → **Addressed**: rebased with no conflicts; develop's changes touch only `apps/mcp/test/*`. Everything passes after the rebase.
+
+#### Gemini
+- First run: **CONSULT_ERROR** (the `agy` CLI exited with code 3; the lane was skipped). Re-run against the pushed branch; its outcome is in `314-review-iter3-gemini.txt`.
+
+### Review / PR #372 (Round 4, codex only)
+
+#### Codex (REQUEST_CHANGES)
+- **Concern**: the scanning patterns ignored the accepted `wa_` prefix → **Addressed**: `LEGACY_SCANNING_PATTERNS` is derived from `LEGACY_PREFIXES`. Tests check that every accepted prefix is caught and that the runbook names each legacy source.
+- **Concern**: `develop` advanced again (PR #376) → **Addressed**: rebased.
+- **Concern**: the iteration-3 review record was uncommitted → **Addressed**: committed.
+- **Concern**: the key script's Sentry still used `NODE_ENV` → **Addressed**: `scriptSentryInit` uses `ENVIRONMENT`, pinned by a test.
+
+#### Gemini
+- **CONSULT_ERROR** in rounds 3 and 4: the `agy` CLI exits with code 3, so the lane is skipped. The owner can restore it by running `agy` once to sign in.
+
+Apart from those Gemini skips, no `CONSULT_ERROR` occurred.
 
 ## Lessons Learned
 
@@ -196,7 +219,7 @@ Neither test was skipped. Both are pre-existing, outside this change, and passed
 
 ## Follow-up Items
 
-- **Close the legacy-key compatibility window:** once `list` shows no live unlabelled key on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
+- **Close the legacy-key compatibility window:** once `list` shows no live unlabelled key (`ansari_wa_`, `ansari_mcp_`, or pre-rename `wa_`) on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
 - **`RAILWAY_ENVIRONMENT` in `turbo.json` `globalEnv`:** no code reads it any more. Removing it is main's call.
 
 - **Remove log-only:** open the issue at enforce (rollout step 6). It removes `MCP_COMPLETE_KEY_MODE` from `config.ts` and the `turbo.json` `globalEnv` hunk one week after enforcement. The issue number is to be recorded when it exists.

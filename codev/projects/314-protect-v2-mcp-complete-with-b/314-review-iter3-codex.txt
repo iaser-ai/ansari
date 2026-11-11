@@ -1,0 +1,31 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Prefix enforcement is sound, but it silently rejects a documented legacy key format.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `acceptedKeyPrefixes()` accepts only environment-labelled and bare `ansari_wa_` keys, while `docs/cutover/service-keys-runbook.md:273-278` states older `wa_` keys still verify until rotated. Such keys now receive 401. Either include `wa_` in the compatibility window or confirm none remain and update the runbook/deploy prerequisites.
+- The branch is 9 commits behind `develop`; update it before merge. There is no changed-file overlap with those commits.
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/api/v2/mcp-complete` with environment-labelled service keys verified through apps/auth. Adds deployment-environment validation, Sentry labelling, key attribution, rollout controls, and operational documentation.
+
+  ## Key Changes
+  - Adds MCP service-key verification and fail-closed route authorization.
+  - Adds `ENVIRONMENT` enforcement and environment-specific service-key prefixes.
+  - Adds comprehensive route, boot, script, leak, and prefix tests.
+
+  ## Test Plan
+  - Run the full build and non-E2E test suite.
+  - Verify production boot rejection without a valid `ENVIRONMENT`.
+  - Test labelled, cross-environment, bare legacy, and older `wa_` key behavior.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 1 path changed while this lane was running:
+  - turbo.json
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.
