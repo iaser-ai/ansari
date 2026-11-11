@@ -116,7 +116,9 @@ export const envSchema = z.object({
   // How /v2/mcp-complete treats its service key (#314): `log-only` verifies
   // and records the verdict but serves anyway (the rollout week); `enforce`
   // (the default when unset) refuses a missing or invalid key. Any other value
-  // fails validation, so a typo can never quietly open the route.
+  // fails validation, so a typo can never quietly open the route. Remove it
+  // and the log-only branch one week after enforcement; the follow-up issue
+  // is opened at enforce (rollout step 6).
   MCP_COMPLETE_KEY_MODE: z.enum(['log-only', 'enforce']).optional(),
 
   // App version control

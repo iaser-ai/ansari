@@ -157,6 +157,11 @@ export type ServiceKeyVerdict =
  * other answer (no response, a non-200, a body of the wrong shape, a client id
  * off the `ansari-mcp` pattern) throws AuthServiceUnavailableError, and the
  * caller fails closed. The key is never logged: it is the caller's secret.
+ *
+ * The refusal is pinned on both sides: apps/auth's tests assert the
+ * byte-identical body `{"valid":false}`, and this schema accepts that shape
+ * only. Adding any field to the refusal body on apps/auth turns every bad key
+ * into a 503 here, so the two change together.
  */
 export async function verifyServiceKey(key: string): Promise<ServiceKeyVerdict> {
   const response = await authServiceFetch(SERVICE_VERIFY_PATH, {

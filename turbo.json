@@ -142,7 +142,8 @@
     // `log-only` (verify, record, serve anyway) or `enforce`; absent = enforce,
     // the fail-closed default. Undeclared, a staging log-only override would be
     // invisible to tasks and absent from the cache key. Follow-up: remove the
-    // variable and the log-only branch once production enforces (by 2026-12-15).
+    // variable and the log-only branch one week after enforcement; the issue
+    // is opened at enforce (rollout step 6).
     "MCP_COMPLETE_KEY_MODE",
     "MAINTENANCE_MODE",
     "IOS_MINIMUM_BUILD_VERSION",
