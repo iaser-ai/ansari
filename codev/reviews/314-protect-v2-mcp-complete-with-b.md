@@ -179,6 +179,10 @@ REQUEST_CHANGES: eleven required fixes and one coverage item. The architect agre
 11. **Minor:** leak-scan includes `LEGACY_PREFIXES`; boot-check deletes `NEXT_PHASE` instead of setting it to undefined.
 12. **Spawned production boots.** Probes `apps/{auth,api}/scripts/probes/environment-boot-probe.ts`, output below.
 
+### Review / PR #372 (Rounds 6-7, codex, on the second-review fixes)
+- **Round 6, REQUEST_CHANGES:** scan 6 missed `apps/api/scripts`, and three comments were stale → **Addressed** in 5e47e104.
+- **Round 7: APPROVE**, no issues.
+
 Apart from those Gemini skips, no `CONSULT_ERROR` occurred.
 
 ## Production boot probes (finding 12)
