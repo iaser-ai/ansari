@@ -57,8 +57,9 @@
     // CI runs the same pin through test:coverage, so it needs the root
     // package.json too. Overriding `inputs` replaces the root task's list, so
     // the inherited entries are repeated.
+    // apps/mcp/src likewise, for source-scan 6 (#314): CI runs it through this task.
     "test:coverage": {
-      "inputs": ["$TURBO_DEFAULT$", ".env.ci", "$TURBO_ROOT$/package.json"]
+      "inputs": ["$TURBO_DEFAULT$", ".env.ci", "$TURBO_ROOT$/package.json", "$TURBO_ROOT$/apps/mcp/src/**"]
     }
   }
 }

@@ -9,21 +9,35 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const config = readFileSync(fileURLToPath(new URL('../sentry.server.config.ts', import.meta.url)), 'utf8');
-const environmentLine = config.split('\n').find((line) => /^\s*environment\s*:/.test(line));
+
+/** A READ of a RAILWAY_* variable (a comment naming one is fine). */
+const RAILWAY_READ = /process\.env\.RAILWAY_|process\.env\[\s*['"`]RAILWAY_/;
+
+/** The problems with a Sentry server config's environment; empty when it is right. */
+function environmentProblems(source: string): string[] {
+  const line = source.split('\n').find((l) => /^\s*environment\s*:/.test(l));
+  const problems: string[] = [];
+  if (line === undefined) return ['no environment line'];
+  if (!line.includes('process.env.ENVIRONMENT')) problems.push('environment is not process.env.ENVIRONMENT');
+  if (/NODE_ENV/.test(line)) problems.push('environment reads NODE_ENV');
+  if (RAILWAY_READ.test(source)) problems.push('reads a RAILWAY_* variable');
+  return problems;
+}
 
 describe('sentry.server.config.ts environment', () => {
-  it('is process.env.ENVIRONMENT', () => {
-    expect(environmentLine).toBeDefined();
-    expect(environmentLine).toContain('process.env.ENVIRONMENT');
+  it('is process.env.ENVIRONMENT, with no NODE_ENV and no RAILWAY_* read', () => {
+    expect(environmentProblems(config)).toEqual([]);
   });
 
-  it('reads neither RAILWAY_* nor NODE_ENV for it', () => {
-    expect(environmentLine).not.toMatch(/RAILWAY|NODE_ENV/);
-    expect(config).not.toMatch(/RAILWAY/);
-  });
-
-  it('the check bites: the pre-#314 line fails it', () => {
-    const old = '  environment: process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV,';
-    expect(old).toMatch(/RAILWAY|NODE_ENV/);
+  it('the check bites on planted configs, and passes a comment that names the old variable', () => {
+    const planted = (environment: string, extra = '') => `Sentry.init({\n${extra}  environment: ${environment},\n});\n`;
+    expect(environmentProblems(planted('process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV'))).toEqual([
+      'environment is not process.env.ENVIRONMENT',
+      'environment reads NODE_ENV',
+      'reads a RAILWAY_* variable',
+    ]);
+    expect(environmentProblems(planted('process.env.NODE_ENV'))).toContain('environment reads NODE_ENV');
+    expect(environmentProblems(planted("process.env['RAILWAY_ENVIRONMENT']"))).toContain('reads a RAILWAY_* variable');
+    expect(environmentProblems(planted('process.env.ENVIRONMENT', '  // not RAILWAY_ENVIRONMENT (#314)\n'))).toEqual([]);
   });
 });

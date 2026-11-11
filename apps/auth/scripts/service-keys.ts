@@ -690,7 +690,7 @@ async function main(): Promise<void> {
   const recorder = scriptRecorder(process.env.SENTRY_DSN, environment);
   const { exitCode } = await serviceKeys(process.argv.slice(2), {
     databaseUrl: process.env.DATABASE_URL,
-    environment: process.env.ENVIRONMENT,
+    environment, // validated above: one validation
     connect: () => {
       try {
         getEnv();
