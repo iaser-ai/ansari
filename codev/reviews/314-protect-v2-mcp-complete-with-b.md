@@ -159,6 +159,9 @@ Codex and Gemini approved with no issues.
 #### Gemini
 - **CONSULT_ERROR** in rounds 3 and 4: the `agy` CLI exits with code 3, so the lane is skipped. The owner can restore it by running `agy` once to sign in.
 
+### Review / PR #372 (Round 5, codex only)
+Codex: **APPROVE**, no issues. It confirmed all four round-4 fixes.
+
 Apart from those Gemini skips, no `CONSULT_ERROR` occurred.
 
 ## Lessons Learned
