@@ -21,3 +21,10 @@
 - Plan: 5 phases (key rules → apps/auth verify route + upgrade guard → apps/api client + MCP_COMPLETE_KEY_MODE → route gate → docs/arch). Initial MCP limits 120/60s, 5,000/day (judgement, pending owner numbers).
 - Consults: codex REQUEST_CHANGES (apps/auth dep path via @ansari/auth re-export; packages/types has no test runner; stub fetch not verifyServiceKey) — all accepted. gemini APPROVE with notes (cutover-docs source scan of alerts.ts must keep ExchangeAlert's 6 kinds; runbook MCP under own ## heading; Sentry client tag parity) — folded in.
 - Deploy-order trap flagged: MCP_COMPLETE_KEY_MODE absent = enforce, so log-only must be set on Railway before the apps/api deploy.
+
+## 2026-11-11 — phase 1 (key rules) built
+- `MCP_CLIENT_ID_PATTERN` / `isMcpClientId` in `@ansari/types/attribution`, re-exported via `@ansari/auth`. `isMcpClientId` also re-checks `CLIENT_ID_PATTERN`, so an accepted MCP id is always one `parseClientId` keeps unchanged.
+- limits.ts: `MCP_KEY_INITIAL` (120/60 s, 5,000/day), its own `MCP_KEY_BOUNDS` (same wide values as WhatsApp's), alerts 40 / 1,666 / 20 per alert window, `VERIFY_BODY_LIMIT` 1024, `VERIFY_KEY_MAX_LENGTH` 256.
+- service-users: `ansari-mcp` uses `MCP_KEY_BOUNDS`; `listServiceKeys` selects `metadata`; `clientIdOf()` reads JSON text or an object, null on anything else.
+- Script: `clientIdFor()` enforces the rule in `parseArgs` AND `runServiceKeys` (same double-check as `checkKeyLimits`). The existing key-body guard (32-letter run) still applies, so a 64-char all-letter suffix is refused as key-shaped; that is intended. `list` prints `client_id`.
+- Mutation check: with the rule disabled, 8 of the new script tests fail; restored, all pass. Full build + `npm test` green (auth 498, @ansari/auth 289, api 1146, frontend 774).

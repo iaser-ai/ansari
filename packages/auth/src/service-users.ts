@@ -10,7 +10,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 
 import type { Db } from './db';
-import { WHATSAPP_KEY_BOUNDS } from './limits';
+import { MCP_KEY_BOUNDS, WHATSAPP_KEY_BOUNDS } from './limits';
 import { serviceAddress } from './reserved';
 import { account, apikey, users } from './schema';
 
@@ -21,13 +21,13 @@ export const SERVICE_PROVIDER_ID = 'service';
 export const SERVICE_REGISTERED_VIA = 'service';
 
 /**
- * Every service that may hold keys. `ansari-mcp` is reserved for #314: it has
- * no route yet, and its limits borrow the WhatsApp bounds until #314 sizes
- * its own.
+ * Every service that may hold keys: `whatsapp` for the token exchange (spec
+ * 329), `ansari-mcp` for apps/api's `/v2/mcp-complete` through the verify
+ * route (#314). Each has its own bounds in limits.ts.
  */
 export const SERVICES = {
   whatsapp: { permissions: { whatsapp: ['mint'] }, prefix: 'ansari_wa_', bounds: WHATSAPP_KEY_BOUNDS },
-  'ansari-mcp': { permissions: { mcp: ['complete'] }, prefix: 'ansari_mcp_', bounds: WHATSAPP_KEY_BOUNDS },
+  'ansari-mcp': { permissions: { mcp: ['complete'] }, prefix: 'ansari_mcp_', bounds: MCP_KEY_BOUNDS },
 } as const;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -106,6 +106,8 @@ export type ServiceKey = {
   remaining: number | null;
   refillAmount: number | null;
   refillInterval: number | null;
+  /** The plugin's metadata as stored: JSON text holding `clientId` (read it with clientIdOf). */
+  metadata: string | null;
   createdAt: Date;
   lastRequest: Date | null;
 };
@@ -121,6 +123,7 @@ const keyColumns = {
   remaining: apikey.remaining,
   refillAmount: apikey.refillAmount,
   refillInterval: apikey.refillInterval,
+  metadata: apikey.metadata,
   createdAt: apikey.createdAt,
   lastRequest: apikey.lastRequest,
 };
@@ -132,4 +135,25 @@ export async function listServiceKeys(db: Db, userId: string): Promise<ServiceKe
     .from(apikey)
     .where(eq(apikey.referenceId, userId))
     .orderBy(asc(apikey.createdAt), asc(apikey.id));
+}
+
+/**
+ * The `clientId` a key's metadata carries, or null when there is none or it is
+ * not a string. The plugin has handed metadata back both as the stored JSON
+ * text (1.7.7) and as a parsed object (1.7.20), so both are read; malformed
+ * text is null, never a throw. The value is returned as stored: callers apply
+ * their own rule (isMcpClientId for `ansari-mcp`).
+ */
+export function clientIdOf(metadata: unknown): string | null {
+  let value = metadata;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const clientId = (value as Record<string, unknown>).clientId;
+  return typeof clientId === 'string' ? clientId : null;
 }

@@ -14,8 +14,10 @@ import {
   EXIT_NOTHING_WRITTEN,
   EXIT_UNRECORDED,
   KEY_EVENT_MESSAGE,
+  MCP_CLIENT_ID_RULE,
   parseArgs,
   RefusedError,
+  runServiceKeys,
   sentryRecorder,
   serviceKeys,
   type KeyEvent,
@@ -35,6 +37,14 @@ const DB_URL_DISTINCT = 'postgres://opsname-zq:pw-zq-9@db.example:6543/authdb-zq
 const INITIAL = limits.WHATSAPP_KEY_INITIAL;
 const LIMIT_FLAGS = ['--rate-max', '60', '--rate-window', '60', '--daily', '3000'];
 const WA_KEY = /ansari_wa_[A-Za-z]{64}/g;
+/** An ansari-mcp key's flags: its initial limits and the client id it must carry (#314). */
+const MCP_INITIAL = limits.MCP_KEY_INITIAL;
+const MCP_FLAGS = [
+  '--rate-max', String(MCP_INITIAL.rateLimitMax),
+  '--rate-window', String(MCP_INITIAL.rateLimitTimeWindow / 1000),
+  '--daily', String(MCP_INITIAL.refillAmount),
+  '--client-id', 'ansari-mcp-production',
+];
 
 let service: Service;
 
@@ -550,6 +560,88 @@ describe('create-key', () => {
   });
 });
 
+describe('ansari-mcp keys: the client id (#314, scenario 14)', () => {
+  const NO_CLIENT = MCP_FLAGS.slice(0, -2);
+  const KEY = `ansari_mcp_${'Q'.repeat(64)}`;
+
+  it.each([
+    ['no --client-id', []],
+    ['another client', ['--client-id', 'claude-skill']],
+    ['upper case', ['--client-id', 'ANSARI-MCP']],
+    ['an underscore after the name', ['--client-id', 'ansari-mcp_x']],
+    ['no separator', ['--client-id', 'ansari-mcpx']],
+    ['an empty suffix', ['--client-id', 'ansari-mcp-']],
+    ['a prefix before the name', ['--client-id', 'x-ansari-mcp']],
+    ['65 characters', ['--client-id', `ansari-mcp-${'a'.repeat(54)}`]],
+    ['a key', ['--client-id', KEY]],
+    ['a key body', ['--client-id', `ansari-mcp-${'q'.repeat(40)}`]],
+  ] as [string, string[]][])('create-key and rotate refuse %s, write nothing and record nothing', async (_case, extra) => {
+    const userId = await createService('ansari-mcp');
+    for (const kind of ['create-key', 'rotate']) {
+      const before = await rowCounts();
+      const recorder = memoryRecorder();
+      const result = await run([kind, 'ansari-mcp', ...NO_CLIENT, ...extra, '--confirm', userId], { recorder });
+      expect(result.exitCode, result.text).toBe(1);
+      expect(result.text).toContain('--client-id');
+      // The value is never echoed (the fixed rule text itself names `ansari-mcp-`).
+      if (extra[1] !== undefined) expect(result.text.replace(MCP_CLIENT_ID_RULE, '')).not.toContain(extra[1]);
+      expect(await rowCounts()).toEqual(before);
+      expect(recorder.events).toEqual([]);
+    }
+  });
+
+  it('refuses a command built without the parser (runServiceKeys checks again)', async () => {
+    const userId = await createService('ansari-mcp');
+    for (const clientId of [null, 'claude-skill']) {
+      await expect(
+        runServiceKeys(
+          { db: service.db, auth: service.auth },
+          { kind: 'create-key', service: 'ansari-mcp', confirm: userId, limits: MCP_INITIAL, name: null, clientId }
+        )
+      ).rejects.toBeInstanceOf(RefusedError);
+    }
+    expect((await rowCounts())?.keys).toBe(0);
+  });
+
+  it.each([['ansari-mcp'], ['ansari-mcp-production'], ['ansari-mcp-beta.2_x'], [`ansari-mcp-${'ab1-'.repeat(13)}x`]])(
+    'accepts %s, stores it as metadata.clientId, and list shows it',
+    async (clientId) => {
+      await createService('ansari-mcp');
+      const { id, key } = await createKey('create-key', [...NO_CLIENT, '--client-id', clientId], 'ansari-mcp');
+      const row = await keyRow(id);
+      expect(JSON.parse(row!.metadata as string)).toEqual({ clientId });
+      expect(JSON.parse(row!.permissions as string)).toEqual({ mcp: ['complete'] });
+      expect((await verify(key, { mcp: ['complete'] })).valid).toBe(true);
+      const { exitCode, text } = await run(['list', 'ansari-mcp']);
+      expect(exitCode).toBe(0);
+      expect(text).toContain(`client_id     ${clientId}`);
+    }
+  );
+
+  it('rotate needs the client id too, and keeps both keys live', async () => {
+    await createService('ansari-mcp');
+    const old = await createKey('create-key', MCP_FLAGS, 'ansari-mcp');
+    const fresh = await createKey('rotate', MCP_FLAGS, 'ansari-mcp');
+    expect(JSON.parse((await keyRow(fresh.id))!.metadata as string)).toEqual({ clientId: 'ansari-mcp-production' });
+    expect((await verify(old.key, { mcp: ['complete'] })).valid).toBe(true);
+    expect((await verify(fresh.key, { mcp: ['complete'] })).valid).toBe(true);
+  });
+
+  it('a whatsapp key still defaults its client id to the service name', async () => {
+    await createService();
+    const { id } = await createKey();
+    expect(JSON.parse((await keyRow(id))!.metadata as string)).toEqual({ clientId: 'whatsapp' });
+  });
+
+  it('checkKeyLimits uses MCP_KEY_BOUNDS for ansari-mcp', () => {
+    expect(serviceUsers.SERVICES['ansari-mcp'].bounds).toBe(limits.MCP_KEY_BOUNDS);
+    expect(checkKeyLimits('ansari-mcp', MCP_INITIAL)).toEqual(MCP_INITIAL);
+    expect(() =>
+      checkKeyLimits('ansari-mcp', { ...MCP_INITIAL, rateLimitMax: limits.MCP_KEY_BOUNDS.rateLimitMax.max + 1 })
+    ).toThrow(/Out of bounds/);
+  });
+});
+
 describe('list', () => {
   it('prints id, name, prefix, permissions, enabled, limits and dates per key; never a key or a hash', async () => {
     await createService();
@@ -565,7 +657,7 @@ describe('list', () => {
       expect(text).not.toContain(key.slice(3, 20));
       expect(text).not.toContain((await keyRow(id))!.key as string);
     }
-    for (const field of ['name          wa-a', 'name          wa-b', 'prefix        ansari_wa_', 'permissions   {"whatsapp":["mint"]}', 'enabled       true', 'limits        60 per 60 s; budget 3000 per 24 h', 'created       20', 'last request  20', 'last request  never']) {
+    for (const field of ['name          wa-a', 'name          wa-b', 'prefix        ansari_wa_', 'permissions   {"whatsapp":["mint"]}', 'client_id     whatsapp', 'enabled       true', 'limits        60 per 60 s; budget 3000 per 24 h', 'created       20', 'last request  20', 'last request  never']) {
       expect(text).toContain(field);
     }
     expect(text.match(WA_KEY)).toBeNull();
@@ -623,7 +715,7 @@ describe('revoke', () => {
   it("refuses a key that is not the service's", async () => {
     await createService();
     await createService('ansari-mcp');
-    const mcp = await createKey('create-key', LIMIT_FLAGS, 'ansari-mcp');
+    const mcp = await createKey('create-key', MCP_FLAGS, 'ansari-mcp');
     const { exitCode, text } = await run(['revoke', 'whatsapp', '--key', mcp.id, '--confirm', mcp.id]);
     expect(exitCode).toBe(1);
     expect(text).toMatch(/not a key of this service/);
@@ -690,7 +782,7 @@ describe('SECRET_SCANNING_PATTERNS', () => {
     await createService('whatsapp');
     await createService('ansari-mcp');
     const wa = (await createKey('create-key', LIMIT_FLAGS, 'whatsapp')).key;
-    const mcp = (await createKey('create-key', LIMIT_FLAGS, 'ansari-mcp')).key;
+    const mcp = (await createKey('create-key', MCP_FLAGS, 'ansari-mcp')).key;
     const { whatsapp, 'ansari-mcp': amcp } = serviceUsers.SECRET_SCANNING_PATTERNS;
     const { rows } = await service.client.query<{ token: string }>('select token from auth.session limit 1');
     const sessionToken = rows[0]?.token ?? (await import('better-auth/crypto')).generateRandomString(32);

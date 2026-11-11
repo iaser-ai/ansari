@@ -34,6 +34,26 @@ export const KNOWN_CLIENTS = ['askansari-web', 'askansari-ios', 'askansari-andro
 // safe for logging, Sentry tags, and SQL.
 const CLIENT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+/**
+ * The client id an `ansari-mcp` service key must carry (#314): `ansari-mcp`,
+ * or `ansari-mcp-` and a suffix, at most 64 characters. Every value it accepts
+ * also passes CLIENT_ID_PATTERN, so the attribution apps/api stores from a key
+ * is one parseClientId would accept. apps/auth's service-keys script refuses
+ * to create a key off it, and apps/auth's verify route and apps/api each
+ * refuse a key whose stored client id breaks it.
+ */
+export const MCP_CLIENT_ID_PATTERN = /^ansari-mcp(-[a-z0-9._-]+)?$/;
+
+/** True when `value` is a client id an `ansari-mcp` key may carry (MCP_CLIENT_ID_PATTERN, ≤ 64 chars). */
+export function isMcpClientId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= 64 &&
+    MCP_CLIENT_ID_PATTERN.test(value) &&
+    CLIENT_ID_PATTERN.test(value)
+  );
+}
+
 export type ClientIdSource = 'header' | 'query';
 
 export type ParsedClientId =

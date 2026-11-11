@@ -58,7 +58,7 @@ export {
   type EmailMessage,
   type Mailer,
 } from './reset-email';
-export { CLIENT_HEADER } from '@ansari/types/attribution';
+export { CLIENT_HEADER, isMcpClientId, MCP_CLIENT_ID_PATTERN } from '@ansari/types/attribution';
 
 /** Same bounds as the legacy register schema, and better-auth's own defaults. */
 export const MIN_PASSWORD_LENGTH = 8;

@@ -23,7 +23,9 @@
  * name for create-service, which has no user yet. A mismatch writes nothing
  * and exits 2. `--name` and `--client-id` take 1 to 64 letters, digits,
  * spaces, dots, underscores and hyphens, and never a key-shaped value: both
- * are printed by list and sent to Sentry.
+ * are printed by list and sent to Sentry. For `ansari-mcp`, `--client-id` is
+ * required and must be `ansari-mcp` or `ansari-mcp-<suffix>` (#314): it is the
+ * thread attribution apps/api stores for every request the key makes.
  *
  * - It prints the database as `hostname:port` only, never the URL.
  * - Permissions and the key prefix are fixed per service (SERVICES); limits are
@@ -45,6 +47,7 @@ import {
   createAuth,
   createDb,
   getEnv,
+  isMcpClientId,
   limits,
   serviceAddress,
   serviceUsers,
@@ -164,6 +167,24 @@ function label(flag: string, value: string | undefined): string | null {
   return value;
 }
 
+/** The refusal for an `ansari-mcp` key without a valid client id: fixed words, never the value. */
+export const MCP_CLIENT_ID_RULE =
+  'ansari-mcp keys need --client-id: ansari-mcp, or ansari-mcp- and a suffix of lowercase letters, digits, dots, underscores and hyphens (64 characters at most). Nothing was written.';
+
+/**
+ * The client id a new key of `service` carries. An `ansari-mcp` key must name
+ * its caller with an `ansari-mcp*` id (isMcpClientId), since apps/auth and
+ * apps/api refuse a key without one; other services default to their name.
+ * The value is never echoed back.
+ */
+export function clientIdFor(service: ServiceName, clientId: string | null): string {
+  if (service === 'ansari-mcp') {
+    if (!isMcpClientId(clientId)) throw new RefusedError(MCP_CLIENT_ID_RULE);
+    return clientId;
+  }
+  return clientId ?? service;
+}
+
 export function parseArgs(argv: readonly string[]): ServiceKeysCommand {
   const [kind, service, ...rest] = argv;
   if (!isKind(kind) || service === undefined || service.startsWith('--')) throw new RefusedError(USAGE);
@@ -195,15 +216,18 @@ export function parseArgs(argv: readonly string[]): ServiceKeysCommand {
     case 'list':
       return { kind, service };
     case 'create-key':
-    case 'rotate':
+    case 'rotate': {
+      const clientId = label('--client-id', flags.get('--client-id'));
+      clientIdFor(service, clientId);
       return {
         kind,
         service,
         confirm,
         limits: limitsFrom(flags),
         name: label('--name', flags.get('--name')),
-        clientId: label('--client-id', flags.get('--client-id')),
+        clientId,
       };
+    }
     case 'update-limits':
       return { kind, service, keyId: keyId(), limits: limitsFrom(flags), confirm };
     case 'revoke':
@@ -268,6 +292,7 @@ function keyLines(key: serviceUsers.ServiceKey): string[] {
     `    name          ${key.name ?? ''}`,
     `    prefix        ${key.prefix ?? ''}`,
     `    permissions   ${key.permissions ?? ''}`,
+    `    client_id     ${serviceUsers.clientIdOf(key.metadata) ?? ''}`,
     `    enabled       ${key.enabled}`,
     `    limits        ${describeLimits(key)}; remaining ${key.remaining}`,
     `    created       ${iso(key.createdAt)}`,
@@ -327,7 +352,7 @@ async function createKey(
       prefix,
       name,
       permissions: Object.fromEntries(Object.entries(permissions).map(([k, v]) => [k, [...v]])),
-      metadata: { clientId: flags.clientId ?? service },
+      metadata: { clientId: clientIdFor(service, flags.clientId) },
       rateLimitEnabled: true,
       rateLimitTimeWindow: checked.rateLimitTimeWindow,
       rateLimitMax: checked.rateLimitMax,
@@ -392,6 +417,7 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
 
   if (cmd.kind === 'create-key' || cmd.kind === 'rotate') {
     checkKeyLimits(cmd.service, cmd.limits);
+    clientIdFor(cmd.service, cmd.clientId);
     const live = keys.filter((k) => k.enabled);
     if (cmd.kind === 'rotate' && live.length === 0) {
       throw new RefusedError(`Service "${cmd.service}" has no live key to rotate; use create-key.`);
