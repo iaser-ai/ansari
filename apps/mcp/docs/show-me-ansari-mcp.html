@@ -56,9 +56,8 @@ react-dom                 19.3.1
 Siblings pinned by the stack:
   core 1.0.0 · components 1.0.0
   mcp 1.0.2 · react 1.0.0
-SDK overrides: dompurify 3.4.17
-               @hono/node-server 2.1.5
-@a2ui/markdown-it override: 0.2.1</pre><p>The app imports only stack subpaths. SAGA is installed from the public npm registry: the stack <code>@saga-a2ui/react-mcp-stack@1.0.1</code> plus the siblings it pins exactly. SAGA versions its packages independently, so the siblings need not share the stack’s version; each resolves to exactly the version the stack pins, and the repository root’s one committed lockfile records their registry integrity. No private registry, credential, SDK tarball, SDK workspace link or SDK-package override is involved. The root <code>pnpm-workspace.yaml</code> keeps the SDK’s documented <code>dompurify</code> and <code>@hono/node-server</code> overrides.</p></div><div class="arrow">→</div><div class="builditem"><span class="tag sdk">Build-time content policy</span><h3>Produce self-contained HTML</h3><pre>Vite + single-file plugin
+Security override: @a2ui/markdown-it>dompurify 3.4.17
+@a2ui/markdown-it override: 0.2.1</pre><p>The app imports only stack subpaths. SAGA is installed from the public npm registry: the stack <code>@saga-a2ui/react-mcp-stack@1.0.1</code> plus the siblings it pins exactly. SAGA versions its packages independently, so the siblings need not share the stack’s version; each resolves to exactly the version the stack pins, and the repository root’s one committed lockfile records their registry integrity. No private registry, credential, SDK tarball, SDK workspace link or SDK-package override is involved. The root <code>pnpm-workspace.yaml</code> pins <code>dompurify</code> to 3.4.17 for <code>@a2ui/markdown-it</code> only, which otherwise pins 3.4.11 (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr).</p></div><div class="arrow">→</div><div class="builditem"><span class="tag sdk">Build-time content policy</span><h3>Produce self-contained HTML</h3><pre>Vite + single-file plugin
   React + card code + CSS
   embedded Kitab + floral assets
   application + SDK identity

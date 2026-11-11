@@ -46,7 +46,7 @@ SAGA is installed from the public npm registry: the stack `@saga-a2ui/react-mcp-
 `@saga-a2ui/core@1.0.0`, `@saga-a2ui/components@1.0.0`, `@saga-a2ui/mcp@1.0.2` and `@saga-a2ui/react@1.0.0`. SAGA versions its packages
 independently, so the siblings need not share the stack's version; each resolves to exactly the version the stack pins. No private registry,
 credential, SDK tarball, SDK workspace link or SDK-package override is involved, and the manifest pins an exact version rather than a tag or range.
-The root `pnpm-workspace.yaml` keeps the SDK's documented `dompurify` and `@hono/node-server` overrides.
+The root `pnpm-workspace.yaml` pins `dompurify` to 3.4.17 for `@a2ui/markdown-it` only, which otherwise pins 3.4.11 (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr).
 The card's address names its compatibility line, `ui://views/answer-card.v1.html` (`VIEW_MAJOR` in `src/server/view-artifact.ts`), not its
 bytes: every compatible release is served at the same address, and only a change an already-loaded card cannot handle increases it.
 `pnpm check:release --target beta` checks the pinned release against the registry and the lockfile, including that every SAGA package resolves to
@@ -56,9 +56,10 @@ corresponding gate before any build or deployment.
 The application depends on one SAGA package, the stack `@saga-a2ui/react-mcp-stack`, plus React and React DOM, and imports
 only its subpaths: `/faithful-card` (`FaithfulCardApp`, `startFaithfulCardApp`, and the definition's one `.result(...)` reader that reads the whole delivered result,
 `useHostLink`, `readingProfile`) and its stylesheet in the view; `/content-policy` (`createContentPolicy`, `embedContentPolicy`)
-in the build; `/server` (`registerPublicOperation`, `operationViewFromHtml`, `createServerBudgets`, `attachRequestLifetime`) in the
-MCP server. The browser bundle holds no `/server` module. The stack's exact-version siblings come from the same release,
-and its installed tree includes `@saga-a2ui/components` and `markdown-it`. SAGA owns its A2UI and Zod 3 dependency
+in the build; `/server` (`registerPublicOperation`, `operationViewFromHtml`, the `RequestLifetime` type) and `/server/http`
+(`createMcpFetchApp`) in the MCP server. The browser bundle holds no `/server` module. The stack pins each sibling to one exact
+version, which need not be its own (SAGA versions its packages independently), and its installed tree includes
+`@saga-a2ui/components` and `markdown-it`. SAGA owns its A2UI and Zod 3 dependency
 context; the application uses Zod 4 for MCP. Do not add direct `@a2ui/react` or `@a2ui/web_core` dependencies or cast between their
 schema types. The artwork owner has authorized contribution and redistribution with the application; see `assets/NOTICE.md`.
 
@@ -223,3 +224,12 @@ Hono runs on Node through `@hono/node-server`; the official `@modelcontextprotoc
 ## MCP compatibility
 
 The tool retains the legacy server's `answer_islamic_question` name, detailed description and input help, and `readOnlyHint: true` / `openWorldHint: true` annotations. It accepts 1–4,000 characters, matching the Ansari API. The earlier experimental RC exposed `ask_ansari`; a deployment owner must refresh host discovery when adopting this tool name. The endpoint remains `/mcp`. Replacing the existing `mcp.ansari.chat` service and changing its DNS are separate rollout actions.
+
+### "Unable to reach" after a deploy
+
+The card is served at `ui://views/answer-card.v1.html` for every compatible release. Builds before SAGA 1.0 used a different address on every deploy, so a host connection created or last refreshed before this change still names an address the server no longer serves, and the card shows "Unable to reach" (the server answers that read with JSON-RPC `-32602`).
+
+- **ChatGPT:** in Settings → Apps (Plugins), open the app and choose **Refresh tools** once after the first deploy of this version. Later compatible deploys keep the address, so no further refresh is needed.
+- **Claude:** start a new conversation. A conversation that loaded the card before the deploy may keep the old address.
+
+A change an already-loaded card cannot handle increases `VIEW_MAJOR` and moves the address to `v2`; refresh host connections the same way after that deploy.
