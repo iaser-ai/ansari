@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { limits, serviceUsers } from '@ansari/auth';
 
-import { createMcpVerifyAlerts, type McpVerifyAlert } from '../src/alerts';
+import { createMcpVerifyAlerts, EXCHANGE_ALERT_MESSAGE, MCP_VERIFY_ALERT_MESSAGE, type McpVerifyAlert } from '../src/alerts';
 import { createApp } from '../src/app';
 import { SERVICE_VERIFY_PATH } from '../src/routes/service-verify';
 import { WHATSAPP_SESSION_PATH } from '../src/routes/whatsapp';
@@ -240,7 +240,12 @@ describe('refusals: one byte-identical { valid: false }', () => {
   it.each(cases)('%s', async (_name, make) => {
     const made = await make();
     expectRefused(await verify(made.key));
-    if (made.id && made.kept) expect(await keyRow(made.id)).toBeDefined();
+    if (!made.id) return;
+    // Spec 314 amendment 1: the plugin deletes an expired key when it is
+    // presented; every other refused row is kept. A plugin bump that changes
+    // either fails here.
+    if (made.kept) expect(await keyRow(made.id)).toBeDefined();
+    else expect(await keyRow(made.id)).toBeUndefined();
   });
 
   it('USAGE_EXCEEDED and RATE_LIMITED each raised one key-refused alert in the window', () => {
@@ -597,6 +602,38 @@ describe('alerts (scenario 13)', () => {
         else expect(typeof value, field).toBe('number');
       }
     }
+  });
+});
+
+describe('MCP alert dedup (unit, injected clock)', () => {
+  it('each fire-once kind sends once per EXCHANGE_ALERT_WINDOW, and again in the next window', () => {
+    const sent: McpVerifyAlert[] = [];
+    const fake = new Clock();
+    const tracker = createMcpVerifyAlerts({ send: (a) => sent.push(a), now: fake.now });
+    const windowMs = limits.EXCHANGE_ALERT_WINDOW * 1000;
+    const round = () => {
+      for (let i = 0; i < 5; i++) {
+        tracker.clientIdInvalid(`00000000-0000-4000-8000-00000000000${i}`);
+        tracker.keyRefused('USAGE_EXCEEDED');
+        tracker.serviceUserUnresolvable(0);
+      }
+      for (let i = 0; i < limits.MCP_VERIFY_UNAUTHORIZED_ALERT.max + 5; i++) tracker.unauthorized();
+    };
+    round();
+    fake.advance(windowMs - 1);
+    round();
+    const kinds = () => sent.map((a) => a.kind).sort();
+    const once = ['client-id-invalid', 'key-refused', 'service-user-unresolvable', 'unauthorized-volume'];
+    expect(kinds()).toEqual(once);
+    expect(sent.find((a) => a.kind === 'client-id-invalid')).toMatchObject({ keyId: '00000000-0000-4000-8000-000000000000' });
+    fake.advance(1);
+    round();
+    expect(kinds()).toEqual([...once, ...once].sort());
+  });
+
+  it('sends under the MCP message and mcp-verify-<kind> tags, never the WhatsApp ones', () => {
+    expect(MCP_VERIFY_ALERT_MESSAGE).toBe('auth: MCP key verify alert');
+    expect(EXCHANGE_ALERT_MESSAGE).not.toBe(MCP_VERIFY_ALERT_MESSAGE);
   });
 });
 

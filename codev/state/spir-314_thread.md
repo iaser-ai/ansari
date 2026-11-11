@@ -38,3 +38,9 @@
 - Upgrade guard in blocked-paths.test.ts: `auth.api.verifyApiKey` has no path, 7 endpoints / 5 routed, and `/api/auth/api-key/verify` + variants are 404.
 - Mutation checks: removing the client-id rule, owner bind, relation check, permission check, missing-user 500 or the client-id alert each fails tests; a 20-char key slice in a log line fails both leak scans.
 - Full build + `npm test` green (auth 572, @ansari/auth 289, api 1146, frontend 774). WhatsApp suites unchanged and green.
+
+## 2026-11-11 — phase 2 consults, iteration 2
+- Gemini APPROVE; Codex REQUEST_CHANGES: spec scenario 2 said every refused row is kept, but the api-key plugin deletes an expired key on presentation.
+- Security architect ruled: amend the spec (Amendment 1, plugin fact, no owner gate; architect informs the owner). Done: scenario 2 wording + dated note under the title + References line. The test now asserts the expired row is GONE (and every other refused row kept), so a plugin bump that changes it fails.
+- For the review's lessons (spec 329): an expired service key leaves no row behind, so never use expiry on a key whose audit trail matters.
+- Also added a pure MCP alert-dedup unit test with an injected clock (plan test-plan item).

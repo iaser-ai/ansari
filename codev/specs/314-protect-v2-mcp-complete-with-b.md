@@ -1,5 +1,7 @@
 # Specification: Protect `/v2/mcp-complete` with Better Auth API keys issued by apps/auth
 
+> Amendment 1, 2026-11-11, security architect: scenario 2 expired-key row. The api-key plugin deletes an expired key when it is presented, so scenario 2's "each row kept" excludes it. A plugin fact, not a design change; no `ansari-mcp` key can expire (the script refuses `--expir*`).
+
 ## Problem Statement
 
 `/api/v2/mcp-complete` (POST, and GET `?q=`) answers anyone who can reach it. It takes no credential. What limits it today:
@@ -334,7 +336,7 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 **apps/auth verify route** (pglite, real plugin, real `auth.apikey`, keys created through the script's code path):
 
 1. A valid `ansari-mcp` key with `{ mcp: ['complete'] }` → 200 `{ valid: true, client_id, key_id }`, and `remaining` decremented by 1.
-2. Unknown key, revoked (`enabled = false`), expired (a row set to expire), budget exhausted, rate-limited → the byte-identical `{ valid: false }`, with each row kept.
+2. Unknown key, revoked (`enabled = false`), expired (a row set to expire), budget exhausted, rate-limited → the byte-identical `{ valid: false }`, with each row kept, except an expired key, which the plugin deletes when it is presented (validateApiKey, @better-auth/api-key 1.7.7; pinned by test).
 3. **A well-formed request with a key that lacks the permission:** a WhatsApp key (`ansari_wa_…`, `{ whatsapp: ['mint'] }`) asked for `{ mcp: ['complete'] }` → the same `{ valid: false }` as an unknown key. Its `remaining` and rate-limit counters are whatever the plugin leaves (pinned: untouched).
 4. **A request asking for a permission outside the set:** `{ whatsapp: ['mint'] }`, an empty object, an extra permission, an extra action, or a missing `permissions` field → 400 with the one body (no permission named). The plugin is never called, and a real key sent with it keeps its `remaining`, `requestCount` and `lastRequest` unchanged.
 5. A key carrying `mcp: complete` but owned by a non-service user → `{ valid: false }`.
@@ -391,3 +393,4 @@ Not recommended. If load later demands it, the TTL must stay within the plugin's
 - `apps/auth/src/routes/whatsapp.ts`, `apps/auth/src/alerts.ts`, `packages/auth/src/service-users.ts`, `packages/auth/src/limits.ts`.
 - `apps/api/src/app/api/v2/mcp-complete/route.ts`, `apps/api/lib/auth-service/client.ts`, `apps/api/lib/auth/require-admin.ts`, `apps/api/lib/attribution.ts`.
 - `apps/mcp/src/server/ansari-client.ts`, `apps/mcp/src/server/runtime-config.ts`, `apps/mcp/wrangler.jsonc`.
+- Amendment 1 (2026-11-11, security architect): scenario 2 expired-key row; see the note under the title.
