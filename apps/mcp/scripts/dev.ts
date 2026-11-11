@@ -16,6 +16,13 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 export const DEV_DEFAULTS = {PORT: '3001', ANSARI_API_BASE_URL: 'http://localhost:3000'} as const;
 for (const [name, value] of Object.entries(DEV_DEFAULTS)) process.env[name] ??= value;
 
+if (process.env.PORT === '3000') {
+  console.warn(
+    '[mcp dev] PORT is 3000, which apps/api uses under the root `pnpm dev`. Set PORT=3001 in apps/mcp/.env, or ' +
+      'drop its PORT line (the dev default is 3001). .env.example keeps PORT=3000 for the Railway service.',
+  );
+}
+
 if (!process.env.ANSARI_API_AUTHORIZATION) {
   console.warn(
     '[mcp dev] ANSARI_API_AUTHORIZATION is not set: the local apps/api answers 401 unless it runs with ' +

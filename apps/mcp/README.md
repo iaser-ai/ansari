@@ -66,7 +66,7 @@ pnpm mcp start
 
 ### Local development
 
-The root `pnpm dev` starts this server beside apps/api, apps/auth and the frontend (`pnpm dev:mcp` starts it alone). `scripts/dev.ts` loads `apps/mcp/.env` when it exists (git-ignored), then fills only what is still unset: `PORT` 3001 (apps/api has 3000) and `ANSARI_API_BASE_URL` `http://localhost:3000`. Hosts connect at `http://localhost:3001/mcp`.
+The root `pnpm dev` starts this server beside apps/api, apps/auth and the frontend (`pnpm dev:mcp` starts it alone). `scripts/dev.ts` loads `apps/mcp/.env` when it exists (git-ignored), then fills only what is still unset: `PORT` 3001 (apps/api has 3000) and `ANSARI_API_BASE_URL` `http://localhost:3000`. `.env.example` sets `PORT=3000` for the Railway service, so if you copied it to `.env`, set `PORT=3001` there or drop the line; the dev server warns when `PORT` is 3000. Hosts connect at `http://localhost:3001/mcp`.
 
 A local apps/api enforces the `ansari-mcp` key like a deployed one (#314). Either issue a local key and put the whole header in `apps/mcp/.env`:
 
