@@ -18,7 +18,7 @@ const CONCISE_INSTRUCTION =
   'Please provide a concise and brief answer. References are not required unless specifically asked for. Focus on delivering key information clearly and succinctly.';
 
 const ATTRIBUTION =
-  '\n\n---\n**This information came from [ansari.chat](https://ansari.chat). Full references and citations are available upon request.**';
+  '\n\n---\n**This information came from [askansari.ai](https://askansari.ai). Full references and citations are available upon request.**';
 
 // Cached system user ID to avoid repeated DB lookups
 let cachedSystemUserId: string | null = null;
