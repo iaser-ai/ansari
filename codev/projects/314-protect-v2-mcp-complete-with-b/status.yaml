@@ -1,7 +1,7 @@
 id: '314'
 title: protect-v2-mcp-complete-with-b
 protocol: spir
-phase: specify
+phase: plan
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -16,7 +16,10 @@ gates:
   verify-approval:
     status: pending
 iteration: 1
-build_complete: true
+build_complete: false
 history: []
 started_at: '2026-11-11T02:47:51.234Z'
-updated_at: '2026-11-11T03:09:33.788Z'
+updated_at: '2026-11-11T03:09:39.379Z'
+context_refreshes:
+  - boundary: enter:plan
+    at: '2026-11-11T03:09:39.378Z'
