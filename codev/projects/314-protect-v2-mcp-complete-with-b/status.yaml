@@ -1,7 +1,7 @@
 id: '314'
 title: protect-v2-mcp-complete-with-b
 protocol: spir
-phase: implement
+phase: review
 plan_phases:
   - id: phase_1
     title: 'ansari-mcp key rules: limits, client-id rule, script constraints'
@@ -17,8 +17,8 @@ plan_phases:
     status: complete
   - id: phase_5
     title: Docs, runbook and architecture notes
-    status: in_progress
-current_plan_phase: phase_5
+    status: complete
+current_plan_phase: null
 gates:
   spec-approval:
     status: approved
@@ -32,8 +32,8 @@ gates:
     status: pending
   verify-approval:
     status: pending
-iteration: 2
-build_complete: true
+iteration: 1
+build_complete: false
 history:
   - iteration: 1
     plan_phase: phase_2
@@ -84,7 +84,7 @@ history:
         file: >-
           /Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/projects/314-protect-v2-mcp-complete-with-b/314-phase_5-iter1-gemini.txt
 started_at: '2026-11-11T02:47:51.234Z'
-updated_at: '2026-11-11T04:23:42.410Z'
+updated_at: '2026-11-11T04:24:44.938Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-11-11T03:09:39.378Z'
@@ -104,3 +104,5 @@ context_refreshes:
   - boundary: plan-phase:phase_5
     at: '2026-11-11T04:15:22.154Z'
     acknowledged_at: '2026-11-11T04:15:29.367Z'
+  - boundary: enter:review
+    at: '2026-11-11T04:24:44.938Z'
