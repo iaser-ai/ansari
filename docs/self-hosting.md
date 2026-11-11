@@ -110,7 +110,7 @@ empty-final retry ladder still applies as same-model retries.
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |
 | `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex fallback rung and terminal-error rescue (issues #74/#79). When unset (and `INKLING_API_KEY` too), both are skipped cleanly |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
-| `MCP_COMPLETE_KEY_MODE` | `enforce` | How `/api/v2/mcp-complete` treats its `Authorization: Bearer` service key (#314): `enforce` refuses a missing or invalid key with 401; `log-only` verifies and records the verdict but serves anyway (rollout only). An unreachable apps/auth is 503 in both modes. Any other value fails validation |
+| `MCP_COMPLETE_KEY_MODE` | `enforce` | How `/api/v2/mcp-complete` treats its `Authorization: Bearer` service key (#314): `enforce` refuses a missing or invalid key with 401; an unreachable apps/auth is 503. `log-only` (rollout only) verifies and records the verdict (`unverified` when apps/auth is unreachable, with a Sentry warning) and always serves. Any other value fails validation |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
 | `IOS_LATEST_BUILD_VERSION` | `1` | |
