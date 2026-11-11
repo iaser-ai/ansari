@@ -199,10 +199,10 @@ Give apps/api a typed, fail-closed client for the verify contract, and the rollo
 - **Four-way derivation** (arch-critical):
   - the Zod schema;
   - the static read through `config`;
-  - `apps/api/.env.example` (a commented line). I have no read access to `.env*` from this session, so the edit is made by the implement phase or by main if blocked;
+  - `apps/api/.env.example` (a commented line). It is tracked. If the read-deny rule blocks editing it, the line is appended from the shell;
   - `docs/self-hosting.md`, under "Optional / defaulted", which the `self-hosting-docs.test.ts` documented-surface check must see;
   - the dynamic-read scan (`eslint-env-guard.test.ts`) must stay green, so no `process.env[...]` read is added.
-- **`turbo.json` `globalEnv`**: not edited here. Send `afx send architect:main` asking for the `MCP_COMPLETE_KEY_MODE` hunk, naming the variable and why. Record the request and the outcome in the thread. Without it, strict env mode hides the var from tasks and the cache key, but the absent default (enforce) is the safe one.
+- **`turbo.json` `globalEnv`**: not edited here. It is the only hunk needed: `packages/types/src/**` is already in `globalDependencies`. Send `afx send architect:main` asking for the `MCP_COMPLETE_KEY_MODE` hunk, naming the variable and why. Record the request and the outcome in the thread. Without it, strict env mode hides the var from tasks and the cache key, but the absent default (enforce) is the safe one.
 - Tests: `apps/api/tests/auth/verify-service-key.test.ts` (new) and `apps/api/tests/config.test.ts`.
 
 #### Deliverables
@@ -356,30 +356,33 @@ The existing doc-scan tests, plus a read-through against the Phase 1–4 constan
 
 ## Rollout (operator and owner steps; recorded in the review, not code)
 
-1. **Main:** the `turbo.json` `globalEnv` hunk for `MCP_COMPLETE_KEY_MODE` (requested in Phase 3).
-2. **Staging, before apps/api's deploy:** set `MCP_COMPLETE_KEY_MODE=log-only` on apps/api's Railway service **before** the merge deploys it. Absent means enforce, so a deploy without it enforces at once and refuses every MCP caller that has no key yet. This is the one ordering trap; the runbook and PR description say so in bold.
-3. **Staging, then production:**
-   1. Deploy apps/auth with the verify route. Until it is live, log-only records `unverified` and serves.
-   2. `create-service ansari-mcp`.
-   3. One key per MCP deployment with its `ansari-mcp*` client id.
-   4. Set each MCP server's upstream `Authorization`: `apps/mcp` Workers through `wrangler secret`; `mcp.ansari.chat` by the owner.
-4. **Staging smoke** (Phase 4 test plan), recorded in the review.
-5. **One week of log-only in production.** Expect zero `missing` or `refused` verdicts from the MCP servers.
-6. **Enforce:** remove `MCP_COMPLETE_KEY_MODE`. Open the dated follow-up issue (due one week after enforcement) to delete log-only mode, the variable and its `turbo.json` entry. The review records the issue number.
-7. **Owner, out of repository:** update the published integration snippet and the MCP setup page on the public site, at the locations the owner names through the security architect.
+The order is the real protection: every MCP caller holds its key **before** apps/api can enforce. Today's route ignores `Authorization`, so issuing keys and setting the secrets early is harmless. A deploy that then lands without `MCP_COMPLETE_KEY_MODE` enforces only against callers that already present valid keys, which is a non-event. Log-only is the safety net, not the only guard (security architect, 2026-11-11).
+
+1. **Main:** the `turbo.json` `globalEnv` entry for `MCP_COMPLETE_KEY_MODE`. It is the only hunk needed: `packages/types/src/**` is already in `globalDependencies` (spec 300). Requested in Phase 3.
+2. **apps/auth first:** deploy apps/auth with the verify route, on staging and then in production.
+3. **Keys before apps/api:**
+   1. `create-service ansari-mcp`.
+   2. Issue one key per MCP deployment, each with its `ansari-mcp*` client id.
+   3. Set each MCP server's upstream `Authorization`: `apps/mcp` Workers through `wrangler secret`; `mcp.ansari.chat` by the owner.
+   4. Confirm with `list` that each key's last request is still `never`. It cannot move yet, because nothing calls the verify route until apps/api deploys.
+4. **Then apps/api, with `MCP_COMPLETE_KEY_MODE=log-only` set on Railway before the deploy.** **Still in bold: absent means enforce.** Because step 3 is done first, a deploy that lands without the variable enforces only against callers that already hold keys. Even so, setting log-only is the plan.
+5. **Staging smoke** (Phase 4 test plan), recorded in the review.
+6. **One week of log-only in production.** Expect zero `missing` or `refused` verdicts from the MCP servers.
+7. **Enforce:** remove `MCP_COMPLETE_KEY_MODE`. Open the dated follow-up issue (due one week after enforcement) to delete log-only mode, the variable and its `turbo.json` entry. The review records the issue number.
+8. **Owner, out of repository:** update the published integration snippet and the MCP setup page on the public site, at the locations the owner names through the security architect.
 
 ## Risks and Mitigation
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| apps/api deploys before `MCP_COMPLETE_KEY_MODE=log-only` is set, and enforces with no keys in place | Medium | High | Rollout step 2 in bold in the runbook and the PR; architect sign-off on deploy order |
+| apps/api deploys without `MCP_COMPLETE_KEY_MODE=log-only` and enforces | Low | Low | Keys and MCP secrets are in place before apps/api deploys (Rollout step 3), so enforcement only meets keyed callers; the bold warning stays in the runbook and the PR |
 | Generalizing the alerts breaks the WhatsApp exchange's alerts | Low | Medium | The exchange keeps its message, tags and thresholds through a wrapper; its suites must pass unchanged |
 | Updating the existing suites to present a key weakens what they assert | Medium | Medium | The stub only adds the key; diffs are limited to request setup; reviewers check that no assertion was removed |
 | The leak scan passes by not running (an empty capture) | Medium | High | Negative controls: a planted 16-character window must be caught, and the bare prefix must not be |
 | `metadata` arrives in a shape the parser misses after a plugin bump | Low | Medium | `clientIdOf` handles text and object, with tests for both; an off-pattern or absent client gives `valid: false` plus an alert (loud) |
 | A plugin bump routes `/api-key/verify` | Low | High | The upgrade guard fails the build; the prefix block already refuses the path |
 | The initial limits are mis-sized for real MCP traffic | Medium | Medium | Alerts at one third; `update-limits` without a deploy; revisit when the owner's numbers land |
-| No `.env*` access from this session | High | Low | Implement the `.env.example` line in the implement phase if permitted, otherwise ask main; the docs test covers the documented surface |
+| No `.env*` read access from this session | High | Low | `apps/api/.env.example` is tracked: append the line from the shell in Phase 3 (architect, 2026-11-11), not through main |
 
 ## Documentation Updates
 
