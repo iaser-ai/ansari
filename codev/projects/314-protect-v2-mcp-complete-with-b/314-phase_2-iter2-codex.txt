@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 2 is solid, but MCP window-volume alert deduplication does not match the approved alert window.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `createKeyAlerts` deduplicates `key-window-volume` for the key’s 60-second rate-limit window, allowing up to five alerts during the 5-minute `EXCHANGE_ALERT_WINDOW`. The spec requires each MCP alert kind to fire at most once per `EXCHANGE_ALERT_WINDOW`. Add MCP-specific deduplication and a test crossing multiple 60-second key windows within one alert window.

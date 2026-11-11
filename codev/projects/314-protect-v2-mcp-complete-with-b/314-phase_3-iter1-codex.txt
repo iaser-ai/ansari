@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 3 implementation is sound, but its rollout-mode documentation contradicts the specification.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `docs/self-hosting.md:113` incorrectly says apps/auth unavailability returns 503 in both modes. In `log-only`, it must record `unverified` and still serve. Correct the documentation.
