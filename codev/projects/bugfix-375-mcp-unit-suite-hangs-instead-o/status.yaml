@@ -1,7 +1,7 @@
 id: bugfix-375
 title: mcp-unit-suite-hangs-instead-o
 protocol: bugfix
-phase: fix
+phase: pr
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-11T22:01:56.742Z'
-updated_at: '2026-11-11T22:03:24.342Z'
+updated_at: '2026-11-11T22:10:40.793Z'
