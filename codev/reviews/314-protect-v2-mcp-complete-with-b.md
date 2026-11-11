@@ -162,7 +162,43 @@ Codex and Gemini approved with no issues.
 ### Review / PR #372 (Round 5, codex only)
 Codex: **APPROVE**, no issues. It confirmed all four round-4 fixes.
 
+### Second external review (security architect's reviewer, Claude; over 0798cfce..b9391cc7)
+
+REQUEST_CHANGES: eleven required fixes and one coverage item. The architect agreed with every one. All were **Addressed** in 1f936578:
+
+1. **The MCP legacy window protected no key, but kept a cross-environment prefix class open.** `LEGACY_PREFIXES['ansari-mcp'] = []`, so the bare `ansari_mcp_` prefix is now refused (tested), and the MCP scanning pattern has no optional segment.
+2. **The window's closed state was unreachable and untested.** The flag is now a parameter of `acceptedKeyPrefixesFor`, `scanningPatternFor` and `legacyScanningPatternsFor`, with both states tested and no pin on the flag's value. The runbook's post-window table is asserted against `scanningPatternFor(s, false)`. WhatsApp tests use a labelled key by default.
+3. **The no-`RAILWAY_*` rule was unguarded.** Source-scan 6 covers apps/api, apps/auth, packages/auth and apps/mcp/src (planted lines, near-misses, exact allowlist: apps/mcp's `RAILWAY_GIT_COMMIT_SHA`, #377). Main's requirement: `apps/mcp/src/**` is now an `ansari-api#test` input. Negative test: clean `6f4ceeadd09c4cad`, planted `f8a848194d5da3e2` (and scan 6 failed), restored byte-identically to `6f4ceeadd09c4cad`.
+4. **apps/api's Sentry environment was unasserted.** `tests/sentry-environment.test.ts` now checks it.
+5. **The label binds key to auth, not api to auth.** Recorded as an accepted residual in the runbook; a boot assertion pairing the two is a possible follow-up.
+6. **The exchange counted `keyVerified` before the owner and prefix gates.** Moved after them; a spy test proves it doesn't fire for refused prefixes, and it fails under the old order.
+7. **Two environment knobs.** The route options no longer take one; `createApp` passes it.
+8. **The script initialised Sentry before validating `ENVIRONMENT`.** It validates first now, and the hardcoded `'development'` is gone.
+9. **The api test key had a shape no script can issue.** It is now `ansari_mcp_staging_…`.
+10. **Docs named `EXPO_PUBLIC_ENVIRONMENT` as the frontend's.** Corrected to the legacy frontend's, in all three places.
+11. **Minor:** leak-scan includes `LEGACY_PREFIXES`; boot-check deletes `NEXT_PHASE` instead of setting it to undefined.
+12. **Spawned production boots.** Probes `apps/{auth,api}/scripts/probes/environment-boot-probe.ts`, output below.
+
 Apart from those Gemini skips, no `CONSULT_ERROR` occurred.
+
+## Production boot probes (finding 12)
+
+apps/auth (built `dist/index.mjs`, `NODE_ENV=production`, unreachable database):
+```
+PASS  NODE_ENV=production ENVIRONMENT=(absent) → refused (names: ENVIRONMENT)
+PASS  NODE_ENV=production ENVIRONMENT=development → refused (names: ENVIRONMENT)
+PASS  NODE_ENV=production ENVIRONMENT=prod → refused (names: ENVIRONMENT)
+PASS  NODE_ENV=production ENVIRONMENT=staging → listened
+PASS  NODE_ENV=production ENVIRONMENT=production → listened
+```
+apps/api (`next start` on the built app, `NODE_ENV=production`, unreachable database):
+```
+PASS  NODE_ENV=production ENVIRONMENT=(absent) → /api/health 500, ENVIRONMENT rule logged
+PASS  NODE_ENV=production ENVIRONMENT=development → /api/health 500, ENVIRONMENT rule logged
+PASS  NODE_ENV=production ENVIRONMENT=prod → /api/health 500, ENVIRONMENT rule logged
+PASS  NODE_ENV=production ENVIRONMENT=staging → /api/health 503
+PASS  NODE_ENV=production ENVIRONMENT=production → /api/health 503
+```
 
 ## Lessons Learned
 
@@ -223,10 +259,12 @@ Neither test was skipped. Both are pre-existing, outside this change, and passed
 
 ## Follow-up Items
 
-- **Close the legacy-key compatibility window:** once `list` shows no live unlabelled key (`ansari_wa_`, `ansari_mcp_`, or pre-rename `wa_`) on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
+- **Close the legacy-key compatibility window (WhatsApp only):** once `list` shows no live unlabelled key (`ansari_wa_` or pre-rename `wa_`) on any database, set `LEGACY_UNLABELLED_KEYS = false` and re-register the scanning patterns. The issue is opened at enforce, like the log-only removal.
 
 - **Remove log-only:** open the issue at enforce (rollout step 6). It removes `MCP_COMPLETE_KEY_MODE` from `config.ts` and the `turbo.json` `globalEnv` hunk one week after enforcement. The issue number is to be recorded when it exists.
 - **Limit sizing:** `MCP_KEY_INITIAL` (120/60 s, 5,000/day) and the alert thresholds are judgement values. The owner should resize them with `update-limits` (no deploy) once the `threads.client` query numbers are in.
+- **Boot assertion pairing `ENVIRONMENT` with the `AUTH_URL` host:** closes the residual in the runbook (a production apps/api pointed at staging auth). This was not built in this PR.
+- **`ENVIRONMENT` parity in apps/frontend:** it has no such variable today; only the legacy frontend has `EXPO_PUBLIC_ENVIRONMENT`. That parity is app's lane, on the owner's word.
 - **Owner steps outside the repository:** listed under Spec Compliance. The published snippet and MCP setup page locations are pending from the owner.
 - **`@better-auth/api-key` upgrade to 1.7.20:** out of scope. On any bump, re-run the upgrade guard in `apps/auth/tests/blocked-paths.test.ts` and the runbook's plugin-upgrade check.
 - **`cutover-docs.test.ts` `namedRepoPaths`:** add an end boundary after the extension so `.jsonc` is not read as `.json`. This is main's test infrastructure.

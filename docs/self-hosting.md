@@ -246,8 +246,9 @@ shown first and confirmed by id). The create and rotate commands print the raw k
 script reads `ENVIRONMENT` from its process env (it refuses to run without it) and puts it in the
 key's prefix: `ansari_<service>_<ENVIRONMENT>_`, e.g. `ansari_wa_production_`. Each route serves
 only a key whose stored prefix names its own service and its own `ENVIRONMENT`, so a key leaked
-from one environment is refused in another; a key issued before #314 (bare `ansari_wa_` /
-`ansari_mcp_`) is still accepted during the compatibility window the runbook describes.
+from one environment is refused in another; a WhatsApp key issued before #314 (bare `ansari_wa_`, or the
+pre-rename `wa_`) is still accepted during the compatibility window the runbook describes. MCP
+keys have no window: only labelled ones are served.
 `docs/cutover/service-keys-runbook.md` is the operator's procedure: issuance, handoff, rotation,
 revocation, the alerts and the eligibility repair.
 
