@@ -26,14 +26,7 @@
 // Better Auth's handler path, so no router per-IP rule applies: the WhatsApp
 // service calls from one egress IP, and the key's own limits and the per-user
 // budget are the throttle.
-import {
-  consumeWindow,
-  limits,
-  redactError,
-  schema,
-  serviceUsers,
-  whatsapp,
-} from '@ansari/auth';
+import { consumeWindow, limits, redactError, serviceUsers, whatsapp } from '@ansari/auth';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 
 import {
@@ -43,6 +36,7 @@ import {
   type KeyRefusalCode,
 } from '../alerts';
 import type { ServiceDeps } from '../app';
+import { createApiKeyRelationCheck } from './apikey-relation';
 
 export { WHATSAPP_SESSION_PATH };
 
@@ -98,20 +92,7 @@ export function whatsappRouter({ auth, db }: ServiceDeps, options: ExchangeOptio
   const now = options.now ?? Date.now;
   const router = Router();
 
-  let relationCheckedAt: number | null = null;
-
-  /**
-   * The plugin reports a database failure (an outage, `auth.apikey` missing)
-   * as INVALID_API_KEY, the code of an unknown key. A query on `auth.apikey`
-   * itself (not `select 1`, which passes with the relation gone) tells them
-   * apart; a success is trusted for APIKEY_RELATION_CHECK_TTL. Throws on failure.
-   */
-  async function checkApiKeyRelation(): Promise<void> {
-    const at = now();
-    if (relationCheckedAt !== null && at - relationCheckedAt < limits.APIKEY_RELATION_CHECK_TTL) return;
-    await db.select({ id: schema.apikey.id }).from(schema.apikey).limit(1);
-    relationCheckedAt = at;
-  }
+  const checkApiKeyRelation = createApiKeyRelationCheck(db, now);
 
   function refuse(res: Response): void {
     alerts.unauthorized();

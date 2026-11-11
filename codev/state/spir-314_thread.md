@@ -28,3 +28,13 @@
 - service-users: `ansari-mcp` uses `MCP_KEY_BOUNDS`; `listServiceKeys` selects `metadata`; `clientIdOf()` reads JSON text or an object, null on anything else.
 - Script: `clientIdFor()` enforces the rule in `parseArgs` AND `runServiceKeys` (same double-check as `checkKeyLimits`). The existing key-body guard (32-letter run) still applies, so a 64-char all-letter suffix is refused as key-shaped; that is intended. `list` prints `client_id`.
 - Mutation check: with the rule disabled, 8 of the new script tests fail; restored, all pass. Full build + `npm test` green (auth 498, @ansari/auth 289, api 1146, frontend 774).
+
+## 2026-11-11 — phase 2 (apps/auth verify route) built
+- `POST /api/service/verify-key` (`apps/auth/src/routes/service-verify.ts`), mounted ahead of `corsFor` beside the exchange. Order: requireJson → `express.json` (1 KiB) → parse failure 400 → key bounds (`[\x21-\x7E]{1,256}`) and the closed permission set (exactly `{mcp:['complete']}`, no repeats/extras) → `verifyApiKey` → on refusal the `auth.apikey` relation check then `{valid:false}` → `findServiceUser('ansari-mcp')` (not one → 500 + alert) → owner bind → `clientIdOf` + `isMcpClientId` (fail → `client-id-invalid` + `{valid:false}`) → `{valid, client_id, key_id}`.
+- Alerts: `createKeyAlerts` core (thresholds/send/now) behind `createExchangeAlerts` (WhatsApp, unchanged message/tags/thresholds) and new `createMcpVerifyAlerts` (`auth: MCP key verify alert`, tags `mcp-verify-<kind>`). `ExchangeAlert` keeps its six kinds directly above `KeyRefusalCode` (cutover-docs source scan); `McpVerifyAlert` is declared after. Message/tag sender factored to `keyAlertSender`.
+- The relation check moved to `routes/apikey-relation.ts`, shared by both routes (each keeps its own cache).
+- Plugin facts pinned: metadata comes back from verify as an object in 1.7.7 (stored as JSON text); an EXPIRED key is deleted by the plugin when presented (so "row kept" holds for disabled/exhausted/rate-limited, not expired); a permission refusal leaves remaining/request_count/last_request untouched.
+- Stopped DB tested on pglite by closing the client under the running app → 500.
+- Upgrade guard in blocked-paths.test.ts: `auth.api.verifyApiKey` has no path, 7 endpoints / 5 routed, and `/api/auth/api-key/verify` + variants are 404.
+- Mutation checks: removing the client-id rule, owner bind, relation check, permission check, missing-user 500 or the client-id alert each fails tests; a 20-char key slice in a log line fails both leak scans.
+- Full build + `npm test` green (auth 572, @ansari/auth 289, api 1146, frontend 774). WhatsApp suites unchanged and green.
