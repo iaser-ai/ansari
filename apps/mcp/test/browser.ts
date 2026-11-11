@@ -238,7 +238,7 @@ async function main() {
   check('answer-A:question-and-text-in-order', () => {
     assert.equal(shownA.question, QUESTION_A);
     assert.equal(shownA.status, '');
-    const order = ['Synthetic heading A', 'Synthetic answer A. التقوى', 'Third', 'Fourth point', 'nested one', 'nested two', 'a bullet', 'a quoted line', 'This information came from ansari.chat'];
+    const order = ['Synthetic heading A', 'Synthetic answer A. التقوى', 'Third', 'Fourth point', 'nested one', 'nested two', 'a bullet', 'a quoted line', 'This information came from askansari.ai'];
     let at = -1;
     for (const part of order) { const next = shownA.cardText.indexOf(part, at + 1); assert.ok(next > at, `${part} follows the previous part`); at = next; }
   });
@@ -307,7 +307,7 @@ async function main() {
   const attributionNoticeVisible = await first.frame.locator('.saga-card-link-status').isVisible();
   check('links:successful-attribution-is-silent', () => assert.equal(attributionNoticeVisible, false));
   const opened = await page.evaluate(id => (window as any).hostProbe.state(id).openLinks, first.id);
-  check('links:attribution-link-reaches-host-only-through-openLink', () => assert.deepEqual(opened, ['https://ansari.chat/']));
+  check('links:attribution-link-reaches-host-only-through-openLink', () => assert.deepEqual(opened, ['https://askansari.ai/']));
 
   await first.frame.getByRole('button', {name: 'saga a2ui', exact: true}).click();
   await page.waitForFunction(id => (window as any).hostProbe.state(id).openLinks.length === 2, first.id);
@@ -316,7 +316,7 @@ async function main() {
   check('links:successful-credit-is-silent', () => assert.equal(creditNotice, ''));
   const creditOpened = await page.evaluate(id => (window as any).hostProbe.state(id).openLinks, first.id);
   check('links:saga-credit-follows-unchanged-answer-and-uses-host', () => {
-    assert.deepEqual(creditOpened, ['https://ansari.chat/', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6']);
+    assert.deepEqual(creditOpened, ['https://askansari.ai/', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6']);
     assert.ok(!shownA.cardText.includes('Built with'));
   });
 
@@ -324,7 +324,7 @@ async function main() {
   const unavailable = await openView(375, 900, bytes, false);
   await deliver(unavailable.id, resultA);
   for (const [button, status, destination] of [
-    ['.saga-card-link', '.saga-card-link-status', 'https://ansari.chat/'],
+    ['.saga-card-link', '.saga-card-link-status', 'https://askansari.ai/'],
     ['.saga-credit button', '.saga-credit [role="status"]', 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6'],
   ] as const) {
     await unavailable.frame.locator(button).click();
@@ -756,7 +756,7 @@ async function main() {
     .replace(/(<script[^>]*id="saga-content-policy"[^>]*>)[\s\S]*?(<\/script>)/, (_m, a, b) => `${a}${JSON.stringify(imagePolicy.policy.configuration).replaceAll('<', '\\u003c')}${b}`);
   assert.notEqual(imageBytes, bytes, 'the image-policy fixture replaces the embedded policy and its restrictions');
   const consent = await openView(760, 900, imageBytes);
-  const imageAnswer = {content: [{type: 'text', text: 'ignored'}], structuredContent: {version: '0.1.0', question: 'Q image', answer: 'Image answer.\n\n![synthetic](https://images.example/a.png)\n\nThis information came from ansari.chat.'}};
+  const imageAnswer = {content: [{type: 'text', text: 'ignored'}], structuredContent: {version: '0.1.0', question: 'Q image', answer: 'Image answer.\n\n![synthetic](https://images.example/a.png)\n\nThis information came from askansari.ai.'}};
   await deliver(consent.id, imageAnswer);
   const toggle = consent.frame.locator('.saga-card-controls button').filter({hasText: /images$/});
   await toggle.filter({hasText: 'Show images'}).waitFor();
