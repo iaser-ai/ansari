@@ -54,7 +54,10 @@ Fix the `ansari-mcp` service's rules in one place before anything consumes them:
 
 #### Files to Create / Modify
 
-- `packages/types/src/attribution.ts`: add `MCP_CLIENT_ID_PATTERN` (`/^ansari-mcp(-[a-z0-9._-]+)?$/`, at most 64 characters, a subset of `CLIENT_ID_PATTERN`) and `isMcpClientId()`. This lives in `@ansari/types` because both apps/auth (the script and the verify route) and apps/api (the response check) need it, and `@ansari/types` is already shared by both.
+- `packages/types/src/attribution.ts`: add `MCP_CLIENT_ID_PATTERN` (`/^ansari-mcp(-[a-z0-9._-]+)?$/`, at most 64 characters, a subset of `CLIENT_ID_PATTERN`) and `isMcpClientId()`. This lives in `@ansari/types` because both apps/auth (the script and the verify route) and apps/api (the response check) need it.
+  - apps/api already depends on `@ansari/types`.
+  - apps/auth does **not**. It reaches the rule through `@ansari/auth`, which re-exports `isMcpClientId` from `packages/auth/src/index.ts` (the existing pattern for `CLIENT_HEADER`). `apps/auth/package.json` is unchanged.
+- `packages/auth/src/index.ts`: re-export `isMcpClientId` and `MCP_CLIENT_ID_PATTERN`.
 - `packages/auth/src/limits.ts`:
   - `MCP_KEY_BOUNDS`, its own constant, with the same wide values as `WHATSAPP_KEY_BOUNDS` so raising a limit never needs a code change;
   - `MCP_KEY_INITIAL`;
@@ -68,9 +71,9 @@ Fix the `ansari-mcp` service's rules in one place before anything consumes them:
   - a `clientIdOf(metadata)` helper accepts the metadata as JSON text **or** an object (the 1.7.7 → 1.7.20 plugin change) and returns `string | null`.
 - `apps/auth/scripts/service-keys.ts`: for `ansari-mcp`, `create-key` and `rotate` require `--client-id`, and the value must pass `isMcpClientId`. Otherwise the script stops with a `RefusedError` and writes nothing. The value is never echoed back, as `label()` already does. The default `clientId: service` fallback no longer applies to `ansari-mcp`. `list` prints a `client_id` line per key.
 - Tests:
-  - `packages/types` attribution tests;
+  - `packages/types` has no test runner, and none is added. The pattern is tested in `packages/auth/tests/unit/helpers.test.ts`, which already tests `@ansari/types/attribution` through `@ansari/auth`, and again from apps/api in Phase 3;
   - `packages/auth/tests/unit/helpers.test.ts` for `clientIdOf`, both shapes plus garbage;
-  - `apps/auth/tests/service-keys.test.ts`;
+  - `apps/auth/tests/service-keys.test.ts`. The existing `ansari-mcp` `create-key` call sites (around lines 626 and 693) gain a valid `--client-id`;
   - `apps/auth/tests/limits.test.ts`.
 
 **Initial values (judgement, pending the owner's `threads.client` numbers; changeable with `update-limits`, no deploy):**
@@ -131,6 +134,7 @@ Give apps/api a way to check an `ansari-mcp` key: a public route at apps/auth's 
   - The key is never logged, echoed or sent to Sentry.
 - `apps/auth/src/alerts.ts`: generalize `createExchangeAlerts` into a per-service factory, `createKeyAlerts({ service, thresholds, message, tagPrefix, send, now })`.
   - The WhatsApp exchange keeps its exact message, tags and thresholds through a thin `createExchangeAlerts` wrapper, so its tests and runbook stay true.
+  - **Source-scan coupling.** `apps/api/tests/cutover-docs.test.ts` slices `alerts.ts` from `export type ExchangeAlert =` to `export type KeyRefusalCode` and expects exactly six kinds that match the runbook's `## Alerts` table. `ExchangeAlert` therefore keeps its six WhatsApp kinds, still immediately above `KeyRefusalCode`. The MCP union (`McpVerifyAlert`, which adds `client-id-invalid`) is a separate type declared after them.
   - Add the `client-id-invalid` kind, carrying `keyId`, at most once per window.
   - MCP alerts use the message `auth: MCP key verify alert` and tags `mcp-verify-<kind>`.
 - `apps/auth/src/app.ts`: mount `SERVICE_VERIFY_PATH` (`/api/service/verify-key`) **ahead of `corsFor`**, beside the exchange, and update the header comment's route list. Add `verify?: VerifyOptions` to `AppOptions` (alerts and clock for tests).
@@ -246,6 +250,7 @@ Require a valid key on `POST` and `GET /api/v2/mcp-complete`. Attribute each cal
     - **Enforce mode:** `missing` and `refused` get 401 `{ error: 'Unauthorized' }`. `unverified` gets 503 `{ error: 'Authentication service unavailable' }` plus a `console.warn` with the status only.
     - **Log-only mode:** every verdict is served. `unverified` raises a Sentry warning, `mcp-complete key unverified (log-only)`.
     - **Recording:** every verdict is recorded as a Sentry tag (`mcp_key_verdict`) and one structured `console.log` line, `[ai-skill] mcp-complete key verdict`, carrying `{ verdict, keyId? }`. Never the key.
+    - **Sentry tags on a valid key:** the gate sets `client` to the key's client id, keeping tag parity with what `getClientId` would have set.
   - **Attribution with a valid key:**
     - `client = clientId`;
     - `parseClientId(header, null)` is run on the header alone;
@@ -263,11 +268,14 @@ Require a valid key on `POST` and `GET /api/v2/mcp-complete`. Attribute each cal
   - `facilitator-empty-final.test.ts`;
   - `tests/sentry/request-envelopes.ts`.
 
-  The stub is a new helper, `apps/api/tests/helpers/mcp-key.ts`, which mocks `verifyServiceKey` to valid and sets `Authorization`. Each suite's assertions are otherwise unchanged. `attribution.test.ts`'s `mcp-complete` cases are rewritten for key attribution, because the header no longer decides there. `?src=` attribution stays tested on the routes that still use it (threads, register).
+  The stub is a new helper, `apps/api/tests/helpers/mcp-key.ts`. It:
+  - stubs global `fetch` for `<AUTH_URL>/api/service/verify-key` with a valid response, and passes any other URL through to the original;
+  - sets the `AUTH_*` variables with `vi.stubEnv` when the suite has none, so `config.authService` resolves;
+  - adds the `Authorization` header. Each suite's assertions are otherwise unchanged. `attribution.test.ts`'s `mcp-complete` cases are rewritten for key attribution, because the header no longer decides there. `?src=` attribution stays tested on the routes that still use it (threads, register).
 - `apps/api/tests/mcp-complete-key.test.ts` (new) covers the spec's apps/api scenarios 1–12:
   - the thread, messages and orphan rows are checked on **pglite** (the `route-persistence-rollback.test.ts` setup);
   - the facilitator is mocked (a spy proves "no Gemini call");
-  - the apps/auth boundary is a stubbed `fetch` (or `verifyServiceKey` mock) speaking the Phase 3 contract;
+  - the apps/auth boundary is a stubbed global `fetch` speaking the Phase 3 contract on the wire, so the real `verifyServiceKey` and `authServiceFetch` run. `verifyServiceKey` is **not** mocked here;
   - Sentry is captured;
   - the leak scan runs over the console and Sentry captures, with a negative control.
 - Spec scenario 13 (a WhatsApp key end to end) is covered at the seam:
@@ -309,7 +317,7 @@ Make the new credential operable and the architecture docs true again.
 
 #### Files to Create / Modify
 
-- `docs/cutover/service-keys-runbook.md`: an `ansari-mcp` section covering:
+- `docs/cutover/service-keys-runbook.md`: an `ansari-mcp` section, under its **own `##` heading**, so that `cutover-docs.test.ts`'s `section('Limits')` and `section('Alerts')` still match only the WhatsApp tables. It covers:
   - issuance (`create-service ansari-mcp`, then `create-key` with the required `ansari-mcp*` `--client-id`, one key per MCP deployment);
   - the Worker-secret handoff (`wrangler secret put ANSARI_API_AUTHORIZATION --env <env>`, value `Bearer <key>`, pasted straight from the shell; the owner's variable for `mcp.ansari.chat`);
   - the limits table, global for all MCP traffic;
