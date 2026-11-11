@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {describe, it} from 'node:test';
 import {defineParityCases} from './parity-cases.ts';
-import {answerFor, startRuntime, startUpstream} from './runtime-harness.ts';
+import {answerFor, startRuntime, startUpstream, type Runtime} from './runtime-harness.ts';
 
 // The Workers bundle (dist-worker/index.js) in the local Workers runtime: the same cases as Node.
 describe('Workers runtime', () => defineParityCases('workers'));
@@ -11,8 +11,11 @@ describe('Workers runtime', () => defineParityCases('workers'));
 describe('Workers lifecycle', () => {
   it('keeps serving after a caller abandons an in-flight call, and stops when the runtime stops', async () => {
     const upstream = await startUpstream();
-    const runtime = await startRuntime('workers', {json: false, upstream: upstream.url});
+    // Started inside the try: a runtime that fails to start (a missing bundle) must still close the upstream, whose
+    // open server would otherwise keep this test file running forever (#375).
+    let runtime: Runtime | undefined;
     try {
+      runtime = await startRuntime('workers', {json: false, upstream: upstream.url});
       const started = upstream.seen.length;
       const controller = new AbortController();
       const abandoned = fetch(`${runtime.origin}/mcp`, {
@@ -40,7 +43,7 @@ describe('Workers lifecycle', () => {
       assert.match(await reply.text(), new RegExp(answerFor('after abandon').split('\n')[0]!));
       assert.ok(runtime.alive());
     } finally {
-      const {remaining} = await runtime.close();
+      const remaining = runtime ? (await runtime.close()).remaining : false;
       await upstream.close();
       assert.equal(remaining, false, 'no Wrangler or workerd process outlives the stop');
     }
