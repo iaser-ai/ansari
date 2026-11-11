@@ -1,0 +1,14 @@
+id: '370'
+title: apps-mcp-declare-its-env-vars-
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-11T03:33:43.743Z'
+updated_at: '2026-11-11T03:33:43.744Z'
