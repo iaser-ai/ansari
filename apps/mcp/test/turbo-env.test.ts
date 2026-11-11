@@ -5,7 +5,13 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 // Turborepo runs in strict env mode: a variable a task does not declare is hidden from it and left out of its hash.
-// The tasks that run the server (`dev`, `start`) must declare every variable the source reads, the README documents.
+// So the tasks that run the server (`dev`, `start` in turbo.json) must declare, by name, every variable in the
+// README's environment table, and that table must cover every variable src/ reads. This test keeps the three in step:
+// a new `setting(env, 'X')` that is missing from turbo.json would otherwise be dropped silently under `turbo run`.
+//
+// `build` and `test` deliberately declare none of them. The build bundles no setting, and the tests set the values
+// they depend on themselves. Declaring the variables on `test` would let a shell's value leak into tests that spread
+// `process.env`.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const RUNNING_TASKS = ['dev', 'start'] as const;
 
