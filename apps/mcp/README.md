@@ -49,7 +49,7 @@ schema types. The artwork owner has authorized contribution and redistribution w
 
 ## Development
 
-Requires Node 22.18 or later and pnpm 10.33. Install once from the repository root using its authoritative lockfile. Run the app explicitly; root build, test, typecheck and coverage retain their existing scope, while root lint includes this application.
+Requires Node 22.18 or later and pnpm 10.33. Install once from the repository root using its authoritative lockfile. Root build, test, typecheck and coverage retain their existing scope; root lint and root `pnpm dev` include this application.
 
 ```sh
 pnpm install --frozen-lockfile --strict-peer-dependencies --filter ansari-mcp...
@@ -62,7 +62,24 @@ pnpm mcp test:browser
 pnpm mcp start
 ```
 
-`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` runs the Node entry source (`src/node/index.ts`) after `build`. The synthetic browser harness is test-only and uses no credentials or live answers.
+`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` builds, then runs the Node entry source through `scripts/dev.ts` (see below). The synthetic browser harness is test-only and uses no credentials or live answers.
+
+### Local development
+
+The root `pnpm dev` starts this server beside apps/api, apps/auth and the frontend (`pnpm dev:mcp` starts it alone). `scripts/dev.ts` loads `apps/mcp/.env` when it exists (git-ignored), then fills only what is still unset: `PORT` 3001 (apps/api has 3000) and `ANSARI_API_BASE_URL` `http://localhost:3000`. Hosts connect at `http://localhost:3001/mcp`.
+
+A local apps/api enforces the `ansari-mcp` key like a deployed one (#314). Either issue a local key and put the whole header in `apps/mcp/.env`:
+
+```sh
+# from apps/auth/, against the local auth database (ENVIRONMENT=development): show, then confirm
+pnpm exec tsx scripts/service-keys.ts create-service ansari-mcp            # once, then again with --confirm ansari-mcp
+pnpm exec tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 \
+  --name "local dev" --client-id ansari-mcp-local                          # then again with --confirm <user id>
+# apps/mcp/.env
+ANSARI_API_AUTHORIZATION=Bearer ansari_mcp_development_<64 letters>
+```
+
+or run apps/api with `MCP_COMPLETE_KEY_MODE=log-only`, which serves requests without a key and logs the verdict `missing`. Without either, every tool call fails: apps/api answers 401, and the dev server warns at start. The dev entry is for local work only; deployments run `pnpm start` (`dist/`) or the Worker entry.
 
 ### Two hosting targets, one application
 
