@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 /**
@@ -81,6 +81,8 @@ import { SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { POST as threadPost } from '../src/app/api/v2/threads/[id]/route';
 import { POST as chatPost } from '../src/app/api/v2/threads/[id]/chat/route';
 import { POST as mcpPost } from '../src/app/api/v2/mcp-complete/route';
+import { resetEnvCache } from '@/lib/config';
+import { installMcpKeyStub, MCP_TEST_CLIENT_ID, withMcpKey } from './helpers/mcp-key';
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -166,6 +168,17 @@ afterAll(async () => {
   await client.close();
 });
 
+// mcp-complete requires a valid key (#314): every mcpReq presents one.
+beforeEach(async () => {
+  await installMcpKeyStub();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  resetEnvCache();
+});
+
 beforeEach(async () => {
   vi.clearAllMocks();
   mockAuthenticateRequest.mockResolvedValue({ user: { id: USER_ID } });
@@ -198,7 +211,7 @@ function chatReq(message: string): NextRequest {
 function mcpReq(content: string): NextRequest {
   return new NextRequest('http://localhost/api/v2/mcp-complete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Ansari-Client': 'ai-skill-v1' },
+    headers: withMcpKey({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ messages: [{ role: 'user', content }] }),
   });
 }
@@ -433,7 +446,7 @@ describe('POST /api/v2/mcp-complete (ai-skill)', () => {
     expect(await assistantRows()).toHaveLength(0);
     const orphans = await orphanRows();
     expect(orphans).toHaveLength(1);
-    expect(orphans[0]).toMatchObject({ reason: 'error', source: 'ai-skill', client: 'ai-skill-v1' });
+    expect(orphans[0]).toMatchObject({ reason: 'error', source: 'ai-skill', client: MCP_TEST_CLIENT_ID });
     expect(orphans[0].toolCalls).toEqual(RECORDS);
     // The orphan is attached to the thread this request created.
     const threadRows = await db.select().from(threads).where(eq(threads.id, orphans[0].threadId));
