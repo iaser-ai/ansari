@@ -15,3 +15,9 @@
 - Owner asked whether to upgrade @better-auth/api-key to 1.7.20 and reuse its `/api-key/verify` HTTP endpoint. Checked the published packages (not the docs): `verifyApiKey` is `createAuthEndpoint.serverOnly` with NO route in 1.7.7, 1.7.20 and 1.8.0-beta.7; the docs' `POST /api-key/verify` comes only from a JSDoc comment. Nothing to reuse; our own verify route stays.
 - 1.7.7→1.7.20 plugin diff: metadata parse accepts objects as well as JSON text; `markSessionOutsideStore` for key sessions (we have sessions off); rest cosmetic. 1.7.20 peers better-auth/core ^1.7.20, so it is a whole-apps/auth bump: keep it out of #314, separate issue if wanted.
 - PLAN INPUT (owner request): add an upgrade guard. On any api-key plugin bump, re-run the endpoint-shape assertions (today 7 endpoints, 5 routed; verify server-only) and confirm any newly routed path (e.g. `/api-key/verify`) is covered by the `/api/auth/api-key` prefix block, with a test that POST /api/auth/api-key/verify is refused. Also pin `metadata.clientId` extraction for both string and object forms.
+
+## 2026-11-11 — plan at gate
+- Spec approved by owner (architect ran approval on their written instruction, 03:09Z). Open tier = (a).
+- Plan: 5 phases (key rules → apps/auth verify route + upgrade guard → apps/api client + MCP_COMPLETE_KEY_MODE → route gate → docs/arch). Initial MCP limits 120/60s, 5,000/day (judgement, pending owner numbers).
+- Consults: codex REQUEST_CHANGES (apps/auth dep path via @ansari/auth re-export; packages/types has no test runner; stub fetch not verifyServiceKey) — all accepted. gemini APPROVE with notes (cutover-docs source scan of alerts.ts must keep ExchangeAlert's 6 kinds; runbook MCP under own ## heading; Sentry client tag parity) — folded in.
+- Deploy-order trap flagged: MCP_COMPLETE_KEY_MODE absent = enforce, so log-only must be set on Railway before the apps/api deploy.
