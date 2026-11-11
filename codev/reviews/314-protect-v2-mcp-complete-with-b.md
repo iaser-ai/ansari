@@ -44,6 +44,7 @@
   - Scenario 11 (mode parsing, boot refusal) is covered by Phase 3's config and boot-check tests. Scenario 13 is covered at the seam.
   - Security architect order (04:10Z): `alerts.keyVerified()` moved after the owner and client-id checks in `service-verify.ts`, so only a served key counts toward the volume alerts. A test pins the order and fails under the old one. The WhatsApp exchange order is unchanged.
 - **Phase 5:** rebased onto develop (#365, #368, #370) first. #366 had changed the attribution link to `askansari.ai`, so scenario 4's expectation followed it in its own commit. Architect orders added the `mcp-staging` key, the `Bearer` form in all three apps/mcp docs, and the RELEASE.md staging row.
+- **Review (PR consult):** the route checks the bearer token's shape (printable ASCII, 1–256 characters, apps/auth's bound) before calling apps/auth. The plan's bearer rule (one token, no whitespace) let an over-long or non-ASCII token through, and apps/auth's 400 turned it into a 503.
 - **`turbo.json`:** this PR carries the `MCP_COMPLETE_KEY_MODE` `globalEnv` hunk, on main's instruction. Main reviews it on the PR.
 
 ## Consultation Feedback
@@ -111,6 +112,15 @@ No concerns raised. Approved in all three rounds.
 #### Gemini
 No concerns raised. Approved in both rounds.
 
+### Review / PR #372 (Round 1)
+
+#### Codex (REQUEST_CHANGES)
+- **Concern**: a bearer token over 256 characters, or containing non-ASCII, was sent to apps/auth. apps/auth answered 400, which apps/api reported as a 503 outage instead of a 401 → **Addressed**: apps/api now refuses a token outside apps/auth's `[\x21-\x7E]{1,256}` envelope locally, as `missing` (401, no call). POST and GET tests cover it, including the 256-character bound, and a mutation check confirms the tests catch the old behaviour.
+- **Concern**: the phase consultation outputs were untracked → **Addressed**: committed, as other projects do.
+
+#### Gemini
+No concerns raised. Approved.
+
 No `CONSULT_ERROR` occurred in any round.
 
 ## Lessons Learned
@@ -130,6 +140,8 @@ No `CONSULT_ERROR` occurred in any round.
 - **Flakes under full parallel load.** Two pre-existing apps/auth-in-process tests failed once each, in the #330 lineage (see Flaky Tests).
 
 ### What Would Be Done Differently
+
+- When one service validates an input that another forwards, give the caller the same bound. Otherwise the callee's 400 surfaces as the caller's outage. The apps/auth key bound was specified, but nobody mirrored it in apps/api until the PR consult.
 
 - Grep a route's real callers before a plan names the suites a change touches. Four of the seven named suites never called the route.
 - Put every "count this as success" side effect after the last check in a verify path from the start, and pin the order with a test.

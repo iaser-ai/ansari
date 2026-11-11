@@ -14,7 +14,7 @@ import { createThread, createMessage, persistOrphanToolCalls } from '@/lib/db/th
 import { CLIENT_HEADER, getClientId } from '@/lib/attribution';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { config } from '@/lib/config';
-import { AuthServiceUnavailableError, verifyServiceKey } from '@/lib/auth-service/client';
+import { AuthServiceUnavailableError, isServiceKeyShape, verifyServiceKey } from '@/lib/auth-service/client';
 import { parseClientId } from '@ansari/types/attribution';
 
 const CONCISE_INSTRUCTION =
@@ -76,12 +76,18 @@ function applyRateLimit(request: NextRequest): NextResponse | null {
  */
 type McpKeyVerdict = 'valid' | 'missing' | 'refused' | 'unverified';
 
-/** The bearer token, or null when the header is absent or malformed (case-insensitive scheme, one token, no whitespace). */
+/**
+ * The bearer token, or null when the header is absent or malformed
+ * (case-insensitive scheme, one token, no whitespace) or the token is outside
+ * the envelope apps/auth's verify route reads (printable ASCII, 1–256
+ * characters). Such a token can never be a key; sent on, apps/auth would answer
+ * 400 and the request would get a 503 instead of the 401 it deserves.
+ */
 function bearerOf(request: NextRequest): string | null {
   const header = request.headers.get('authorization');
   if (header === null) return null;
-  const match = /^Bearer ([^\s]+)$/i.exec(header);
-  return match?.[1] ?? null;
+  const token = /^Bearer ([^\s]+)$/i.exec(header)?.[1];
+  return token !== undefined && isServiceKeyShape(token) ? token : null;
 }
 
 /**

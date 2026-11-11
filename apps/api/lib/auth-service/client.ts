@@ -138,6 +138,20 @@ export async function deleteAuthUser(sub: string, jwt: string): Promise<void> {
  */
 export const SERVICE_VERIFY_PATH = '/api/service/verify-key';
 
+/**
+ * The longest service key apps/auth's verify route reads (apps/auth
+ * `VERIFY_KEY_MAX_LENGTH`). apps/auth answers 400 to a key outside
+ * `[\x21-\x7E]{1,256}`, and a 400 here is an outage (503), so a token outside
+ * that envelope must be refused before the call. The two bounds change together.
+ */
+export const SERVICE_KEY_MAX_LENGTH = 256;
+const SERVICE_KEY_SHAPE = new RegExp(`^[\\x21-\\x7E]{1,${SERVICE_KEY_MAX_LENGTH}}$`);
+
+/** Whether `token` is inside the envelope apps/auth's verify route accepts (printable ASCII, 1–256 characters). */
+export function isServiceKeyShape(token: string): boolean {
+  return SERVICE_KEY_SHAPE.test(token);
+}
+
 const verifyServiceKeySchema = z.union([
   z.object({
     valid: z.literal(true),

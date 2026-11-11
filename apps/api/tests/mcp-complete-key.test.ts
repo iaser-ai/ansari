@@ -317,6 +317,9 @@ describe.each(['POST', 'GET'] as const)('%s, enforce mode', (method) => {
     ['the bare scheme', 'Bearer'],
     ['a token containing whitespace', `Bearer ${KEY} extra`],
     ['the key with no scheme', KEY],
+    ['a token longer than 256 characters', `Bearer ${'a'.repeat(257)}`],
+    ['a token with a non-ASCII character', `Bearer ansari_mcp_\u00e9${'a'.repeat(10)}`],
+    ['a token with DEL (0x7F)', `Bearer ansari_mcp_\x7f${'a'.repeat(10)}`],
   ])('scenario 2: %s → 401, no fetch', async (_label, authorization) => {
     const res = await call(method, { authorization });
     expect(res.status).toBe(401);
@@ -324,6 +327,14 @@ describe.each(['POST', 'GET'] as const)('%s, enforce mode', (method) => {
     expect(fetchMock).not.toHaveBeenCalled();
     await expectNothingPersisted();
     expect(verdictsRecorded()).toEqual(['missing']);
+  });
+
+  it('a 256-character printable token is at the bound: it is sent to apps/auth', async () => {
+    authAnswers(200, { valid: false });
+    const res = await call(method, { authorization: `Bearer ${'a'.repeat(256)}` });
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(verdictsRecorded()).toEqual(['refused']);
   });
 
   it('scenarios 3 and 13: { valid: false } (unknown, revoked, WhatsApp, …) → the same 401, no thread, no facilitator call', async () => {
