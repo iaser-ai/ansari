@@ -51,13 +51,14 @@ const alertsOf = (kind: McpVerifyAlert['kind']) => alerts.filter((a) => a.kind =
 /** A fresh alert window, so one test's counts never reach the next. */
 const nextAlertWindow = () => clock.advance(limits.EXCHANGE_ALERT_WINDOW * 1000);
 
+/** The tracker of the service started last, so a test can spy on what it is told. */
+let verifyAlerts: ReturnType<typeof createMcpVerifyAlerts>;
+/** The tracker of the suite's main `service` (later services each get their own). */
+let serviceAlerts: ReturnType<typeof createMcpVerifyAlerts>;
+
 function startVerifyService(): Promise<Service> {
-  return startService({
-    verify: {
-      alerts: createMcpVerifyAlerts({ send: (alert) => alerts.push(alert), now: clock.now }),
-      now: clock.now,
-    },
-  });
+  verifyAlerts = createMcpVerifyAlerts({ send: (alert) => alerts.push(alert), now: clock.now });
+  return startService({ verify: { alerts: verifyAlerts, now: clock.now } });
 }
 
 type ServiceName = serviceUsers.ServiceName;
@@ -146,6 +147,7 @@ let keyId: string;
 
 beforeAll(async () => {
   service = await startVerifyService();
+  serviceAlerts = verifyAlerts;
   mcpUserId = await serviceUserOf(service, 'ansari-mcp');
   ({ key, id: keyId } = await scriptKey());
 });
@@ -535,6 +537,24 @@ describe('transport (scenario 10)', () => {
 });
 
 describe('alerts (scenario 13)', () => {
+  it('only a served key counts toward the volume alerts: a wrong owner or a bad client id is a refusal', async () => {
+    const member = await signUpTokens(service, 'mcp-volume-member@example.com');
+    const wrongOwner = await outsideKey(member.id, { metadata: { clientId: 'ansari-mcp-production' } });
+    const badClientId = await outsideKey(mcpUserId, { metadata: { clientId: 'claude-skill' } });
+    const served = await scriptKey();
+    const counted = vi.spyOn(serviceAlerts, 'keyVerified');
+    try {
+      expectRefused(await verify(wrongOwner.key));
+      expectRefused(await verify(badClientId.key));
+      expect(counted).not.toHaveBeenCalled();
+      expect((await verify(served.key)).status).toBe(200);
+      expect(counted).toHaveBeenCalledTimes(1);
+      expect(counted.mock.calls[0][0]).toMatchObject({ id: served.id });
+    } finally {
+      counted.mockRestore();
+    }
+  });
+
   it('per-key window volume: one alert at MCP_VERIFY_KEY_ALERT, counts and the key id only', async () => {
     const made = await scriptKey();
     const sent = alertsOf('key-window-volume').length;

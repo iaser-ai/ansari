@@ -120,7 +120,6 @@ export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOp
         await checkApiKeyRelation();
         return refuse(res);
       }
-      alerts.keyVerified(verified.key);
 
       // Only after the plugin accepts: no state of the service user makes a refused key valid.
       const owner = await serviceUsers.findServiceUser(db, SERVICE);
@@ -135,6 +134,9 @@ export function serviceVerifyRouter({ auth, db }: ServiceDeps, options: VerifyOp
         alerts.clientIdInvalid(verified.key.id);
         return refuse(res);
       }
+      // Counted only for a key that is served: a wrong owner or a bad client id
+      // is a refusal, already counted by refuse() (security architect, #314).
+      alerts.keyVerified(verified.key);
       res.status(200).json({ valid: true, client_id: clientId, key_id: verified.key.id });
     } catch (err) {
       fail(res, err);

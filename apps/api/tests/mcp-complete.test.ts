@@ -216,14 +216,16 @@ describe('POST /api/v2/mcp-complete', () => {
     expect(body.error).toBe('Gemini API timeout');
   });
 
-  it('does not require authentication', async () => {
-    // No Authorization header — should still work
+  it('requires a key (#314): no Authorization header → 401, the facilitator never runs', async () => {
     const request = makePostRequest({
       messages: [{ role: 'user', content: 'Test' }],
     });
+    request.headers.delete('authorization');
 
     const response = await POST(request);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toStrictEqual({ error: 'Unauthorized' });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
   });
 
   it('creates thread and messages in DB', async () => {

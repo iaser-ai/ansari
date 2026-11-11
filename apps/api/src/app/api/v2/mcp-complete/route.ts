@@ -245,8 +245,10 @@ async function handleMcpComplete(
   const messages = prepareMessages(inputMessages);
 
   // Log to DB: create system user, thread, and user messages. `source` stays
-  // 'ai-skill' (product surface); `client` is the per-request X-Ansari-Client
-  // attribution (spec 56), NULL when the header is absent.
+  // 'ai-skill' (product surface). `client` is the key's client_id whenever a
+  // valid key was presented (#314, #320); the X-Ansari-Client header or
+  // `?src=` (spec 56, #87) decides only in log-only mode without a valid key,
+  // and is NULL when neither was sent.
   const systemUserId = await getSystemUserId();
 
   // Thread + inbound messages persist atomically (issue #20): a failed message
