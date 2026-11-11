@@ -9,7 +9,7 @@ import {chromium, type Frame, type Page} from '@playwright/test';
 import {build, preview} from 'vite';
 import {createHttpServer as createBaseHttpServer} from '../src/node/http-server.ts';
 import {stampHtmlRevision} from '../src/server/operation-log.ts';
-import {VIEW_DIAGNOSTICS_PATH, VIEW_FILENAME, prepareAnswerView} from '../src/server/view-artifact.ts';
+import {VIEW_DIAGNOSTICS_PATH, VIEW_FILENAME, VIEW_MAJOR, prepareAnswerView} from '../src/server/view-artifact.ts';
 import {parseViewReport} from '../src/server/view-report.ts';
 import {ANSWER_A, ANSWER_B, ANSWER_C, ANSWER_HOSTILE, ATTRIBUTION_CASES, QUESTION_A, QUESTION_B} from './react-answers.ts';
 
@@ -73,11 +73,13 @@ async function main() {
   await client.connect(transport);
 
   // ---- The served resource: exact bytes, identity, resource rules ---------------------------------
-  const viewUri = 'ui://views/answer-card.v1.html';
+  // The one address the server lists, read back: it must name the card's compatibility line, never its bytes.
+  const listed = (await client.listResources()).resources.map(entry => entry.uri);
+  const viewUri = listed[0];
   const resource = await client.readResource({uri: viewUri});
   const bytes = String((resource.contents[0] as {text: string}).text);
   check('resource:exact-served-bytes', () => assert.equal(bytes, stampHtmlRevision(html)));
-  check('resource:uri-names-the-compatibility-line', () => assert.equal(viewUri, `ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.v1.html`));
+  check('resource:uri-names-the-compatibility-line', () => assert.deepEqual(listed, [`ui://views/${VIEW_FILENAME.replace(/\.html$/, '')}.v${VIEW_MAJOR}.html`]));
   const meta = (resource.contents[0] as any)._meta;
   check('resource:closed-csp-no-origins', () => assert.deepEqual(meta.ui.csp, {connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: []}));
   const callTool = (question: string) => client.callTool({name: 'answer_islamic_question', arguments: {question}});
@@ -847,6 +849,7 @@ async function main() {
   const bundle = /(<script type="module"[^>]*>)[\s\S]*?(<\/script>)/;
   assert.ok(bundle.test(diagnosticBytes), 'the card has one inline module bundle');
   const brokenBundle = diagnosticBytes.replace(bundle, '$1export const broken = ;$2');
+  const errorsBeforeBroken = errors.length;
   const broken = await openStartFailure(brokenBundle, true);
   await waitForReports(1);
   const brokenReport = parseViewReport(beacons.splice(0)[0] ?? '');
@@ -857,7 +860,8 @@ async function main() {
     assert.ok(brokenReport?.errors.some(e => e.type === 'error' && e.name === 'SyntaxError'), JSON.stringify(brokenReport?.errors));
   });
   await page.evaluate(id => document.getElementById(id)?.remove(), broken.id);
-  errors.splice(0, errors.length, ...errors.filter(e => !/SyntaxError|Unexpected token/.test(e)));
+  // Clear only the SyntaxError this case caused on purpose; anything an earlier case logged still fails the run.
+  errors.splice(errorsBeforeBroken, errors.length - errorsBeforeBroken, ...errors.slice(errorsBeforeBroken).filter(e => !/SyntaxError|Unexpected token/.test(e)));
 
   const states = await page.evaluate(() => Array.from(document.querySelectorAll('iframe')).map(f => (window as any).hostProbe.state(f.id)));
   check('host:no-view-initiated-tool-calls-and-no-host-errors', () => {
