@@ -1,7 +1,7 @@
 id: '377'
 title: mcp-stop-reading-railway-git-c
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-12T00:41:08.481Z'
-updated_at: '2026-11-12T00:59:21.500Z'
+updated_at: '2026-11-12T00:59:23.621Z'
 pr_history:
   - phase: pr
     pr_number: 380
