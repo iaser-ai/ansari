@@ -1,0 +1,20 @@
+[
+  {
+    "en_text": "Surah Ash-Sharh",
+    "en_text_highlighted": "",
+    "id": "94",
+    "isTransliteration": false,
+    "text": "سورة الشرح",
+    "text_highlighted": "",
+    "type": "quran_chapter"
+  },
+  {
+    "en_text": "Seek help in patience and prayer; and truly it is hard save for the humble-minded,",
+    "en_text_highlighted": "Seek help in <em>patience</em> and prayer; and truly it is hard save for the humble-minded,",
+    "id": "2:45",
+    "isTransliteration": false,
+    "text": "وَٱسْتَعِينُوا بِٱلصَّبْرِ وَٱلصَّلَوٰةِ ۚ وَإِنَّهَا لَكَبِيرَةٌ إِلَّا عَلَى ٱلْخَـٰشِعِينَ",
+    "text_highlighted": "",
+    "type": "quran_verse"
+  }
+]
