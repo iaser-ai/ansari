@@ -32,7 +32,8 @@ items (id `"94"`, text = the surah's name) in BOTH shapes. Today they become a d
 `Quran 94`. Pre-existing on the array path; the surah-name query now reaches it through the
 envelope too.
 
-**Scope.** Two tool files plus tests, well under 300 LOC. Fits BUGFIX.
+**Scope.** Two tool files plus tests. About 40 lines of source; with tests and fixtures the diff
+is ~340 added lines, a little over BUGFIX's ~300 guideline. Fits BUGFIX.
 
 **Worktrees.** develop work happens here. The main hotfix lives in a second worktree under my
 scratchpad (branch `hotfix/383-kalimat-hadith-envelope`), because this worktree holds the porch
@@ -62,3 +63,19 @@ state and cannot be switched to a tree 1,277 commits behind.
 - Porch's `tests` check sources only `apps/api/.env.ci`, but `apps/auth/tests/service-verify.test.ts`
   needs the auth env (`apps/auth/.env.ci`), which CI loads in the auth job. I exported it in the
   calling shell. The check command in `.codev/config.json` should load both; not changed here.
+
+## 2026-11-12 — pr
+
+- **develop: PR #385** (base `develop`, `Fixes #383`). **main hotfix: PR #384**. Neither merged.
+- CMAP on #385: codex APPROVE, claude APPROVE, gemini SKIPPED. The Gemini lane did not review:
+  its CLI (`agy`) exited with code 3 on two attempts, which `consult` reports as a missing
+  sign-in. It is not an approval.
+- `consult` could not auto-detect the project from this worktree ("Multiple projects found");
+  it needs `--issue 383` here.
+- Review feedback applied to both branches (test-only): `tool-citability.test.ts` still had a
+  hand-written hadith sample with `ar_text`; the new test file had two `beforeEach` blocks.
+- Follow-up filed: #386 (no per-item field validation in the Kalimat tools; `quran_chapter`
+  items become citable documents).
+- For whoever merges: #384 and #385 carry the same change to the two tool files. When `main`
+  next flows into `develop` the content is identical, apart from one test env line
+  (`JWT_SECRET` on main, `ENVIRONMENT` on develop) in `kalemat-response-shape.test.ts`.
