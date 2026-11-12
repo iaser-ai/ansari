@@ -273,3 +273,18 @@ Neither test was skipped. Both are pre-existing, outside this change, and passed
 - **`@better-auth/api-key` upgrade to 1.7.20:** out of scope. On any bump, re-run the upgrade guard in `apps/auth/tests/blocked-paths.test.ts` and the runbook's plugin-upgrade check.
 - **`cutover-docs.test.ts` `namedRepoPaths`:** add an end boundary after the extension so `.jsonc` is not read as `.json`. This is main's test infrastructure.
 - **Flaky in-process apps/auth tests under parallel load:** security owns them (#330 lineage).
+
+## Merge and verification
+
+- **Merged:** PR #372 into `develop`, merge commit `1de78ad51d3bcd406986174d6e279180aa83da8a` (2026-11-12). Head `2b29c991` (porch gate-approved); all six CI checks green on it. Issue #314 closed by the PR's `Closes #314`. The owner approved the `pr` gate in writing and the security architect ran it.
+- **Builder-side verification:** done before the merge, on the PR's own tree:
+  - full suite: api 1274, auth 635, @ansari/auth 289, frontend 774;
+  - production boot probes: 10/10;
+  - local end-to-end through `pnpm dev`, the MCP Inspector and a development key, run by the owner (2026-11-12): served with a `Bearer` key, refused without one.
+- **Not deployed by the builder.** These steps belong to the owner, in the PR body and the runbook:
+  - set `ENVIRONMENT` everywhere (done);
+  - give staging MCP a labelled key, or deploy with `MCP_COMPLETE_KEY_MODE=log-only` first;
+  - issue production keys and update the published snippet and MCP setup page;
+  - enforce after the log-only week, then open the removal follow-up.
+- **Follow-up PR:** the `CONTRIBUTING.md` update (MCP in `pnpm dev`, the required local `ENVIRONMENT`, the MCP key and `inspect`, the stale workspace list), as the owner chose, on a fresh branch from `develop`.
+
