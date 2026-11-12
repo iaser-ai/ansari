@@ -1,0 +1,37 @@
+### Phase 4 Review: `mcp-complete` key gate, key attribution, and log-only mode
+
+#### Assessment
+
+1. **Spec Adherence & Plan Alignment**
+   - **Request Ordering**: Both `POST` and `GET` in [`route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts#L345-L393) run `applyRateLimit` first, then `authorizeMcpRequest`, and only parse/validate the body or query parameters after the gate passes.
+   - **Bearer & Verification**: [`bearerOf`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts#L80-L85) extracts a single non-whitespace token with a case-insensitive `Bearer` scheme, recording `missing` without calling `apps/auth` when absent or malformed. [`authorizeMcpRequest`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts#L115-L163) calls `verifyServiceKey(token)`, maps `AuthServiceUnavailableError` to `unverified`, and lets unexpected errors propagate to the route's 500 handler without persisting anything.
+   - **Enforce vs. Log-Only Modes**:
+     - In `enforce` mode (the default), `missing` and `refused` return 401 `{ "error": "Unauthorized" }`, and `unverified` logs the status via `console.warn` and returns 503 `{ "error": "Authentication service unavailable" }`.
+     - In `log-only` mode, all verdicts proceed to serve the request, `unverified` emits the `mcp-complete key unverified (log-only)` Sentry warning, and non-valid verdicts fall back to `getClientId(request)`.
+     - Every request records the `mcp_key_verdict` Sentry tag and `[ai-skill] mcp-complete key verdict` structured log with `{ verdict, keyId? }` (never the raw key).
+   - **Attribution**: [`keyAttribution`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts#L94-L104) sets the `client` Sentry tag to the key's `clientId`, parses `X-Ansari-Client` in isolation via `parseClientId(..., null)` (ignoring `?src=` and avoiding `getClientId`'s duplicate invalid-header warning), and emits a single `mcp-complete client mismatch` warning tagged with `{ client, header_client }` (`'invalid'` when malformed, never the raw header).
+
+2. **Code Quality & Test Coverage**
+   - [`mcp-complete-key.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/mcp-complete-key.test.ts) thoroughly exercises scenarios 1–10, 12, and 13 (at the seam) for both `POST` and `GET` against PGlite with the real `verifyServiceKey` and `authServiceFetch`, including fake-timer timeout verification at `AUTH_SERVICE_TIMEOUT_MS` and a 16-character sliding-window leak scan with negative and near-miss controls.
+   - Existing route test suites ([`mcp-complete.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/mcp-complete.test.ts), [`route-persistence-rollback.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/route-persistence-rollback.test.ts), [`toolcalls-routes.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/toolcalls-routes.test.ts)) are cleanly wired to [`helpers/mcp-key.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/helpers/mcp-key.ts).
+   - *Minor non-blocking note*: In [`mcp-complete.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/mcp-complete.test.ts#L219-L227), the legacy test `it('does not require authentication')` with comment `// No Authorization header — should still work` now actually sends an `Authorization: Bearer ...` key via `makePostRequest`. You may optionally remove it or update its description if touching that file again, though it is harmless.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 4 cleanly implements the mcp-complete key gate, key-first attribution, and log-only mode with comprehensive PGlite and leak-scan test coverage.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 3 paths changed while this lane was running:
+  - apps/api/src/app/api/v2/mcp-complete/route.ts
+  - apps/auth/src/routes/service-verify.ts
+  - apps/auth/tests/service-verify.test.ts
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { limits } from '../../../packages/auth/src';
+import { envSchema } from '@/lib/config';
 
 /**
  * docs/self-hosting.md against the code (issue #21; spec 300 amendment H-7).
@@ -82,5 +83,14 @@ describe('self-hosting docs: service keys and the WhatsApp exchange (spec 329)',
     expect(existsSync(resolve(__dirname, '../../../packages/auth/drizzle/0001_api_key.sql'))).toBe(true);
     expect(section).toMatch(/refuses to boot\s+without it/);
     expect(doc).toMatch(/refuses to start when the auth database lacks `auth\.apikey`/);
+  });
+});
+
+describe('self-hosting docs: the env surface', () => {
+  // Every variable apps/api's Zod schema reads is a documented one: a new
+  // setting (MCP_COMPLETE_KEY_MODE, #314) cannot ship without its docs row.
+  it('names every variable in the apps/api config schema', () => {
+    const undocumented = Object.keys(envSchema.shape).filter((name) => !doc.includes(`\`${name}\``));
+    expect(undocumented).toEqual([]);
   });
 });

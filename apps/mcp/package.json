@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsx scripts/build.ts",
     "start": "node dist/server/index.js",
-    "dev": "tsx src/node/index.ts",
+    "dev": "tsx scripts/dev.ts",
+    "inspect": "npx -y @modelcontextprotocol/inspector --web --transport http --server-url http://localhost:3001/mcp",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:browser": "tsx test/browser.ts",

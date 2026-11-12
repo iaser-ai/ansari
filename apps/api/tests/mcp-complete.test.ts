@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // Mock DB operations
@@ -46,6 +46,20 @@ vi.mock('@/lib/rate-limit', () => ({
 
 // Import route handlers after mocks
 import { GET, POST } from '../src/app/api/v2/mcp-complete/route';
+import { resetEnvCache } from '@/lib/config';
+import { installMcpKeyStub, MCP_TEST_CLIENT_ID, withMcpKey } from './helpers/mcp-key';
+
+// Every request presents a valid key (#314); the gate itself is tested in
+// mcp-complete-key.test.ts.
+beforeEach(async () => {
+  await installMcpKeyStub();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  resetEnvCache();
+});
 
 const SYSTEM_USER = {
   id: 'system-user-id',
@@ -68,7 +82,7 @@ const MOCK_THREAD = {
 };
 
 function makePostRequest(body: unknown, clientId?: string): NextRequest {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = withMcpKey({ 'Content-Type': 'application/json' });
   if (clientId !== undefined) headers['X-Ansari-Client'] = clientId;
   return new NextRequest('http://localhost/api/v2/mcp-complete', {
     method: 'POST',
@@ -81,9 +95,9 @@ function makeGetRequest(query?: string, clientId?: string): NextRequest {
   const url = query
     ? `http://localhost/api/v2/mcp-complete?q=${encodeURIComponent(query)}`
     : 'http://localhost/api/v2/mcp-complete';
-  const init: { method: string; headers?: Record<string, string> } = { method: 'GET' };
-  if (clientId !== undefined) init.headers = { 'X-Ansari-Client': clientId };
-  return new NextRequest(url, init);
+  const headers = withMcpKey();
+  if (clientId !== undefined) headers['X-Ansari-Client'] = clientId;
+  return new NextRequest(url, { method: 'GET', headers });
 }
 
 /** Creates a mock async generator that yields facilitator events */
@@ -202,14 +216,16 @@ describe('POST /api/v2/mcp-complete', () => {
     expect(body.error).toBe('Gemini API timeout');
   });
 
-  it('does not require authentication', async () => {
-    // No Authorization header — should still work
+  it('requires a key (#314): no Authorization header → 401, the facilitator never runs', async () => {
     const request = makePostRequest({
       messages: [{ role: 'user', content: 'Test' }],
     });
+    request.headers.delete('authorization');
 
     const response = await POST(request);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toStrictEqual({ error: 'Unauthorized' });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
   });
 
   it('creates thread and messages in DB', async () => {
@@ -223,7 +239,7 @@ describe('POST /api/v2/mcp-complete', () => {
       {
         userId: SYSTEM_USER.id,
         source: 'ai-skill',
-        client: null,
+        client: MCP_TEST_CLIENT_ID,
       },
       expect.anything() // tx executor (issue #20)
     );
@@ -406,7 +422,7 @@ describe('mcp-complete empty-answer backstop (issue #60)', () => {
   });
 });
 
-describe('mcp-complete client attribution (spec 56)', () => {
+describe('mcp-complete client attribution (#314: the key decides)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupSuccessfulMocks();
@@ -415,34 +431,36 @@ describe('mcp-complete client attribution (spec 56)', () => {
     mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfter: 0 });
   });
 
-  it('POST attributes thread + all messages from X-Ansari-Client (source stays ai-skill)', async () => {
+  it("POST attributes thread + all messages to the key's client, not X-Ansari-Client (source stays ai-skill)", async () => {
     await POST(makePostRequest({ messages: [{ role: 'user', content: 'Q' }] }, 'muslimpedia'));
 
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }),
+      expect.objectContaining({ source: 'ai-skill', client: MCP_TEST_CLIENT_ID }),
       expect.anything()
     );
+    expect(mockCreateMessage).toHaveBeenCalled();
     for (const [arg] of mockCreateMessage.mock.calls) {
-      expect(arg).toEqual(expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }));
+      expect(arg).toEqual(expect.objectContaining({ source: 'ai-skill', client: MCP_TEST_CLIENT_ID }));
     }
   });
 
-  it('GET attributes thread + messages from the header (distinct entrypoint from POST)', async () => {
+  it("GET attributes thread + messages to the key's client (distinct entrypoint from POST)", async () => {
     await GET(makeGetRequest('What is Islam?', 'muslimpedia'));
 
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: 'muslimpedia' }),
+      expect.objectContaining({ source: 'ai-skill', client: MCP_TEST_CLIENT_ID }),
       expect.anything()
     );
+    expect(mockCreateMessage).toHaveBeenCalled();
     for (const [arg] of mockCreateMessage.mock.calls) {
-      expect(arg).toEqual(expect.objectContaining({ client: 'muslimpedia' }));
+      expect(arg).toEqual(expect.objectContaining({ client: MCP_TEST_CLIENT_ID }));
     }
   });
 
-  it('client is null when the header is absent (unchanged behavior)', async () => {
+  it("client is the key's when the header is absent", async () => {
     await POST(makePostRequest({ messages: [{ role: 'user', content: 'Q' }] }));
     expect(mockCreateThread).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'ai-skill', client: null }),
+      expect.objectContaining({ source: 'ai-skill', client: MCP_TEST_CLIENT_ID }),
       expect.anything()
     );
   });

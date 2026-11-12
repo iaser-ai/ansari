@@ -66,6 +66,7 @@ export function setAuthEnv(baseUrl: string): void {
   process.env.CORS_ORIGIN = 'http://localhost:3100';
   process.env.AUTH_LAYER_ORIGIN = TEST_LAYER_ORIGIN;
   process.env.NODE_ENV = 'test';
+  process.env.ENVIRONMENT = 'development'; // required everywhere, no default (#314, owner)
   process.env.AUTH_JWT_ISSUER = TEST_JWT_ISSUER;
   process.env.AUTH_JWT_AUDIENCE = TEST_JWT_AUDIENCE;
   process.env.RESEND_API_KEY = 're_test_key_at_least_20_chars';

@@ -1,3 +1,4 @@
+import { ENVIRONMENTS, environmentIssue } from '@ansari/types/environment';
 import { z } from 'zod';
 
 const AUTH_SERVICE_VARS = [
@@ -7,7 +8,7 @@ const AUTH_SERVICE_VARS = [
   'AUTH_LAYER_ORIGIN',
 ] as const;
 
-const envSchema = z.object({
+export const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
@@ -113,6 +114,14 @@ const envSchema = z.object({
   // against /v1/chat/completions with this bearer token. Optional in dev.
   LEADERBOARD_API_KEY: z.string().min(32).optional(),
 
+  // How /v2/mcp-complete treats its service key (#314): `log-only` verifies
+  // and records the verdict but serves anyway (the rollout week); `enforce`
+  // (the default when unset) refuses a missing or invalid key. Any other value
+  // fails validation, so a typo can never quietly open the route. Remove it
+  // and the log-only branch one week after enforcement; the follow-up issue
+  // is opened at enforce (rollout step 6).
+  MCP_COMPLETE_KEY_MODE: z.enum(['log-only', 'enforce']).optional(),
+
   // App version control
   MAINTENANCE_MODE: z
     .enum(['true', 'false', 'True', 'False', '1', '0'])
@@ -125,7 +134,14 @@ const envSchema = z.object({
 
   // Optional
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // The deployment label (#314 Amendment 3): the Sentry environment. Required
+  // everywhere, no default (owner, 2026-11-12); staging or production under
+  // NODE_ENV=production (below). Checked at production boot
+  // (lib/boot-check.ts), at first config access elsewhere, never at build.
+  ENVIRONMENT: z.enum(ENVIRONMENTS),
 }).superRefine((env, ctx) => {
+  const environment = environmentIssue(env.NODE_ENV, env.ENVIRONMENT);
+  if (environment) ctx.addIssue({ code: 'custom', path: ['ENVIRONMENT'], message: environment });
   if (env.NODE_ENV === 'production') {
     for (const name of AUTH_SERVICE_VARS) {
       if (!env[name]) {
@@ -268,6 +284,11 @@ export const config = {
     return {
       apiKey: getEnv().LEADERBOARD_API_KEY,
     };
+  },
+
+  /** /v2/mcp-complete's key rollout mode (#314); `enforce` when unset. */
+  get mcpCompleteKeyMode(): 'log-only' | 'enforce' {
+    return getEnv().MCP_COMPLETE_KEY_MODE ?? 'enforce';
   },
 
   get appVersion() {

@@ -173,3 +173,27 @@ export function whatsappHits(files: readonly { path: string; source: string }[])
   }
   return hits;
 }
+
+// ── Scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12) ──
+
+/**
+ * Our code reads only our own names; the hosting platform's are mapped in its
+ * dashboard (owner, 2026-11-12, via main, #314). Any `RAILWAY_*` name in code
+ * counts, whatever the access path (`process.env.X`, `process.env['X']`, or a
+ * helper taking the name as a string, as apps/mcp's `setting(env, 'X')` does);
+ * comments do not, since docs explaining the rule name the variables.
+ */
+const RAILWAY_NAME = /\bRAILWAY_[A-Z0-9_]+\b/g;
+
+/** Each RAILWAY_* name the code (comments removed) mentions, in order. */
+export function railwayEnvHits(source: string): string[] {
+  return codeWithoutComments(source).match(RAILWAY_NAME) ?? [];
+}
+
+/**
+ * The declared exceptions, by file and name. apps/mcp's release fallback is
+ * main's lane; issue #377 removes the read and then this entry.
+ */
+export const RAILWAY_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  'apps/mcp/src/server/runtime-config.ts': ['RAILWAY_GIT_COMMIT_SHA'], // #377
+};

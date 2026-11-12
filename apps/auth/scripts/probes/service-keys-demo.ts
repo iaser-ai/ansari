@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     console.log(`\n$ tsx scripts/service-keys.ts ${argv.join(' ')}`);
     const { lines, exitCode } = await serviceKeys(argv, {
       databaseUrl,
+      environment: 'development',
       connect: () => ({ db, auth }),
       recorder,
       print: (line) => console.log(line),
@@ -61,7 +62,7 @@ async function main(): Promise<void> {
   await step(['create-service', 'whatsapp', '--confirm', 'whatsapp']);
   const shown = await step(['create-key', 'whatsapp', ...LIMITS, '--client-id', 'whatsapp-service']);
   const userId = idIn(shown, /^ {2}id {10}([0-9a-f-]{36})$/);
-  const first = idIn(await step(['create-key', 'whatsapp', ...LIMITS, '--client-id', 'whatsapp-service', '--confirm', userId]), /^Created key ([0-9a-f-]{36})/);
+  const first = idIn(await step(['create-key', 'whatsapp', ...LIMITS, '--client-id', 'whatsapp-service', '--confirm', userId]), /^Created \w+ key ([0-9a-f-]{36})/);
   await step(['list', 'whatsapp']);
   await step(['rotate', 'whatsapp', ...LIMITS, '--confirm', userId]);
   await step(['update-limits', 'whatsapp', '--key', first, '--rate-max', '120', '--rate-window', '60', '--daily', '6000', '--confirm', first]);
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
   const text = transcript.join('\n');
   const { username, password, pathname, protocol } = new URL(databaseUrl);
   const leaks = [databaseUrl, `${username}:${password}@`, `${pathname}`, `${protocol}//`].filter((s) => text.includes(s));
-  const keys = text.match(/ansari_wa_[A-Za-z]{64}/g) ?? [];
+  const keys = text.match(/ansari_wa_development_[A-Za-z]{64}/g) ?? [];
   console.log(`\nCHECK database printed as hostname:port only: ${leaks.length === 0 ? 'PASS' : `FAIL (${leaks.join(', ')})`}`);
   console.log(`CHECK two keys created, each printed once: ${keys.length === 2 && new Set(keys).size === 2 ? 'PASS' : `FAIL (${keys.length})`}`);
   process.exit(leaks.length === 0 && keys.length === 2 ? 0 : 1);

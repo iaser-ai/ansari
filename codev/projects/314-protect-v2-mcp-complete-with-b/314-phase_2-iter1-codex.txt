@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Phase 2 is well implemented, but one approved acceptance criterion is explicitly weakened.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `service-verify.test.ts` permits an expired key row to be deleted (`kept: false`), while spec scenario 2 requires every refusal row to remain. Since Better Auth deletes expired keys, reconcile this through an approved spec/plan amendment or preserve the row; do not claim scenarios 1–15 pass unchanged.

@@ -1,0 +1,26 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Both requested code fixes landed, but the PR is again behind develop and has unresolved documentation/security consistency issues.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `wa_` compatibility is correctly implemented and explicitly exchange-tested. However, `SECRET_SCANNING_PATTERNS.whatsapp` ignores `LEGACY_PREFIXES`, so its canonical pattern does not detect accepted `wa_<64 letters>` keys, contradicting the spec’s single-derived-table invariant and comments in `service-users.ts`.
+- `RAILWAY_ENVIRONMENT` is correctly removed from `turbo.json`. The branch was rebased, but `develop` subsequently advanced by eight commits (PR #376), so it is no longer current.
+- The committed review document does not contain the iteration-3 resolution. Its update, rebuttal, and consultation artifacts remain uncommitted, leaving the PR’s review record incomplete.
+- `apps/auth/scripts/service-keys.ts:561` still initializes Sentry with `NODE_ENV`, not `ENVIRONMENT`. Operator events in staging therefore remain labelled `production`, contrary to Amendment 3’s Sentry-environment requirement.
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/api/v2/mcp-complete` with environment-labelled `ansari-mcp` service keys verified through apps/auth. It adds fail-closed enforcement, rollout logging, trusted key attribution, operational tooling, and deployment documentation.
+
+  ## Key Changes
+  - Adds the apps/auth service-key verification route and MCP key lifecycle support.
+  - Gates GET and POST MCP completion requests with enforce/log-only modes.
+  - Adds environment-labelled prefixes while temporarily supporting legacy keys.
+  - Documents issuance, deployment, monitoring, rotation, and migration.
+
+  ## Test Plan
+  - Rebase onto current `develop` and run the full build and non-E2E test suite.
+  - Verify legacy `wa_`, unlabelled, labelled, and cross-environment key behavior.
+  - Test canonical secret-scanning patterns against every accepted legacy prefix.
+  - Confirm service-key script Sentry events use `ENVIRONMENT`.

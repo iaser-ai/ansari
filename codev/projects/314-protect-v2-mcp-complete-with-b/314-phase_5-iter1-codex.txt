@@ -1,0 +1,7 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Documentation is comprehensive, but the MCP alert runbook contains one incorrect diagnostic.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `docs/cutover/service-keys-runbook.md:378` says a key configured without `Bearer ` can trigger apps/auth’s `unauthorized-volume` alert. It cannot: apps/api classifies this as `missing` and never calls the verify route. Remove that cause or direct operators to the apps/api `missing` verdict instead.
