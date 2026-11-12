@@ -1,7 +1,7 @@
 id: '381'
 title: apps-api-test-coverage-inputs-
 protocol: air
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,7 +13,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-12T01:00:23.598Z'
-updated_at: '2026-11-12T01:18:00.643Z'
+updated_at: '2026-11-12T01:18:03.393Z'
 pr_history:
   - phase: implement
     pr_number: 382
