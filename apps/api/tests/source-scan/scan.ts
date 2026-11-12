@@ -1,7 +1,7 @@
 // Source scans for spec 300 (plan phase 9): the legacy auth model is gone from
 // runtime code and stays gone. The scanner reads code through the TypeScript
 // parser, so comments never count: a column named in a comment is not a query.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -191,9 +191,25 @@ export function railwayEnvHits(source: string): string[] {
 }
 
 /**
- * The declared exceptions, by file and name. apps/mcp's release fallback is
- * main's lane; issue #377 removes the read and then this entry.
+ * The trees scan 6 covers (#377): every app's `src/` and `lib/`, and every
+ * package under `packages/`. A directory that does not exist is skipped, so
+ * a new app or package joins the scan without an edit here.
  */
-export const RAILWAY_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-  'apps/mcp/src/server/runtime-config.ts': ['RAILWAY_GIT_COMMIT_SHA'], // #377
-};
+export function railwayScanDirs(): string[] {
+  const dirs = (parent: string) =>
+    readdirSync(path.join(REPO_ROOT, parent))
+      .map((name) => path.join(parent, name))
+      .filter((rel) => statSync(path.join(REPO_ROOT, rel)).isDirectory());
+  const apps = dirs('apps').flatMap((app) => [path.join(app, 'src'), path.join(app, 'lib')]);
+  return [...apps, ...dirs('packages')].filter((rel) => existsSync(path.join(REPO_ROOT, rel)));
+}
+
+/** Each file whose code names a RAILWAY_* variable, with the names it names. No file is exempt. */
+export function railwayTreeHits(files: readonly { path: string; source: string }[]): Record<string, string[]> {
+  const hits: Record<string, string[]> = {};
+  for (const file of files) {
+    const found = railwayEnvHits(file.source);
+    if (found.length > 0) hits[file.path] = found;
+  }
+  return hits;
+}

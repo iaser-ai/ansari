@@ -92,10 +92,10 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai` (the default is production) |
 > | `ANSARI_CLIENT` | `ansari-mcp-staging` |
 > | `ANSARI_API_AUTHORIZATION` | `Bearer ansari_mcp_staging_<64 letters>`: the staging key, made in the staging auth shell with `--client-id ansari-mcp-staging` and set **before** apps/api staging deploys #314 (`docs/cutover/service-keys-runbook.md`) |
+> | `ANSARI_RELEASE` | `${{RAILWAY_GIT_COMMIT_SHA}}`, a Railway reference variable: the commit is mapped here, in the dashboard, because the code reads no `RAILWAY_*` variable (#377). Unset, the release is the application version |
 >
-> `ANSARI_RELEASE` is **not** set: the release falls back to `RAILWAY_GIT_COMMIT_SHA`. `MCP_ALLOWED_ORIGINS` is left
-> unset at first: it defaults to the allowed hosts, and requests without an Origin pass. The Cloudflare Workers path
-> (`apps/mcp/wrangler.jsonc`) is not this deployment.
+> `MCP_ALLOWED_ORIGINS` is left unset at first: it defaults to the allowed hosts, and requests without an Origin
+> pass. The Cloudflare Workers path (`apps/mcp/wrangler.jsonc`) is not this deployment.
 >
 > **auth service (spec 300)** — one listener: the public domain
 > (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as

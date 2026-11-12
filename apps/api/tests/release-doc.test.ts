@@ -178,7 +178,10 @@ describe('RELEASE.md consistency', () => {
       expect(doc).toContain('| `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai`');
       expect(doc).toContain('| `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai`');
       expect(doc).toContain('| `ANSARI_CLIENT` | `ansari-mcp-staging` |');
-      expect(doc).toContain('`ANSARI_RELEASE` is **not** set');
+      // The release maps the platform's commit in the dashboard, never in code (#377).
+      expect(doc).toContain('| `ANSARI_RELEASE` | `${{RAILWAY_GIT_COMMIT_SHA}}`');
+      expect(doc).not.toContain('`ANSARI_RELEASE` is **not** set');
+      expect(doc).not.toContain('falls back to `RAILWAY_GIT_COMMIT_SHA`');
       expect(doc).toContain('`https://<domain>/mcp`');
       expect(doc.replace(/\n> /g, ' ')).toContain('set `PORT=3000` as a service variable so Railway does not assign its own');
     });
