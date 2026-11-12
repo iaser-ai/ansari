@@ -26,13 +26,13 @@ function okJson(body: unknown) {
 const HADITH_RESULT = {
   id: '2_38_5_5524',
   source_book: 'Sahih Bukhari',
-  chapter_number: '2',
+  chapter_number: 2,
   chapter_english: 'Belief',
-  section_number: '1',
+  section_number: 1,
   section_english: 'Faith',
-  hadith_number: '8',
+  hadith_number: 8,
   en_text: 'Islam is based on five...',
-  ar_text: 'بُنِيَ الإسلام',
+  text: 'بُنِيَ الإسلام',
   grade_en: 'Sahih',
 };
 
