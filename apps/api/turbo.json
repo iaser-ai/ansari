@@ -55,19 +55,36 @@
       ]
     },
 
-    // CI runs the same pin through test:coverage, so it needs the root
-    // package.json too. Overriding `inputs` replaces the root task's list, so
-    // the inherited entries are repeated.
-    // Source-scan 6's trees likewise (#314, #377): CI runs it through this task.
+    // CI runs this task, not `test`, so it lists EXACTLY the same inputs:
+    // overriding `inputs` replaces the root task's list, and turbo cannot share
+    // one between tasks, so the list is repeated. Every entry `test` has and
+    // this lacked left ansari-api#test:coverage at the same hash when only that
+    // file changed, and a warm cache replayed a stale doc or scan result (#381;
+    // patched one entry at a time before by #330, #314, #377).
+    // tests/turbo-coverage-inputs.test.ts fails if the two lists differ.
     "test:coverage": {
       "inputs": [
         "$TURBO_DEFAULT$",
         ".env.ci",
-        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/auth/scripts/**",
         "$TURBO_ROOT$/apps/*/src/**",
         "$TURBO_ROOT$/apps/*/lib/**",
         "$TURBO_ROOT$/packages/**",
-        "$TURBO_ROOT$/apps/auth/scripts/**"
+        "$TURBO_ROOT$/apps/auth/tests/helpers/**",
+        "$TURBO_ROOT$/packages/auth/drizzle/**",
+        "$TURBO_ROOT$/packages/auth/tests/helpers/**",
+        "$TURBO_ROOT$/RELEASE.md",
+        "$TURBO_ROOT$/CONTRIBUTING.md",
+        "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/docs/**",
+        "$TURBO_ROOT$/.github/ISSUE_TEMPLATE/**",
+        "$TURBO_ROOT$/.github/scripts/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/.gitleaksignore",
+        "$TURBO_ROOT$/.gitleaks.toml",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/*/railway.toml",
+        "$TURBO_ROOT$/legacy/*/railway.toml"
       ]
     }
   }
