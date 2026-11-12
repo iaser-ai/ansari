@@ -1,0 +1,30 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Core fixes are correct, but the required RAILWAY_* scan does not cover all apps/api code.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `API_RUNTIME` omits `apps/api/scripts/**`, unlike the auth scan. Consequently, a `RAILWAY_*` read in an API operator script bypasses source-scan 6. Add `sourceFiles('apps/api/scripts')`.
+- Stale comments still imply MCP accepts a legacy prefix (`service-verify.ts:81,138`) and that apps/frontend shares `ENVIRONMENT` (`sentry.server.config.ts:9`). Update them to match the closed MCP window and legacy-frontend origin.
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/v2/mcp-complete` with environment-labelled MCP service keys verified through apps/auth. It also adds production environment validation, rollout documentation, source guards, and production-shaped boot probes.
+
+  ## Key Changes
+  - Adds MCP key verification, attribution, refusal handling, and log-only rollout mode.
+  - Adds environment-labelled service keys and closes the MCP legacy-prefix window.
+  - Adds source scans, Sentry assertions, boot probes, and operational documentation.
+
+  ## Test Plan
+  - Run API, auth, and shared-package unit/integration suites.
+  - Run both production boot probes against an unreachable database.
+  - Verify source-scan 6 fails for planted `RAILWAY_*` reads in every covered tree.
+
+---
+
+## ⚠️ REPOSITORY MOVED during the codex review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: 1f936578211a1681a57acd1cfa57dc97864aad99 -> 790331f2712df097c4b48a81bd5c79336a8fe94b
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

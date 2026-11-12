@@ -65,7 +65,7 @@ schema types. The artwork owner has authorized contribution and redistribution w
 
 ## Development
 
-Requires Node 22.18 or later and pnpm 10.33. Install once from the repository root using its authoritative lockfile. Run the app explicitly; root build, test, typecheck and coverage retain their existing scope, while root lint includes this application.
+Requires Node 22.18 or later and pnpm 10.33. Install once from the repository root using its authoritative lockfile. Root build, test, typecheck and coverage retain their existing scope; root lint and root `pnpm dev` include this application.
 
 ```sh
 pnpm install --frozen-lockfile --strict-peer-dependencies --filter ansari-mcp...
@@ -78,7 +78,26 @@ pnpm mcp test:browser
 pnpm mcp start
 ```
 
-`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` runs the Node entry source (`src/node/index.ts`) after `build`. The synthetic browser harness is test-only and uses no credentials or live answers.
+`build` writes `dist/view.html` and a bundled `dist/server/index.js`. No API/auth/frontend build or SDK source checkout is needed. `dev` runs the Node entry source through `scripts/dev.ts` (see below) and needs `dist/view.html`: under turbo (`pnpm dev`, `pnpm dev:mcp`) the cached `build` task runs first (it shows as its own task, `ansari-mcp#build`); run directly, `pnpm mcp build` first. The synthetic browser harness is test-only and uses no credentials or live answers.
+
+### Local development
+
+The root `pnpm dev` starts this server beside apps/api, apps/auth and the frontend (`pnpm dev:mcp` starts it alone). `scripts/dev.ts` loads `apps/mcp/.env` when it exists (git-ignored), then fills only what is still unset: `PORT` 3001 (apps/api has 3000) and `ANSARI_API_BASE_URL` `http://localhost:3000`. `.env.example` sets `PORT=3000` for the Railway service, so if you copied it to `.env`, set `PORT=3001` there or drop the line; the dev server warns when `PORT` is 3000. Hosts connect at `http://localhost:3001/mcp`.
+
+A local apps/api enforces the `ansari-mcp` key like a deployed one (#314). Either issue a local key and put the whole header in `apps/mcp/.env`:
+
+```sh
+# from apps/auth/, against the local auth database (ENVIRONMENT=development): show, then confirm
+pnpm exec tsx scripts/service-keys.ts create-service ansari-mcp            # once, then again with --confirm ansari-mcp
+pnpm exec tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 \
+  --name "local dev" --client-id ansari-mcp-local                          # then again with --confirm <user id>
+# apps/mcp/.env
+ANSARI_API_AUTHORIZATION=Bearer ansari_mcp_development_<64 letters>
+```
+
+or run apps/api with `MCP_COMPLETE_KEY_MODE=log-only`, which serves requests without a key and logs the verdict `missing`. Without either, every tool call fails: apps/api answers 401, and the dev server warns at start. The dev entry is for local work only; deployments run `pnpm start` (`dist/`) or the Worker entry.
+
+To try the tools by hand, `pnpm mcp inspect` opens the MCP Inspector (latest, via npx) connected to `http://localhost:3001/mcp` over Streamable HTTP; call `answer_islamic_question` from its Tools tab.
 
 `test` runs `build` and `build:worker` itself before any test, because the tests run the built artifacts: without a fresh build they pass against a stale `dist/`. `test:browser` reads `dist/view.html` without building, so run it after `test` (as `verify` and the Turbo task order do).
 
@@ -107,12 +126,12 @@ The Worker takes the variables in the table below as Wrangler `vars` or secrets,
 | --- | --- |
 | `PORT` | HTTP port (default 3000). |
 | `ANSARI_API_BASE_URL` | Ansari API origin (default `https://api.askansari.ai`). |
-| `ANSARI_API_AUTHORIZATION` | Optional upstream Authorization header. Supply through the environment; never commit it. |
+| `ANSARI_API_AUTHORIZATION` | Upstream Authorization header, sent verbatim: `Bearer ansari_mcp_<environment>_<64 letters>`, the word `Bearer`, a space, then this deployment's `ansari-mcp` service key (its prefix names the environment it was issued in: `development`, `staging` or `production`, and only that environment's API accepts it). Required for any deployment that calls a deployed Ansari API: `/api/v2/mcp-complete` refuses a call without a valid key (401) once it enforces (#314). A local apps/api enforces too (its default); leave it unset only against a local API run with `MCP_COMPLETE_KEY_MODE=log-only`. Issued per deployment by the operator (`docs/cutover/service-keys-runbook.md`); set it with `wrangler secret put ANSARI_API_AUTHORIZATION --env <env>` on Workers or as a service variable on Railway, never commit it. |
 | `ANSARI_CLIENT` | Upstream client label (default `ansari-mcp`). |
 | `MCP_ALLOWED_HOSTS` | Comma-separated allowed HTTP Host names, without scheme. A configured list replaces local defaults; an explicitly empty list permits no Host. Only an absent variable defaults to localhost and 127.0.0.1. |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated allowed browser origin hostnames. A configured list replaces defaults; an explicitly empty list permits no Origin header value. Requests without Origin remain supported. |
 | `MCP_RESPONSE_MODE` | `json` for modern MCP final-answer-only responses; otherwise SSE, which supports client-requested progress notifications. Older-host compatibility responses may use SSE. |
-| `ANSARI_RELEASE` | Optional safe release identifier, embedded in served HTML and health/log records. |
+| `ANSARI_RELEASE` | Optional safe release identifier, embedded in served HTML and health/log records. Absent or unsafe, the release is the application version. On Railway, set it in the dashboard to the reference `${{RAILWAY_GIT_COMMIT_SHA}}`; the code reads no `RAILWAY_*` variable. |
 | `MCP_VIEW_DIAGNOSTICS_ORIGIN` | Set only on a deployment being diagnosed: its own public origin, such as `https://ansari-mcp-development.up.railway.app`. The card may then connect to that one origin and reports its start-up milestones to `POST /diag/view`; this changes the card's bytes and permissions, not its address. Unset, the card, its address and its closed permissions are unchanged and the route does not exist. A value that is not a bare `https` origin (`http` only for localhost) stops startup. Implies `MCP_LOG_LEVEL=debug`. See [First-load diagnosis](#first-load-diagnosis). |
 | `MCP_LOG_LEVEL` | `info` (default) or `debug`. `debug` also writes the first-load measurement records; set it only on a deployment being measured. Any other value, or `info` together with `MCP_VIEW_DIAGNOSTICS_ORIGIN`, stops startup. |
 
@@ -211,6 +230,8 @@ Artwork is embedded as actual SVG/PNG data in application-local TypeScript modul
 ## Continuous verification
 
 The `MCP application` workflow runs for app, lockfile, workspace, root manifest/ignore, workflow and shared lint configuration changes on PRs and develop/main pushes. It installs the root lockfile frozen, then runs app lint, typechecking, both builds, tests and browser checks. `bash apps/mcp/scripts/verify-container.sh` performs one uncached root-context Docker build and verifies health, synthetic tool calls, full attribution, safe failure/recovery and resource identity in a container with no external network or mounted files. It removes its container and image on exit. Node 22, pnpm 10.33, Docker and Chromium system dependencies are required.
+
+The Docker image is deployed to Railway **staging** only (`mcp-staging.askansari.ai`; hosts connect at `https://<domain>/mcp`). Its settings are recorded in `apps/mcp/railway.toml` (not read by Railway: the dashboard is the live configuration) and its staging environment in `RELEASE.md`. The Workers path is not deployed.
 
 This job needs no host credentials. Deployment and actual
 ChatGPT, Claude and Alexa rendering remain separate integration checks.

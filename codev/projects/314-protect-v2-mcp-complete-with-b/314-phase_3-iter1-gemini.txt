@@ -1,0 +1,39 @@
+### Implementation Review — Phase 3: `apps/api` verify client and `MCP_COMPLETE_KEY_MODE` setting
+
+The Phase 3 implementation is clean, well-structured, and meets all acceptance criteria for this phase.
+
+#### 1. Spec & Plan Adherence
+- **Verify client ([`verifyServiceKey`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L161-L170))**:
+  - Uses [`authServiceFetch`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L50-L72) (3 s timeout, public origin, `Origin` header, no `Authorization` header) to `POST` `{ key, permissions: { mcp: ['complete'] } }` to [`SERVICE_VERIFY_PATH`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L139) (`/api/service/verify-key`).
+  - Strictly validates 200 responses with [`verifyServiceKeySchema`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L141-L148): `{ valid: true, client_id, key_id }` (enforcing [`isMcpClientId`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/types/src/attribution.ts#L48-L55) and non-empty `key_id`) or `.strict()` `{ valid: false }`.
+  - Fails closed by throwing [`AuthServiceUnavailableError`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L24-L33) on any non-200 status, network/timeout error, invalid JSON, extra fields on `{ valid: false }`, or off-pattern `client_id`.
+  - Emits no logs, preserving the client module's no-logging rule.
+- **Rollout configuration ([`config.mcpCompleteKeyMode`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts#L280-L282))**:
+  - [`envSchema`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts#L120) accepts `z.enum(['log-only', 'enforce']).optional()`, defaulting to `'enforce'` when unset and failing loudly at parse/boot on any other value.
+  - Four-way derivation is complete across [`apps/api/lib/config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts#L120), [`apps/api/.env.example`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/.env.example#L94-L95), [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L113), and [`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/turbo.json#L146).
+
+#### 2. Test Coverage
+- [`apps/api/tests/auth/verify-service-key.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/auth/verify-service-key.test.ts): Thoroughly covers request shape/headers, valid verdicts (base and suffixed `ansari-mcp*`), exact `{ valid: false }`, network errors, 3 s timeout via `AbortSignal.timeout`, non-200 statuses, non-JSON bodies, missing/empty fields, off-pattern client IDs, and extra fields on `{ valid: false }`.
+- [`apps/api/tests/config.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/config.test.ts#L308-L330) & [`apps/api/tests/boot-check.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/boot-check.test.ts#L69-L75): Cover absent default (`enforce`), valid values, invalid typos/casing/empty strings, and production boot rejection.
+- [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/self-hosting-docs.test.ts#L89-L96): Good addition verifying every key in `envSchema.shape` is documented in `docs/self-hosting.md`.
+
+#### 3. Minor Note (can be addressed now or in Phase 5 docs pass)
+- **Wording in [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L113)**:
+  - Line 113 currently states: *"An unreachable apps/auth is 503 in both modes."*
+  - Per Spec §3 ("In log-only mode the route verifies exactly as above, records the verdict, and then **always serves**, including when apps/auth is unreachable") and Phase 4 of the plan, an unreachable `apps/auth` returns 503 in `enforce` mode, whereas in `log-only` mode it records `unverified`, raises a Sentry warning, and still serves the request. Update that sentence in `docs/self-hosting.md` so it matches Spec §3 and Phase 4/5.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 implementation and tests are complete, fail-closed, and aligned with the spec and plan; one minor doc wording fix noted for `docs/self-hosting.md`.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES: None
+
+---
+
+## ⚠️ REPOSITORY MOVED during the gemini review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: 32755a99b2269e99e35259bb8285c985823c8956 -> 8a2a4da3fa3e434053f8e71b0e82df600a9bc78e
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

@@ -2,9 +2,12 @@
 
 How the operator issues, hands off, rotates, changes and revokes a service's API key, applies
 the migration they depend on, and answers the alerts the WhatsApp token exchange raises. The
-design and its reasons are in `codev/specs/329-apps-auth-service-api-keys-bet.md`.
+design and its reasons are in `codev/specs/329-apps-auth-service-api-keys-bet.md`. The
+`ansari-mcp` key (#314) has its own section,
+[The `ansari-mcp` key](#the-ansari-mcp-key-314): its issuance, handoff, limits and alerts differ;
+the script, revocation, the key log and secret scanning are shared.
 
-A **service** (the WhatsApp service; later `ansari-mcp`, #314) is one auth user with no
+A **service** (the WhatsApp service, or `ansari-mcp`, #314) is one auth user with no
 credential, under `@noreply.askansari.ai`, found by its `{provider_id: 'service', account_id:
 <name>}` account row. Its **keys** are rows in `auth.apikey`, created through the
 `@better-auth/api-key` plugin in process. The plugin's HTTP surface is blocked, so
@@ -23,7 +26,7 @@ start without it), from `apps/auth/`:
 | Command | Does |
 |---|---|
 | `create-service <service>` | Creates the service user and its `service` account row, in one transaction. Refuses a second one. |
-| `create-key <service> --rate-max <n> --rate-window <seconds> --daily <n> [--name <text>] [--client-id <text>]` | Issues a key. Prints the raw key **once**. |
+| `create-key <service> --rate-max <n> --rate-window <seconds> --daily <n> [--name <text>] [--client-id <text>]` | Issues a key whose prefix names the environment (`ansari_<service>_<ENVIRONMENT>_`). Prints the raw key **once**. |
 | `list <service>` | Lists the service's keys: id, name, enabled, limits, budget left, last request. Never a key or a hash. |
 | `rotate <service>` (the `create-key` flags) | Issues a second live key beside the current one(s). Prints the new raw key once. |
 | `update-limits <service> --key <key id> --rate-max <n> --rate-window <seconds> --daily <n>` | Changes one key's limits in place. |
@@ -37,7 +40,14 @@ and the service name for `create-service`, which has no user yet. `--name` and `
 1 to 64 letters, digits, spaces, dots, underscores and hyphens; a value that looks like a key is
 refused, since both are printed by `list` and sent to Sentry. Without `SENTRY_DSN` every write
 prints the key-log banner and exits 3 (no record is attempted). The script
-prints the database as `hostname:port` only. Limits have no defaults and are checked against the
+prints the database as `hostname:port` only, and under it `ENVIRONMENT`, which the script reads
+from its process env (the auth service's own variable, so the Railway shell has it) and refuses
+to run without (#314 Amendment 3). `ENVIRONMENT` has **no default in any process** (owner,
+2026-11-12): each deployed service, every operator shell that runs this script (an off-Railway
+shell, e.g. a checkout over the Tailscale route, must export it as the service has it), and local
+dev (`development` in `apps/*/.env`). A new key's prefix carries it: `ansari_wa_production_`,
+`ansari_mcp_staging_`, …, and each environment's routes refuse a key labelled for another, so
+check the two lines agree before `--confirm`. Limits have no defaults and are checked against the
 bounds in `packages/auth/src/limits.ts`; there is no expiry option and no budget without a
 daily refill (a budget that does not refill deletes the key the first time it runs out).
 
@@ -252,16 +262,198 @@ per prefix, with exactly these patterns (the `.source` of `SECRET_SCANNING_PATTE
 
 | Service | Pattern |
 |---|---|
-| `whatsapp` | `ansari_wa_[A-Za-z]{64}` |
-| `ansari-mcp` | `ansari_mcp_[A-Za-z]{64}` |
+| `whatsapp` | `ansari_wa_(?:(?:development\|staging\|production)_)?[A-Za-z]{64}` |
+| `ansari-mcp` | `ansari_mcp_(?:development\|staging\|production)_[A-Za-z]{64}` |
+
+These replace the patterns registered before #314 (`ansari_wa_[A-Za-z]{64}` and
+`ansari_mcp_[A-Za-z]{64}`), which miss an environment-labelled key: edit each pattern in place.
+The WhatsApp pattern's environment segment is optional while unlabelled WhatsApp keys are live
+(next paragraphs); the `ansari-mcp` pattern's is not, since no unlabelled MCP key can exist (its
+key path ships with #314).
 
 When one fires: **revoke the key at once** (`list`, then `revoke`), rotate so the consumer keeps
 working, check the alerts and the key's last request for use you cannot explain, and record it in
 the key log. Then remove the key from the repository's history; revoking first matters more.
 
 **The prefix change of 2026-10-30.** Keys were first issued as `wa_` followed by 64 letters, and
-are now `ansari_wa_` (and `ansari_mcp_`). A `wa_` key still verifies, because a key is checked by
+are now `ansari_wa_` (and `ansari_mcp_`). A `wa_` key still verifies during the compatibility window below, because a key is checked by
 the hash of the whole key, so nothing breaks; but replace it: `rotate whatsapp` (prints an
 `ansari_wa_` key once), switch the consumer's variable to it, then `revoke` the old key. Keep the
-old organisation pattern (`wa_` followed by 64 letters) registered beside the new ones until the
-last `wa_` key is revoked, then remove it.
+old organisation pattern (`wa_[A-Za-z]{64}`, the `.source` of `LEGACY_SCANNING_PATTERNS.whatsapp`
+in `service-users.ts`) registered beside the new ones until the last `wa_` key is revoked, then
+remove it.
+
+**Environment labels (#314 Amendments 2 and 3, owner 2026-11-12).** Keys are now issued as
+`ansari_<service>_<ENVIRONMENT>_` followed by 64 letters, where `ENVIRONMENT` is the issuing auth
+service's (`development`, `staging` or `production`). Both routes (the WhatsApp exchange and the
+MCP verify route) serve only a key whose stored prefix names their own service and their own
+`ENVIRONMENT`; any other prefix (another environment's, another service's, a hand-made one) is
+their ordinary refusal (401 / `{"valid":false}`). The only exception is the compatibility window
+below.
+
+**Existing keys are unchanged.** A key's string is fixed when it is created, the plugin matches
+its hash, and `apikey.prefix` is written then and never rewritten. Adding the environment segment
+re-issues nothing: the staging `ansari_wa_` keys keep their format and keep verifying under the
+compatibility window.
+
+**Rotate legacy keys (the compatibility window, WhatsApp only).** An unlabelled WhatsApp key
+(`ansari_wa_`, or the pre-rename `wa_`, followed directly by 64 letters; `list` shows its
+`prefix`) is still accepted while `LEGACY_UNLABELLED_KEYS` is `true` (`LEGACY_PREFIXES` in
+`service-users.ts`). `ansari-mcp` has no window: its verify route accepts only labelled keys.
+Before this deploys, `list ansari-mcp` on each auth database should show no key with the bare
+`ansari_mcp_` prefix; one made by hand on staging would be refused, so rotate it. Replace it, never reissue it in place: `rotate <service> …` in
+that environment's auth shell (a labelled key), hand it off to the consumer's variable, then
+`revoke` the old one. Staging has at least one (the
+WhatsApp smoke key). When `list whatsapp` and `list ansari-mcp` show no live unlabelled key on any
+database, retire the legacy form in one change: set `LEGACY_UNLABELLED_KEYS` to `false` in
+`packages/auth/src/service-users.ts` (the routes then refuse the legacy prefixes, and the script
+and the patterns stop accepting them), deploy, remove the `wa_` pattern, and re-register the
+patterns with their closed-window `.source` (`scanningPatternFor(service, false)`; tests pin
+these strings to the code):
+
+| Service | Pattern after the window closes |
+|---|---|
+| `whatsapp` | `ansari_wa_(?:development\|staging\|production)_[A-Za-z]{64}` |
+| `ansari-mcp` | `ansari_mcp_(?:development\|staging\|production)_[A-Za-z]{64}` |
+
+The follow-up issue that closes the window is opened with this change's enforcement step.
+
+## The `ansari-mcp` key (#314)
+
+`POST /api/v2/mcp-complete` on apps/api takes an `ansari-mcp` key as `Authorization: Bearer
+<key>` and asks apps/auth whether it is good at `POST /api/service/verify-key` on every request.
+A missing or refused key is 401 `{"error":"Unauthorized"}`; apps/auth unreachable or slower than
+apps/api's client timeout (3 s) is 503 `{"error":"Authentication service unavailable"}`, with
+nothing persisted and no Gemini call. The design is in
+`codev/specs/314-protect-v2-mcp-complete-with-b.md`. The [script](#the-script),
+[revocation](#revocation-and-pruning), the [key log](#key-log) and
+[secret scanning](#secret-scanning) are the same as for WhatsApp; what differs is below.
+
+### Issuance
+
+**One key per MCP deployment** that calls a deployed apps/api, so each can be rotated or
+revoked alone and its traffic is attributed to it:
+
+| Deployment | Who sets its variable | `--client-id` | Created in |
+|---|---|---|---|
+| `mcp.ansari.chat` | the owner (owner-operated, outside this repository) | the owner's choice of `ansari-mcp*` id | the production auth shell (`ansari_mcp_production_`) |
+| `mcp-staging.askansari.ai` (apps/mcp on Railway, see `RELEASE.md`) | the operator, as a Railway service variable | `ansari-mcp-staging` (its `ANSARI_CLIENT`) | the staging auth shell (`ansari_mcp_staging_`) |
+| each apps/mcp Worker environment in use (apps/mcp's `wrangler.jsonc`) | the operator, as a Worker secret | its `ANSARI_CLIENT`: `ansari-mcp-dev`, `ansari-mcp-beta` or `ansari-mcp-production` | the auth shell of the environment whose apps/api that Worker calls |
+
+**Accepted residual: the label binds a key to its auth, not apps/api to its auth.** A production
+apps/api whose `AUTH_URL` points at staging auth (a dashboard mistake) verifies staging-labelled keys
+with every check passing, and nothing refuses or alerts. Check `AUTH_URL` against `ENVIRONMENT`
+on each apps/api deploy; a boot assertion pairing the two is a possible follow-up.
+
+1. apps/auth is deployed with the verify route (it ships with this change; there is no new
+   migration: `auth.apikey` is spec 329's `0001`).
+2. Once: `create-service ansari-mcp`, then `create-service ansari-mcp --confirm ansari-mcp`.
+3. Per deployment, in the auth shell of the environment it calls: `create-key ansari-mcp
+   --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id>`, read the shown user, then repeat with
+   `--confirm <user id>`. These are the initial values (`MCP_KEY_INITIAL`); see
+   [Limits](#limits-1).
+4. Hand the key off (next section) before you do anything else in the shell.
+
+`--client-id` is **required** for `ansari-mcp` and must be `ansari-mcp`, or `ansari-mcp-` and a
+suffix of lowercase letters, digits, dots, underscores and hyphens, 64 characters at most;
+anything else is refused with nothing written. The client id is thread attribution; the
+prefix's environment is key identification: they answer different questions and are set apart.
+It is what apps/api stores as the thread's `client`: a conflicting `X-Ansari-Client` header is ignored (Sentry warning
+`mcp-complete client mismatch`).
+
+**Staging order.** `mcp-staging.askansari.ai` sends no key today. Its key is created and set
+**before** apps/api on staging deploys #314: apps/api defaults to `enforce`, so a staging deploy
+without the key, or without `MCP_COMPLETE_KEY_MODE=log-only`, refuses every staging MCP call.
+
+### The handoff
+
+apps/mcp sends `ANSARI_API_AUTHORIZATION` **verbatim** as the `Authorization` header, so the
+value is the whole header: `Bearer ansari_mcp_<environment>_<64 letters>`, the word `Bearer`,
+one space, then the key. A key from another environment's auth shell is refused (401). A bare key is no bearer: apps/api answers 401 (verdict `missing` in log-only).
+
+- **Worker:** from `apps/mcp/`, `wrangler secret put ANSARI_API_AUTHORIZATION --env <env>`, and
+  paste the value at its prompt, straight from the shell you created the key in. Never put it on
+  the command line, in `wrangler.jsonc` or in a `.dev.vars.<env>` file.
+- **Railway (`mcp-staging`):** paste the value **straight into the mcp service's
+  `ANSARI_API_AUTHORIZATION` variable**, then let it redeploy.
+- **`mcp.ansari.chat`:** the owner sets their own upstream Authorization variable to the same
+  form.
+
+The rule of [The handoff](#the-handoff) holds: no chat, ticket, document or history file. Then
+clear the terminal.
+
+### Rollout: log-only, then enforce
+
+`MCP_COMPLETE_KEY_MODE` on apps/api: `enforce` (the default, and what an absent variable means)
+or `log-only`. Any other value stops apps/api at boot.
+
+1. Issue and hand off every deployment's key (above). Today's route ignores the header, so this
+   is safe at any time.
+2. Deploy apps/api with `MCP_COMPLETE_KEY_MODE=log-only`. It verifies every request, records the
+   verdict, and always serves, even with apps/auth down.
+3. Watch the verdicts for one week: the log line `[ai-skill] mcp-complete key verdict`
+   (`{verdict, keyId}`) and the Sentry tag `mcp_key_verdict`, one of `valid`, `missing` (no
+   bearer), `refused` (`valid: false`) or `unverified` (apps/auth gave no usable answer; also the
+   Sentry warning `mcp-complete key unverified (log-only)`). Expect no `missing` or `refused`
+   from the MCP servers.
+4. Remove the variable, which enforces.
+5. Open the follow-up issue due one week after the enforce date: remove log-only mode,
+   `MCP_COMPLETE_KEY_MODE` and its `turbo.json` entry, so a transition switch does not outlive
+   the transition as a way to turn auth off.
+
+In `enforce`, an apps/auth outage is a 503 for every MCP call (log line
+`[ai-skill] mcp-complete key verify unavailable`), never a 200 without a key.
+
+### Limits
+
+| Value | Initial | Meaning |
+|---|---|---|
+| `--rate-max` / `--rate-window` | 120 per 60 s | Per key, across all of that deployment's users together: the burst ceiling for its MCP traffic. |
+| `--daily` | 5,000 | The daily Gemini ceiling for the deployment, refilled every 24 h. |
+| apps/api per-IP cap | 120 per minute, per client IP | `RATE_LIMIT_PER_MINUTE` in `apps/api/src/app/api/v2/mcp-complete/route.ts`; a second layer, unchanged. |
+
+Every `mcp-complete` call is one verify, and each verify spends one unit of the key's budget and
+one slot of its window. A key at its cap answers `valid: false`, so its callers get 401. Like
+WhatsApp's, these values are **judgement, not measurement**, pending the owner's
+`threads.client` numbers; change them with `update-limits`. The accepted ranges
+(`MCP_KEY_BOUNDS` in `packages/auth/src/limits.ts`) equal WhatsApp's. The total ceiling is the
+sum over live keys.
+
+### Alerts
+
+Every verify alert is one Sentry event `auth: MCP key verify alert: <kind>`, tagged
+`alert: mcp-verify-<kind>`, with key ids, counts, thresholds and windows only, on the terms of
+the WhatsApp [Alerts](#alerts): at most once per 5-minute window, refusing nothing.
+
+| `kind` | Means | Do |
+|---|---|---|
+| `key-window-volume` | One key made `MCP_VERIFY_KEY_ALERT` (40) verifies inside its 60 s window: a third of its cap. At most once per key every 5 minutes. | Check that deployment for a loop. Expected only on a real surge. |
+| `key-daily-volume` | One key made `MCP_VERIFY_DAILY_ALERT` (1,666) verifies since its daily refill. | Compare with the deployment's traffic. A surge you trust: `update-limits`. Otherwise treat the key as leaked. |
+| `key-refused` (`USAGE_EXCEEDED` / `RATE_LIMITED`) | The key hit its budget or window; its callers are getting 401. | Users are affected now. Confirm the traffic is real, then `update-limits`; if not, rotate and revoke. |
+| `unauthorized-volume` | `valid: false` answers reached 20 in a window. | Outside a rotation a healthy MCP server sees none: a revoked key, a WhatsApp key, or someone guessing. Check each deployment's variable against `list ansari-mcp`. (A variable without `Bearer ` never reaches this route: apps/api records it as verdict `missing`.) |
+| `service-user-unresolvable` | The `ansari-mcp` service user is missing or not unique: every verify is a 500, so every MCP call is 503 (enforce). | `list ansari-mcp`; if it reports no or several service users, report to the security architect before changing anything. |
+| `client-id-invalid` | The plugin accepted a key whose `client_id` is missing or not `ansari-mcp*` (a key made outside the script); its caller got `valid: false`. The event names its `keyId`. | Revoke that key and issue a proper one with the script. Record how it came to exist in the key log. |
+
+### Rotation
+
+As [Rotation](#rotation), per deployment:
+
+1. `rotate ansari-mcp` with the same limit flags and **the same `--client-id`** as the current
+   key (see `list`), confirmed by id.
+2. Hand the new key off into that deployment's variable (`wrangler secret put … --env <env>`, the
+   Railway variable, or the owner's), and redeploy it.
+3. `list ansari-mcp`: the new key's last request moves, the old key's stops.
+4. `revoke ansari-mcp --key <old key id>`, confirmed by id.
+
+**While two keys are live, the deployment's ceiling doubles.** Keep the overlap to minutes.
+
+### Plugin upgrade check
+
+The verify route calls `verifyApiKey` in process; the plugin's own `POST /api-key/verify` must
+never be routed (its docs advertise one; 1.7.7, 1.7.20 and 1.8.0-beta.7 do not route it).
+Before any `@better-auth/api-key` bump, run apps/auth's tests: `apps/auth/tests/blocked-paths.test.ts`
+fails if `verifyApiKey` gains an HTTP path or the plugin's routed endpoints change, and asserts
+that `/api/auth/api-key/verify` (any case, trailing slash) is refused. A failure there blocks the
+bump until the blocked paths are re-checked by the security architect. Also re-read the plugin's
+changelog for verify's refusal codes and its expiry behaviour (it deletes an expired key on
+presentation, so expiry is never used on a key whose history matters).

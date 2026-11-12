@@ -1,0 +1,22 @@
+id: '377'
+title: mcp-stop-reading-railway-git-c
+protocol: air
+phase: pr
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-11-12T00:47:00.570Z'
+    approved_at: '2026-11-12T00:59:09.624Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-12T00:41:08.481Z'
+updated_at: '2026-11-12T00:59:09.625Z'
+pr_history:
+  - phase: pr
+    pr_number: 380
+    branch: builder/air-377
+    created_at: '2026-11-12T00:46:57.937Z'
+pr_ready_for_human: false

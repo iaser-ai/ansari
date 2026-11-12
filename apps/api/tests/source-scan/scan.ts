@@ -1,7 +1,7 @@
 // Source scans for spec 300 (plan phase 9): the legacy auth model is gone from
 // runtime code and stays gone. The scanner reads code through the TypeScript
 // parser, so comments never count: a column named in a comment is not a query.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -169,6 +169,46 @@ export function whatsappHits(files: readonly { path: string; source: string }[])
   for (const file of files) {
     if (!isInWhatsappScanScope(file.path)) continue;
     const found = file.source.split('\n').filter((line) => WHATSAPP.test(line));
+    if (found.length > 0) hits[file.path] = found;
+  }
+  return hits;
+}
+
+// ── Scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12) ──
+
+/**
+ * Our code reads only our own names; the hosting platform's are mapped in its
+ * dashboard (owner, 2026-11-12, via main, #314). Any `RAILWAY_*` name in code
+ * counts, whatever the access path (`process.env.X`, `process.env['X']`, or a
+ * helper taking the name as a string, as apps/mcp's `setting(env, 'X')` does);
+ * comments do not, since docs explaining the rule name the variables.
+ */
+const RAILWAY_NAME = /\bRAILWAY_[A-Z0-9_]+\b/g;
+
+/** Each RAILWAY_* name the code (comments removed) mentions, in order. */
+export function railwayEnvHits(source: string): string[] {
+  return codeWithoutComments(source).match(RAILWAY_NAME) ?? [];
+}
+
+/**
+ * The trees scan 6 covers (#377): every app's `src/` and `lib/`, and every
+ * package under `packages/`. A directory that does not exist is skipped, so
+ * a new app or package joins the scan without an edit here.
+ */
+export function railwayScanDirs(): string[] {
+  const dirs = (parent: string) =>
+    readdirSync(path.join(REPO_ROOT, parent))
+      .map((name) => path.join(parent, name))
+      .filter((rel) => statSync(path.join(REPO_ROOT, rel)).isDirectory());
+  const apps = dirs('apps').flatMap((app) => [path.join(app, 'src'), path.join(app, 'lib')]);
+  return [...apps, ...dirs('packages')].filter((rel) => existsSync(path.join(REPO_ROOT, rel)));
+}
+
+/** Each file whose code names a RAILWAY_* variable, with the names it names. No file is exempt. */
+export function railwayTreeHits(files: readonly { path: string; source: string }[]): Record<string, string[]> {
+  const hits: Record<string, string[]> = {};
+  for (const file of files) {
+    const found = railwayEnvHits(file.source);
     if (found.length > 0) hits[file.path] = found;
   }
   return hits;

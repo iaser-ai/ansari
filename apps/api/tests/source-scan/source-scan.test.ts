@@ -12,6 +12,9 @@ import {
   databaseUrlHits,
   isExcludedFromDatabaseUrlScan,
   legacySqlHits,
+  railwayEnvHits,
+  railwayScanDirs,
+  railwayTreeHits,
   readSource,
   removedHopHits,
   removedHopTextHits,
@@ -284,3 +287,67 @@ describe('scan 5: apps/api has no WhatsApp-specific code (spec 329)', () => {
     expect(hits).toEqual({});
   });
 });
+
+describe('scan 6: no code reads a RAILWAY_* variable (owner directive 2026-11-12, #314, #377)', () => {
+  // Every app's src/ and lib/ and every package (#377), plus the operator
+  // scripts and config files apps/api and apps/auth run: a script reading
+  // RAILWAY_* breaks the rule just as well (codex).
+  const SCAN_DIRS = railwayScanDirs();
+  const FILES = [
+    ...new Set([
+      ...SCAN_DIRS.flatMap((dir) => sourceFiles(dir)),
+      ...API_RUNTIME,
+      ...sourceFiles('apps/api/scripts'),
+      ...AUTH_RUNTIME,
+    ]),
+  ];
+  const tree = () => FILES.map((file) => ({ path: file, source: readSource(file) }));
+
+  it('catches planted lines, whatever the access path', () => {
+    for (const bad of [
+      'const env = process.env.RAILWAY_ENVIRONMENT;',
+      "const name = process.env['RAILWAY_ENVIRONMENT_NAME'];",
+      'const sha = process.env[`RAILWAY_GIT_COMMIT_SHA`];',
+      "const release = setting(env, 'RAILWAY_GIT_COMMIT_SHA');",
+      "Sentry.init({ environment: process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV });",
+    ]) {
+      expect(railwayEnvHits(bad), bad).not.toEqual([]);
+    }
+  });
+
+  it('ignores near-misses', () => {
+    for (const fine of [
+      '// Railway injects RAILWAY_ENVIRONMENT; we read ENVIRONMENT instead',
+      '/* RAILWAY_GIT_COMMIT_SHA is not read */ const x = 1;',
+      "const host = 'postgres.railway.internal';",
+      "const file = 'apps/api/railway.toml';",
+      'const environment = process.env.ENVIRONMENT;',
+      "const name = 'MY_RAILWAY';",
+    ]) {
+      expect(railwayEnvHits(fine), fine).toEqual([]);
+    }
+  });
+
+  it('covers every app src/lib and every package', () => {
+    for (const dir of ['apps/api/src', 'apps/api/lib', 'apps/auth/src', 'apps/frontend/src', 'apps/frontend/lib', 'apps/mcp/src', 'packages/auth', 'packages/types']) {
+      expect(SCAN_DIRS, dir).toContain(dir);
+    }
+    for (const dir of ['apps/mcp', 'packages']) {
+      expect(FILES.some((file) => file.startsWith(`${dir}/`)), dir).toBe(true);
+    }
+    expect(FILES.length).toBeGreaterThan(200);
+  });
+
+  it('fails on a planted read in the tree, and passes once it is removed', () => {
+    const planted = { path: 'apps/mcp/src/planted.ts', source: 'export const sha = process.env.RAILWAY_X;\n' };
+    expect(railwayTreeHits([...tree(), planted])).toEqual({ 'apps/mcp/src/planted.ts': ['RAILWAY_X'] });
+    expect(railwayTreeHits(tree())).toEqual({});
+  });
+
+  it('the tree has no hits, and no file is exempt', () => {
+    const hits = railwayTreeHits(tree());
+    report('RAILWAY_* reads (apps/*/src + apps/*/lib + packages/* + api/auth scripts)', FILES, hits);
+    expect(hits).toEqual({});
+  });
+});
+

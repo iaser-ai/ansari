@@ -39,26 +39,32 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | frontend (web) | `apps/frontend/Dockerfile.web` |
 > | auth | `apps/auth/Dockerfile` |
 > | whatsapp | `legacy/whatsapp/Dockerfile` |
+> | mcp | `apps/mcp/Dockerfile` |
 >
-> **Watch paths** — set these per service, or Railway rebuilds *both* on every push
+> **Watch paths** — set these per service, or Railway rebuilds *every* service on every push
 > (any commit touches the root lockfile):
 >
 > ```
 > backend:   apps/api/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
-> whatsapp:  legacy/whatsapp/**
+> whatsapp:  legacy/whatsapp/**  .dockerignore
+> mcp:       apps/mcp/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .dockerignore
 > ```
 >
 > For backend, frontend and auth, `packages/**` is **not optional**. The shared config packages are copied into those
 > images, so a packages-only change alters the built artifact. Omit the pattern and
 > that change ships nothing — no rebuild, no deploy, and no error. The image simply
-> drifts from the repo. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
+> drifts from the repo. **mcp watches it defensively:** its build stage copies `packages/` and installs from it, but
+> its only workspace dependency is a devDependency (`@ansari/eslint-config`) and its final image is `dist` plus
+> `package.json`, so today a packages-only change does not alter the shipped image. The pattern stays so that a future
+> runtime dependency cannot ship silently. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
+> whatsapp and mcp add `.dockerignore`: their images build from the repo root, so that file decides what the build can see.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
 > healthcheck `/`, whatsapp healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
-> answers; timeout 300s); restart ON_FAILURE, max 3 retries.
+> answers; timeout 300s), mcp healthcheck `/health` (timeout 300s); restart ON_FAILURE, max 3 retries.
 >
 >
 > **whatsapp service (spec 321, interim Python import; lives in `legacy/` because `apps/*` is reserved for the
@@ -74,6 +80,23 @@ migration runbook were both proven in real releases on 2026-08-02.
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
 > `DEPLOYMENT_TYPE=local`.
 >
+> **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000): set `PORT=3000` as a
+> service variable so Railway does not assign its own, and make the public domain's target port match. Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
+> the workspace file and `packages/` and runs the root `mcp` script. Health check `/health`. Hosts connect at
+> `https://<domain>/mcp`. Its settings are recorded in `apps/mcp/railway.toml`. Environment, for staging
+> (`mcp-staging.askansari.ai`; full list in `apps/mcp/README.md`):
+>
+> | Variable | Value |
+> |---|---|
+> | `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai` (the server refuses any other Host on `/mcp`) |
+> | `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai` (the default is production) |
+> | `ANSARI_CLIENT` | `ansari-mcp-staging` |
+> | `ANSARI_API_AUTHORIZATION` | `Bearer ansari_mcp_staging_<64 letters>`: the staging key, made in the staging auth shell with `--client-id ansari-mcp-staging` and set **before** apps/api staging deploys #314 (`docs/cutover/service-keys-runbook.md`) |
+> | `ANSARI_RELEASE` | `${{RAILWAY_GIT_COMMIT_SHA}}`, a Railway reference variable: the commit is mapped here, in the dashboard, because the code reads no `RAILWAY_*` variable (#377). Unset, the release is the application version |
+>
+> `MCP_ALLOWED_ORIGINS` is left unset at first: it defaults to the allowed hosts, and requests without an Origin
+> pass. The Cloudflare Workers path (`apps/mcp/wrangler.jsonc`) is not this deployment.
+>
 > **auth service (spec 300)** — one listener: the public domain
 > (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as
 > a service variable. `backend` reaches it at that domain too (`AUTH_URL`), like any
@@ -87,6 +110,21 @@ migration runbook were both proven in real releases on 2026-08-02.
 > a checkout with the auth database's `DATABASE_URL` (`pnpm exec tsx scripts/grant-admin.ts …`,
 > `… scripts/ban-user.ts …`), or in the image from `/repo/apps/auth` with
 > `./node_modules/.bin/tsx scripts/…` (tsx directly: the image has no pnpm for its non-root user).
+>
+> **`ENVIRONMENT` on `backend` and auth (#314 Amendment 3)** — the deployment label, also each
+> service's Sentry environment and the environment in every service key's prefix. It has **no
+> default in any process** (owner, 2026-11-12): every deployed service, every operator shell that
+> runs an apps/auth script, and local dev (`development`) set it. Under `NODE_ENV=production` both
+> services refuse to boot without it, or with `development`:
+>
+> | Service | staging | production |
+> |---|---|---|
+> | `backend` (apps/api) | `ENVIRONMENT=staging` | `ENVIRONMENT=production` |
+> | auth (apps/auth) | `ENVIRONMENT=staging` | `ENVIRONMENT=production` |
+>
+> **Deploy order:** set `ENVIRONMENT` on `backend` and auth, in staging and in production,
+> **before** the deploy that carries #314. A deploy without it fails its healthcheck and Railway
+> keeps the previous deployment.
 >
 > **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
 > and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so both are set on the

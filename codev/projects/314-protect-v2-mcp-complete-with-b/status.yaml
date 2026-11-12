@@ -1,0 +1,72 @@
+id: '314'
+title: protect-v2-mcp-complete-with-b
+protocol: spir
+phase: verify
+plan_phases:
+  - id: phase_1
+    title: 'ansari-mcp key rules: limits, client-id rule, script constraints'
+    status: complete
+  - id: phase_2
+    title: apps/auth verify route POST /api/service/verify-key
+    status: complete
+  - id: phase_3
+    title: apps/api verify client and MCP_COMPLETE_KEY_MODE setting
+    status: complete
+  - id: phase_4
+    title: mcp-complete key gate, key attribution and log-only mode
+    status: complete
+  - id: phase_5
+    title: Docs, runbook and architecture notes
+    status: complete
+current_plan_phase: null
+gates:
+  spec-approval:
+    status: approved
+    requested_at: '2026-11-11T02:55:06.267Z'
+    approved_at: '2026-11-11T03:09:33.787Z'
+  plan-approval:
+    status: approved
+    requested_at: '2026-11-11T03:17:11.104Z'
+    approved_at: '2026-11-11T03:20:48.411Z'
+  pr:
+    status: approved
+    requested_at: '2026-11-11T04:36:26.447Z'
+    approved_at: '2026-11-12T00:17:07.478Z'
+  verify-approval:
+    status: pending
+    requested_at: '2026-11-12T00:24:58.407Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-11T02:47:51.234Z'
+updated_at: '2026-11-12T00:24:58.408Z'
+context_refreshes:
+  - boundary: enter:plan
+    at: '2026-11-11T03:09:39.378Z'
+    acknowledged_at: '2026-11-11T03:09:44.888Z'
+  - boundary: enter:implement
+    at: '2026-11-11T03:20:54.803Z'
+    acknowledged_at: '2026-11-11T03:21:45.667Z'
+  - boundary: plan-phase:phase_2
+    at: '2026-11-11T03:30:29.427Z'
+    acknowledged_at: '2026-11-11T03:31:17.800Z'
+  - boundary: plan-phase:phase_3
+    at: '2026-11-11T03:51:38.337Z'
+    acknowledged_at: '2026-11-11T03:51:42.587Z'
+  - boundary: plan-phase:phase_4
+    at: '2026-11-11T04:03:07.170Z'
+    acknowledged_at: '2026-11-11T04:03:11.694Z'
+  - boundary: plan-phase:phase_5
+    at: '2026-11-11T04:15:22.154Z'
+    acknowledged_at: '2026-11-11T04:15:29.367Z'
+  - boundary: enter:review
+    at: '2026-11-11T04:24:44.938Z'
+    acknowledged_at: '2026-11-11T04:25:26.571Z'
+pr_history:
+  - phase: review
+    pr_number: 372
+    branch: builder/spir-314
+    created_at: '2026-11-11T04:27:48.853Z'
+    merged: true
+    merged_at: '2026-11-12T00:24:01.619Z'
+pr_ready_for_human: false

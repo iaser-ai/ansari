@@ -13,12 +13,10 @@ function list(value: string | undefined): string[] {
   return (value ?? '').split(',').map(item => item.trim()).filter(Boolean);
 }
 
-/** The deployed revision: an explicit release, then the Railway commit, then the application version. */
+/** The deployed revision: `ANSARI_RELEASE` when it is a safe identifier, else the application version. */
 export function releaseFromEnv(env: RuntimeEnv): string {
-  for (const value of [setting(env, 'ANSARI_RELEASE'), setting(env, 'RAILWAY_GIT_COMMIT_SHA')]) {
-    if (value && SAFE_REVISION.test(value)) return value;
-  }
-  return DEFAULT_RELEASE;
+  const value = setting(env, 'ANSARI_RELEASE');
+  return value && SAFE_REVISION.test(value) ? value : DEFAULT_RELEASE;
 }
 
 export type EnvSettings = {

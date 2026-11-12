@@ -48,6 +48,7 @@ export function setApiEnv(authUrl: string): void {
   process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
   process.env.KALEMAT_API_KEY = 'placeholder';
   process.env.USUL_API_TOKEN = 'placeholder';
+  process.env.ENVIRONMENT = 'development';
   process.env.AUTH_URL = authUrl;
   process.env.AUTH_JWT_ISSUER = TEST_ISSUER;
   process.env.AUTH_JWT_AUDIENCE = TEST_AUDIENCE;

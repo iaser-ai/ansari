@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 
 from ansari_whatsapp.utils.config import get_settings
 from ansari_whatsapp.utils.exceptions import UnexpectedMetaPayloadError
+from ansari_whatsapp.utils.log_masking import redact_values
 
 settings = get_settings()
 
@@ -134,25 +135,20 @@ def create_response_for_meta(
     return JSONResponse(content=response_body, status_code=200)
 
 
-# Keys whose string values are safe to log as-is (everything else is masked, e.g., phone numbers, names, text)
-_UNREDACTED_KEYS = {"object", "field", "messaging_product", "type", "id", "timestamp"}
+# Keys whose string values are safe to log as-is (everything else is masked, e.g., phone numbers, names, text, and
+# ids: a message id is base64 that carries the sender's phone number)
+_UNREDACTED_KEYS = {"object", "field", "messaging_product", "type", "timestamp"}
 
 
 def _redact_for_logging(obj, key: str | None = None):
     """Return obj with its structure intact but string values masked as `<str len=N>`, except for safe keys
     (i.e., keys in _UNREDACTED_KEYS)."""
-    if isinstance(obj, dict):
-        return {k: _redact_for_logging(v, k) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_redact_for_logging(v, key) for v in obj]
-    if isinstance(obj, str) and key not in _UNREDACTED_KEYS:
-        return f"<str len={len(obj)}>"
-    return obj
+    return redact_values(obj, _UNREDACTED_KEYS, key)
 
 
 async def parse_meta_payload(
     body: dict[str, dict],
-) -> tuple[bool, bool, str | None, str | None, dict | None, str | None, int | None]:
+) -> tuple[bool, bool, str | None, str | None, dict | None, str | None, int | None, str | None]:
     """
     Parse the webhook payload received from Meta to extract relevant message details.
 
@@ -161,8 +157,10 @@ async def parse_meta_payload(
 
     Returns:
         tuple: A tuple of (is_status, is_target_business_number, bsuid,
-               incoming_msg_type, incoming_msg_body, message_id, message_unix_time).
-               `bsuid` is the sender's business-scoped user ID; the phone number is never used.
+               incoming_msg_type, incoming_msg_body, message_id, message_unix_time, sender_phone).
+               `bsuid` is the sender's business-scoped user ID and the only identity we use. `sender_phone` is
+               the webhook's `from`, read only when META_REPLY_BY_PHONE is on (None otherwise, or when Meta omits
+               it), and used only to address the reply.
 
     Raises:
         Exception: If the payload structure is invalid or unsupported.
@@ -194,11 +192,11 @@ async def parse_meta_payload(
     is_target_business_number = incoming_phone_number_id == configured_phone_number_id
 
     if not is_target_business_number:
-        return None, is_target_business_number, None, None, None, None, None
+        return None, is_target_business_number, None, None, None, None, None, None
 
     if "statuses" in value:
         # This is a status update (delivered, read, etc.), not a user message
-        return True, is_target_business_number, None, None, None, None, None
+        return True, is_target_business_number, None, None, None, None, None, None
 
     is_status = False
 
@@ -210,10 +208,11 @@ async def parse_meta_payload(
     incoming_msg = value["messages"][0]
 
     try:
-        # Extract message details. `from_user_id` (the BSUID) is always present; `from` (the phone number) may
-        # be missing, and is deliberately never read.
+        # Extract message details. `from_user_id` (the BSUID) is always present and is the only identity used.
+        # `from` (the phone number) may be missing, and is read only when replies go to the phone (test numbers).
         message_id = incoming_msg.get("id")
         bsuid = incoming_msg["from_user_id"]
+        sender_phone = incoming_msg.get("from") if get_settings().META_REPLY_BY_PHONE else None
         message_unix_time_str = incoming_msg.get("timestamp")
         message_unix_time = int(message_unix_time_str) if message_unix_time_str is not None else None
 
@@ -240,4 +239,5 @@ async def parse_meta_payload(
         incoming_msg_body,
         message_id,
         message_unix_time,
+        sender_phone,
     )

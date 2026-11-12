@@ -1,0 +1,16 @@
+## Phase 3 Review (Iteration 2)
+
+The iteration 1 documentation finding in [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L113) has been cleanly resolved: the `MCP_COMPLETE_KEY_MODE` row now accurately describes `enforce` (401 for missing/invalid keys, 503 when `apps/auth` is unreachable) and `log-only` (verifies, records the verdict—including `unverified` with a Sentry warning when `apps/auth` is unreachable—and always serves).
+
+All Phase 3 deliverables and additional refinements from the security architect are in place and verified:
+- **Verify Client**: [`verifyServiceKey`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L166-L175) in [`apps/api/lib/auth-service/client.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L139-L175) strictly validates responses and includes the contract comment pinning the `{ valid: false }` refusal shape across `apps/auth` and `apps/api`.
+- **Configuration & Four-Way Derivation**: `MCP_COMPLETE_KEY_MODE` is configured in [`apps/api/lib/config.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts#L116-L122) and [`config.mcpCompleteKeyMode`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts#L281-L284), documented in [`apps/api/.env.example`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/.env.example#L94-L95) and [`docs/self-hosting.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L113), and added to [`turbo.json`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/turbo.json#L141-L147) with relative rollout follow-up notes.
+- **Test Coverage**: Unit and integration checks in [`apps/api/tests/auth/verify-service-key.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/auth/verify-service-key.test.ts), [`apps/api/tests/config.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/config.test.ts#L308-L330), [`apps/api/tests/boot-check.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/boot-check.test.ts#L69-L75), and [`apps/api/tests/self-hosting-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/self-hosting-docs.test.ts#L89-L96) thoroughly cover all acceptance criteria.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 3 implementation, tests, and documentation updates are complete and aligned with the specification and plan.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

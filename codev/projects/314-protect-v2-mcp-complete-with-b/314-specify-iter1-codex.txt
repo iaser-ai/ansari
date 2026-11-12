@@ -1,0 +1,21 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The design is feasible and thorough, but several contradictory or unresolved contracts prevent reliable planning.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Resolve the open-tier decision before planning; it changes the core authorization contract, success criteria, limits, and rollout-mode behavior.
+- The valid verification contract requires `key_id`, but apps/api test scenario 4 omits it while expecting success. Specify whether it is required and align tests.
+- Service-user failure handling is inconsistent: lookup is described only after successful plugin verification, yet any unresolvable service user must produce 500. Define lookup ordering for refusal paths.
+- “No DB column contains any prefix” conflicts with the existing public `ansari_mcp_` value stored in `apikey.prefix`. Exempt the configured public prefix while prohibiting stored random key substrings.
+- Define the exact request byte/key bounds and the alert kind/deduplication contract for a missing or invalid `client_id`; both are currently test requirements without concrete expected values.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the codex review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - codev/projects/314-protect-v2-mcp-complete-with-b/.codex.log
+  - codev/projects/314-protect-v2-mcp-complete-with-b/.gemini.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

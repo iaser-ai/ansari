@@ -15,21 +15,21 @@ class MetaApiServiceMock(MetaApiServiceBase):
         """Initialize mock Meta API service."""
         logger.info("Initialized MetaApiServiceMock - Meta API calls will be simulated")
 
-    async def send_typing_indicator(self, recipient_phone: str, message_id: str) -> None:
+    async def send_typing_indicator(self, recipient_bsuid_or_phone: str, message_id: str) -> None:
         """Simulate sending typing indicator.
 
         Args:
-            recipient_phone: WhatsApp phone number of recipient
+            recipient_bsuid_or_phone: BSUID or phone number of the recipient
             message_id: Message ID for the typing indicator
         """
         logger.info(f"[MOCK META API] Typing indicator simulated (msg_id: {message_id})")
         await asyncio.sleep(0.05)  # Simulate minimal network delay
 
-    async def send_message(self, recipient_phone: str, message_parts: list[str]) -> None:
+    async def send_message(self, recipient_bsuid_or_phone: str, message_parts: list[str]) -> None:
         """Simulate sending WhatsApp message.
 
         Args:
-            recipient_phone: WhatsApp phone number of recipient
+            recipient_bsuid_or_phone: BSUID or phone number of the recipient
             message_parts: List of message parts (already split by length)
         """
         logger.info(f"[MOCK META API] Sending {len(message_parts)} message part(s)")

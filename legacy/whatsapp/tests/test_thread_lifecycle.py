@@ -194,7 +194,7 @@ def test_creation_response_without_a_thread_id_is_a_failure_the_user_hears_about
     async def no_id(self, token, title):
         return {}
 
-    async def spy_send(self, msg_body, recipient_bsuid=None):
+    async def spy_send(self, msg_body, recipient_bsuid_or_phone=None):
         sent.append(msg_body)
 
     monkeypatch.setattr(AnsariClientMock, "create_thread", no_id)
@@ -215,7 +215,7 @@ def sentry_calls(monkeypatch):
 
 
 def _silence_user_messages(monkeypatch):
-    async def ignore(self, msg_body, recipient_bsuid=None):
+    async def ignore(self, msg_body, recipient_bsuid_or_phone=None):
         return None
 
     monkeypatch.setattr(WhatsAppConversationManager, "send_whatsapp_message", ignore)
@@ -298,7 +298,7 @@ def test_failed_deletion_does_not_create_a_second_thread(monkeypatch):
 
     sent = []
 
-    async def spy_send(self, msg_body, recipient_bsuid=None):
+    async def spy_send(self, msg_body, recipient_bsuid_or_phone=None):
         sent.append(msg_body)
 
     monkeypatch.setattr(AnsariClientMock, "delete_thread", failing_delete)

@@ -246,3 +246,58 @@ export const EXCHANGE_ALERT_WINDOW = 5 * MINUTE;
 
 /** 401s from the exchange in one EXCHANGE_ALERT_WINDOW. A healthy consumer sees none outside a rotation. */
 export const EXCHANGE_UNAUTHORIZED_ALERT: LimitRule = { window: EXCHANGE_ALERT_WINDOW, max: 20 };
+
+// The MCP verify route (#314): apps/api asks apps/auth whether an `ansari-mcp`
+// key is good. The key's own caps (MCP_KEY_INITIAL, enforced by the plugin at
+// verify) are the throttle; the alert numbers below are ALERTS, never caps,
+// on the same terms as the WhatsApp exchange's, and use EXCHANGE_ALERT_WINDOW.
+
+/**
+ * The `ansari-mcp` key's initial values (plan 314, by judgement until the
+ * owner's `threads.client` numbers land; changed with `update-limits`, no
+ * deploy). 120 per minute equals apps/api's per-IP cap on the route; the key's
+ * window is global, so it is the burst ceiling for all MCP traffic together.
+ * 5,000 a day is the daily Gemini ceiling for all MCP traffic, with room.
+ */
+export const MCP_KEY_INITIAL: KeyLimits = {
+  rateLimitMax: 120,
+  rateLimitTimeWindow: 60 * SECOND_MS,
+  refillAmount: 5000,
+  refillInterval: KEY_REFILL_INTERVAL,
+};
+
+/**
+ * What the service-keys script accepts for an `ansari-mcp` key (inclusive).
+ * Its own constant, with WHATSAPP_KEY_BOUNDS's wide values: raising a key's
+ * values never needs these to change, and changing one service's bounds never
+ * moves the other's.
+ */
+export const MCP_KEY_BOUNDS = {
+  rateLimitMax: { min: 1, max: 100_000 },
+  rateLimitTimeWindow: { min: SECOND_MS, max: DAY_MS },
+  refillAmount: { min: 1, max: 10_000_000 },
+} as const;
+
+/**
+ * Per-key alert: this many verifies inside one of the key's rate-limit windows
+ * (the plugin's `requestCount`). One third of MCP_KEY_INITIAL.rateLimitMax.
+ */
+export const MCP_VERIFY_KEY_ALERT = 40;
+
+/**
+ * Per-key alert: this many verifies since the key's last daily refill
+ * (`refillAmount − remaining`). One third of MCP_KEY_INITIAL.refillAmount.
+ */
+export const MCP_VERIFY_DAILY_ALERT = 1666;
+
+/** `valid: false` answers from the verify route in one EXCHANGE_ALERT_WINDOW. A healthy MCP server sees none outside a rotation. */
+export const MCP_VERIFY_UNAUTHORIZED_ALERT: LimitRule = { window: EXCHANGE_ALERT_WINDOW, max: 20 };
+
+/** The verify route's request body limit, in bytes: a key ≤ VERIFY_KEY_MAX_LENGTH and the permissions, as JSON. */
+export const VERIFY_BODY_LIMIT = 1024;
+
+/**
+ * The longest key the verify route passes to the plugin. A real key is its
+ * prefix and 64 letters; anything longer is answered `valid: false` unread.
+ */
+export const VERIFY_KEY_MAX_LENGTH = 256;

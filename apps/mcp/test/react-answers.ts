@@ -2,7 +2,7 @@
 // religious content and not Ansari output: wording is arbitrary except where a check needs a shape
 // (non-one numbering, nesting, Arabic/RTL, the attribution paragraph).
 
-export const ATTRIBUTION = 'This information came from [ansari.chat](https://ansari.chat).';
+export const ATTRIBUTION = 'This information came from [askansari.ai](https://askansari.ai).';
 
 /** English with Arabic inside, a list that starts at 3 with a nested list, bullets, a quote, and the attribution. */
 export const ANSWER_A = [
@@ -44,7 +44,8 @@ export const QUESTION_B = 'ما هو الصبر؟';
 /**
  * Closing shapes around the attribution text and whether the footer treatment belongs to each. Only a top-level
  * closing paragraph that begins with Ansari's attribution is the footer: not a quotation, a list item, text that
- * follows it, other wording, or a card that failed.
+ * follows it, other wording, or a card that failed. These cases keep the legacy ansari.chat domain on purpose: the
+ * detector still accepts it, because older answers and cached threads carry it.
  */
 export const ATTRIBUTION_CASES: readonly {readonly question: string; readonly markdown: string; readonly footer: boolean; readonly probe: string}[] = [
   {question: 'Case quote', markdown: 'Case quote opening.\n\n> This information came from ansari.chat.', footer: false, probe: 'Case quote opening.'},

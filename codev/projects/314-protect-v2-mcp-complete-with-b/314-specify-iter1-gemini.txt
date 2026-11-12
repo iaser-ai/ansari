@@ -1,0 +1,57 @@
+This is a well-structured, comprehensive specification that aligns closely with the existing `apps/auth` service-key architecture from Spec 329 (`whatsapp.ts`, `alerts.ts`, `service-keys.ts`) and `apps/api`'s auth client pattern (`authServiceFetch`).
+
+Here is my review across the focus areas, with a few minor edge cases and details to sharpen for the planning phase.
+
+### 1. Clarity and Completeness of Requirements
+The requirements are clear, bounded, and follow the required specification template. The problem statement accurately reflects the current state of `apps/api/src/app/api/v2/mcp-complete/route.ts` and `apps/mcp/src/server/ansari-client.ts`.
+
+A few minor edge-case details should be explicitly settled in the spec or plan:
+- **Attribution disagreement with `?src=` vs `X-Ansari-Client`:**
+  In §2 ("Attribution (#320)"), the spec states:
+  > *"If `X-Ansari-Client` is present and disagrees (after the usual normalisation), the route sends a Sentry warning tagged with both ids and ignores the header."*
+  However, in Test Scenario 6 (`apps/api` route), it states:
+  > *"Case 4 with `?src=evil` → `client` is the key's."* (without mentioning whether a Sentry warning is emitted, unlike Scenario 5).
+  And what if `X-Ansari-Client` is present and **malformed** (where `getClientId` today emits an `invalid X-Ansari-Client header` Sentry warning)? The spec/plan should clarify whether `mcp-complete` uses `parseClientId` directly on `X-Ansari-Client` (ignoring `?src=` silently when a key is valid, and firing a single disagreement warning even if the header is malformed), or if it calls `getClientId` and compares.
+- **`list` output for `client_id` metadata in `service-keys.ts`:**
+  In §1, the spec notes: *"`client_id` and `key_id` are not secrets: `list` already prints them."*
+  Checking `packages/auth/src/service-users.ts` (`keyColumns`, lines 113–126) and `apps/auth/scripts/service-keys.ts` (`keyLines`, lines 265–276), `listServiceKeys` does **not** currently select `apikey.metadata`, and `keyLines` does not print `clientId`. Since `client_id` is now mandatory on `ansari-mcp` keys and drives attribution, `listServiceKeys` and `keyLines` should be updated to include `metadata` / `clientId` so operators can verify key attribution via `list`.
+- **Error response envelope consistency in `apps/api` (`{ error }` vs `{ detail }`):**
+  `mcp-complete/route.ts` uses `createErrorResponse(message, status)` which returns `{ error: message }` for 400, 429, 500, and 502. Meanwhile, `require-admin.ts` returns `{ detail: 'Authentication service unavailable' }` for 503. The spec notes *"The response shapes otherwise stay as they are (JSON errors, `text/plain` 200)"* — the plan should ensure 401 and 503 on `mcp-complete` use `{ error: ... }` to stay consistent with the rest of `mcp-complete`.
+
+### 2. Technical Feasibility
+- **Key verification and metadata return:** `auth.api.verifyApiKey({ body: { key, permissions } })` returns `verified.key`, which includes `metadata` (where `{ clientId }` is stored by `service-keys.ts`). Note that `@better-auth/api-key` may return `metadata` as a parsed object or JSON depending on plugin configuration (`enableMetadata: true` in `packages/auth`); the plan should verify the runtime type of `verified.key.metadata` in pglite tests when extracting `client_id`.
+- **Key in POST body vs `Authorization` header on `/api/service/verify-key`:** Sending `{ key, permissions }` in the JSON body works cleanly with `authServiceFetch` (`client.ts` automatically sets `content-type: application/json` and serializes `body`), and `apps/auth`'s `scrubRequestEvent` (`alerts.ts`) already strips `event.request.data` / bodies from all Sentry events.
+
+### 3. Edge Cases and Error Scenarios
+- **Missing `client_id` alert kind:**
+  In §1: *"A key verified without one (one created outside the script) is answered `valid: false` and raises an alert."*
+  In `apps/auth/src/alerts.ts`, `ExchangeAlert` has a closed union of alert kinds (`key-window-volume`, `key-daily-volume`, `key-refused`, `unauthorized-volume`, `ineligible-user`, `service-user-unresolvable`). Make sure the alert union/interface for the verify route includes the missing-`client_id` alert (or maps it explicitly) and that Test Scenario 6 & 13 cover its deduplication window.
+- **Log-only mode when `apps/auth` returns 503 / `unavailable`:**
+  In §3 and `apps/api` Test Scenario 10, if `apps/auth` times out (3s) or is unreachable in `log-only` mode, the route records `unavailable`, falls back to header/`?src=` attribution, and serves the request. Note that on a timeout, this adds 3 seconds of latency before the Gemini call starts. This is completely fine for a 1-week transition window, just worth keeping in mind for Worker timeout margins.
+
+### 4. Security Considerations
+- **Closed permission set before plugin call:** Validating `permissions` strictly against `{ mcp: ['complete'] }` before calling `auth.api.verifyApiKey` is a strong control — it guarantees that `/api/service/verify-key` can never be used to probe or decrement `remaining` on a `whatsapp` key.
+- **Fail-closed posture and uniform 401s:** Returning byte-identical `{ valid: false }` from `apps/auth` and byte-identical 401 responses from `apps/api` across all refusal causes prevents state enumeration (e.g., distinguishing expired/exhausted from unknown keys).
+- **Rate limit ordering:** Keeping `applyRateLimit(request)` (per-IP 120/min) ahead of the key check in `apps/api` protects `apps/auth` from unauthenticated floods through `apps/api`.
+
+### 5. Testing Strategy
+The test scenarios are thorough and cover both `apps/auth` (against real pglite and the Better Auth plugin) and `apps/api` (stubbed HTTP boundary + end-to-end WhatsApp key refusal), including log/Sentry secret-leakage scans and CORS negative tests.
+
+---
+VERDICT: COMMENT
+SUMMARY: Well-designed, thorough specification that fits cleanly into the existing Spec 329 and Spec 300 architecture; a few minor details around `list` output and header mismatch warnings are noted for the plan.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `service-keys.ts list` (`listServiceKeys` in `packages/auth/src/service-users.ts`) does not currently select or print `apikey.metadata` (`client_id`), despite §1 stating `list` already prints `client_id`.
+- Clarify in the plan whether `X-Ansari-Client` disagreement warnings in `mcp-complete` apply only to valid headers that differ from `client_id`, or also to malformed `X-Ansari-Client` headers and `?src=` parameters.
+
+---
+
+## ⚠️ WORKING TREE CHANGED during the gemini review (#1649).
+A consultant reviews the tree; it must never write to it. 2 paths changed while this lane was running:
+  - codev/projects/314-protect-v2-mcp-complete-with-b/.codex.log
+  - codev/projects/314-protect-v2-mcp-complete-with-b/.gemini.log
+Check `git status` and `git diff` before trusting this review or shipping the branch.
+Note: under cmap the lanes run concurrently in one worktree, so another lane — or you —
+may be the writer. This warning names what moved, not who moved it.

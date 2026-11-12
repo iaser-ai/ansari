@@ -11,12 +11,20 @@ updates:
   # Note: there is no "pnpm" package-ecosystem value; pnpm is handled by "npm".
   - package-ecosystem: "npm"
     directory: "/"
-    # legacy/ holds archived snapshots of the pre-monorepo frontend (issue #150).
+    # legacy/frontend-* hold archived snapshots of the pre-monorepo frontend (issue #150).
     # They sit outside the pnpm workspace and are never built or deployed, but
     # each keeps its own npm/yarn lockfile as a reference for the track merge —
     # without this, Dependabot opens update PRs against code nothing runs.
     exclude-paths:
       - "legacy/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # legacy/whatsapp is NOT archived: it is a Python service that is built and deployed (spec 321),
+  # with its own uv.lock. The npm entry above skips legacy/**, so it needs its own entry here.
+  - package-ecosystem: "uv"
+    directory: "/legacy/whatsapp"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

@@ -1,0 +1,30 @@
+### Plan Review: `314-protect-v2-mcp-complete-with-b`
+
+The implementation plan is thorough, well-sequenced, and closely aligned with the approved specification and existing codebase conventions.
+
+#### 1. Alignment with Specification Requirements
+- **Full coverage**: All requirements from the spec (§1 apps/auth verify route, §2 apps/api key gate and attribution, §3 `MCP_COMPLETE_KEY_MODE` rollout, §4–§5 docs/runbook, and the owner's plugin-upgrade guard request) are mapped to concrete deliverables and acceptance criteria across the 5 phases.
+- **Baked decisions honored**: In-process `verifyApiKey` at `POST /api/service/verify-key` mounted ahead of `corsFor`, closed `{ mcp: ['complete'] }` permission check prior to touching any key, `auth.apikey` relation check on refusal, per-request verification with 3 s timeout failing closed (503 on outage, 401 on refusal), and option (a) closing the open tier are all respected.
+
+#### 2. Implementation Approach & Architecture
+- Placing `MCP_CLIENT_ID_PATTERN` and `isMcpClientId` in [`packages/types/src/attribution.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/types/src/attribution.ts) cleanly shares the rule across `apps/auth` and `apps/api` without introducing cross-service dependencies.
+- Reusing [`authServiceFetch`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L49-L71) and following the [`requireAdmin`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth/require-admin.ts#L18-L41) fail-closed pattern keeps the `apps/api` ↔ `apps/auth` boundary consistent.
+
+#### 3. Task Breakdown, Testing Strategy & Minor Implementation Notes
+Each phase is self-contained and independently testable. A few concrete codebase details to keep in mind during implementation:
+
+1. **Existing `ansari-mcp` calls in [`apps/auth/tests/service-keys.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-keys.test.ts#L623-L694) (Phase 1)**:
+   - Lines 626 and 693 currently call `createKey('create-key', LIMIT_FLAGS, 'ansari-mcp')` without `--client-id`. Once Phase 1 requires `--client-id` for `ansari-mcp`, update those two call sites in `service-keys.test.ts` to pass a valid `--client-id` (e.g., `ansari-mcp`).
+2. **Source-scan coupling in [`apps/api/tests/cutover-docs.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/cutover-docs.test.ts#L522-L528) (Phase 2 & Phase 5)**:
+   - `cutover-docs.test.ts` slices [`apps/auth/src/alerts.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts#L119-L133) between `export type ExchangeAlert =` and `export type KeyRefusalCode` and asserts `expect(kinds.length).toBe(6)` against the `## Alerts` table in [`docs/cutover/service-keys-runbook.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/cutover/service-keys-runbook.md#L189-L210). When generalizing `alerts.ts` in Phase 2, keep `export type ExchangeAlert` (with its 6 WhatsApp kinds) immediately above `export type KeyRefusalCode` and define the MCP verify alert union separately so `apps/api`'s doc test continues to pass before and after Phase 5.
+   - Similarly, in [`docs/cutover/service-keys-runbook.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/cutover/service-keys-runbook.md), keep the new `ansari-mcp` material under its own `## ` heading so `section('Limits')` and `section('Alerts')` in `cutover-docs.test.ts` continue to match the WhatsApp tables cleanly.
+3. **Sentry `client` tag on valid key (Phase 4)**:
+   - Because `getClientId(request)` is skipped when a valid key is presented on [`apps/api/src/app/api/v2/mcp-complete/route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts), make sure `authorizeMcpRequest` still sets `Sentry.setTag('client', clientId)` (alongside `Sentry.setTag('mcp_key_verdict', 'valid')`) to preserve tag parity with [`getClientId`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/attribution.ts#L47-L49).
+
+---
+VERDICT: APPROVE
+SUMMARY: Sound, well-phased implementation plan that covers all spec requirements, test scenarios, and operational rollout steps.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES: None
