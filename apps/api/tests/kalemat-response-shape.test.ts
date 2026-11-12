@@ -18,14 +18,6 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
-beforeEach(() => {
-  process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
-  process.env.GEMINI_API_KEY = 'test-gemini-key';
-  process.env.KALEMAT_API_KEY = 'test-kalemat-key';
-  process.env.USUL_API_TOKEN = 'test-usul-token';
-  process.env.ENVIRONMENT = 'development';
-});
-
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(resolve(__dirname, 'fixtures/kalemat', name), 'utf8'));
 }
@@ -55,6 +47,11 @@ const QURAN_ARRAY = fixture('quran-array.json') as unknown[];
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
+  process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
+  process.env.KALEMAT_API_KEY = 'test-kalemat-key';
+  process.env.USUL_API_TOKEN = 'test-usul-token';
+  process.env.ENVIRONMENT = 'development';
   originalFetch = globalThis.fetch;
 });
 
