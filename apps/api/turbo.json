@@ -20,11 +20,11 @@
     // which pins the root `test` script's worker cap: without it, removing the
     // cap left this task at the same hash and a warm cache replayed the pin green.
     //
-    // apps/mcp/src is here for source-scan 6 (#314), which reads it for
-    // RAILWAY_* names: without it a RAILWAY_ read added there left this task at
-    // the same hash and a warm cache replayed the scan green. (The scan's other
-    // trees are already inputs: apps/auth/src and apps/auth/scripts here,
-    // packages/auth/src through globalDependencies.)
+    // Every app's src/ and lib/ and every package are here for source-scan 6
+    // (#314, widened by #377), which reads them for RAILWAY_* names: without
+    // them a RAILWAY_ read added there left this task at the same hash and a
+    // warm cache replayed the scan green. (apps/auth/scripts, also scanned, is
+    // listed above.)
     //
     // The railway tomls are here for release-doc.test.ts (issue #364), which
     // checks each one against RELEASE.md: without them a toml-only edit left this
@@ -33,9 +33,10 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         ".env.ci",
-        "$TURBO_ROOT$/apps/auth/src/**",
         "$TURBO_ROOT$/apps/auth/scripts/**",
-        "$TURBO_ROOT$/apps/mcp/src/**",
+        "$TURBO_ROOT$/apps/*/src/**",
+        "$TURBO_ROOT$/apps/*/lib/**",
+        "$TURBO_ROOT$/packages/**",
         "$TURBO_ROOT$/apps/auth/tests/helpers/**",
         "$TURBO_ROOT$/packages/auth/drizzle/**",
         "$TURBO_ROOT$/packages/auth/tests/helpers/**",
@@ -57,9 +58,17 @@
     // CI runs the same pin through test:coverage, so it needs the root
     // package.json too. Overriding `inputs` replaces the root task's list, so
     // the inherited entries are repeated.
-    // apps/mcp/src likewise, for source-scan 6 (#314): CI runs it through this task.
+    // Source-scan 6's trees likewise (#314, #377): CI runs it through this task.
     "test:coverage": {
-      "inputs": ["$TURBO_DEFAULT$", ".env.ci", "$TURBO_ROOT$/package.json", "$TURBO_ROOT$/apps/mcp/src/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.ci",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/*/src/**",
+        "$TURBO_ROOT$/apps/*/lib/**",
+        "$TURBO_ROOT$/packages/**",
+        "$TURBO_ROOT$/apps/auth/scripts/**"
+      ]
     }
   }
 }

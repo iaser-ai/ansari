@@ -33,8 +33,7 @@
         "MCP_ALLOWED_HOSTS",
         "MCP_ALLOWED_ORIGINS",
         "MCP_RESPONSE_MODE",
-        "ANSARI_RELEASE",
-        "RAILWAY_GIT_COMMIT_SHA"
+        "ANSARI_RELEASE"
       ],
       "cache": false,
       "persistent": true
@@ -48,8 +47,7 @@
         "MCP_ALLOWED_HOSTS",
         "MCP_ALLOWED_ORIGINS",
         "MCP_RESPONSE_MODE",
-        "ANSARI_RELEASE",
-        "RAILWAY_GIT_COMMIT_SHA"
+        "ANSARI_RELEASE"
       ],
       "cache": false,
       "persistent": true

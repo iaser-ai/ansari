@@ -63,16 +63,16 @@ test('the source scan finds every read form and ignores near misses', () => {
     'process.env.PORT',
     'allowedList(env.MCP_ALLOWED_HOSTS, x)',
     "setting(env, 'ANSARI_RELEASE')",
-    'setting( env , "RAILWAY_GIT_COMMIT_SHA" )',
+    'setting( env , "ANSARI_CLIENT" )',
   ].join('\n'));
-  assert.deepEqual(sorted(hits), ['ANSARI_RELEASE', 'MCP_ALLOWED_HOSTS', 'PORT', 'RAILWAY_GIT_COMMIT_SHA']);
+  assert.deepEqual(sorted(hits), ['ANSARI_CLIENT', 'ANSARI_RELEASE', 'MCP_ALLOWED_HOSTS', 'PORT']);
   assert.deepEqual(sourceVariables(['myenv.PORT', 'env.lowercase', "setting(other, 'PORT')", "settings(env, 'PORT')"].join('\n')), []);
 });
 
 test('the source scan sees the real configuration reads', () => {
   const found = sorted(sourceFiles(join(root, 'src')).flatMap(file => sourceVariables(readFileSync(file, 'utf8'))));
   // A floor, so a scan that silently matches nothing fails loudly instead of passing.
-  for (const name of ['PORT', 'MCP_ALLOWED_HOSTS', 'ANSARI_API_AUTHORIZATION', 'RAILWAY_GIT_COMMIT_SHA']) {
+  for (const name of ['PORT', 'MCP_ALLOWED_HOSTS', 'ANSARI_API_AUTHORIZATION', 'ANSARI_RELEASE']) {
     assert.ok(found.includes(name), `scan finds ${name}`);
   }
 });

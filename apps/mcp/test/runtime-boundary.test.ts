@@ -64,8 +64,12 @@ test('settings come from the supplied bindings, with the same rules under both h
   assert.equal(configured.enableJsonResponse, true);
   assert.deepEqual(configured.ansari, {baseUrl: 'https://upstream.example', clientName: 'beta', authorization: 'Bearer x'});
 
-  // The release is stamped into HTML and logs: an unsafe value is never used. The Railway commit is the next source.
-  assert.equal(releaseFromEnv({ANSARI_RELEASE: '"><script>', RAILWAY_GIT_COMMIT_SHA: 'abc123'}), 'abc123');
+  // The release is ANSARI_RELEASE only: no RAILWAY_* variable is read (#377), so the platform's
+  // commit maps in through the dashboard, never as a fallback here.
+  assert.equal(releaseFromEnv({ANSARI_RELEASE: 'abc123', RAILWAY_GIT_COMMIT_SHA: 'def456'}), 'abc123');
+  assert.equal(releaseFromEnv({RAILWAY_GIT_COMMIT_SHA: 'def456'}), DEFAULT_RELEASE);
+  // The release is stamped into HTML and logs: an unsafe value is never used, and nothing replaces it.
+  assert.equal(releaseFromEnv({ANSARI_RELEASE: '"><script>', RAILWAY_GIT_COMMIT_SHA: 'abc123'}), DEFAULT_RELEASE);
   assert.equal(releaseFromEnv({ANSARI_RELEASE: 'bad value'}), DEFAULT_RELEASE);
   // A binding that is not a string (a Workers service or secret object) is ignored, never coerced.
   assert.equal(releaseFromEnv({ANSARI_RELEASE: {toString: () => 'x'}}), DEFAULT_RELEASE);
