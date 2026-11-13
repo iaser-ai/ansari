@@ -42,13 +42,13 @@ const QURAN_RESULT = { id: '2:255', text: 'ٱللَّهُ لَآ إِلَٰهَ'
 const HADITH_RESULT = {
   id: 'h1',
   source_book: 'Sahih Bukhari',
-  chapter_number: '2',
+  chapter_number: 2,
   chapter_english: 'Belief',
-  section_number: '1',
+  section_number: 1,
   section_english: 'Faith',
-  hadith_number: '8',
+  hadith_number: 8,
   en_text: 'Islam is based on five...',
-  ar_text: 'بُنِيَ الإسلام',
+  text: 'بُنِيَ الإسلام',
   grade_en: 'Sahih',
 };
 
