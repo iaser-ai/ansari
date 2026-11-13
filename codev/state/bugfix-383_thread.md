@@ -79,3 +79,13 @@ state and cannot be switched to a tree 1,277 commits behind.
 - For whoever merges: #384 and #385 carry the same change to the two tool files. When `main`
   next flows into `develop` the content is identical, apart from one test env line
   (`JWT_SECRET` on main, `ENVIRONMENT` on develop) in `kalemat-response-shape.test.ts`.
+
+## 2026-11-13 — merge
+
+- **#384 merged into `main`** on the owner's instruction, relayed by the architect: merge commit
+  `27531c8`, head `446af18`. CI on `main` green for the merge commit. I did not deploy or touch
+  Railway.
+- **`pr` gate approved by the human**, relayed by the architect; I ran `porch approve` and merged
+  #385 into `develop`.
+- Still open after this PR: nobody has yet confirmed a live production `search_hadith` with the
+  fix deployed. Until that is seen, the fix is proven only against captured responses.
