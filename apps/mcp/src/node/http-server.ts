@@ -43,6 +43,8 @@ export function createHttpServer(options: ListenOptions = {}) {
     enableJsonResponse: settings.enableJsonResponse,
     logger: options.logger ?? defaultOperationLogger,
     requestMs: options.requestMs,
+    viewDiagnosticsOrigin: settings.viewDiagnosticsOrigin,
+    logLevel: settings.logLevel,
   });
 
   // The adapter's default createServer is Node's HTTP/1 server.

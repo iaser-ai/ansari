@@ -93,7 +93,7 @@ export function waitFor(child: ChildProcess, logs: string[], ready: (line: strin
   });
 }
 
-export type RuntimeOptions = {json: boolean; upstream: string};
+export type RuntimeOptions = {json: boolean; upstream: string; logLevel?: 'info' | 'debug'};
 
 export async function startRuntime(kind: RuntimeKind, options: RuntimeOptions): Promise<Runtime> {
   const settings: Record<string, string> = {
@@ -103,6 +103,7 @@ export async function startRuntime(kind: RuntimeKind, options: RuntimeOptions): 
     ANSARI_RELEASE: RELEASE,
     MCP_ALLOWED_ORIGINS: TRUSTED_ORIGIN_HOST,
     MCP_RESPONSE_MODE: options.json ? 'json' : 'sse',
+    ...(options.logLevel ? {MCP_LOG_LEVEL: options.logLevel} : {}),
   };
   const logs: string[] = [];
   let stateDir: string | undefined;

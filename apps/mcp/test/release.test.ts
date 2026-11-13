@@ -140,7 +140,13 @@ describe('release input validation (fixture inputs, no registry)', () => {
     const skewed = {...STABLE, lockTransform: (lock: string) => lock.replace("'@saga-a2ui/core@0.7.0'", "'@saga-a2ui/core@0.6.9'").replace("'@saga-a2ui/core': 0.7.0", "'@saga-a2ui/core': 0.6.9")};
     for (const target of ['beta', 'production']) assert.match(validate(skewed, target).join('\n'), /siblings are inconsistent/);
     const wrongPin = {...STABLE, lockTransform: (lock: string) => lock.replaceAll('0.7.0', '0.7.1')};
-    assert.match(validate({...wrongPin, stackSpec: '0.7.0'}, 'beta').join('\n'), /siblings are 0\.7\.1, but the direct pin is 0\.7\.0|is stale/);
+    assert.match(validate({...wrongPin, stackSpec: '0.7.0'}, 'beta').join('\n'), /react-mcp-stack is 0\.7\.1, but the direct pin is 0\.7\.0|is stale/);
+  });
+
+  it('accepts independently versioned siblings when every pin names the resolved version', () => {
+    // SAGA 1.0.x: the stack (here 0.7.0) pins core at its own version; core resolves there and every sibling pins it there.
+    const independent = {...STABLE, lockTransform: (lock: string) => lock.replaceAll("'@saga-a2ui/core@0.7.0'", "'@saga-a2ui/core@0.6.9'").replaceAll("'@saga-a2ui/core': 0.7.0", "'@saga-a2ui/core': 0.6.9")};
+    for (const target of ['beta', 'production']) assert.doesNotMatch(validate(independent, target).join('\n'), /siblings are inconsistent|direct pin/);
   });
 
   it('rejects a lockfile that was not resolved for the committed pin', () => {

@@ -1,6 +1,6 @@
 import {useHostLink} from '@saga-a2ui/react-mcp-stack/faithful-card';
 
-const REPOSITORY = 'https://github.com/MachineWisdomAI/saga-a2ui/tree/codex/release-0.7.6';
+const REPOSITORY = 'https://github.com/MachineWisdomAI/saga-a2ui';
 
 /**
  * Optional application credit, separate from the unchanged upstream answer. It follows the card's

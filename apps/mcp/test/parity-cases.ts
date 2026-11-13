@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {request as httpRequest} from 'node:http';
 import {after, before, describe, it} from 'node:test';
@@ -66,7 +65,8 @@ export function defineParityCases(kind: RuntimeKind): void {
   let json!: Runtime;
   before(async () => {
     upstream = await startUpstream();
-    const started = await Promise.allSettled([false, true].map(mode => startRuntime(kind, {json: mode, upstream: upstream.url})));
+    // The SSE instance measures (debug: each request's body is also read by the exchange log); the JSON instance does not.
+    const started = await Promise.allSettled([false, true].map(mode => startRuntime(kind, {json: mode, upstream: upstream.url, logLevel: mode ? 'info' : 'debug'})));
     const failed = started.find(result => result.status === 'rejected');
     if (failed) {
       // Never leave the instance that did start running.
@@ -130,9 +130,9 @@ export function defineParityCases(kind: RuntimeKind): void {
           assert.ok(uri);
           assert.deepEqual((await client.listResources()).resources.map(resource => resource.uri), [uri]);
           const text = ((await client.readResource({uri})).contents[0] as {text: string}).text;
-          // Release stamping precedes hashing: the served bytes are the built card with the release stamped, and the identity is theirs.
+          // The served bytes are the built card with the release stamped; the address names the card's compatibility line.
           assert.equal(text, stampHtmlRevision(builtCard, RELEASE));
-          assert.equal(uri, `ui://views/answer-card.${createHash('sha256').update(text).digest('hex').slice(0, 32)}.html`);
+          assert.equal(uri, 'ui://views/answer-card.v1.html');
           await assert.rejects(client.readResource({uri: 'ui://obsolete.html'}));
         });
       });
@@ -181,8 +181,10 @@ export function defineParityCases(kind: RuntimeKind): void {
       });
     });
 
-    describe(`${kind} ${mode}: Host and Origin checks, body bounds and requested progress`, () => {
-      it('rejects an untrusted Host or Origin and a malformed body before calling Ansari, and accepts a configured Origin', async () => {
+    // The SDK's fetch app owns Host/Origin admission and body bounds and tests them itself; these check that each built
+    // target, as this application assembles it, applies Ansari's configured lists and the body bounds.
+    describe(`${kind} ${mode}: Ansari's Host and Origin settings, body bounds and requested progress`, () => {
+      it('rejects a Host or Origin outside Ansari\'s settings before calling Ansari, and accepts a configured Origin', async () => {
         const origin = runtime().origin;
         const before = upstream.seen.length;
         const params = {name: 'answer_islamic_question', arguments: {question: 'guarded'}};
@@ -192,8 +194,6 @@ export function defineParityCases(kind: RuntimeKind): void {
         });
         assert.equal(hostStatus, 403);
         assert.equal((await post(origin, 'tools/call', params, {headers: {origin: 'https://other.example'}})).status, 403);
-        const malformed = await fetch(`${origin}/mcp`, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'}, body: '{'});
-        assert.equal(malformed.status, 400);
         assert.equal(upstream.seen.length, before, 'no rejected request reached Ansari');
         assert.equal((await post(origin, 'tools/call', params, {headers: {origin: 'http://localhost:1234'}})).status, 403, 'configured origins do not inherit localhost');
         assert.equal(upstream.seen.length, before);
@@ -204,12 +204,24 @@ export function defineParityCases(kind: RuntimeKind): void {
         }
       });
 
-      for (const modern of [true, false]) it(`${modern ? 'modern' : 'older-host'} refuses a body over the SDK limit before calling Ansari`, async () => {
+
+      it('refuses a malformed body (400) and an oversized body (413) before calling Ansari', async () => {
+        const origin = runtime().origin;
         const before = upstream.seen.length;
-        const response = await post(runtime().origin, 'tools/call', {name: 'answer_islamic_question', arguments: {question: 'x'.repeat(4 * 1024 * 1024)}}, {modern});
-        assert.equal(response.status, 413);
-        assert.match(await response.text(), /Payload Too Large/);
-        assert.equal(upstream.seen.length, before);
+        const malformed = await fetch(`${origin}/mcp`, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'}, body: '{'});
+        assert.equal(malformed.status, 400);
+        // A host declares its body's length. The refusal is read before any body bytes are sent, so the check does not
+        // depend on whether a local runtime keeps reading an upload it has already refused (Wrangler's sometimes resets).
+        const oversized = await new Promise<{status?: number; text: string}>((resolve, reject) => {
+          const req = httpRequest(`${origin}/mcp`, {method: 'POST', headers: {
+            'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(4 * 1024 * 1024 + 1),
+          }}, res => { let text = ''; res.setEncoding('utf8'); res.on('data', chunk => text += chunk); res.on('end', () => { req.destroy(); resolve({status: res.statusCode, text}); }); });
+          req.on('error', reject);
+          req.flushHeaders();
+        });
+        assert.equal(oversized.status, 413);
+        assert.match(oversized.text, /Payload Too Large/);
+        assert.equal(upstream.seen.length, before, 'neither request reached Ansari');
       });
 
       it('delivers the answer, and sends progress only when requested and only over SSE', async () => {
