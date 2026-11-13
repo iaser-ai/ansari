@@ -1,7 +1,7 @@
 id: bugfix-383
 title: search-hadith-fails-on-every-c
 protocol: bugfix
-phase: pr
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -13,5 +13,5 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-12T03:02:48.541Z'
-updated_at: '2026-11-13T15:25:34.400Z'
+updated_at: '2026-11-13T15:25:36.653Z'
 pr_ready_for_human: false
