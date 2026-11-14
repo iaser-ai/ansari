@@ -72,7 +72,10 @@ No external consultation was run. The owner instructed agent self-review only ("
 
 ## Flaky Tests
 
-No flaky tests encountered in `apps/whatsapp`. The only flake found (a `bad port` fetch error from a blocked port) was a test-helper bug and is fixed (retries on fetch-blocked ports).
+No pre-existing tests were skipped. Two flakes were found in this project's own tests and fixed, not skipped:
+
+- A `bad port` fetch error from a blocked port: a test-helper bug, fixed (retries on fetch-blocked ports).
+- `tests/backgroundAndServer.test.ts`, `BackgroundTasks > idle() > does not leave its time limit running`: it counted every live timer in the process, so any other timer expiring changed the count. It failed once under turbo's parallel load after the `upstream/develop` merge and never in 8 runs alone. It now checks that the one timer `idle()` starts is cleared, and was shown to fail when `clearTimeout` is removed or aimed at another timer.
 
 ## Follow-up Items
 
