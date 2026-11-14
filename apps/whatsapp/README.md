@@ -44,6 +44,24 @@ unsubscribe the token's app (each change asks for `yes` first). It reads `META_A
 `META_MESSAGING_ACCOUNT_ID` from `.env` (or asks; the token is typed hidden) and never prints the token. Options 1 to 4 and 7
 only read; 5 and 6 change Meta. It is not part of the service image.
 
+## Which environment answers (prefix routing)
+
+The production WhatsApp number can be subscribed to three Meta apps (production, staging and your local zrok one), so every
+message reaches all three. The first characters of a text message decide which environment answers; the others ignore it
+(`202`, nothing logged or stored). The check is always on and has no setting.
+
+| `DEPLOYMENT_TYPE` | Answers | Ignores |
+|---|---|---|
+| `production` | text with no `!d ` or `!s ` prefix | `!d ` and `!s ` messages |
+| `staging` | text starting with `!s ` | everything else |
+| `local` | text starting with `!d ` | everything else |
+
+Prefixes are exact (lowercase, with the space). The answering environment cuts the prefix off before the question goes to
+apps/api. A message that is not text (image, audio...) has no prefix, so only production answers it. **On staging, testers
+must start every message with `!s `.** The Meta side is separate and is not done by this code: the staging and test apps
+subscribed to the production WhatsApp account, and each instance's `META_BUSINESS_PHONE_NUMBER_ID` and token pointing at
+the production number.
+
 ## Routes
 
 | Route | Purpose |

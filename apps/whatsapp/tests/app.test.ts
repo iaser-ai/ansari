@@ -213,7 +213,7 @@ describe('the signature', () => {
 
   it('accepts a body with non-ASCII text signed over its UTF-8 bytes', async () => {
     const t = await started();
-    const body = webhookPayload({ text: { body: '\u0645\u0631\u062d\u0628\u0627 \u{1F600}' } });
+    const body = webhookPayload({ text: { body: '!d \u0645\u0631\u062d\u0628\u0627 \u{1F600}' } });
     expect((await t.post(body)).status).toBe(200);
   });
 
@@ -415,7 +415,7 @@ describe('a message', () => {
 
   it('writes no phone number, BSUID or message text to the logs', async () => {
     const t = await started({ env: { META_REPLY_BY_PHONE: 'true' } });
-    await t.post(webhookPayload({ from: PHONE, text: { body: 'a-very-distinctive-question' } }));
+    await t.post(webhookPayload({ from: PHONE, text: { body: '!d a-very-distinctive-question' } }));
     await t.settle();
     const text = t.log.text();
     expect(text.length).toBeGreaterThan(0);
@@ -483,24 +483,34 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
     expect(t.replies().join('')).toContain('mock AI assistant');
   });
 
-  it('staging "!d " message: 202 DEV_FILTER and no chat call', async () => {
+  it.each(['!d what is ansari?', 'what is ansari?'])('staging message "%s": 202 DEV_FILTER and no chat call', async (text) => {
     const t = await started({ env: { DEPLOYMENT_TYPE: 'staging', MOCK_ANSARI_CLIENT: undefined } });
-    const response = await t.post(webhookPayload({ text: { body: '!d what is ansari?' } }));
+    const response = await t.post(webhookPayload({ text: { body: text } }));
     await t.settle();
     expect(response.status).toBe(202);
     expect(response.json).toMatchObject({ success: false, error_code: 'DEV_FILTER' });
     expect(t.replies()).toEqual([]);
   });
 
-  it('staging message without the prefix: answered', async () => {
+  it('staging message with the "!s " prefix: answered', async () => {
     const t = await started({ env: { DEPLOYMENT_TYPE: 'staging' } });
-    const response = await t.post(webhookPayload({ text: { body: 'what is ansari?' } }));
+    const response = await t.post(webhookPayload({ text: { body: '!s what is ansari?' } }));
     await t.settle();
     expect(response.status).toBe(200);
     expect(t.replies()).toHaveLength(1);
   });
 
-  it('local message with the prefix: answered', async () => {
+  it('production message with a prefix: 202 DEV_FILTER, nothing sent', async () => {
+    const t = await started({
+      env: { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
+    });
+    const response = await t.post(webhookPayload({ text: { body: '!s what is ansari?' } }));
+    await t.settle();
+    expect(response.status).toBe(202);
+    expect(t.replies()).toEqual([]);
+  });
+
+  it('development message with the prefix: answered', async () => {
     const t = await started({ env: { DEPLOYMENT_TYPE: 'local' } });
     const response = await t.post(webhookPayload({ text: { body: '!d what is ansari?' } }));
     await t.settle();
@@ -510,7 +520,8 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
 
   it('a message older than the threshold: 422 MESSAGE_TOO_OLD and nothing sent', async () => {
     const t = await started();
-    const old = String(Math.floor(Date.now() / 1000) - 3 * 86400);
+    // Relative to the frozen clock the manager uses, not the real one (the real one moves past it)
+    const old = String(FIXED_NOW_UNIX - 3 * 86400);
     const response = await t.post(webhookPayload({ timestamp: old }));
     await t.settle();
     expect(response.status).toBe(422);
@@ -518,8 +529,11 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
     expect(t.replies()).toEqual([]);
   });
 
+  // Only production answers a non-text message (prefix routing); the mocks are injected, so the MOCK_* switches stay off
+  const PRODUCTION = { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' };
+
   it('an unsupported type: 415 UNSUPPORTED_MESSAGE_TYPE and the user is told', async () => {
-    const t = await started();
+    const t = await started({ env: PRODUCTION });
     const response = await t.post(
       webhookPayload({ type: 'image', image: { id: 'media1' }, timestamp: String(Math.floor(Date.now() / 1000)) }),
     );
@@ -529,9 +543,18 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
     expect(t.replies()).toEqual(["Sorry, I can't process images yet. Please send me a text message."]);
   });
 
+  it.each(['local', 'staging'])('an unsupported type in %s is ignored: 202 DEV_FILTER and nothing sent', async (environment) => {
+    const t = await started({ env: { DEPLOYMENT_TYPE: environment } });
+    const response = await t.post(webhookPayload({ type: 'image', image: { id: 'media1' } }));
+    await t.settle();
+    expect(response.status).toBe(202);
+    expect(response.json).toMatchObject({ error_code: 'DEV_FILTER' });
+    expect(t.replies()).toEqual([]);
+  });
+
   // Meta sends an unsupported type (video note, poll...) as an `errors` list, not an object with a body
-  it('an unsupported type in staging does not crash the filter', async () => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: 'staging' } });
+  it('an unsupported type in production does not crash the prefix check', async () => {
+    const t = await started({ env: PRODUCTION });
     const body = webhookPayload({
       type: 'unsupported',
       errors: [{ code: 131051, title: 'Message type is not supported' }],
@@ -548,7 +571,12 @@ describe('with ALWAYS_RETURN_OK_TO_META on (what Meta really gets)', () => {
   it.each([
     ['maintenance mode', { WA_MAINTENANCE_MODE: 'true' }, webhookPayload(), 'MAINTENANCE_MODE'],
     ['the staging filter', { DEPLOYMENT_TYPE: 'staging' }, webhookPayload({ text: { body: '!d hi' } }), 'DEV_FILTER'],
-    ['an unsupported type', {}, webhookPayload({ type: 'image', image: { id: 'm' } }), 'UNSUPPORTED_MESSAGE_TYPE'],
+    [
+      'an unsupported type',
+      { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
+      webhookPayload({ type: 'image', image: { id: 'm' } }),
+      'UNSUPPORTED_MESSAGE_TYPE',
+    ],
   ])('answers 200 for %s, and the body still says why', async (_name, env, payload, errorCode) => {
     const t = await started({ env: { ALWAYS_RETURN_OK_TO_META: 'true', ...env } });
     const response = await t.post(payload);
@@ -593,7 +621,7 @@ describe('a signed body that cannot be read', () => {
   // decoder would turn the bad byte into U+FFFD and go on to read, and answer, a message Meta never sent.
   it('refuses JSON that is well formed except for one byte that is not UTF-8', async () => {
     const t = await started();
-    const text = JSON.stringify(webhookPayload({ text: { body: 'before-after' } }));
+    const text = JSON.stringify(webhookPayload({ text: { body: '!d before-after' } }));
     const raw = Buffer.concat([
       Buffer.from(text.slice(0, text.indexOf('before-') + 'before-'.length)),
       Buffer.from([0xff]),
@@ -629,7 +657,7 @@ describe('a signed body that cannot be read', () => {
 
   it('keeps the payload with its text masked in the answer', async () => {
     const t = await started();
-    const body = webhookPayload({ from_user_id: 42, text: { body: 'a-very-distinctive-question' } });
+    const body = webhookPayload({ from_user_id: 42, text: { body: '!d a-very-distinctive-question' } });
     const response = await t.post(body);
     expect(response.status).toBe(400);
     expect(response.text).not.toContain('a-very-distinctive-question');
@@ -787,8 +815,8 @@ describe('everything else', () => {
     expect(await response.json()).toEqual({ detail: 'Not Found' });
   });
 
-  it.each(['local', 'development', 'staging'])('serves /sentry-debug in %s, and it fails on purpose', async (deploymentType) => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: deploymentType, MOCK_ANSARI_CLIENT: undefined } });
+  it.each(['local', 'staging'])('serves /sentry-debug in %s, and it fails on purpose', async (environment) => {
+    const t = await started({ env: { DEPLOYMENT_TYPE: environment, MOCK_ANSARI_CLIENT: undefined } });
     const response = await fetch(`${t.url}/sentry-debug`);
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ detail: 'Internal server error' });

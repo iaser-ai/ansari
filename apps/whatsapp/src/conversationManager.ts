@@ -109,6 +109,30 @@ function incomingText(message: IncomingMessage): string {
   return text;
 }
 
+const DEV_PREFIX = '!d ';
+const STAGING_PREFIX = '!s ';
+
+/**
+ * Which environment answers a message, by its prefix (issue #363): the production number is subscribed to the production,
+ * staging and local (zrok) Meta apps, so all three receive every message. Production answers text with neither prefix,
+ * staging only `!s `, development only `!d `. Prefixes are exact: lowercase, with the trailing space. A message that
+ * is not text has no prefix, so only production answers it. `prefixLength` is how much to cut off the front of the text.
+ */
+export function routeByPrefix(
+  environment: ManagerConfig['DEPLOYMENT_TYPE'],
+  message: Pick<IncomingMessage, 'messageType' | 'messageBody'>,
+): { answer: boolean; prefixLength: number } {
+  const body = message.messageBody;
+  const text = typeof body === 'object' && body !== null ? (body as { body?: unknown }).body : undefined;
+  const textMessage = message.messageType === 'text' && typeof text === 'string' ? text : undefined;
+  const isDev = textMessage?.startsWith(DEV_PREFIX) === true;
+  const isStaging = textMessage?.startsWith(STAGING_PREFIX) === true;
+
+  if (environment === 'production') return { answer: !isDev && !isStaging, prefixLength: 0 };
+  const mine = environment === 'staging' ? isStaging : isDev;
+  return { answer: mine, prefixLength: mine ? DEV_PREFIX.length : 0 };
+}
+
 /** Wait `ms`, or until `signal` aborts. Resolves `true` after the full wait and `false` if it was cut short. */
 function delay(ms: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.resolve(false);
@@ -215,26 +239,20 @@ export class ConversationManager {
   }
 
   /**
-   * Decide what should happen to a message, without doing it. The order matters and is Python's: the service being down
-   * beats everything; then the staging filter; then age; then the message type.
+   * Decide what should happen to a message, without doing it. The order matters: first whether this environment is the one
+   * meant to answer (prefix routing), so an environment that ignores a message never sends its own maintenance notice; then
+   * the service being down; then age; then the message type.
    */
   triage(message: IncomingMessage): TriageAction {
     const { config, logger } = this.#options;
 
-    if (config.WA_MAINTENANCE_MODE) return 'maintenance';
-
-    // While a developer tests locally on the same WhatsApp test number, the always-running staging server must ignore
-    // what is meant for their laptop: they prefix such messages with "!d " (e.g. "!d what is ansari?"). A temporary
-    // workaround until staging has a number of its own. Only a text body can carry the prefix (an unsupported type arrives
-    // as a list, not an object).
-    if (config.DEPLOYMENT_TYPE === 'staging') {
-      const body = message.messageBody;
-      const text = typeof body === 'object' && body !== null ? (body as { body?: unknown }).body : undefined;
-      if (typeof text === 'string' && text.startsWith('!d ')) {
-        logger.debug("Incoming message is meant for a dev who's testing locally now, so will not process it in staging...");
-        return 'dev_filter';
-      }
+    // Other environments' messages are ignored here, so nothing about them may be logged: no phone, BSUID or text
+    if (!routeByPrefix(config.DEPLOYMENT_TYPE, message).answer) {
+      logger.debug('Incoming message is meant for another environment, so will not process it here');
+      return 'dev_filter';
     }
+
+    if (config.WA_MAINTENANCE_MODE) return 'maintenance';
 
     // Meta redelivers old webhooks after an outage; answering a day-old question is worse than ignoring it
     if (isMessageTooOld(message.messageUnixTime, config.WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS, { now: this.#now(), logger })) {
@@ -483,7 +501,9 @@ export class ConversationManager {
     }
 
     try {
-      const text = incomingText(turn.message);
+      // The prefix only routes the message; the answer must not be about it
+      const { prefixLength } = routeByPrefix(this.#options.config.DEPLOYMENT_TYPE, turn.message);
+      const text = incomingText(turn.message).slice(prefixLength);
       logger.debug(`Whatsapp user sent a text message (${[...text].length} characters)`);
 
       const answer = await this.#answer(turn, text, 1);

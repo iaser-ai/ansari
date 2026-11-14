@@ -159,6 +159,15 @@ The Python tests (197) are the oracle: each phase ports one layer bottom-up, tog
 
 **Done when**: smoke results are listed in the review as verified or not, with evidence.
 
+## Addendum: issue #363 (prefix routing and the `ENVIRONMENT` rename), added after phase 7
+
+The Python service gets the same two changes separately (PIR #363, `builder/pir-363`); the two must behave the same. Not a new plan phase (porch fixes the phase list at plan approval); it is extra commits on this branch, before the PR.
+
+- **Prefix routing** (`ConversationManager.triage`, before the maintenance check): production answers text with no `!d `/`!s ` prefix; staging only `!s `; development only `!d `. Exact prefixes. Non-text has no prefix, so only production answers it. Ignored messages reuse `dev_filter` (202), log one generic debug line and are never stored. The answering instance strips the prefix before apps/api. Always on, no setting.
+- **Rename**, a separate and last commit so it can be dropped alone: `DEPLOYMENT_TYPE` becomes `ENVIRONMENT` with `development | staging | production`; `local` is removed with no alias and `DEPLOYMENT_TYPE` is no longer read. `development` keeps what `local` meant (mocks, readable logs, DEBUG, phone replies, full 400 body in Meta error logs). Nothing in `apps/whatsapp` used the name `ENVIRONMENT` before (searched). Railway already sets `ENVIRONMENT` on the whatsapp services, so no Railway change is needed.
+- **Tests:** an environment x message table, strip, maintenance order and no-logging tests; for the rename, `local` refused, `development` behaving as `local` did, `ENVIRONMENT` required. Each shown able to fail by breaking the code and restoring it.
+- **Not covered by code (Meta side):** the staging and test apps subscribed to the production WhatsApp account, and each instance's phone number id and token pointing at the production number. On staging, testers must start every message with `!s `.
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |

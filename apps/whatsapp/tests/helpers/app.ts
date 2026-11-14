@@ -75,7 +75,8 @@ export function webhookPayload(
         id: 'wamid.TEST',
         timestamp: String(FIXED_NOW_UNIX),
         type: 'text',
-        text: { body: 'hello' },
+        // The tests run as `development`, which answers only messages with the `!d ` prefix (and strips it)
+        text: { body: '!d hello' },
         ...message,
       },
     ],

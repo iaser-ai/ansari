@@ -73,7 +73,10 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
 > `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
-> `DEPLOYMENT_TYPE=local`.
+> `DEPLOYMENT_TYPE=local`. `DEPLOYMENT_TYPE` also routes messages (issue #363): production answers text with no
+> `!d `/`!s ` prefix, staging only `!s ` (testers must start every staging message with `!s `), local only `!d `.
+> The Meta side is separate: the staging and test apps must be subscribed to the production WhatsApp account, and
+> each instance's phone number id and token must point at the production number.
 >
 > **auth service (spec 300)** — one listener: the public domain
 > (`auth.askansari.ai`, `auth-staging.askansari.ai`) targets `PORT` (3100); set it as
