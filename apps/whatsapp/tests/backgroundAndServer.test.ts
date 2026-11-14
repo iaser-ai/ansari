@@ -23,8 +23,28 @@ import { capturingLogger } from './helpers/network';
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Timers currently keeping the process alive. */
-const activeTimers = () => process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length;
+/**
+ * Runs `action` and reports the timers started with exactly `delayMs`, and which timers were cleared. Counting every live timer
+ * instead is racy: any other timer that expires meanwhile changes the count (it failed once under parallel load).
+ */
+async function timersWithDelay(delayMs: number, action: () => Promise<unknown>) {
+  const started: Array<ReturnType<typeof setTimeout>> = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, ms?: number) => {
+    const timer = realSetTimeout(handler, ms);
+    if (ms === delayMs) started.push(timer);
+    return timer;
+  }) as unknown as typeof setTimeout);
+  const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+  try {
+    await action();
+  } finally {
+    setSpy.mockRestore();
+  }
+  const cleared = clearSpy.mock.calls.map((call) => call[0]);
+  clearSpy.mockRestore();
+  return { started, cleared };
+}
 
 function tasks() {
   const log = capturingLogger();
@@ -130,19 +150,19 @@ describe('BackgroundTasks', () => {
 
     it('does not leave its time limit running, which would keep the process alive', async () => {
       const { background } = tasks();
-      const before = activeTimers();
       background.run(() => wait(5));
-      await background.idle(60_000);
-      expect(activeTimers()).toBe(before);
+      const { started, cleared } = await timersWithDelay(60_000, () => background.idle(60_000));
+      expect(started).toHaveLength(1);
+      expect(cleared).toContain(started[0]);
     });
 
     it('does not leave its time limit running when it gives up either', async () => {
       const { background } = tasks();
       let release: () => void = () => {};
       background.run(() => new Promise<void>((resolve) => (release = resolve)));
-      const before = activeTimers();
-      await background.idle(20);
-      expect(activeTimers()).toBe(before);
+      const { started, cleared } = await timersWithDelay(23, () => background.idle(23));
+      expect(started).toHaveLength(1);
+      expect(cleared).toContain(started[0]);
       release();
       await background.idle(1000);
     });
