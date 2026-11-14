@@ -17,3 +17,21 @@ for key, value in {
 
 # A real token in a developer's .env would make every BSUID the same user
 os.environ["MOCK_AUTH_TOKEN"] = ""
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def answers_unprefixed_messages():
+    """Start every test as production, which answers a message with no prefix.
+
+    The suite has to start as `local` (only local may switch mocks on), and local would ignore such a message. Setting the
+    value after start-up skips that check, and a test that needs another environment sets its own.
+    """
+    from ansari_whatsapp.utils.config import get_settings
+
+    settings = get_settings()
+    original = settings.DEPLOYMENT_TYPE
+    settings.DEPLOYMENT_TYPE = "production"
+    yield
+    settings.DEPLOYMENT_TYPE = original

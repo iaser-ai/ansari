@@ -379,8 +379,7 @@ def _spy_identity_and_reply_target(monkeypatch):
 
 
 def test_the_phone_is_not_read_or_used_by_default(monkeypatch):
-
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "staging")
+    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
 
     tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
 
@@ -393,16 +392,17 @@ def test_the_phone_is_not_read_or_used_by_default(monkeypatch):
     assert recipients and set(recipients) == {BSUID}
 
 
-@pytest.mark.parametrize("deployment_type", ["local", "development", "staging"])
-def test_reply_by_phone_addresses_the_reply_to_the_phone_and_still_identifies_by_bsuid(monkeypatch, deployment_type):
-
+@pytest.mark.parametrize(("deployment_type", "prefix"), [("local", "!d "), ("development", "!d "), ("staging", "!s ")])
+def test_reply_by_phone_addresses_the_reply_to_the_phone_and_still_identifies_by_bsuid(monkeypatch, deployment_type, prefix):
     monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
 
     monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
 
     tokens_requested, recipients = _spy_identity_and_reply_target(monkeypatch)
 
-    response = _post_signed_webhook(_text_message(**{"from": PHONE, "from_user_id": BSUID}))
+    message = _text_message(**{"from": PHONE, "from_user_id": BSUID})
+    message["text"] = {"body": f"{prefix}hello"}
+    response = _post_signed_webhook(message)
 
     assert response.status_code == 200
 
@@ -412,7 +412,6 @@ def test_reply_by_phone_addresses_the_reply_to_the_phone_and_still_identifies_by
 
 
 def test_reply_by_phone_falls_back_to_the_bsuid_when_the_phone_is_hidden(monkeypatch):
-
     monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
 
     _, recipients = _spy_identity_and_reply_target(monkeypatch)
@@ -425,7 +424,6 @@ def test_reply_by_phone_falls_back_to_the_bsuid_when_the_phone_is_hidden(monkeyp
 
 
 def test_the_phone_never_reaches_apps_auth_even_with_reply_by_phone(monkeypatch):
-
     monkeypatch.setattr(get_settings(), "META_REPLY_BY_PHONE", True)
 
     monkeypatch.setattr(get_settings(), "MOCK_AUTH_CLIENT", False)
@@ -433,7 +431,6 @@ def test_the_phone_never_reaches_apps_auth_even_with_reply_by_phone(monkeypatch)
     sent_to_auth = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-
         sent_to_auth.append(f"{request.url} {dict(request.headers)} {request.content.decode()}")
 
         return httpx.Response(200, json={"token": "jwt"})
@@ -448,7 +445,6 @@ def test_the_phone_never_reaches_apps_auth_even_with_reply_by_phone(monkeypatch)
 
 
 def test_reply_by_phone_is_refused_in_production(monkeypatch):
-
     from ansari_whatsapp.utils.config import WhatsAppSettings
 
     monkeypatch.setenv("DEPLOYMENT_TYPE", "production")
@@ -471,7 +467,6 @@ def test_reply_by_phone_is_refused_in_production(monkeypatch):
 
 
 def test_reply_by_phone_defaults_to_off(monkeypatch):
-
     from ansari_whatsapp.utils.config import WhatsAppSettings
 
     monkeypatch.delenv("META_REPLY_BY_PHONE", raising=False)

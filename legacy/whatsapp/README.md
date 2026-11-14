@@ -55,13 +55,13 @@ zrok reserve public localhost:8001 -n <META_WEBHOOK_ZROK_SHARE_TOKEN>
 
 The matching callback URL (`https://<token>.share.zrok.io/whatsapp/v2`) is set on the `Ansari - Test` app in Meta's dashboard. See `.env.example` for who holds the token. Use the credentials of that same app (token, app secret, verify token).
 
-Staging shares the same test number, so start every message you send while testing locally with `!d ` (for example `!d what is ansari?`). Staging ignores those; your local service answers them.
+One WhatsApp number can feed production, staging and your local service (issue #363), so each environment answers only its own messages. A message with no prefix is production's, one starting with `!s ` is staging's, and one starting with `!d ` is your local service's (for example `!d what is ansari?`). The others ignore it, and the one that answers drops the prefix before asking the model. So testing on staging now means starting every message with `!s `.
 
 ### Test and staging switches
 
 | Behaviour | When |
 |---|---|
-| Messages starting with `!d ` are ignored, so a developer testing locally on the shared test number does not get answered twice | `DEPLOYMENT_TYPE=staging` |
+| Only messages with the environment's own prefix are answered (`!s ` on staging, `!d ` on local; production answers messages with neither). The prefix is dropped before the text goes to `apps/api`. Any other message, and any message that is not text, is ignored there | every `DEPLOYMENT_TYPE` |
 | Every message gets a "down for maintenance" reply and nothing is processed | `WA_MAINTENANCE_MODE=True` (independent of `apps/api`'s own flag) |
 | JSON logs on stdout (otherwise readable logs) | any `DEPLOYMENT_TYPE` except `local` and `development` |
 | `GET /sentry-debug` deliberately crashes, to prove errors reach Sentry | every `DEPLOYMENT_TYPE` except `production` |
@@ -128,7 +128,7 @@ The Docker image has not been built or run by the author of this change. Do that
 
 1. `GET /` returns 200.
 2. Meta's webhook verification succeeds for the staging callback URL.
-3. A normal message gets an answer; a message starting with `!d ` gets no reply from staging.
+3. A message starting with `!s ` gets an answer, and a message with no prefix or with `!d ` gets no reply from staging.
 4. A second message within the retention window continues the same conversation.
 5. A message after the retention window starts a new conversation and the old thread is gone from `GET /api/v2/threads`.
 6. An answer longer than 4,000 characters arrives as several messages in order.
