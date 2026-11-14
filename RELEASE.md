@@ -67,15 +67,15 @@ migration runbook were both proven in real releases on 2026-08-02.
 > Build: repo-root context, `legacy/whatsapp/Dockerfile`. Health check `/`. The Meta callback URL is
 > `https://<domain>/whatsapp/v2`, one Meta app per environment. Environment surface (full list in
 > `legacy/whatsapp/.env.example`):
-> `DEPLOYMENT_TYPE` (required, `staging` or `production`), `BACKEND_SERVER_URL` (apps/api),
+> `ENVIRONMENT` (required, `staging` or `production`), `BACKEND_SERVER_URL` (apps/api),
 > `AUTH_SERVER_URL` and `AUTH_WHATSAPP_API_KEY` (apps/auth, issue #329),
 > `META_BUSINESS_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN_FROM_SYS_USER`, `META_ANSARI_APP_SECRET` and
 > `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
 > `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
-> `DEPLOYMENT_TYPE=local`. `DEPLOYMENT_TYPE` also routes messages (issue #363): production answers text with no
-> `!d `/`!s ` prefix, staging only `!s ` (testers must start every staging message with `!s `), local only `!d `.
-> The Meta side is separate: the staging and test apps must be subscribed to the production WhatsApp account, and
+> `ENVIRONMENT=development`. `ENVIRONMENT` also routes messages (issue #363): production answers text with no
+> `!d `/`!s ` prefix, staging only `!s ` (testers must start every staging message with `!s `), development only
+> `!d `. The Meta side is separate: the staging and test apps must be subscribed to the production WhatsApp account, and
 > each instance's phone number id and token must point at the production number.
 >
 > **auth service (spec 300)** — one listener: the public domain

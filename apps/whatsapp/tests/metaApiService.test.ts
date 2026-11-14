@@ -2,7 +2,7 @@
  * Sending to Meta.
  *
  * Python tests ported: `test_meta_sender_logging.py` (what is logged when Meta refuses, in every environment, and that no
- * phone number, BSUID, message text or token reaches a log outside local) and the Meta-payload cases of
+ * phone number, BSUID, message text or token reaches a log outside development) and the Meta-payload cases of
  * `test_bsuid_auth_flow.py` (a phone goes in `to`, a BSUID in `recipient`).
  */
 import { describe, expect, it } from 'vitest';
@@ -44,16 +44,16 @@ const ECHOING_REPLY = {
   },
 };
 
-type Deployment = 'local' | 'development' | 'staging' | 'production';
+type Deployment = 'development' | 'staging' | 'production';
 
-function setup(handler: Handler, deploymentType: Deployment = 'production') {
+function setup(handler: Handler, environment: Deployment = 'production') {
   const net = fakeFetch(handler);
   const log = capturingLogger();
   const reports: Array<{ error: unknown; errorType: string; context?: Record<string, unknown> }> = [];
   const service = new MetaApiServiceReal({
     apiUrl: API_URL,
     accessToken: new Secret(TOKEN),
-    deploymentType,
+    environment,
     logger: log.logger,
     fetch: net.fetch,
     reportError: (error, report) => reports.push({ error, ...report }),
@@ -150,7 +150,7 @@ describe('what is sent', () => {
 });
 
 describe('when Meta refuses', () => {
-  it.each(['local', 'staging', 'development', 'production'] as const)(
+  it.each(['staging', 'development', 'production'] as const)(
     'logs Meta\'s error fields in %s',
     async (deployment) => {
       const { service, log } = setup(() => jsonResponse(400, META_REPLY), deployment);
@@ -162,7 +162,7 @@ describe('when Meta refuses', () => {
     },
   );
 
-  it.each(['local', 'staging', 'development', 'production'] as const)(
+  it.each(['staging', 'development', 'production'] as const)(
     'masks an error that echoes the recipient, in %s',
     async (deployment) => {
       const { service, log } = setup(() => jsonResponse(400, ECHOING_REPLY), deployment);
@@ -176,8 +176,8 @@ describe('when Meta refuses', () => {
     },
   );
 
-  it.each(['staging', 'development', 'production'] as const)(
-    'logs no phone, BSUID, message text, message id or token outside local (%s)',
+  it.each(['staging', 'production'] as const)(
+    'logs no phone, BSUID, message text, message id or token outside development (%s)',
     async (deployment) => {
       for (const recipient of [PHONE, BSUID]) {
         for (const method of ['message', 'typing'] as const) {
@@ -207,8 +207,8 @@ describe('when Meta refuses', () => {
     },
   );
 
-  it('logs the full request body in local, but never the token', async () => {
-    const { service, log } = setup(() => jsonResponse(400, META_REPLY), 'local');
+  it('logs the full request body in development, but never the token', async () => {
+    const { service, log } = setup(() => jsonResponse(400, META_REPLY), 'development');
     await thrown(service.sendMessage(PHONE, [MESSAGE_TEXT]));
     expect(log.text()).toContain(MESSAGE_TEXT);
     expect(log.text()).toContain(PHONE);
@@ -216,17 +216,15 @@ describe('when Meta refuses', () => {
     expect(log.text()).not.toContain(TOKEN);
   });
 
-  it.each(['staging', 'development'] as const)(
-    'logs a masked body with the safe fields readable in %s',
-    async (deployment) => {
-      const { service, log } = setup(() => jsonResponse(400, META_REPLY), deployment);
-      await thrown(service.sendMessage(PHONE, [MESSAGE_TEXT]));
-      expect(log.text()).toContain('Body with values masked');
-      expect(log.text()).toContain("'type': 'text'");
-      expect(log.text()).toContain('<str len=');
-      expect(log.text()).toContain('Bearer ***');
-    },
-  );
+  it('logs a masked body with the safe fields readable in staging, not the full one', async () => {
+    const { service, log } = setup(() => jsonResponse(400, META_REPLY), 'staging');
+    await thrown(service.sendMessage(PHONE, [MESSAGE_TEXT]));
+    expect(log.text()).toContain('Body with values masked');
+    expect(log.text()).toContain("'type': 'text'");
+    expect(log.text()).toContain('<str len=');
+    expect(log.text()).toContain('Bearer ***');
+    expect(log.text()).not.toContain(MESSAGE_TEXT);
+  });
 
   it('logs no request values and no headers in production', async () => {
     const { service, log } = setup(() => jsonResponse(400, META_REPLY), 'production');
@@ -237,7 +235,7 @@ describe('when Meta refuses', () => {
   });
 
   it('logs request details only for a 400', async () => {
-    const { service, log } = setup(() => jsonResponse(403, META_REPLY), 'local');
+    const { service, log } = setup(() => jsonResponse(403, META_REPLY), 'development');
     await thrown(service.sendMessage(BSUID, [MESSAGE_TEXT]));
     expect(log.text()).toContain('code=131030');
     expect(log.text()).not.toContain(MESSAGE_TEXT);

@@ -48,19 +48,19 @@ describe('log entry', () => {
 
 describe('JSON vs readable logs', () => {
   it.each([
-    ['local', undefined, false],
     ['development', undefined, false],
+    ['development', 'false', false],
     ['staging', undefined, true],
     ['production', undefined, true],
     ['staging', 'true', false], // CI never emits JSON, whatever the deployment type
     ['production', 'false', true],
-  ] as const)('%s with GITHUB_ACTIONS=%s uses JSON: %s', (deploymentType, githubActions, expected) => {
-    expect(shouldUseJsonLogs(deploymentType, githubActions)).toBe(expected);
+  ] as const)('%s with GITHUB_ACTIONS=%s uses JSON: %s', (environment, githubActions, expected) => {
+    expect(shouldUseJsonLogs(environment, githubActions)).toBe(expected);
   });
 
   it('writes one JSON object on one line to stdout, nothing to stderr', () => {
     const { sinks, out, err } = capture();
-    createLogger({ deploymentType: 'production', level: 'INFO', sinks }).info('line one\nline two');
+    createLogger({ environment: 'production', level: 'INFO', sinks }).info('line one\nline two');
 
     expect(err).toEqual([]); // stderr would make Railway show it as an error
     expect(out).toHaveLength(1);
@@ -68,9 +68,9 @@ describe('JSON vs readable logs', () => {
     expect(JSON.parse(out[0]!).message).toBe('line one\nline two');
   });
 
-  it('writes readable lines to stderr in local development', () => {
+  it('writes readable lines to stderr in development', () => {
     const { sinks, out, err } = capture();
-    createLogger({ deploymentType: 'local', level: 'DEBUG', sinks }).info('hello');
+    createLogger({ environment: 'development', level: 'DEBUG', sinks }).info('hello');
 
     expect(out).toEqual([]);
     expect(err[0]).toMatch(/\| INFO {2}\| hello\n$/);
@@ -80,7 +80,7 @@ describe('JSON vs readable logs', () => {
 describe('levels', () => {
   it('drops messages below the configured level', () => {
     const { sinks, out } = capture();
-    const logger = createLogger({ deploymentType: 'production', level: 'WARNING', sinks });
+    const logger = createLogger({ environment: 'production', level: 'WARNING', sinks });
     logger.debug('d');
     logger.info('i');
     logger.warn('w');
@@ -89,7 +89,7 @@ describe('levels', () => {
   });
 
   it('refuses an unknown level instead of logging nothing', () => {
-    expect(() => createLogger({ deploymentType: 'local', level: 'LOUD' })).toThrow(/LOGGING_LEVEL/);
+    expect(() => createLogger({ environment: 'development', level: 'LOUD' })).toThrow(/LOGGING_LEVEL/);
   });
 });
 
@@ -100,7 +100,7 @@ describe('request id', () => {
 
   it('follows the async chain, including work after an await', async () => {
     const { sinks, out } = capture();
-    const logger = createLogger({ deploymentType: 'production', level: 'INFO', sinks });
+    const logger = createLogger({ environment: 'production', level: 'INFO', sinks });
 
     await runWithRequestId('req-abc', async () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -113,7 +113,7 @@ describe('request id', () => {
 
   it('keeps two overlapping requests apart', async () => {
     const { sinks, out } = capture();
-    const logger = createLogger({ deploymentType: 'production', level: 'INFO', sinks });
+    const logger = createLogger({ environment: 'production', level: 'INFO', sinks });
 
     await Promise.all([
       runWithRequestId('one', async () => {

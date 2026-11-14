@@ -418,7 +418,7 @@ describe('createServices', () => {
     AUTH_WHATSAPP_API_KEY: new Secret('key'),
     META_API_URL: 'https://graph.facebook.com/v26.0/1/messages',
     META_ACCESS_TOKEN_FROM_SYS_USER: new Secret('token'),
-    DEPLOYMENT_TYPE: 'production',
+    ENVIRONMENT: 'production',
   };
   const log = () => capturingLogger().logger;
 
@@ -431,7 +431,7 @@ describe('createServices', () => {
 
   it('uses the mock for exactly the services whose flag is on', () => {
     const services = createServices(
-      { ...real, MOCK_ANSARI_CLIENT: true, MOCK_META_API: true, DEPLOYMENT_TYPE: 'local' },
+      { ...real, MOCK_ANSARI_CLIENT: true, MOCK_META_API: true, ENVIRONMENT: 'development' },
       log(),
       () => {},
     );
@@ -464,7 +464,7 @@ describe('createServices', () => {
 
   it('gives the mock auth client the configured token, so every user shares one real account', async () => {
     const { authClient } = createServices(
-      { ...real, MOCK_AUTH_CLIENT: true, MOCK_AUTH_TOKEN: new Secret('a.real.jwt'), DEPLOYMENT_TYPE: 'local' },
+      { ...real, MOCK_AUTH_CLIENT: true, MOCK_AUTH_TOKEN: new Secret('a.real.jwt'), ENVIRONMENT: 'development' },
       log(),
       () => {},
     );
@@ -474,7 +474,7 @@ describe('createServices', () => {
   });
 
   it('gives each user a token of their own when no mock token is configured', async () => {
-    const { authClient } = createServices({ ...real, MOCK_AUTH_CLIENT: true, DEPLOYMENT_TYPE: 'local' }, log(), () => {});
+    const { authClient } = createServices({ ...real, MOCK_AUTH_CLIENT: true, ENVIRONMENT: 'development' }, log(), () => {});
     expect(await authClient.getToken('US.1')).not.toBe(await authClient.getToken('US.2'));
   });
 });

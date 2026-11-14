@@ -22,7 +22,7 @@ import { describeNetworkError, discardBody, type FetchLike } from './http';
 /** Sending to a user is the answer they are waiting for; Meta can take longer than a few seconds to accept one. */
 const REQUEST_TIMEOUT_MS = 20_000;
 
-/** String values of a send payload that describe its shape and name nobody (the rest is masked outside local). */
+/** String values of a send payload that describe its shape and name nobody (the rest is masked outside development). */
 const SAFE_REQUEST_KEYS: ReadonlySet<string> = new Set(['messaging_product', 'type', 'recipient_type', 'status']);
 
 export interface MetaApiService {
@@ -94,7 +94,7 @@ export interface MetaApiOptions {
   apiUrl: string;
   accessToken: Secret;
   /** Decides how much of a rejected request is logged. */
-  deploymentType: 'local' | 'development' | 'staging' | 'production';
+  environment: 'development' | 'staging' | 'production';
   logger: Logger;
   reportError?: ErrorReporter;
   fetch?: FetchLike;
@@ -155,21 +155,21 @@ export class MetaApiServiceReal implements MetaApiService {
    * Log what Meta said, and for a 400 what we sent.
    *
    * Meta's raw body is never logged, only its structured fields with identifiers masked. For a 400 the payload's keys are
-   * logged everywhere; their values too, masked on staging and development and unmasked only on local.
+   * logged everywhere; their values too, masked on staging and unmasked only on development.
    */
   async #logMetaError(response: Response, sent: Record<string, unknown>): Promise<void> {
-    const { logger, deploymentType } = this.#options;
+    const { logger, environment } = this.#options;
     logger.error(`Meta's reply (${response.status}): ${await metaErrorSummary(response)}`);
     if (response.status !== 400) return;
 
     let line = `Meta rejected the request (400). URL: ${this.#options.apiUrl} | Payload keys: ${pythonList(Object.keys(sent).sort())}`;
-    if (deploymentType !== 'production') {
+    if (environment !== 'production') {
       const headers = Object.fromEntries(
         Object.entries(this.#headers()).map(([key, value]) => [key, key.toLowerCase() === 'authorization' ? 'Bearer ***' : value]),
       );
       line += ` | Headers: ${pythonRepr(headers)}`;
       line +=
-        deploymentType === 'local'
+        environment === 'development'
           ? ` | Body: ${JSON.stringify(sent)}`
           : ` | Body with values masked: ${pythonRepr(redactValues(sent, SAFE_REQUEST_KEYS))}`;
     }

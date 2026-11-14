@@ -47,7 +47,7 @@ export const SENTRY_OPTIONS = {
 } as const;
 
 /**
- * Start Sentry. Without a DSN it stays off (Python: `if SENTRY_DSN and deployment_type != "local"`; the caller checks the
+ * Start Sentry. Without a DSN it stays off (Python: `if SENTRY_DSN and deployment_type != "local"`, now `development`; the caller checks the
  * deployment type).
  */
 export function initSentry(dsn: string | undefined, environment: string): void {

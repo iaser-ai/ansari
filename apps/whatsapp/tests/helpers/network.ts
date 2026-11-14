@@ -115,7 +115,7 @@ export function bytesInChunks(text: string, size: number): Uint8Array[] {
 export function capturingLogger(): { logger: Logger; text: () => string; lines: () => Array<{ level: string; message: string }> } {
   const out: string[] = [];
   const logger = createLogger({
-    deploymentType: 'production',
+    environment: 'production',
     level: 'DEBUG',
     sinks: { stdout: (line) => out.push(line), stderr: (line) => out.push(line) },
   });

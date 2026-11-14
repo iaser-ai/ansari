@@ -57,7 +57,7 @@ export type IncomingMessage = Extract<ParsedWebhook, { kind: 'message' }>;
 /** The settings the manager reads. `Pick` takes just these fields of the full `Env` type. */
 export type ManagerConfig = Pick<
   Env,
-  'WA_MAINTENANCE_MODE' | 'DEPLOYMENT_TYPE' | 'WHATSAPP_CHAT_RETENTION_HOURS' | 'WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS'
+  'WA_MAINTENANCE_MODE' | 'ENVIRONMENT' | 'WHATSAPP_CHAT_RETENTION_HOURS' | 'WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS'
 >;
 
 /**
@@ -119,7 +119,7 @@ const STAGING_PREFIX = '!s ';
  * is not text has no prefix, so only production answers it. `prefixLength` is how much to cut off the front of the text.
  */
 export function routeByPrefix(
-  environment: ManagerConfig['DEPLOYMENT_TYPE'],
+  environment: ManagerConfig['ENVIRONMENT'],
   message: Pick<IncomingMessage, 'messageType' | 'messageBody'>,
 ): { answer: boolean; prefixLength: number } {
   const body = message.messageBody;
@@ -247,7 +247,7 @@ export class ConversationManager {
     const { config, logger } = this.#options;
 
     // Other environments' messages are ignored here, so nothing about them may be logged: no phone, BSUID or text
-    if (!routeByPrefix(config.DEPLOYMENT_TYPE, message).answer) {
+    if (!routeByPrefix(config.ENVIRONMENT, message).answer) {
       logger.debug('Incoming message is meant for another environment, so will not process it here');
       return 'dev_filter';
     }
@@ -502,7 +502,7 @@ export class ConversationManager {
 
     try {
       // The prefix only routes the message; the answer must not be about it
-      const { prefixLength } = routeByPrefix(this.#options.config.DEPLOYMENT_TYPE, turn.message);
+      const { prefixLength } = routeByPrefix(this.#options.config.ENVIRONMENT, turn.message);
       const text = incomingText(turn.message).slice(prefixLength);
       logger.debug(`Whatsapp user sent a text message (${[...text].length} characters)`);
 

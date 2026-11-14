@@ -5,7 +5,7 @@
  * `reset_*` function for tests. Here the choice is made once, at start-up, and the result is passed to whoever needs it, so
  * there is nothing global to reset.
  *
- * The `MOCK_*` switches are refused outside `DEPLOYMENT_TYPE=local` by the configuration itself (`config.ts`), so a stand-in
+ * The `MOCK_*` switches are refused outside `ENVIRONMENT=development` by the configuration itself (`config.ts`), so a stand-in
  * can never be chosen on a deployed service.
  */
 import type { Env } from '../config';
@@ -26,7 +26,7 @@ export type ServicesConfig = Pick<
   | 'AUTH_WHATSAPP_API_KEY'
   | 'META_API_URL'
   | 'META_ACCESS_TOKEN_FROM_SYS_USER'
-  | 'DEPLOYMENT_TYPE'
+  | 'ENVIRONMENT'
 >;
 
 export interface Services {
@@ -49,7 +49,7 @@ export function createServices(config: ServicesConfig, logger: Logger, reportErr
     : new MetaApiServiceReal({
         apiUrl: config.META_API_URL,
         accessToken: config.META_ACCESS_TOKEN_FROM_SYS_USER,
-        deploymentType: config.DEPLOYMENT_TYPE,
+        environment: config.ENVIRONMENT,
         logger,
         reportError,
       });

@@ -23,7 +23,7 @@ pnpm whatsapp dev                              # restarts on change
 ```
 
 The service refuses to start unless its configuration is valid, and says which variable is wrong. `.env.example`
-documents every variable. With `DEPLOYMENT_TYPE=local` the three `MOCK_*` switches let it run with no Meta, `apps/auth` or
+documents every variable. With `ENVIRONMENT=development` the three `MOCK_*` switches let it run with no Meta, `apps/auth` or
 `apps/api` at all (they are refused anywhere else). It is left out of the root `pnpm dev` on purpose: it needs its own
 `.env`, and without one it exits at once.
 
@@ -50,17 +50,20 @@ The production WhatsApp number can be subscribed to three Meta apps (production,
 message reaches all three. The first characters of a text message decide which environment answers; the others ignore it
 (`202`, nothing logged or stored). The check is always on and has no setting.
 
-| `DEPLOYMENT_TYPE` | Answers | Ignores |
+| `ENVIRONMENT` | Answers | Ignores |
 |---|---|---|
 | `production` | text with no `!d ` or `!s ` prefix | `!d ` and `!s ` messages |
 | `staging` | text starting with `!s ` | everything else |
-| `local` | text starting with `!d ` | everything else |
+| `development` | text starting with `!d ` | everything else |
 
 Prefixes are exact (lowercase, with the space). The answering environment cuts the prefix off before the question goes to
 apps/api. A message that is not text (image, audio...) has no prefix, so only production answers it. **On staging, testers
 must start every message with `!s `.** The Meta side is separate and is not done by this code: the staging and test apps
 subscribed to the production WhatsApp account, and each instance's `META_BUSINESS_PHONE_NUMBER_ID` and token pointing at
 the production number.
+
+**Upgrading a local `.env`:** `DEPLOYMENT_TYPE` is no longer read and `local` is no longer a value. Replace
+`DEPLOYMENT_TYPE="local"` with `ENVIRONMENT="development"`, or the service refuses to start.
 
 ## Routes
 

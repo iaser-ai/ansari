@@ -91,7 +91,7 @@ export function buildApp({
     | 'META_BUSINESS_PHONE_NUMBER_ID'
     | 'META_REPLY_BY_PHONE'
     | 'ALWAYS_RETURN_OK_TO_META'
-    | 'DEPLOYMENT_TYPE'
+    | 'ENVIRONMENT'
     | 'ORIGINS'
   >;
   /** Just the three methods the routes call. */
@@ -146,7 +146,7 @@ export function buildApp({
   });
 
   // Crashes on purpose, to prove errors reach Sentry. Open to anyone who finds it, so never in production.
-  if (config.DEPLOYMENT_TYPE !== 'production') {
+  if (config.ENVIRONMENT !== 'production') {
     app.get('/sentry-debug', () => {
       throw new Error('Deliberate error to test Sentry (GET /sentry-debug)');
     });

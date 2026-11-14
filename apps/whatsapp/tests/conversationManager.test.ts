@@ -61,7 +61,7 @@ const HOUR = 3600;
 const baseConfig: ManagerConfig = {
   WA_MAINTENANCE_MODE: false,
   // Production answers a plain message, which is what the tests of everything else send
-  DEPLOYMENT_TYPE: 'production',
+  ENVIRONMENT: 'production',
   WHATSAPP_CHAT_RETENTION_HOURS: 3,
   WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS: 86400,
 };
@@ -164,7 +164,7 @@ describe('triage: what happens to a message', () => {
   });
 
   it('puts maintenance mode before age and type', () => {
-    const { manager } = setup({ config: { WA_MAINTENANCE_MODE: true, DEPLOYMENT_TYPE: 'production' } });
+    const { manager } = setup({ config: { WA_MAINTENANCE_MODE: true, ENVIRONMENT: 'production' } });
     // An old image: maintenance still wins
     expect(manager.triage(textMessage({ messageType: 'image', messageUnixTime: 1 }))).toBe('maintenance');
   });
@@ -172,7 +172,7 @@ describe('triage: what happens to a message', () => {
   describe('prefix routing (issue #363): which environment answers', () => {
     const NON_TEXT = { messageType: 'image', messageBody: { id: 'media1' } } as const;
     // [environment, message text or 'non-text', expected]; answers are 'text' (or 'unsupported'), ignored ones 'dev_filter'
-    const TABLE: Array<[ManagerConfig['DEPLOYMENT_TYPE'], string, string]> = [
+    const TABLE: Array<[ManagerConfig['ENVIRONMENT'], string, string]> = [
       ['production', 'what is ansari?', 'text'],
       ['production', '!d what is ansari?', 'dev_filter'],
       ['production', '!s what is ansari?', 'dev_filter'],
@@ -181,35 +181,35 @@ describe('triage: what happens to a message', () => {
       ['staging', '!d what is ansari?', 'dev_filter'],
       ['staging', '!s what is ansari?', 'text'],
       ['staging', 'non-text', 'dev_filter'],
-      ['local', 'what is ansari?', 'dev_filter'],
-      ['local', '!d what is ansari?', 'text'],
-      ['local', '!s what is ansari?', 'dev_filter'],
-      ['local', 'non-text', 'dev_filter'],
+      ['development', 'what is ansari?', 'dev_filter'],
+      ['development', '!d what is ansari?', 'text'],
+      ['development', '!s what is ansari?', 'dev_filter'],
+      ['development', 'non-text', 'dev_filter'],
     ];
 
     it.each(TABLE)('%s, message "%s": %s', (environment, text, expected) => {
       const message = text === 'non-text' ? textMessage(NON_TEXT) : textMessage({}, text);
-      expect(setup({ config: { DEPLOYMENT_TYPE: environment } }).manager.triage(message)).toBe(expected);
+      expect(setup({ config: { ENVIRONMENT: environment } }).manager.triage(message)).toBe(expected);
     });
 
     it.each(['!d', '!s', '!dx hello', '!sx hello', ' !s hello', '!S hello', '!D hello'])(
       'does not treat "%s" as a prefix: production answers it, staging and development ignore it',
       (text) => {
-        expect(setup({ config: { DEPLOYMENT_TYPE: 'production' } }).manager.triage(textMessage({}, text))).toBe('text');
-        expect(setup({ config: { DEPLOYMENT_TYPE: 'staging' } }).manager.triage(textMessage({}, text))).toBe('dev_filter');
-        expect(setup({ config: { DEPLOYMENT_TYPE: 'local' } }).manager.triage(textMessage({}, text))).toBe('dev_filter');
+        expect(setup({ config: { ENVIRONMENT: 'production' } }).manager.triage(textMessage({}, text))).toBe('text');
+        expect(setup({ config: { ENVIRONMENT: 'staging' } }).manager.triage(textMessage({}, text))).toBe('dev_filter');
+        expect(setup({ config: { ENVIRONMENT: 'development' } }).manager.triage(textMessage({}, text))).toBe('dev_filter');
       },
     );
 
     // An image caption arrives as `{ body: ... }` too, but only a message of type text carries a prefix
     it('a non-text message has no prefix even when its body looks like one', () => {
       const image = textMessage({ messageType: 'image', messageBody: { body: '!d caption' } });
-      expect(setup({ config: { DEPLOYMENT_TYPE: 'local' } }).manager.triage(image)).toBe('dev_filter');
-      expect(setup({ config: { DEPLOYMENT_TYPE: 'production' } }).manager.triage(image)).toBe('unsupported');
+      expect(setup({ config: { ENVIRONMENT: 'development' } }).manager.triage(image)).toBe('dev_filter');
+      expect(setup({ config: { ENVIRONMENT: 'production' } }).manager.triage(image)).toBe('unsupported');
     });
 
     it('ignores before the maintenance check, so an ignoring environment never sends its maintenance notice', async () => {
-      const t = setup({ config: { WA_MAINTENANCE_MODE: true, DEPLOYMENT_TYPE: 'staging' } });
+      const t = setup({ config: { WA_MAINTENANCE_MODE: true, ENVIRONMENT: 'staging' } });
       expect(await t.handle(textMessage({}, '!d hi'))).toBe('dev_filter');
       expect(await t.handle(textMessage({}, 'hi'))).toBe('dev_filter');
       expect(t.replies()).toEqual([]);
@@ -219,18 +219,18 @@ describe('triage: what happens to a message', () => {
     });
 
     it('ignores a message before the age check, so an old message for another environment is a filter hit', () => {
-      const { manager } = setup({ config: { DEPLOYMENT_TYPE: 'staging' } });
+      const { manager } = setup({ config: { ENVIRONMENT: 'staging' } });
       expect(manager.triage(textMessage({ messageUnixTime: 1 }, '!d old'))).toBe('dev_filter');
     });
 
     it.each([
       ['staging', '!s what is ansari?'],
-      ['local', '!d what is ansari?'],
+      ['development', '!d what is ansari?'],
     ] as const)('%s strips the prefix before the text goes to apps/api', async (environment, text) => {
       const sent: string[] = [];
       const inner = new AnsariClientMock({ logger: capturingLogger().logger, now: () => NOW });
       const t = setup({
-        config: { DEPLOYMENT_TYPE: environment },
+        config: { ENVIRONMENT: environment },
         ansariClient: wrappedAnsari(inner, {
           processMessage: (token, threadId, message) => {
             sent.push(message);
@@ -246,7 +246,7 @@ describe('triage: what happens to a message', () => {
       const sent: string[] = [];
       const inner = new AnsariClientMock({ logger: capturingLogger().logger, now: () => NOW });
       const t = setup({
-        config: { DEPLOYMENT_TYPE: 'production' },
+        config: { ENVIRONMENT: 'production' },
         ansariClient: wrappedAnsari(inner, {
           processMessage: (token, threadId, message) => {
             sent.push(message);
@@ -261,7 +261,7 @@ describe('triage: what happens to a message', () => {
     it('an ignored message is not signed in, answered, logged or reported: no phone, BSUID or text', async () => {
       let exchanges = 0;
       const t = setup({
-        config: { DEPLOYMENT_TYPE: 'staging' },
+        config: { ENVIRONMENT: 'staging' },
         authClient: authAnswering(async () => {
           exchanges += 1;
           return 'x';
@@ -280,12 +280,12 @@ describe('triage: what happens to a message', () => {
     // Meta sends an unsupported type (video note, poll...) as an `errors` list, not an object with a body
     it('does not crash on an unsupported type, whose body is a list', () => {
       const message = textMessage({ messageType: 'errors', messageBody: [{ code: 131051, title: 'Message type is not supported' }] });
-      expect(setup({ config: { DEPLOYMENT_TYPE: 'production' } }).manager.triage(message)).toBe('unsupported');
-      expect(setup({ config: { DEPLOYMENT_TYPE: 'staging' } }).manager.triage(message)).toBe('dev_filter');
+      expect(setup({ config: { ENVIRONMENT: 'production' } }).manager.triage(message)).toBe('unsupported');
+      expect(setup({ config: { ENVIRONMENT: 'staging' } }).manager.triage(message)).toBe('dev_filter');
     });
 
     it('does not crash on a body that is null or a string', () => {
-      const { manager } = setup({ config: { DEPLOYMENT_TYPE: 'production' } });
+      const { manager } = setup({ config: { ENVIRONMENT: 'production' } });
       expect(manager.triage(textMessage({ messageType: 'image', messageBody: null }))).toBe('unsupported');
       expect(manager.triage(textMessage({ messageType: 'image', messageBody: 'x' }))).toBe('unsupported');
     });
@@ -338,7 +338,7 @@ describe('dispatch: the non-text actions', () => {
   });
 
   it('sends nothing for a dev-filtered or too-old message', async () => {
-    const t = setup({ config: { DEPLOYMENT_TYPE: 'staging' } });
+    const t = setup({ config: { ENVIRONMENT: 'staging' } });
     await t.handle(textMessage({}, '!d hi'));
     await t.handle(textMessage({ messageUnixTime: 1 }));
     expect(t.replies()).toEqual([]);

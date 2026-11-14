@@ -18,7 +18,7 @@
  */
 import { z } from 'zod';
 
-/** Mocks answer with canned data, so only `DEPLOYMENT_TYPE=local` may switch them on. */
+/** Mocks answer with canned data, so only `ENVIRONMENT=development` may switch them on. */
 export const MOCK_FLAGS = ['MOCK_ANSARI_CLIENT', 'MOCK_AUTH_CLIENT', 'MOCK_META_API'] as const;
 
 /**
@@ -95,7 +95,7 @@ const rawSchema = z.object({
   META_REPLY_BY_PHONE: envBoolean(),
 
   // ---------- this service ----------
-  DEPLOYMENT_TYPE: z.enum(['local', 'development', 'staging', 'production']),
+  ENVIRONMENT: z.enum(['development', 'staging', 'production']),
   /**
    * Meta needs an HTTP 200 for every webhook delivery. True: always answer 200, whatever
    * went wrong inside. False (automated tests only): return real error statuses.
@@ -113,7 +113,7 @@ const rawSchema = z.object({
   WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(86400),
 
   // ---------- logging ----------
-  /** Empty means DEBUG when DEPLOYMENT_TYPE is local, INFO everywhere else. */
+  /** Empty means DEBUG when ENVIRONMENT is development, INFO everywhere else. */
   LOGGING_LEVEL: z.string().default(''),
 
   // ---------- service providers ----------
@@ -142,31 +142,31 @@ const rawSchema = z.object({
  */
 const schema = rawSchema
   .superRefine((cfg, ctx) => {
-    if (cfg.DEPLOYMENT_TYPE === 'local') return;
+    if (cfg.ENVIRONMENT === 'development') return;
     // Mocks answer with canned data (and MOCK_AUTH_TOKEN puts every user in one
-    // account), so only local may use them.
+      // account), so only development may use them.
     const enabled: string[] = MOCK_FLAGS.filter((name) => cfg[name]);
     if (cfg.MOCK_AUTH_TOKEN) enabled.push('MOCK_AUTH_TOKEN');
     if (enabled.length > 0) {
       ctx.addIssue({
         code: 'custom',
         path: [enabled[0]!],
-        message: `${enabled.join(', ')} only allowed when DEPLOYMENT_TYPE=local (got ${cfg.DEPLOYMENT_TYPE})`,
+        message: `${enabled.join(', ')} only allowed when ENVIRONMENT=development (got ${cfg.ENVIRONMENT})`,
       });
     }
   })
   .superRefine((cfg, ctx) => {
     // Production answers on a real number, which takes BSUIDs, so no phone number should be read there.
-    if (cfg.META_REPLY_BY_PHONE && cfg.DEPLOYMENT_TYPE === 'production') {
+    if (cfg.META_REPLY_BY_PHONE && cfg.ENVIRONMENT === 'production') {
       ctx.addIssue({
         code: 'custom',
         path: ['META_REPLY_BY_PHONE'],
-        message: 'META_REPLY_BY_PHONE is not allowed when DEPLOYMENT_TYPE=production',
+        message: 'META_REPLY_BY_PHONE is not allowed when ENVIRONMENT=production',
       });
     }
   })
   .transform((cfg) => {
-    const loggingLevel = cfg.LOGGING_LEVEL || (cfg.DEPLOYMENT_TYPE === 'local' ? 'DEBUG' : 'INFO');
+    const loggingLevel = cfg.LOGGING_LEVEL || (cfg.ENVIRONMENT === 'development' ? 'DEBUG' : 'INFO');
 
     const origins = cfg.ORIGINS.replace(/^"|"$/g, '')
       .split(',')
@@ -193,7 +193,7 @@ export const CONFIG_KEYS = Object.keys(rawSchema.shape);
 
 /**
  * Validate an environment and return the settings, or throw one error that names every variable
- * failing its own check. The cross-field rules (mocks outside local, phone replies in production)
+ * failing its own check. The cross-field rules (mocks outside development, phone replies in production)
  * only run once every variable passes on its own, as with Pydantic's `mode="after"` validators, so
  * fixing the first round of errors can reveal one more.
  *

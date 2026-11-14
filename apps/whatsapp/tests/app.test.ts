@@ -484,7 +484,7 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
   });
 
   it.each(['!d what is ansari?', 'what is ansari?'])('staging message "%s": 202 DEV_FILTER and no chat call', async (text) => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: 'staging', MOCK_ANSARI_CLIENT: undefined } });
+    const t = await started({ env: { ENVIRONMENT: 'staging', MOCK_ANSARI_CLIENT: undefined } });
     const response = await t.post(webhookPayload({ text: { body: text } }));
     await t.settle();
     expect(response.status).toBe(202);
@@ -493,7 +493,7 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
   });
 
   it('staging message with the "!s " prefix: answered', async () => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: 'staging' } });
+    const t = await started({ env: { ENVIRONMENT: 'staging' } });
     const response = await t.post(webhookPayload({ text: { body: '!s what is ansari?' } }));
     await t.settle();
     expect(response.status).toBe(200);
@@ -502,7 +502,7 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
 
   it('production message with a prefix: 202 DEV_FILTER, nothing sent', async () => {
     const t = await started({
-      env: { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
+      env: { ENVIRONMENT: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
     });
     const response = await t.post(webhookPayload({ text: { body: '!s what is ansari?' } }));
     await t.settle();
@@ -511,7 +511,7 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
   });
 
   it('development message with the prefix: answered', async () => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: 'local' } });
+    const t = await started({ env: { ENVIRONMENT: 'development' } });
     const response = await t.post(webhookPayload({ text: { body: '!d what is ansari?' } }));
     await t.settle();
     expect(response.status).toBe(200);
@@ -530,7 +530,7 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
   });
 
   // Only production answers a non-text message (prefix routing); the mocks are injected, so the MOCK_* switches stay off
-  const PRODUCTION = { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' };
+  const PRODUCTION = { ENVIRONMENT: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' };
 
   it('an unsupported type: 415 UNSUPPORTED_MESSAGE_TYPE and the user is told', async () => {
     const t = await started({ env: PRODUCTION });
@@ -543,8 +543,8 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
     expect(t.replies()).toEqual(["Sorry, I can't process images yet. Please send me a text message."]);
   });
 
-  it.each(['local', 'staging'])('an unsupported type in %s is ignored: 202 DEV_FILTER and nothing sent', async (environment) => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: environment } });
+  it.each(['development', 'staging'])('an unsupported type in %s is ignored: 202 DEV_FILTER and nothing sent', async (environment) => {
+    const t = await started({ env: { ENVIRONMENT: environment } });
     const response = await t.post(webhookPayload({ type: 'image', image: { id: 'media1' } }));
     await t.settle();
     expect(response.status).toBe(202);
@@ -570,10 +570,10 @@ describe('what Meta is told for each kind of message (ALWAYS_RETURN_OK_TO_META o
 describe('with ALWAYS_RETURN_OK_TO_META on (what Meta really gets)', () => {
   it.each([
     ['maintenance mode', { WA_MAINTENANCE_MODE: 'true' }, webhookPayload(), 'MAINTENANCE_MODE'],
-    ['the staging filter', { DEPLOYMENT_TYPE: 'staging' }, webhookPayload({ text: { body: '!d hi' } }), 'DEV_FILTER'],
+    ['the staging filter', { ENVIRONMENT: 'staging' }, webhookPayload({ text: { body: '!d hi' } }), 'DEV_FILTER'],
     [
       'an unsupported type',
-      { DEPLOYMENT_TYPE: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
+      { ENVIRONMENT: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
       webhookPayload({ type: 'image', image: { id: 'm' } }),
       'UNSUPPORTED_MESSAGE_TYPE',
     ],
@@ -815,8 +815,8 @@ describe('everything else', () => {
     expect(await response.json()).toEqual({ detail: 'Not Found' });
   });
 
-  it.each(['local', 'staging'])('serves /sentry-debug in %s, and it fails on purpose', async (environment) => {
-    const t = await started({ env: { DEPLOYMENT_TYPE: environment, MOCK_ANSARI_CLIENT: undefined } });
+  it.each(['development', 'staging'])('serves /sentry-debug in %s, and it fails on purpose', async (environment) => {
+    const t = await started({ env: { ENVIRONMENT: environment, MOCK_ANSARI_CLIENT: undefined } });
     const response = await fetch(`${t.url}/sentry-debug`);
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ detail: 'Internal server error' });
@@ -826,7 +826,7 @@ describe('everything else', () => {
   it('does not serve /sentry-debug in production', async () => {
     const t = await started({
       env: {
-        DEPLOYMENT_TYPE: 'production',
+        ENVIRONMENT: 'production',
         MOCK_ANSARI_CLIENT: 'false',
         MOCK_AUTH_CLIENT: 'false',
         MOCK_META_API: 'false',

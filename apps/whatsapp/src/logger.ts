@@ -68,8 +68,8 @@ export function runWithRequestId<T>(requestId: string, fn: () => T): T {
 // ---------- formatting ----------
 
 /** JSON lines everywhere except local development and GitHub Actions. */
-export function shouldUseJsonLogs(deploymentType: string, githubActions: string | undefined): boolean {
-  return !['local', 'development'].includes(deploymentType) && githubActions !== 'true';
+export function shouldUseJsonLogs(environment: string, githubActions: string | undefined): boolean {
+  return environment !== 'development' && githubActions !== 'true';
 }
 
 /**
@@ -118,7 +118,7 @@ const processSinks: LogSinks = {
 };
 
 export interface LoggerOptions {
-  deploymentType: string;
+  environment: string;
   /** DEBUG, INFO, WARNING or ERROR (any case). */
   level: string;
   /** Value of the GITHUB_ACTIONS environment variable. */
@@ -138,7 +138,7 @@ export function createLogger(options: LoggerOptions): Logger {
   if (threshold === undefined) {
     throw new Error(`Unknown LOGGING_LEVEL "${options.level}" (use DEBUG, INFO, WARNING or ERROR)`);
   }
-  const useJson = shouldUseJsonLogs(options.deploymentType, options.githubActions);
+  const useJson = shouldUseJsonLogs(options.environment, options.githubActions);
   const sinks = options.sinks ?? processSinks;
 
   function log(level: LogLevel, message: string, error?: unknown): void {

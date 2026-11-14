@@ -50,7 +50,7 @@ export const NOW = new Date(FIXED_NOW_UNIX * 1000);
 /** The smallest valid environment, with the mocks on (as in CI) and `ALWAYS_RETURN_OK_TO_META` off so statuses are real. */
 export function testEnv(overrides: Record<string, string | undefined> = {}): Env {
   return buildConfig({
-    DEPLOYMENT_TYPE: 'local',
+    ENVIRONMENT: 'development',
     AUTH_WHATSAPP_API_KEY: 'test-key',
     META_BUSINESS_PHONE_NUMBER_ID: PHONE_NUMBER_ID,
     META_ACCESS_TOKEN_FROM_SYS_USER: 'test-token',

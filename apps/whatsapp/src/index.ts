@@ -20,13 +20,13 @@ const SHUTDOWN_GRACE_MS = 8_000;
 
 const env = getEnv();
 const logger = createLogger({
-  deploymentType: env.DEPLOYMENT_TYPE,
+  environment: env.ENVIRONMENT,
   level: env.LOGGING_LEVEL,
   githubActions: process.env.GITHUB_ACTIONS,
 });
 
-// Sentry stays off for local development, with or without a DSN
-if (env.DEPLOYMENT_TYPE !== 'local') initSentry(env.SENTRY_DSN, env.DEPLOYMENT_TYPE);
+// Sentry stays off for development, with or without a DSN
+if (env.ENVIRONMENT !== 'development') initSentry(env.SENTRY_DSN, env.ENVIRONMENT);
 
 const services = createServices(env, logger, sentryReporter);
 const background = new BackgroundTasks({ logger, reportError: sentryReporter });
@@ -40,9 +40,9 @@ const app = buildApp({ config: env, manager, background, logger, reportError: se
 
 // Python: "localhost" when developing (not reachable from other machines), every interface when deployed (a container's
 // platform proxy reaches it from outside).
-const host = env.DEPLOYMENT_TYPE === 'local' ? 'localhost' : '0.0.0.0';
+const host = env.ENVIRONMENT === 'development' ? 'localhost' : '0.0.0.0';
 const server = app.listen(env.PORT, host, () => {
-  logger.info(`WhatsApp service (${env.DEPLOYMENT_TYPE}) listening on ${host}:${env.PORT}`);
+  logger.info(`WhatsApp service (${env.ENVIRONMENT}) listening on ${host}:${env.PORT}`);
 });
 
 let stopping = false;

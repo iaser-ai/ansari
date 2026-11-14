@@ -2,7 +2,7 @@
  * Config rules.
  *
  * Python tests ported: test_bsuid_auth_flow.py (mock flags and MOCK_AUTH_TOKEN refused outside
- * local, META_REPLY_BY_PHONE off by default and refused in production) and
+ * development, META_REPLY_BY_PHONE off by default and refused in production) and
  * test_environment_behaviour.py (app secret required, log level defaults).
  *
  * `buildConfig(env)` takes the environment as an object, so no test touches `process.env`
@@ -15,7 +15,7 @@ import { buildConfig, getEnv, MOCK_FLAGS, resetEnvCache, Secret } from '../src/c
 /** The smallest valid environment: every variable without a default. */
 function env(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const base: Record<string, string | undefined> = {
-    DEPLOYMENT_TYPE: 'local',
+    ENVIRONMENT: 'development',
     AUTH_WHATSAPP_API_KEY: 'test-key',
     META_BUSINESS_PHONE_NUMBER_ID: '123456',
     META_ACCESS_TOKEN_FROM_SYS_USER: 'test-token',
@@ -68,8 +68,8 @@ describe('booleans', () => {
 });
 
 describe('required settings', () => {
-  it.each(['local', 'staging', 'production'])('fails without the app secret (%s)', (deploymentType) => {
-    expect(() => buildConfig(env({ DEPLOYMENT_TYPE: deploymentType, META_ANSARI_APP_SECRET: undefined }))).toThrow(
+  it.each(['development', 'staging', 'production'])('fails without the app secret (%s)', (environment) => {
+    expect(() => buildConfig(env({ ENVIRONMENT: environment, META_ANSARI_APP_SECRET: undefined }))).toThrow(
       /META_ANSARI_APP_SECRET/,
     );
   });
@@ -77,13 +77,13 @@ describe('required settings', () => {
   it('names every bad variable in one error, whatever order they are listed in', () => {
     const message = (() => {
       try {
-        buildConfig({ DEPLOYMENT_TYPE: 'moon' });
+        buildConfig({ ENVIRONMENT: 'moon' });
       } catch (error) {
         return (error as Error).message;
       }
       return '';
     })();
-    for (const name of ['DEPLOYMENT_TYPE', 'AUTH_WHATSAPP_API_KEY', 'META_ANSARI_APP_SECRET']) {
+    for (const name of ['ENVIRONMENT', 'AUTH_WHATSAPP_API_KEY', 'META_ANSARI_APP_SECRET']) {
       expect(message).toContain(name);
     }
   });
@@ -105,24 +105,45 @@ describe('secrets', () => {
   });
 });
 
-describe('mocks are only for local', () => {
-  it.each(MOCK_FLAGS)('%s is allowed locally', (flag) => {
-    expect(buildConfig(env({ DEPLOYMENT_TYPE: 'local', [flag]: 'True' }))[flag]).toBe(true);
+describe('ENVIRONMENT (renamed from DEPLOYMENT_TYPE, issue #363)', () => {
+  it.each(['development', 'staging', 'production'])('accepts %s', (environment) => {
+    expect(buildConfig(env({ ENVIRONMENT: environment })).ENVIRONMENT).toBe(environment);
   });
 
-  it.each(MOCK_FLAGS.flatMap((flag) => ['development', 'staging', 'production'].map((type) => [flag, type] as const)))(
-    '%s is refused when DEPLOYMENT_TYPE=%s',
-    (flag, deploymentType) => {
-      expect(() => buildConfig(env({ DEPLOYMENT_TYPE: deploymentType, [flag]: 'True' }))).toThrow(new RegExp(flag));
+  it('refuses "local": it is not a value any more and has no alias', () => {
+    expect(() => buildConfig(env({ ENVIRONMENT: 'local' }))).toThrow(/ENVIRONMENT/);
+  });
+
+  it('is required', () => {
+    expect(() => buildConfig(env({ ENVIRONMENT: undefined }))).toThrow(/ENVIRONMENT/);
+    expect(() => buildConfig(env({ ENVIRONMENT: '' }))).toThrow(/ENVIRONMENT/);
+  });
+
+  it('is not filled in from the old DEPLOYMENT_TYPE', () => {
+    expect(() => buildConfig(env({ ENVIRONMENT: undefined, DEPLOYMENT_TYPE: 'development' }))).toThrow(/ENVIRONMENT/);
+    // And a leftover old variable beside the new one is simply ignored
+    expect(buildConfig(env({ ENVIRONMENT: 'production', DEPLOYMENT_TYPE: 'development' })).ENVIRONMENT).toBe('production');
+  });
+});
+
+describe('mocks are only for development', () => {
+  it.each(MOCK_FLAGS)('%s is allowed in development', (flag) => {
+    expect(buildConfig(env({ ENVIRONMENT: 'development', [flag]: 'True' }))[flag]).toBe(true);
+  });
+
+  it.each(MOCK_FLAGS.flatMap((flag) => ['staging', 'production'].map((type) => [flag, type] as const)))(
+    '%s is refused when ENVIRONMENT=%s',
+    (flag, environment) => {
+      expect(() => buildConfig(env({ ENVIRONMENT: environment, [flag]: 'True' }))).toThrow(new RegExp(flag));
     },
   );
 
   it.each([
-    ['local', true],
+    ['development', true],
     ['staging', false],
     ['production', false],
-  ] as const)('a shared mock token in %s is allowed: %s', (deploymentType, allowed) => {
-    const attempt = () => buildConfig(env({ DEPLOYMENT_TYPE: deploymentType, MOCK_AUTH_TOKEN: 'a.real.jwt' }));
+  ] as const)('a shared mock token in %s is allowed: %s', (environment, allowed) => {
+    const attempt = () => buildConfig(env({ ENVIRONMENT: environment, MOCK_AUTH_TOKEN: 'a.real.jwt' }));
     if (allowed) {
       expect(attempt().MOCK_AUTH_TOKEN?.reveal()).toBe('a.real.jwt');
     } else {
@@ -131,7 +152,7 @@ describe('mocks are only for local', () => {
   });
 
   it('an empty mock token is fine in any environment', () => {
-    expect(buildConfig(env({ DEPLOYMENT_TYPE: 'production', MOCK_AUTH_TOKEN: '' })).DEPLOYMENT_TYPE).toBe('production');
+    expect(buildConfig(env({ ENVIRONMENT: 'production', MOCK_AUTH_TOKEN: '' })).ENVIRONMENT).toBe('production');
   });
 });
 
@@ -140,24 +161,24 @@ describe('META_REPLY_BY_PHONE', () => {
     expect(buildConfig(env()).META_REPLY_BY_PHONE).toBe(false);
   });
 
-  it.each(['local', 'development', 'staging'])('is allowed in %s', (deploymentType) => {
-    expect(buildConfig(env({ DEPLOYMENT_TYPE: deploymentType, META_REPLY_BY_PHONE: 'True' })).META_REPLY_BY_PHONE).toBe(true);
+  it.each(['development', 'staging'])('is allowed in %s', (environment) => {
+    expect(buildConfig(env({ ENVIRONMENT: environment, META_REPLY_BY_PHONE: 'True' })).META_REPLY_BY_PHONE).toBe(true);
   });
 
   it('is refused in production', () => {
-    expect(() => buildConfig(env({ DEPLOYMENT_TYPE: 'production', META_REPLY_BY_PHONE: 'True' }))).toThrow(
-      /META_REPLY_BY_PHONE is not allowed when DEPLOYMENT_TYPE=production/,
+    expect(() => buildConfig(env({ ENVIRONMENT: 'production', META_REPLY_BY_PHONE: 'True' }))).toThrow(
+      /META_REPLY_BY_PHONE is not allowed when ENVIRONMENT=production/,
     );
   });
 });
 
 describe('log level', () => {
   it.each([
-    ['local', 'DEBUG'],
+    ['development', 'DEBUG'],
     ['staging', 'INFO'],
     ['production', 'INFO'],
-  ])('defaults to the right level in %s', (deploymentType, expected) => {
-    expect(buildConfig(env({ DEPLOYMENT_TYPE: deploymentType })).LOGGING_LEVEL).toBe(expected);
+  ])('defaults to the right level in %s', (environment, expected) => {
+    expect(buildConfig(env({ ENVIRONMENT: environment })).LOGGING_LEVEL).toBe(expected);
   });
 
   it('an explicit level wins', () => {
