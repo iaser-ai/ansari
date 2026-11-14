@@ -77,7 +77,8 @@ Commit 2:
 - Manual, at `dev-approval`: run the service locally with a script (not `afx dev`, which may not work on Windows) and post signed sample webhooks for each environment x message combination; check the 202 or 200 replies and the logs. No Meta or Railway change is made here.
 - Not covered here (needs the owner and Meta): the production number's subscription to the staging and test apps, and a real message from a phone to each environment.
 
-## Open questions for the reviewer
+## Decisions from the reviewer (2026-11-14)
 
-- Does `development` also need to be a valid value on the Railway services? Today they use `staging` and `production` only.
-- When should the Railway `DEPLOYMENT_TYPE` variables be removed? I suggest right after the deploy that contains commit 2.
+- `development` is for zrok and local development only. No Railway service is expected to use it, so Railway keeps `staging` and `production`.
+- The old `DEPLOYMENT_TYPE` variables on Railway are removed right after the deploy that contains commit 2.
+- The plan is approved as written.
