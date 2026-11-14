@@ -14,13 +14,14 @@ gates:
     requested_at: '2026-11-14T01:23:20.790Z'
     approved_at: '2026-11-14T02:12:11.167Z'
   pr:
-    status: pending
+    status: approved
     requested_at: '2026-11-14T02:26:27.901Z'
+    approved_at: '2026-11-14T02:37:20.716Z'
 iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-14T00:07:09.005Z'
-updated_at: '2026-11-14T02:26:27.902Z'
+updated_at: '2026-11-14T02:37:20.717Z'
 pr_history:
   - phase: review
     pr_number: 390
@@ -32,4 +33,4 @@ force_advanced:
   max_iterations: 1
   rebuttal_file: 363-review-iter1-rebuttals.md
   at: '2026-11-14T02:26:24.383Z'
-pr_ready_for_human: true
+pr_ready_for_human: false
