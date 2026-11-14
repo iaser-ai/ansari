@@ -55,16 +55,16 @@ zrok reserve public localhost:8001 -n <META_WEBHOOK_ZROK_SHARE_TOKEN>
 
 The matching callback URL (`https://<token>.share.zrok.io/whatsapp/v2`) is set on the `Ansari - Test` app in Meta's dashboard. See `.env.example` for who holds the token. Use the credentials of that same app (token, app secret, verify token).
 
-Staging shares the same test number, so start every message you send while testing locally with `!d ` (for example `!d what is ansari?`). Staging ignores those; your local service answers them.
+One WhatsApp number can feed production, staging and your development (local) service (issue #363), so each environment answers only its own messages. A message with no prefix is production's, one starting with `!s ` is staging's, and one starting with `!d ` is your development service's (for example `!d what is ansari?`). The others ignore it, and the one that answers drops the prefix before asking the model. So testing on staging now means starting every message with `!s `.
 
 ### Test and staging switches
 
 | Behaviour | When |
 |---|---|
-| Messages starting with `!d ` are ignored, so a developer testing locally on the shared test number does not get answered twice | `DEPLOYMENT_TYPE=staging` |
+| Only messages with the environment's own prefix are answered (`!s ` on staging, `!d ` on development; production answers messages with neither). The prefix is dropped before the text goes to `apps/api`. Any other message, and any message that is not text, is ignored there | every `ENVIRONMENT` |
 | Every message gets a "down for maintenance" reply and nothing is processed | `WA_MAINTENANCE_MODE=True` (independent of `apps/api`'s own flag) |
-| JSON logs on stdout (otherwise readable logs) | any `DEPLOYMENT_TYPE` except `local` and `development` |
-| `GET /sentry-debug` deliberately crashes, to prove errors reach Sentry | every `DEPLOYMENT_TYPE` except `production` |
+| JSON logs on stdout (otherwise readable logs) | any `ENVIRONMENT` except `development` |
+| `GET /sentry-debug` deliberately crashes, to prove errors reach Sentry | every `ENVIRONMENT` except `production` |
 
 ## Environment variables
 
@@ -72,7 +72,7 @@ Staging shares the same test number, so start every message you send while testi
 
 | Variable | Purpose |
 |---|---|
-| `DEPLOYMENT_TYPE` | `local`, `development`, `staging` or `production` |
+| `ENVIRONMENT` | `development` (your machine, with zrok), `staging` or `production`. Named as in `apps/api` and `apps/auth`; it replaces `DEPLOYMENT_TYPE`, and `local` is gone |
 | `BACKEND_SERVER_URL` | `apps/api` base URL, no path |
 | `AUTH_SERVER_URL` | `apps/auth` base URL, no path |
 | `AUTH_WHATSAPP_API_KEY` | API key issued by `apps/auth` for this service, sent as a Bearer token to its WhatsApp sign-in endpoint |
@@ -80,12 +80,12 @@ Staging shares the same test number, so start every message you send while testi
 | `META_ACCESS_TOKEN_FROM_SYS_USER` | Meta API token (belongs to one Meta app) |
 | `META_ANSARI_APP_SECRET` | Verifies webhook signatures (must be the same app as the token) |
 | `META_WEBHOOK_VERIFY_TOKEN` | One-time webhook URL verification |
-| `META_REPLY_BY_PHONE` | Default `False`. When `True`, replies are addressed to the sender's phone number instead of the BSUID, for a Meta test number that cannot message BSUIDs. The service refuses to start with it if `DEPLOYMENT_TYPE=production` |
+| `META_REPLY_BY_PHONE` | Default `False`. When `True`, replies are addressed to the sender's phone number instead of the BSUID, for a Meta test number that cannot message BSUIDs. The service refuses to start with it if `ENVIRONMENT=production` |
 | `WA_MAINTENANCE_MODE` | See above |
 | `WHATSAPP_CHAT_RETENTION_HOURS` | How long a conversation continues before a fresh thread (default 3) |
 | `SENTRY_DSN` | Empty disables Sentry |
-| `LOGGING_LEVEL` | Optional. Unset means `DEBUG` for `local` and `INFO` everywhere else |
-| `MOCK_ANSARI_CLIENT`, `MOCK_AUTH_CLIENT`, `MOCK_META_API` | Replace the real services with fakes. The service refuses to start with any of them unless `DEPLOYMENT_TYPE=local` |
+| `LOGGING_LEVEL` | Optional. Unset means `DEBUG` for `development` and `INFO` everywhere else |
+| `MOCK_ANSARI_CLIENT`, `MOCK_AUTH_CLIENT`, `MOCK_META_API` | Replace the real services with fakes. The service refuses to start with any of them unless `ENVIRONMENT=development` |
 | `MOCK_AUTH_TOKEN` | With `MOCK_AUTH_CLIENT=True`: a real JWT returned for every BSUID, so a real `apps/api` accepts it. Every user would share one account and thread, so it is refused like the other mock switches |
 
 Meta credentials differ per Meta app (Test, Staging, production). A token from one app will not work with another app's secret.
@@ -109,7 +109,7 @@ In Railway's log search:
 - one request: `@request_id:<id>` (the id is also returned in the `X-Request-ID` response header)
 - all errors: `@level:error`
 
-Outside `DEPLOYMENT_TYPE=local`, logs contain no phone numbers, BSUIDs or message text; text copied from Meta's error replies is masked, and production logs no request details at all. `local` logs the full request body for debugging, never the access token. Railway caps logging at 500 lines per second per replica, and retention depends on the plan.
+Outside `ENVIRONMENT=development`, logs contain no phone numbers, BSUIDs or message text; text copied from Meta's error replies is masked, and production logs no request details at all. `development` logs the full request body for debugging, never the access token. Railway caps logging at 500 lines per second per replica, and retention depends on the plan.
 
 ## Deploying (Railway)
 
@@ -128,7 +128,7 @@ The Docker image has not been built or run by the author of this change. Do that
 
 1. `GET /` returns 200.
 2. Meta's webhook verification succeeds for the staging callback URL.
-3. A normal message gets an answer; a message starting with `!d ` gets no reply from staging.
+3. A message starting with `!s ` gets an answer, and a message with no prefix or with `!d ` gets no reply from staging.
 4. A second message within the retention window continues the same conversation.
 5. A message after the retention window starts a new conversation and the old thread is gone from `GET /api/v2/threads`.
 6. An answer longer than 4,000 characters arrives as several messages in order.

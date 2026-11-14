@@ -76,7 +76,7 @@ class MetaApiServiceReal(MetaApiServiceBase):
         """Log what Meta said, and for a 400 what we sent.
 
         Meta's raw body is never logged, only its structured fields with identifiers masked. For a 400 the payload's
-        keys are logged everywhere; their values too, masked on staging and development and unmasked only on local.
+        keys are logged everywhere; their values too, masked on staging and unmasked only in development.
         """
         logger.error(f"Meta's reply ({error.response.status_code}): {_meta_error_summary(error.response)}")
         if error.response.status_code != 400:
@@ -90,12 +90,12 @@ class MetaApiServiceReal(MetaApiServiceBase):
             logger.error("Meta rejected the request (400); the request body was not a JSON object")
             return
 
-        deployment = get_settings().DEPLOYMENT_TYPE
+        environment = get_settings().ENVIRONMENT
         line = f"Meta rejected the request (400). URL: {error.request.url} | Payload keys: {sorted(sent)}"
-        if deployment != "production":
+        if environment != "production":
             headers = {k: ("Bearer ***" if k.lower() == "authorization" else v) for k, v in error.request.headers.items()}
             line += f" | Headers: {headers}"
-            if deployment == "local":
+            if environment == "development":
                 line += f" | Body: {json.dumps(sent, ensure_ascii=False)}"
             else:
                 line += f" | Body with values masked: {redact_values(sent, _SAFE_REQUEST_KEYS)}"

@@ -71,15 +71,14 @@ def test_request_id_variable_defaults_to_none_outside_a_request():
 
 
 @pytest.mark.parametrize(
-    ("deployment_type", "github_actions", "expected"),
+    ("environment", "github_actions", "expected"),
     [
-        ("local", None, False),
         ("development", None, False),
         ("staging", None, True),
         ("production", None, True),
-        ("staging", "true", False),  # CI never emits JSON, whatever the deployment type
+        ("staging", "true", False),  # CI never emits JSON, whatever the environment
         ("production", "false", True),
     ],
 )
-def test_json_logs_are_used_only_when_deployed_and_not_in_ci(deployment_type, github_actions, expected):
-    assert should_use_json_logs(deployment_type, github_actions) is expected
+def test_json_logs_are_used_only_when_deployed_and_not_in_ci(environment, github_actions, expected):
+    assert should_use_json_logs(environment, github_actions) is expected
