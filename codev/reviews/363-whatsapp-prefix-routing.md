@@ -53,6 +53,7 @@ No lessons captured for the repo's docs. Two notes for the Windows setup went in
 - The prefix check runs **before** the maintenance check on purpose. Otherwise, in maintenance mode, each of the three copies would send its own notice for one message.
 - Non-text messages (images and so on) carry no prefix, so only production handles them; staging and development ignore them.
 - The test suite starts as `development` (the only value that may switch mocks on), and an autouse fixture in `tests/conftest.py` then sets `production` so plain messages are answered. Setting the value after start-up skips the mock refusal, so the fixture must stay narrow.
+- A bare `!s ` (or `!d `) with nothing after it is answered with an empty text, which is passed on to `apps/api` as is. This is a new reachable input, pinned by `test_route_by_prefix`, and harmless as far as I can tell.
 - The rename is its own commit (`cd2d8016`) and can be dropped without losing the routing. `DEPLOYMENT_TYPE` is no longer read, and `local` is refused with a clear error.
 - `ENVIRONMENT` was already set on the Railway `whatsapp` services (`staging` and `production`), so the rename needs no Railway change. Sentry's environment tag for the production service changes from `staging` to `production`, which is intended.
 

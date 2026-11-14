@@ -1,0 +1,56 @@
+I'll review the implementation. Let me start by reading the plan, review file, and the core implementation files.I've read the plan, the review file, and all the WhatsApp source and test files on disk. Here is my assessment.
+
+## Scope note
+
+The 231-file list is base-branch drift: this branch sits on top of merge commit `ea2c67c4` (PR #350, SAGA 1.0 MCP), and the PR base is an older `develop`. The branch's own commits are `bf195044..49a530a4`, and its code footprint is the 16 files the review file lists. I reviewed those. (Also noting: `7a214a29 chore(porch): 363 dev-approval gate-approved` and `d4b9895f ... record PR #390` are already in history, so this pre-gate review is arriving after the gate — flagging it, not adjudicating it.)
+
+## Plan adherence — good
+
+Every "Files to Change" item is changed, split into exactly the two commits the plan called for (`396e62b3` routing, `cd2d8016` rename), and the second is genuinely droppable. The ordering decision the plan hinged on is honoured: `route_by_prefix` runs at `main.py:330`, *before* the `WA_MAINTENANCE_MODE` check at line 351, so an ignoring instance never emits its own maintenance notice. The rename is complete — I grepped the whole repo and no code, test, CI, Dockerfile, or `railway.toml` reads `DEPLOYMENT_TYPE` any more (only plan/review prose and historical `codev/projects/321-*` artifacts, which are correct as records).
+
+## Code quality — good
+
+`prefix_routing.py` is the right shape: pure, non-mutating (`{**body, "body": ...}`), and 28 lines including the docstring. The non-text path (`isinstance(text, str)` guard) correctly covers both Meta's `errors` list and any dict without a `body` key, routing them to production only. The `strip`-free exact-prefix check preserves today's `!d ` semantics.
+
+## Test coverage — strong
+
+This is the best part of the change. The table at `test_environment_behaviour.py:159` covers 3 environments × 3 messages end-to-end through the real webhook, asserting both the 202 `DEV_FILTER` and that the answering instance passes the *stripped* text to apps/api. Beyond the plan's ask: prefix-exactness negatives (`!dwhat`, `!D what`, ` !s what`), the maintenance-ordering test (231–233) with the explicit "three environments would otherwise each send their own notice" rationale, a log-leak test asserting no BSUID or text, and a non-mutation test on the helper. The 14 documented negative controls — including the honest note that the `local`-refused test *didn't* fail at first and was corrected — is exactly the discipline `lessons-critical.md` asks for.
+
+## The one blocking issue
+
+**`legacy/whatsapp/.env.example` was half-renamed.** The variable line was changed, but the comment directly above it was not:
+
+```
+1  # Where ansari-whatsapp is currently deployed
+2  #   (local (i.e., local), development, staging, production)
+3  # NOTE: local type will add localhost to ORIGINS, etc.
+4  ENVIRONMENT="development"
+```
+
+`local` is now refused by the `^(development|staging|production)$` pattern at `config.py:79-83` — a developer who follows line 2 and writes `ENVIRONMENT="local"` gets a startup failure on their first run. Line 181 repeats it (`# When True (production/staging/development/local): ...`), and lines 17/21 (`# if local: "http://localhost:3000"`) now read ambiguously.
+
+This matters more than a normal typo for two reasons. First, `.env.example` is the file the human at this gate will open — the review file's own "How to Test Locally" tells them to set `ENVIRONMENT=development` and change their existing `.env`. Second, `README.md:75` now says "`local` is gone" while `.env.example:2` says `local` is valid, so the two docs actively disagree — the failure mode `lessons-critical.md` names ("a partial fix turns one wrong doc into several that disagree, which is worse than the original error"). The plan listed `.env.example` under commit 2 precisely for this.
+
+Fix is ~3 lines; nothing else blocks.
+
+## Non-blocking
+
+- **`!d ` / `!s ` wording after the rename.** `RELEASE.md` ("`!d ` is local's") and `arch.md` ("`!d ` local") still call the third environment *local* in the same commit that removes `local` as a value. One word each → "development's".
+- **Empty body after stripping.** `test_route_by_prefix` pins `("staging", {"body": "!s "}, True, {"body": ""})` — a bare `!s ` forwards an empty string to apps/api. Almost certainly harmless, but it's a new reachable input that didn't exist before, and it isn't mentioned in "Things to Look At". Worth one line there rather than a code change.
+- **`conftest.py` autouse fixture** sets `settings.ENVIRONMENT = "production"` post-construction, which bypasses the `refuse_mocks_outside_development` validator (pydantic `validate_assignment` is off). The review file is honest about this and the validator has dedicated construction-time tests, so the coverage isn't vacuous — but it does mean the whole suite runs with mocks on under a `production` label. Fine as-is; just don't let anything later rely on the fixture for validator coverage.
+- **`.env.example` says nothing about prefix routing.** README and RELEASE.md cover it; a two-line pointer next to `ENVIRONMENT` would help the next person setting up zrok.
+
+## Review file
+
+Follows the template, accurate against what I read on disk, and honest where it counts — the conftest caveat, the "one test didn't fail at first", the Sentry environment-tag change for the production service, and the explicit "Not tested: anything against Meta". "How to Test Locally" is specific and actionable. Good PIR-specific coverage of the external-integration (Meta subscription) steps that remain outside the code.
+
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Routing and rename are correct, complete and unusually well tested, but `.env.example` was half-renamed and still documents the now-rejected `local` value, contradicting the README the same commit wrote.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `legacy/whatsapp/.env.example` lines 2–3 still list `local` as a valid value and describe "local type will add localhost to ORIGINS", but `config.py:79-83` now rejects `local`; line 181 repeats the stale list and lines 17/21 ("if local:") read ambiguously. Contradicts `README.md:75` ("`local` is gone") and will break the first local setup the human at this gate attempts.
+- Minor: `RELEASE.md` and `codev/resources/arch.md` describe `!d ` as "local's" in the same commit that removes `local` as an environment value — should be "development's".
+- Minor: stripping `!s ` from a bare `"!s "` forwards an empty string to apps/api (pinned by `test_route_by_prefix`); a new reachable input not mentioned in "Things to Look At".
+- Note (not a defect in this change): the 231-file diff is base-branch drift from merge commit `ea2c67c4`; the actual change is the 16 files the review file lists.
