@@ -15,18 +15,12 @@ gates:
     approved_at: '2026-11-14T02:12:11.167Z'
   pr:
     status: pending
+    requested_at: '2026-11-14T02:26:27.901Z'
 iteration: 1
-build_complete: true
-history:
-  - iteration: 1
-    build_output: ''
-    reviews:
-      - model: claude
-        verdict: REQUEST_CHANGES
-        file: >-
-          D:\CS\projects\ansari-projects\ansari\.builders\pir-363\codev\projects\363-whatsapp-prefix-routing\363-review-iter1-claude.txt
+build_complete: false
+history: []
 started_at: '2026-11-14T00:07:09.005Z'
-updated_at: '2026-11-14T02:26:24.383Z'
+updated_at: '2026-11-14T02:26:27.902Z'
 pr_history:
   - phase: review
     pr_number: 390
@@ -38,3 +32,4 @@ force_advanced:
   max_iterations: 1
   rebuttal_file: 363-review-iter1-rebuttals.md
   at: '2026-11-14T02:26:24.383Z'
+pr_ready_for_human: true
