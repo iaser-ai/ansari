@@ -4,13 +4,15 @@
 // Only apps/auth's service-keys script creates one; its keys are created and
 // changed in process through the api-key plugin, whose HTTP surface is blocked.
 //
-// Permissions and key prefixes are fixed here, per service, so the script
+// Permissions and base key prefixes are fixed here, per service, so the script
 // takes no free-form permissions: a key for one service is refused at
-// another's route.
+// another's route. A key's full prefix adds its environment (keyPrefix).
 import { and, asc, eq } from 'drizzle-orm';
 
 import type { Db } from './db';
-import { WHATSAPP_KEY_BOUNDS } from './limits';
+import { ENVIRONMENTS, type Environment } from '@ansari/types/environment';
+
+import { MCP_KEY_BOUNDS, WHATSAPP_KEY_BOUNDS } from './limits';
 import { serviceAddress } from './reserved';
 import { account, apikey, users } from './schema';
 
@@ -21,13 +23,13 @@ export const SERVICE_PROVIDER_ID = 'service';
 export const SERVICE_REGISTERED_VIA = 'service';
 
 /**
- * Every service that may hold keys. `ansari-mcp` is reserved for #314: it has
- * no route yet, and its limits borrow the WhatsApp bounds until #314 sizes
- * its own.
+ * Every service that may hold keys: `whatsapp` for the token exchange (spec
+ * 329), `ansari-mcp` for apps/api's `/v2/mcp-complete` through the verify
+ * route (#314). Each has its own bounds in limits.ts.
  */
 export const SERVICES = {
   whatsapp: { permissions: { whatsapp: ['mint'] }, prefix: 'ansari_wa_', bounds: WHATSAPP_KEY_BOUNDS },
-  'ansari-mcp': { permissions: { mcp: ['complete'] }, prefix: 'ansari_mcp_', bounds: WHATSAPP_KEY_BOUNDS },
+  'ansari-mcp': { permissions: { mcp: ['complete'] }, prefix: 'ansari_mcp_', bounds: MCP_KEY_BOUNDS },
 } as const;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -37,13 +39,107 @@ export function isServiceName(name: string): name is ServiceName {
 }
 
 /**
- * GitHub custom secret-scanning patterns, one per key prefix: the prefix and
- * the plugin's 64-letter key. The runbook asks the owner to register exactly
- * these (`.source`) for the organisation.
+ * A key's prefix names the environment it was issued in (#314, owner
+ * 2026-11-12, Amendments 2 and 3): `ansari_<service>_<environment>_`, e.g.
+ * `ansari_wa_production_`, `ansari_mcp_staging_`, where the environment is the
+ * issuing apps/auth's ENVIRONMENT (one vocabulary with apps/api and Sentry). The script reads it from its process env; each route accepts
+ * only its own environment's prefix, so a key leaked from one environment is
+ * readable as such and refused in another.
+ */
+export function keyPrefix(service: ServiceName, environment: Environment): string {
+  return `${SERVICES[service].prefix}${environment}_`;
+}
+
+/**
+ * The compatibility window for keys issued before #314 (no environment in the
+ * prefix): at least one live staging WhatsApp key is one. While it is open the
+ * WhatsApp routes still accept LEGACY_PREFIXES, the secret-scanning patterns
+ * still catch them, and the script still refuses them pasted into a flag. It
+ * closes when `list` shows no live unlabelled key on any database: set this to
+ * false and re-register the scanning patterns (the runbook's "Rotate legacy
+ * keys" step and its follow-up issue). Typed `boolean`, so both states are
+ * live code: the pure builders below take the state as a parameter, and the
+ * tests run both.
+ */
+export const LEGACY_UNLABELLED_KEYS: boolean = true;
+
+/**
+ * The unlabelled prefixes keys were issued with before #314, per service:
+ * WhatsApp's bare base prefix and `wa_`, the prefix before the 2026-10-30
+ * rename (the runbook's "prefix change"), since a live `wa_` key cannot be
+ * ruled out. None for `ansari-mcp`: its key path ships with #314, so no
+ * unlabelled MCP key can exist, and the MCP window is closed from the start
+ * (second review, finding 1).
+ */
+export const LEGACY_PREFIXES: Readonly<Record<ServiceName, readonly string[]>> = {
+  whatsapp: ['ansari_wa_', 'wa_'],
+  'ansari-mcp': [],
+};
+
+/**
+ * The prefixes a route of `service` running as `environment` accepts, with the
+ * window open (`legacy`) or closed: that environment's, plus LEGACY_PREFIXES
+ * while the window is open. Any other stored prefix (another environment's,
+ * another service's, a hand-made one) is the route's ordinary refusal.
+ */
+export function acceptedKeyPrefixesFor(service: ServiceName, environment: Environment, legacy: boolean): readonly string[] {
+  const own = keyPrefix(service, environment);
+  return legacy ? [own, ...LEGACY_PREFIXES[service]] : [own];
+}
+
+/** acceptedKeyPrefixesFor with the window as it stands (LEGACY_UNLABELLED_KEYS). */
+export function acceptedKeyPrefixes(service: ServiceName, environment: Environment): readonly string[] {
+  return acceptedKeyPrefixesFor(service, environment, LEGACY_UNLABELLED_KEYS);
+}
+
+/** True when a verified key's stored prefix is one `service`'s route in `environment` accepts. */
+export function isAcceptedKeyPrefix(service: ServiceName, environment: Environment, prefix: unknown): boolean {
+  return typeof prefix === 'string' && acceptedKeyPrefixes(service, environment).includes(prefix);
+}
+
+/** The plugin's key body: 64 letters (its default length and alphabet). */
+const KEY_BODY = '[A-Za-z]{64}';
+
+/**
+ * The GitHub custom secret-scanning pattern for `service`, window open
+ * (`legacy`) or closed: the base prefix, an ENVIRONMENT segment (optional only
+ * while the window is open and the bare base prefix is a legacy prefix of the
+ * service), and the plugin's 64-letter key.
+ */
+export function scanningPatternFor(service: ServiceName, legacy: boolean): RegExp {
+  const base = SERVICES[service].prefix;
+  const envs = `(?:${ENVIRONMENTS.join('|')})_`;
+  const bareAccepted = legacy && LEGACY_PREFIXES[service].includes(base);
+  return new RegExp(`${base}${bareAccepted ? `(?:${envs})?` : envs}${KEY_BODY}`);
+}
+
+/**
+ * The extra patterns the window needs for `service`: one per legacy prefix the
+ * main pattern does not already cover (today only WhatsApp's `wa_`); none
+ * once the window is closed.
+ */
+export function legacyScanningPatternsFor(service: ServiceName, legacy: boolean): RegExp[] {
+  if (!legacy) return [];
+  return LEGACY_PREFIXES[service].filter((prefix) => prefix !== SERVICES[service].prefix).map((prefix) => new RegExp(`${prefix}${KEY_BODY}`));
+}
+
+/**
+ * The patterns to register now (LEGACY_UNLABELLED_KEYS applied), derived from
+ * the same table as keyPrefix. The script's pasted-key refusal uses these too,
+ * so the three never disagree. The runbook asks the owner to register exactly
+ * these (`.source`) for the organisation, and prints the closed-window sources
+ * (scanningPatternFor(service, false)) for the day the window closes; tests
+ * assert both against the runbook.
  */
 export const SECRET_SCANNING_PATTERNS: Readonly<Record<ServiceName, RegExp>> = {
-  whatsapp: /ansari_wa_[A-Za-z]{64}/,
-  'ansari-mcp': /ansari_mcp_[A-Za-z]{64}/,
+  whatsapp: scanningPatternFor('whatsapp', LEGACY_UNLABELLED_KEYS),
+  'ansari-mcp': scanningPatternFor('ansari-mcp', LEGACY_UNLABELLED_KEYS),
+};
+
+/** The legacy patterns to register beside them now (empty once the window closes). Every accepted prefix is caught by one of the two lists (tested). */
+export const LEGACY_SCANNING_PATTERNS: Readonly<Record<ServiceName, readonly RegExp[]>> = {
+  whatsapp: legacyScanningPatternsFor('whatsapp', LEGACY_UNLABELLED_KEYS),
+  'ansari-mcp': legacyScanningPatternsFor('ansari-mcp', LEGACY_UNLABELLED_KEYS),
 };
 
 export type ServiceUser = { id: string; email: string; createdAt: Date };
@@ -106,6 +202,8 @@ export type ServiceKey = {
   remaining: number | null;
   refillAmount: number | null;
   refillInterval: number | null;
+  /** The plugin's metadata as stored: JSON text holding `clientId` (read it with clientIdOf). */
+  metadata: string | null;
   createdAt: Date;
   lastRequest: Date | null;
 };
@@ -121,6 +219,7 @@ const keyColumns = {
   remaining: apikey.remaining,
   refillAmount: apikey.refillAmount,
   refillInterval: apikey.refillInterval,
+  metadata: apikey.metadata,
   createdAt: apikey.createdAt,
   lastRequest: apikey.lastRequest,
 };
@@ -132,4 +231,25 @@ export async function listServiceKeys(db: Db, userId: string): Promise<ServiceKe
     .from(apikey)
     .where(eq(apikey.referenceId, userId))
     .orderBy(asc(apikey.createdAt), asc(apikey.id));
+}
+
+/**
+ * The `clientId` a key's metadata carries, or null when there is none or it is
+ * not a string. The plugin has handed metadata back both as the stored JSON
+ * text (1.7.7) and as a parsed object (1.7.20), so both are read; malformed
+ * text is null, never a throw. The value is returned as stored: callers apply
+ * their own rule (isMcpClientId for `ansari-mcp`).
+ */
+export function clientIdOf(metadata: unknown): string | null {
+  let value = metadata;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const clientId = (value as Record<string, unknown>).clientId;
+  return typeof clientId === 'string' ? clientId : null;
 }

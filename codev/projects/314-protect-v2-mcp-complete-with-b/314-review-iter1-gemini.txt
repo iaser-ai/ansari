@@ -1,0 +1,46 @@
+### Review of PR #372 (`[Spec 314] Protect /v2/mcp-complete with ansari-mcp API keys`)
+
+#### 1. Code Quality & Correctness
+- **Shared Client-ID Rule & Service Limits ([attribution.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/types/src/attribution.ts), [limits.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/limits.ts), [service-users.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/service-users.ts), [service-keys.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/scripts/service-keys.ts)):**
+  - `MCP_CLIENT_ID_PATTERN` (`/^ansari-mcp(-[a-z0-9._-]+)?$/`, ≤ 64 chars) is cleanly defined in `@ansari/types` as a strict subset of `CLIENT_ID_PATTERN` and re-exported through `@ansari/auth`.
+  - `clientIdOf` safely handles both JSON text (1.7.7 DB storage) and parsed object runtime shapes without throwing.
+  - `service-keys.ts` enforces `--client-id` matching `isMcpClientId` for `ansari-mcp` on both `create-key` and `rotate` (at CLI parse and execution), never echoes a rejected value, and prints `client_id` in `list`.
+- **Verify Endpoint ([service-verify.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts), [alerts.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts), [app.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/app.ts), [apikey-relation.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/apikey-relation.ts)):**
+  - Mounted ahead of `corsFor` and outside `/api/auth/*`, ensuring no CORS headers (including on `OPTIONS`) and no per-IP router limiter on `apps/api`'s egress IP.
+  - Enforces a 1 KiB body limit, `application/json`, key bounds (`^[\x21-\x7E]{1,256}$`), and a closed permission set (`{ mcp: ['complete'] }`) before touching any key or calling the plugin.
+  - Runs the shared `auth.apikey` relation check on plugin refusal so DB outages return `500` instead of `{"valid":false}`.
+  - Resolves the `ansari-mcp` service user only after plugin acceptance, verifies `referenceId` ownership and `isMcpClientId(clientId)`, and calls `alerts.keyVerified` only after all checks pass so refused keys cannot inflate volume alerts.
+- **API Client, Config & Route Gate ([client.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts), [config.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/config.ts), [route.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts)):**
+  - `verifyServiceKey` pins both response shapes (`{ valid: true, client_id, key_id }` with `isMcpClientId` and `.strict()` on `{ valid: false }`), throwing `AuthServiceUnavailableError` on any non-200, timeout, or schema drift.
+  - `MCP_COMPLETE_KEY_MODE` accepts only `'log-only' | 'enforce'`, defaults to `'enforce'` when absent, and is wired across all four derivation points (`config.ts`, `.env.example`, `docs/self-hosting.md`, and `turbo.json` `globalEnv`).
+  - `authorizeMcpRequest` gates both `POST` and `GET` after the per-IP rate limit and before reading the request body or query parameters. In `enforce` mode, missing/refused keys return `401` and `apps/auth` outages return `503` with zero DB writes and no facilitator calls. Key attribution overrides `X-Ansari-Client` and `?src=`, emitting a single sanitized `mcp-complete client mismatch` warning when a header conflicts.
+
+#### 2. Alignment with Spec & Plan
+- All requirements in [314-protect-v2-mcp-complete-with-b.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/specs/314-protect-v2-mcp-complete-with-b.md) (including Amendment 1 regarding plugin deletion of expired keys on presentation) and all five phases of [314-protect-v2-mcp-complete-with-b.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/plans/314-protect-v2-mcp-complete-with-b.md) are complete.
+- The review document ([314-protect-v2-mcp-complete-with-b.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/reviews/314-protect-v2-mcp-complete-with-b.md)) thoroughly documents spec compliance, deviations, consultation rounds, lessons learned, and the out-of-repo operator deployment steps.
+
+#### 3. Test Coverage & Security Verification
+- **apps/auth ([service-verify.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify.test.ts), [service-verify-sentry.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify-sentry.test.ts), [blocked-paths.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/blocked-paths.test.ts)):** Tests run against pglite with the real `@better-auth/api-key` plugin, covering valid keys, byte-identical refusals, WhatsApp key presentation (confirming `remaining` is unspent), closed permission set 400s without plugin invocation, service-user missing/duplicate 500s, DB outages, CORS absence, alert deduplication, and the plugin-upgrade guard on `/api-key/verify`.
+- **apps/api ([verify-service-key.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/auth/verify-service-key.test.ts), [mcp-complete-key.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/mcp-complete-key.test.ts)):** Tests run against pglite with the real `verifyServiceKey` client and an HTTP-boundary `fetch` stub, verifying 401/503 fail-closed behavior, zero persistence on failure, 3 s timeout handling, key attribution precedence, `log-only` fallback behavior, and 16-character sliding-window key leak scans (with negative controls).
+
+---
+VERDICT: APPROVE
+SUMMARY: Complete, well-tested implementation of ansari-mcp API key verification across apps/auth and apps/api with fail-closed semantics, strict attribution, and comprehensive documentation.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `POST` and `GET /api/v2/mcp-complete` on `apps/api` with `Authorization: Bearer <ansari-mcp key>`, verified on every request at a new public `apps/auth` route (`POST /api/service/verify-key`). Enforces fail-closed semantics (401 on missing/refused keys, 503 on `apps/auth` outage with nothing persisted and no Gemini call), binds thread attribution to the key's `client_id`, and provides a `MCP_COMPLETE_KEY_MODE=log-only` rollout mode (defaulting to `enforce` when unset).
+
+  ## Key Changes
+  - **packages/types & packages/auth:** Added `MCP_CLIENT_ID_PATTERN` / `isMcpClientId`, `MCP_KEY_BOUNDS`, `MCP_KEY_INITIAL` (120/60s, 5,000/day), MCP verify alert thresholds, and `clientIdOf` metadata parsing.
+  - **apps/auth:** Added `POST /api/service/verify-key` (closed `{ mcp: ['complete'] }` permission set, owner and `ansari-mcp*` client-id binding, `auth.apikey` outage relation check, byte-identical `{"valid":false}` refusals, no CORS, no per-IP limit), generalized key alerts (`createMcpVerifyAlerts` including `client-id-invalid`), required `--client-id` for `ansari-mcp` in `service-keys.ts`, and added a plugin-upgrade guard in `blocked-paths.test.ts`.
+  - **apps/api:** Added `verifyServiceKey` in `lib/auth-service/client.ts` (3 s timeout, strict response schema), `MCP_COMPLETE_KEY_MODE` config validation (`enforce` default), and `authorizeMcpRequest` in `v2/mcp-complete/route.ts` with key-derived client attribution and mismatch warnings.
+  - **Docs & Config:** Updated `docs/cutover/service-keys-runbook.md`, `docs/self-hosting.md`, `RELEASE.md`, `apps/api` and `apps/mcp` READMEs/env examples, architecture/lessons docs, and `turbo.json` `globalEnv`.
+
+  ## Test Plan
+  - `apps/auth` pglite suites (`service-verify.test.ts`, `service-verify-sentry.test.ts`, `blocked-paths.test.ts`, `service-keys.test.ts`, `limits.test.ts`) covering real plugin verification, refusal parity, permission/owner/client-id guards, DB outages, alert deduplication, and 16-char window leak scans.
+  - `apps/api` pglite and unit suites (`mcp-complete-key.test.ts`, `verify-service-key.test.ts`, `config.test.ts`, `boot-check.test.ts`, plus existing route suites with `helpers/mcp-key.ts`) covering `enforce` and `log-only` modes, 401/503 zero-persistence guarantees, forged `X-Ansari-Client` handling, and key leak scans.

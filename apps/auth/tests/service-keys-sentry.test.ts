@@ -53,12 +53,13 @@ beforeEach(() => {
 async function createKey(print: (line: string) => void) {
   const result = await serviceKeys(['create-key', 'whatsapp', ...LIMIT_FLAGS, '--confirm', userId], {
     databaseUrl: DB_URL,
+    environment: 'staging',
     connect: () => ({ db: service.db, auth: service.auth }),
     recorder: sentryRecorder,
     print,
   });
   expect(result.exitCode).toBe(0);
-  const key = result.lines.find((l) => /^ansari_wa_[A-Za-z]{64}$/.test(l));
+  const key = result.lines.find((l) => /^ansari_wa_staging_[A-Za-z]{64}$/.test(l));
   if (!key) throw new Error('no key in the output');
   return key;
 }

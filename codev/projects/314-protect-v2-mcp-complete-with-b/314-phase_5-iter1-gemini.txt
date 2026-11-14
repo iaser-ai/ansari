@@ -1,0 +1,26 @@
+## Phase 5 Review: Docs, Runbook, and Architecture Notes
+
+### Assessment
+
+The Phase 5 documentation, operator runbook, and architecture updates are complete, accurate, and aligned with the implementation in Phases 1–4 as well as the spec and plan:
+
+1. **Service Keys Runbook ([docs/cutover/service-keys-runbook.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/cutover/service-keys-runbook.md#L272-L404))**:
+   - Placed under its own `## The ansari-mcp key (#314)` heading with `###` subsections so [cutover-docs.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/cutover-docs.test.ts#L445-L551) continues to match the WhatsApp `## Limits` and `## Alerts` sections cleanly.
+   - Covers per-deployment issuance (including `mcp-staging.askansari.ai` with `--client-id ansari-mcp-staging` before staging deploys #314, Workers, and `mcp.ansari.chat`), the verbatim `Bearer ansari_mcp_<64 letters>` handoff, the `MCP_COMPLETE_KEY_MODE` rollout sequence and follow-up removal issue, the `MCP_KEY_INITIAL` / `MCP_KEY_BOUNDS` limits, all six `McpVerifyAlert` kinds (including `client-id-invalid`) under `auth: MCP key verify alert: <kind>` / `mcp-verify-<kind>`, two-key rotation with `--client-id`, and the `@better-auth/api-key` upgrade guard.
+   - Avoids false-positive path matches in `namedRepoPaths` (referencing `wrangler.jsonc` without triggering a non-existent `.json` path check).
+
+2. **Self-Hosting Guide & READMEs ([docs/self-hosting.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L267-L286), [apps/mcp/README.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/mcp/README.md#L92), [apps/mcp/.env.example](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/mcp/.env.example#L15-L20), [apps/api/README.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/README.md#L27), [RELEASE.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/RELEASE.md#L94))**:
+   - Documents `POST /api/v2/mcp-complete` key requirements, `POST /api/service/verify-key`, `MCP_COMPLETE_KEY_MODE`, and the `Bearer ansari_mcp_<64 letters>` format across all operator and developer surfaces.
+   - Placeholder syntax (`ansari_mcp_<64 letters>`) is used consistently; no key-shaped string appears in any doc.
+
+3. **Architecture Documentation ([codev/resources/arch-critical.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/resources/arch-critical.md#L13), [codev/resources/arch.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/resources/arch.md#L25-L27))**:
+   - `arch-critical.md` amends the JWT-only fact in place to note the `/v2/mcp-complete` exception and updates the Authentication & Authorization map line while staying within the hot-tier line and fact caps.
+   - `arch.md` adds the **The MCP key and its verify route (#314)** subsection covering the closed permission set, fail-closed posture, key attribution, throttle semantics, log-only transition, and plugin-upgrade guard.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 documentation, runbook, and architecture updates are complete and match the implementation and spec.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

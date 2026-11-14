@@ -1,0 +1,21 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong security implementation, but malformed bearer values are misclassified as authentication-service outages and review artifacts are uncommitted.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- `route.ts:83` accepts any non-whitespace token. Tokens over 256 characters or containing non-ASCII reach apps/auth, which returns 400; `verifyServiceKey` then maps that to a 503 outage. The spec requires malformed bearers to return 401 without calling apps/auth. Validate the token’s printable-ASCII/length envelope locally and add POST/GET tests.
+- Twenty-six Phase 1–5 consultation artifacts remain untracked although `status.yaml` and the review reference those consultations. Commit the protocol evidence before PR completion.
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/api/v2/mcp-complete` with per-request `ansari-mcp` service-key verification and trusted key-based attribution. Adds a rollout mode that defaults to enforcement and fails closed on authentication-service outages.
+
+  ## Key Changes
+  - Adds the apps/auth service-key verification route, limits, alerts, and operator tooling.
+  - Adds apps/api authorization gating, attribution checks, rollout configuration, tests, and deployment documentation.
+
+  ## Test Plan
+  - Run `npm run build`.
+  - Run `npm test -- --exclude='**/e2e/**'`.
+  - Verify malformed, refused, valid, and unavailable-auth scenarios for both GET and POST.

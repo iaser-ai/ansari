@@ -23,10 +23,17 @@
  * name for create-service, which has no user yet. A mismatch writes nothing
  * and exits 2. `--name` and `--client-id` take 1 to 64 letters, digits,
  * spaces, dots, underscores and hyphens, and never a key-shaped value: both
- * are printed by list and sent to Sentry.
+ * are printed by list and sent to Sentry. For `ansari-mcp`, `--client-id` is
+ * required and must be `ansari-mcp` or `ansari-mcp-<suffix>` (#314): it is the
+ * thread attribution apps/api stores for every request the key makes.
  *
  * - It prints the database as `hostname:port` only, never the URL.
- * - Permissions and the key prefix are fixed per service (SERVICES); limits are
+ * - The script reads `ENVIRONMENT` (development, staging or production; #314
+ *   Amendment 3) from its process env and refuses to run without it. It is
+ *   printed under the database line before anything connects, and a new key's
+ *   prefix carries it (`ansari_<service>_<environment>_`); the routes refuse a
+ *   key labelled for another environment.
+ * - Permissions and the base key prefix are fixed per service (SERVICES); limits are
  *   required flags with no defaults, checked against limits.ts's bounds. The
  *   budget is daily and always refills: a budget without a refill deletes the
  *   key the first time it is exhausted. There is no expiry option: a key lives
@@ -44,13 +51,17 @@ import * as Sentry from '@sentry/node';
 import {
   createAuth,
   createDb,
+  ENVIRONMENTS,
   getEnv,
+  isMcpClientId,
   limits,
   serviceAddress,
   serviceUsers,
   type Auth,
   type Db,
+  type Environment,
 } from '@ansari/auth';
+
 
 import { urlHostPort } from './url-host';
 
@@ -75,7 +86,15 @@ export const USAGE = [
   '       tsx scripts/service-keys.ts update-limits <service> --key <key id> --rate-max <n> --rate-window <seconds> --daily <n> [--confirm <key id>]',
   '       tsx scripts/service-keys.ts revoke <service> --key <key id> [--confirm <key id>]',
   `Services: ${Object.keys(serviceUsers.SERVICES).join(', ')}`,
+  `ENVIRONMENT (${ENVIRONMENTS.join(', ')}) must be set, as on the auth service: a new key's prefix carries it`,
+  '(ansari_<service>_<environment>_), and each environment\'s routes refuse a key labelled for another. Check it against the',
+  'database line before --confirm.',
 ].join('\n');
+
+/** The refusal when ENVIRONMENT is absent or not one of ENVIRONMENTS: fixed words, never the value. */
+export const ENVIRONMENT_RULE = `ENVIRONMENT is not set to one of ${ENVIRONMENTS.join(', ')} (set it as on the auth service). Refusing to run.`;
+
+const isEnvironment = (value: string): value is Environment => (ENVIRONMENTS as readonly string[]).includes(value);
 
 /** The exit code of a run that wrote nothing on purpose (show step, confirm mismatch). */
 export const EXIT_NOTHING_WRITTEN = 2;
@@ -139,7 +158,6 @@ function limitsFrom(flags: Map<string, string>): KeyLimits {
   };
 }
 
-/** Parses the command line; throws RefusedError with the reason when it is not a valid command. */
 /** A key name or client id: printed by list and sent to Sentry, so a bounded, inert charset. */
 const LABEL = /^[A-Za-z0-9 ._-]{1,64}$/;
 
@@ -162,6 +180,24 @@ function label(flag: string, value: string | undefined): string | null {
     /[A-Za-z]{32}/.test(value);
   if (keyShaped) throw new RefusedError(`${flag} looks like a key. Never paste a key into a flag; nothing was written.`);
   return value;
+}
+
+/** The refusal for an `ansari-mcp` key without a valid client id: fixed words, never the value. */
+export const MCP_CLIENT_ID_RULE =
+  'ansari-mcp keys need --client-id: ansari-mcp, or ansari-mcp- and a suffix of lowercase letters, digits, dots, underscores and hyphens (64 characters at most). Nothing was written.';
+
+/**
+ * The client id a new key of `service` carries. An `ansari-mcp` key must name
+ * its caller with an `ansari-mcp*` id (isMcpClientId), since apps/auth and
+ * apps/api refuse a key without one; other services default to their name.
+ * The value is never echoed back.
+ */
+export function clientIdFor(service: ServiceName, clientId: string | null): string {
+  if (service === 'ansari-mcp') {
+    if (!isMcpClientId(clientId)) throw new RefusedError(MCP_CLIENT_ID_RULE);
+    return clientId;
+  }
+  return clientId ?? service;
 }
 
 export function parseArgs(argv: readonly string[]): ServiceKeysCommand {
@@ -195,15 +231,18 @@ export function parseArgs(argv: readonly string[]): ServiceKeysCommand {
     case 'list':
       return { kind, service };
     case 'create-key':
-    case 'rotate':
+    case 'rotate': {
+      const clientId = label('--client-id', flags.get('--client-id'));
+      clientIdFor(service, clientId);
       return {
         kind,
         service,
         confirm,
         limits: limitsFrom(flags),
         name: label('--name', flags.get('--name')),
-        clientId: label('--client-id', flags.get('--client-id')),
+        clientId,
       };
+    }
     case 'update-limits':
       return { kind, service, keyId: keyId(), limits: limitsFrom(flags), confirm };
     case 'revoke':
@@ -249,7 +288,8 @@ export type KeyEvent = {
 
 export type ScriptResult = { lines: string[]; exitCode: number; events: KeyEvent[] };
 
-export type ScriptContext = { db: Db; auth: Auth; now?: Date };
+/** `environment` is the validated ENVIRONMENT: a new key's prefix names it. */
+export type ScriptContext = { db: Db; auth: Auth; environment: Environment; now?: Date };
 
 const describeLimits = (l: {
   rateLimitMax: number | null;
@@ -268,6 +308,7 @@ function keyLines(key: serviceUsers.ServiceKey): string[] {
     `    name          ${key.name ?? ''}`,
     `    prefix        ${key.prefix ?? ''}`,
     `    permissions   ${key.permissions ?? ''}`,
+    `    client_id     ${serviceUsers.clientIdOf(key.metadata) ?? ''}`,
     `    enabled       ${key.enabled}`,
     `    limits        ${describeLimits(key)}; remaining ${key.remaining}`,
     `    created       ${iso(key.createdAt)}`,
@@ -318,7 +359,8 @@ async function createKey(
   flags: KeyFlags
 ): Promise<{ id: string; key: string; name: string }> {
   const checked = checkKeyLimits(service, flags.limits);
-  const { permissions, prefix } = serviceUsers.SERVICES[service];
+  const { permissions } = serviceUsers.SERVICES[service];
+  const prefix = serviceUsers.keyPrefix(service, ctx.environment);
   // Default name: the service and the minute it was created, so a rotation's two keys differ.
   const name = flags.name ?? `${service} ${(ctx.now ?? new Date()).toISOString().slice(0, 16)}Z`;
   const created = await ctx.auth.api.createApiKey({
@@ -327,7 +369,7 @@ async function createKey(
       prefix,
       name,
       permissions: Object.fromEntries(Object.entries(permissions).map(([k, v]) => [k, [...v]])),
-      metadata: { clientId: flags.clientId ?? service },
+      metadata: { clientId: clientIdFor(service, flags.clientId) },
       rateLimitEnabled: true,
       rateLimitTimeWindow: checked.rateLimitTimeWindow,
       rateLimitMax: checked.rateLimitMax,
@@ -392,6 +434,7 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
 
   if (cmd.kind === 'create-key' || cmd.kind === 'rotate') {
     checkKeyLimits(cmd.service, cmd.limits);
+    clientIdFor(cmd.service, cmd.clientId);
     const live = keys.filter((k) => k.enabled);
     if (cmd.kind === 'rotate' && live.length === 0) {
       throw new RefusedError(`Service "${cmd.service}" has no live key to rotate; use create-key.`);
@@ -404,7 +447,8 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
         ...userLines(cmd.service, user),
         `${live.length} live key(s): ${live.map((k) => k.id).join(', ') || 'none'}`,
         `This would create a key with ${describeLimits(cmd.limits)}.`,
-        'Nothing was written. If this is the service you mean, run:',
+        `  environment ${ctx.environment} (prefix ${serviceUsers.keyPrefix(cmd.service, ctx.environment)})`,
+        'Nothing was written. If this is the service and environment you mean, run:',
         command(`${cmd.kind} ${cmd.service} ${flagsText(cmd.limits)}${extra ? ` ${extra}` : ''} --confirm ${user.id}`),
       ]);
     }
@@ -421,7 +465,7 @@ export async function runServiceKeys(ctx: ScriptContext, cmd: ServiceKeysCommand
         : [];
     return {
       lines: [
-        `Created key ${created.id} (${created.name}) for ${cmd.service}: ${describeLimits(cmd.limits)}.`,
+        `Created ${ctx.environment} key ${created.id} (${created.name}) for ${cmd.service}: ${describeLimits(cmd.limits)}.`,
         ...rawKeyLines(created.key),
         ...rotated,
       ],
@@ -511,10 +555,28 @@ export const unrecordedRecorder: Recorder = {
   reason: 'SENTRY_DSN is not set: no record was attempted.',
 };
 
+/**
+ * The script's Sentry init: its events carry ENVIRONMENT, like apps/auth's own
+ * (#314 Amendment 3), never NODE_ENV, which is `production` on staging too. An
+ * absent or unknown ENVIRONMENT never gets here: main() refuses it first.
+ */
+export function scriptSentryInit(dsn: string, environment: Environment) {
+  return { dsn, environment, ...SCRIPT_SENTRY_OPTIONS };
+}
+
+/**
+ * The validated ENVIRONMENT, or null when it is absent or not one of
+ * ENVIRONMENTS. main() checks it before scriptRecorder, so Sentry is never
+ * initialised under an operator's typo (second review, finding 8).
+ */
+export function validEnvironment(value: string | undefined): Environment | null {
+  return value !== undefined && isEnvironment(value) ? value : null;
+}
+
 /** The script's recorder: Sentry when a DSN is set (initialised here), otherwise none. */
-export function scriptRecorder(dsn: string | undefined): Recorder {
+export function scriptRecorder(dsn: string | undefined, environment: Environment): Recorder {
   if (!dsn) return unrecordedRecorder;
-  Sentry.init({ dsn, environment: process.env.NODE_ENV ?? 'development', ...SCRIPT_SENTRY_OPTIONS });
+  Sentry.init(scriptSentryInit(dsn, environment));
   return sentryRecorder;
 }
 
@@ -540,7 +602,9 @@ export function scriptError(err: unknown): string {
 
 export type ScriptDeps = {
   databaseUrl: string | undefined;
-  connect: () => ScriptContext;
+  /** ENVIRONMENT as the process has it, unvalidated: the script refuses an absent or unknown value. */
+  environment: string | undefined;
+  connect: () => Omit<ScriptContext, 'environment'>;
   recorder: Recorder;
   /** Prints one line at once (console.log in the script). */
   print: (line: string) => void;
@@ -571,10 +635,16 @@ export async function serviceKeys(argv: readonly string[], deps: ScriptDeps): Pr
     return { lines, exitCode: 1 };
   }
   emit(`Auth database: ${host}`);
+  const environment = deps.environment;
+  if (environment === undefined || !isEnvironment(environment)) {
+    emit(ENVIRONMENT_RULE);
+    return { lines, exitCode: 1 };
+  }
+  emit(`Environment: ${environment} (a new key's prefix carries it: ansari_<service>_${environment}_)`);
   let result: ScriptResult;
   try {
     const cmd = parseArgs(argv);
-    result = await runServiceKeys(deps.connect(), cmd);
+    result = await runServiceKeys({ ...deps.connect(), environment }, cmd);
   } catch (err) {
     emit(`service-keys refused: ${scriptError(err)}`);
     return { lines, exitCode: 1 };
@@ -612,9 +682,15 @@ export function printLine(line: string): void {
 }
 
 async function main(): Promise<void> {
-  const recorder = scriptRecorder(process.env.SENTRY_DSN);
+  const environment = validEnvironment(process.env.ENVIRONMENT);
+  if (environment === null) {
+    printLine(ENVIRONMENT_RULE);
+    process.exit(1);
+  }
+  const recorder = scriptRecorder(process.env.SENTRY_DSN, environment);
   const { exitCode } = await serviceKeys(process.argv.slice(2), {
     databaseUrl: process.env.DATABASE_URL,
+    environment, // validated above: one validation
     connect: () => {
       try {
         getEnv();

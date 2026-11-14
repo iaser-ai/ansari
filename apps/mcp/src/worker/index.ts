@@ -18,6 +18,8 @@ function applicationFor(env: RuntimeEnv): FetchApp {
     allowedHosts: settings.allowedHosts,
     allowedOrigins: settings.allowedOrigins,
     enableJsonResponse: settings.enableJsonResponse,
+    viewDiagnosticsOrigin: settings.viewDiagnosticsOrigin,
+    logLevel: settings.logLevel,
     logger: record => console.log(JSON.stringify(record)),
   });
   return app;

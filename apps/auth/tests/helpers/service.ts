@@ -15,6 +15,7 @@ import {
 } from '../../../../packages/auth/tests/helpers/auth-db';
 import type { FailedSignInAlert, ListWalkAlert } from '../../src/alerts';
 import { createApp, createServiceAuth } from '../../src/app';
+import type { VerifyOptions } from '../../src/routes/service-verify';
 import type { ExchangeOptions } from '../../src/routes/whatsapp';
 
 export { TEST_ADMIN_EMAIL } from '../../../../packages/auth/tests/helpers/auth-db';
@@ -40,6 +41,8 @@ export type ServiceOptions = {
   mailer?: Mailer;
   /** The WhatsApp exchange's alerts and clock. */
   exchange?: ExchangeOptions;
+  /** The MCP verify route's alerts and clock. */
+  verify?: VerifyOptions;
 };
 
 function listen(app: { listen: (port: number, cb: () => void) => Server }): Promise<Server> {
@@ -55,6 +58,12 @@ function listen(app: { listen: (port: number, cb: () => void) => Server }): Prom
 
 const urlOf = (server: Server) => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
+/** Serves another app (e.g. over the same db with other options) on an ephemeral port; close it when done. */
+export async function serveApp(app: { listen: (port: number, cb: () => void) => Server }): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = await listen(app);
+  return { url: urlOf(server), close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
 export async function startService(options: ServiceOptions = {}): Promise<Service> {
   setAuthEnv(BASE);
   const client = await migrate();
@@ -68,7 +77,7 @@ export async function startService(options: ServiceOptions = {}): Promise<Servic
     failedSignInAlert: options.failedSignInAlert,
     mailer: options.mailer ?? capture,
   });
-  const appOptions = { production: options.production ?? false, exchange: options.exchange };
+  const appOptions = { production: options.production ?? false, exchange: options.exchange, verify: options.verify };
   const publicServer = await listen(createApp({ auth, db }, appOptions));
   return {
     client,

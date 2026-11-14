@@ -16,6 +16,7 @@ const BASE_ENV = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   KALEMAT_API_KEY: 'placeholder',
   USUL_API_TOKEN: 'placeholder',
+  ENVIRONMENT: 'development',
 };
 const AUTH_ENV = {
   AUTH_URL: 'https://auth.askansari.ai',
@@ -23,7 +24,7 @@ const AUTH_ENV = {
   AUTH_JWT_AUDIENCE: 'ansari-api-boot-check-value',
   AUTH_LAYER_ORIGIN: 'https://api.askansari.ai',
 };
-const SERVER = { NODE_ENV: 'production', NEXT_RUNTIME: 'nodejs' } as const;
+const SERVER = { NODE_ENV: 'production', NEXT_RUNTIME: 'nodejs', ENVIRONMENT: 'production' } as const;
 
 let saved: NodeJS.ProcessEnv;
 beforeEach(() => {
@@ -66,11 +67,50 @@ describe('validateEnvAtBoot', () => {
     expect(() => validateEnvAtBoot()).not.toThrow();
   });
 
+  it('a production boot with a bad MCP_COMPLETE_KEY_MODE throws, naming it (#314)', () => {
+    process.env = { ...process.env, ...BASE_ENV, ...AUTH_ENV, ...SERVER, MCP_COMPLETE_KEY_MODE: 'log_only' };
+    expect(() => validateEnvAtBoot()).toThrow(/MCP_COMPLETE_KEY_MODE/);
+    resetEnvCache();
+    process.env.MCP_COMPLETE_KEY_MODE = 'log-only';
+    expect(() => validateEnvAtBoot()).not.toThrow();
+  });
+
+  it('a production boot without ENVIRONMENT, or labelled development, throws naming it (#314 Amendment 3)', () => {
+    for (const environment of [undefined, 'development', 'prod', 'test']) {
+      resetEnvCache();
+      process.env = { ...process.env, ...BASE_ENV, ...AUTH_ENV, ...SERVER };
+      if (environment === undefined) delete process.env.ENVIRONMENT;
+      else process.env.ENVIRONMENT = environment;
+      expect(() => validateEnvAtBoot(), String(environment)).toThrow(/ENVIRONMENT/);
+    }
+  });
+
+  it.each(['staging', 'production'])('a production boot with ENVIRONMENT=%s boots', (environment) => {
+    process.env = { ...process.env, ...BASE_ENV, ...AUTH_ENV, ...SERVER, ENVIRONMENT: environment };
+    expect(() => validateEnvAtBoot()).not.toThrow();
+  });
+
+  it('next build never parses the env; outside a build ENVIRONMENT is required, with no default (owner, 2026-11-12)', async () => {
+    process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
+    delete process.env.ENVIRONMENT;
+    expect(() => validateEnvAtBoot()).not.toThrow();
+    process.env = { ...process.env, ...BASE_ENV, NODE_ENV: 'development' };
+    delete process.env.NEXT_PHASE; // absent, not the string 'undefined'
+    resetEnvCache();
+    const { getEnv } = await import('@/lib/config');
+    expect(getEnv().ENVIRONMENT).toBe('development');
+    // Absent in a dev process: the first config access fails, naming it.
+    delete process.env.ENVIRONMENT;
+    resetEnvCache();
+    expect(() => getEnv()).toThrow(/ENVIRONMENT/);
+  });
+
   it('a build or a dev server never parses the env', () => {
     process.env = { ...process.env, ...SERVER, NEXT_PHASE: 'phase-production-build' };
     delete process.env.DATABASE_URL;
     expect(() => validateEnvAtBoot()).not.toThrow();
-    process.env = { ...process.env, NODE_ENV: 'development', NEXT_PHASE: undefined };
+    process.env = { ...process.env, NODE_ENV: 'development' };
+    delete process.env.NEXT_PHASE; // absent, not the string 'undefined'
     expect(() => validateEnvAtBoot()).not.toThrow();
   });
 });

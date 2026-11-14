@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -123,6 +123,68 @@ describe('RELEASE.md consistency', () => {
     expect(doc).toContain('scripts/grant-admin.ts');
     expect(existsSync(resolve(repoRoot, 'apps/auth/scripts/grant-admin.ts'))).toBe(true);
     expect(existsSync(resolve(apiDir, 'scripts/grant-admin.ts'))).toBe(false);
+  });
+
+  describe('Railway service records match the RELEASE.md block', () => {
+    // The tomls are not read by Railway; RELEASE.md and the tomls are two records of
+    // one dashboard, so each toml's Dockerfile, watch paths and health check must
+    // appear in RELEASE.md exactly. Service names are the RELEASE.md (dashboard) names.
+    const services: Record<string, string> = {
+      backend: 'apps/api/railway.toml',
+      frontend: 'apps/frontend/railway.toml',
+      auth: 'apps/auth/railway.toml',
+      whatsapp: 'legacy/whatsapp/railway.toml',
+      mcp: 'apps/mcp/railway.toml',
+    };
+
+    function readToml(rel: string) {
+      // Comments dropped first, so a commented-out pattern never counts.
+      const text = readFileSync(resolve(repoRoot, rel), 'utf8').replace(/#.*$/gm, '');
+      const value = (key: string) => text.match(new RegExp(`^${key} = "([^"]*)"`, 'm'))?.[1];
+      const block = text.match(/^watchPatterns = \[([\s\S]*?)\]/m)?.[1] ?? '';
+      return {
+        dockerfilePath: value('dockerfilePath'),
+        healthcheckPath: value('healthcheckPath'),
+        watchPatterns: [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+        restart: value('restartPolicyType'),
+      };
+    }
+
+    it('lists every railway.toml in the repo', () => {
+      const tomls = ['apps', 'legacy']
+        .flatMap((dir) => readdirSync(resolve(repoRoot, dir)).map((name) => `${dir}/${name}/railway.toml`))
+        .filter((rel) => existsSync(resolve(repoRoot, rel)));
+      expect(tomls.sort()).toEqual(Object.values(services).sort());
+    });
+
+    for (const [service, rel] of Object.entries(services)) {
+      it(`${service}: Dockerfile row, watch-path line and health check match ${rel}`, () => {
+        const toml = readToml(rel);
+        expect(toml.dockerfilePath).toBeTruthy();
+        expect(toml.restart).toBe('ON_FAILURE');
+        const dockerfile = toml.dockerfilePath!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        expect(doc).toMatch(new RegExp(`^> \\| ${service}( \\(web\\))? \\| \`${dockerfile}\` \\|$`, 'm'));
+
+        const line = doc.match(new RegExp(`^> ${service}:(.*)$`, 'm'))?.[1];
+        expect(line, `no watch-path line for ${service}`).toBeDefined();
+        expect(line!.trim().split(/\s+/)).toEqual(toml.watchPatterns);
+
+        // The deploy-settings sentence wraps across quoted lines; read it as one line.
+        expect(doc.replace(/\n> /g, ' ')).toContain(`${service} healthcheck \`${toml.healthcheckPath}\``);
+      });
+    }
+
+    it('records the mcp staging environment (issue #364)', () => {
+      expect(doc).toContain('| `MCP_ALLOWED_HOSTS` | `mcp-staging.askansari.ai`');
+      expect(doc).toContain('| `ANSARI_API_BASE_URL` | `https://api-staging.askansari.ai`');
+      expect(doc).toContain('| `ANSARI_CLIENT` | `ansari-mcp-staging` |');
+      // The release maps the platform's commit in the dashboard, never in code (#377).
+      expect(doc).toContain('| `ANSARI_RELEASE` | `${{RAILWAY_GIT_COMMIT_SHA}}`');
+      expect(doc).not.toContain('`ANSARI_RELEASE` is **not** set');
+      expect(doc).not.toContain('falls back to `RAILWAY_GIT_COMMIT_SHA`');
+      expect(doc).toContain('`https://<domain>/mcp`');
+      expect(doc.replace(/\n> /g, ' ')).toContain('set `PORT=3000` as a service variable so Railway does not assign its own');
+    });
   });
 
   it('pins exactly the two production health-check domains', () => {

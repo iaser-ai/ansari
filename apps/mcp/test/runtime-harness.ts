@@ -93,7 +93,7 @@ export function waitFor(child: ChildProcess, logs: string[], ready: (line: strin
   });
 }
 
-export type RuntimeOptions = {json: boolean; upstream: string};
+export type RuntimeOptions = {json: boolean; upstream: string; logLevel?: 'info' | 'debug'};
 
 export async function startRuntime(kind: RuntimeKind, options: RuntimeOptions): Promise<Runtime> {
   const settings: Record<string, string> = {
@@ -103,6 +103,7 @@ export async function startRuntime(kind: RuntimeKind, options: RuntimeOptions): 
     ANSARI_RELEASE: RELEASE,
     MCP_ALLOWED_ORIGINS: TRUSTED_ORIGIN_HOST,
     MCP_RESPONSE_MODE: options.json ? 'json' : 'sse',
+    ...(options.logLevel ? {MCP_LOG_LEVEL: options.logLevel} : {}),
   };
   const logs: string[] = [];
   let stateDir: string | undefined;
@@ -115,7 +116,8 @@ export async function startRuntime(kind: RuntimeKind, options: RuntimeOptions): 
     const line = await waitFor(child, logs, text => text.includes('"event":"startup"'), 'the Node server', 15_000);
     origin = `http://127.0.0.1:${JSON.parse(line).port}`;
   } else {
-    const entry = `${root}dist-worker/index.js`;
+    // MCP_TEST_WORKER_ENTRY lets missing-bundle.test.ts point at a bundle that does not exist, even where one is built.
+    const entry = process.env.MCP_TEST_WORKER_ENTRY ?? `${root}dist-worker/index.js`;
     if (!existsSync(entry)) throw new Error('dist-worker/index.js is missing: run `pnpm build:worker` first');
     const port = await freePort();
     // Each runtime instance needs its own devtools port; the default is shared by every Wrangler on the host.

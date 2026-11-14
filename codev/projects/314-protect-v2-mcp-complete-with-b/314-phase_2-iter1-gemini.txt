@@ -1,0 +1,26 @@
+### Phase 2 Review: `apps/auth` verify route `POST /api/service/verify-key`
+
+The Phase 2 implementation fulfills all specification and plan requirements cleanly:
+
+1. **Spec Adherence & Route Behavior**:
+   - [`serviceVerifyRouter`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts#L79-L151) enforces the exact pipeline order specified: `requireJson` → `express.json({ limit: limits.VERIFY_BODY_LIMIT })` → `parseFailure` → body & closed permission-set validation (`{ mcp: ['complete'] }` via [`isServedPermissionSet`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts#L53-L64)) → `auth.api.verifyApiKey` → [`createApiKeyRelationCheck`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/apikey-relation.ts#L11-L18) on refusal → service-user lookup & ownership check (`findServiceUser`) only after plugin acceptance → `client_id` validation (`clientIdOf` + `isMcpClientId`).
+   - Mounted at [`SERVICE_VERIFY_PATH`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/app.ts#L75) (`/api/service/verify-key`) ahead of `corsFor` and outside Better Auth's router, terminating all non-POST methods and sub-paths with a bare 404 so no response carries `Access-Control-*` headers.
+   - All refusals return the byte-identical `{"valid":false}` with status 200; malformed requests or disallowed permissions return 400 `{"message":"Invalid request"}` without touching the plugin; database/relation outages and unresolvable/duplicate service users return 500 `{"message":"Internal error"}`.
+
+2. **Code Quality & Alert Generalization**:
+   - [`createApiKeyRelationCheck`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/apikey-relation.ts#L11-L18) is cleanly extracted and shared between [`whatsappRouter`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/whatsapp.ts#L95) and [`serviceVerifyRouter`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts#L81).
+   - [`createKeyAlerts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts#L213-L275) generalizes the per-key and fixed-window alert deduplication while keeping `ExchangeAlert` immediately above `KeyRefusalCode` to preserve the source-scan contract in `cutover-docs.test.ts`.
+   - Error logging uses `redactError` (`{name, code}`), and no key material or request body is logged or sent to Sentry.
+
+3. **Test Coverage**:
+   - [`service-verify.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify.test.ts#L1-L620) thoroughly covers spec scenarios 1–10, 12, 13, and 15 against PGlite and the real `api-key` plugin, including negative controls for [`leakedWindows`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/helpers/leak-scan.ts#L20-L25) and non-vacuity checks on the `verifyApiKey` spy.
+   - [`service-verify-sentry.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify-sentry.test.ts#L1-L102) verifies that captured Sentry envelopes and console logs under `SERVICE_SENTRY_OPTIONS` contain no key material, 16-char random windows, or request bodies.
+   - [`blocked-paths.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/blocked-paths.test.ts#L145-L163) adds the requested plugin-upgrade guard pinning `verifyApiKey` as server-only and verifying `/api/auth/api-key/verify` variants are blocked.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 cleanly implements the `/api/service/verify-key` route, shared relation check, generalized alerts, and comprehensive PGlite/Sentry/upgrade-guard tests in full alignment with the spec and plan.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

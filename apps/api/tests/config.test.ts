@@ -10,6 +10,7 @@ const REQUIRED_ENV: Record<string, string> = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   KALEMAT_API_KEY: 'placeholder-key',
   USUL_API_TOKEN: 'placeholder-token',
+  ENVIRONMENT: 'development',
 };
 
 let savedEnv: NodeJS.ProcessEnv;
@@ -280,6 +281,7 @@ describe('apps/auth config', () => {
     }
     setAuthEnv();
     process.env.NODE_ENV = 'production';
+    process.env.ENVIRONMENT = 'staging'; // required in production too (#314 Amendment 3)
     resetEnvCache();
     expect(() => getEnv()).not.toThrow();
   });
@@ -299,5 +301,32 @@ describe('apps/auth config', () => {
     } catch (err) {
       expect(String(err)).not.toContain('not-a-url-but-a-value');
     }
+  });
+});
+
+// #314: how /v2/mcp-complete treats its service key during the rollout.
+// Absent means enforce (fail closed); only the two exact values parse, so a
+// typo can never quietly put the route in log-only.
+describe('MCP_COMPLETE_KEY_MODE (#314)', () => {
+  function withMode(value: string | undefined) {
+    if (value === undefined) delete process.env.MCP_COMPLETE_KEY_MODE;
+    else process.env.MCP_COMPLETE_KEY_MODE = value;
+    resetEnvCache();
+  }
+
+  it('absent → enforce', () => {
+    withMode(undefined);
+    expect(config.mcpCompleteKeyMode).toBe('enforce');
+  });
+
+  it.each(['enforce', 'log-only'] as const)('%s → %s', (mode) => {
+    withMode(mode);
+    expect(config.mcpCompleteKeyMode).toBe(mode);
+  });
+
+  it.each(['log_only', 'LOG-ONLY', 'Enforce', '', ' enforce', 'off'])('%j fails validation', (value) => {
+    withMode(value);
+    expect(() => getEnv()).toThrow(/MCP_COMPLETE_KEY_MODE/);
+    expect(() => config.mcpCompleteKeyMode).toThrow(/Environment validation failed/);
   });
 });

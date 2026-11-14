@@ -5,7 +5,7 @@
 // session, so a pass cannot come from a missing or non-admin session.
 import { request } from 'node:http';
 
-import { API_KEY_PATHS, BLOCKED_AUTH_PATHS } from '@ansari/auth';
+import { API_KEY_ENDPOINT_COUNT, API_KEY_PATHS, BLOCKED_AUTH_PATHS } from '@ansari/auth';
 import { admin } from 'better-auth/plugins';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -139,6 +139,26 @@ describe('the api-key surface, from the installed package', () => {
   it('the server-only endpoints are blocked under the prefix too', async () => {
     for (const path of ['/api-key/verify', '/api-key/delete-all-expired-api-keys', '/api-key']) {
       await expectBlocked(service.publicUrl, `/api/auth${path}`, 'POST');
+    }
+  });
+
+  // The plugin-upgrade guard (#314, owner request 2026-11-11). The plugin's
+  // docs advertise `POST /api-key/verify`, but no published version routes it
+  // (1.7.7, 1.7.20 and 1.8.0-beta.7 all mark verifyApiKey serverOnly). The MCP
+  // verify route calls it in process; if a plugin bump ever gives it a path,
+  // these fail loudly, and the blocked-path prefix rule must still refuse it.
+  // Re-check both on every @better-auth/api-key upgrade.
+  it('verifyApiKey stays server-only: no path, 7 endpoints, 5 routed', () => {
+    const endpoint = service.auth.api.verifyApiKey as unknown as ApiEndpoint;
+    expect(endpoint.path).toBeUndefined();
+    expect(API_KEY_ENDPOINT_COUNT).toBe(7);
+    expect(API_KEY_PATHS).toHaveLength(5);
+    expect(API_KEY_PATHS).not.toContain('/api-key/verify');
+  });
+
+  it('POST /api/auth/api-key/verify and its case and trailing-slash variants are refused today', async () => {
+    for (const variant of [...variants('/api-key/verify'), '/api/auth/API-KEY/VERIFY', '/api/auth/api-key/verify/']) {
+      await expectBlocked(service.publicUrl, variant, 'POST');
     }
   });
 

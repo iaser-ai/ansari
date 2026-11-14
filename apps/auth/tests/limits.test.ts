@@ -484,3 +484,40 @@ describe('the list-walk alert through Sentry', () => {
     warn.mockRestore();
   });
 });
+
+describe('ansari-mcp key limits (#314): the numbers and how they relate', () => {
+  it('initial caps: 120 per minute (apps/api per-IP cap), 5,000 a day, refilled daily', () => {
+    expect(limits.MCP_KEY_INITIAL).toEqual({
+      rateLimitMax: 120,
+      rateLimitTimeWindow: 60_000,
+      refillAmount: 5000,
+      refillInterval: limits.KEY_REFILL_INTERVAL,
+    });
+  });
+
+  it('alerts sit at one third of the caps, so a surge is seen before anything is refused', () => {
+    expect(limits.MCP_VERIFY_KEY_ALERT).toBe(Math.floor(limits.MCP_KEY_INITIAL.rateLimitMax / 3));
+    expect(limits.MCP_VERIFY_DAILY_ALERT).toBe(Math.floor(limits.MCP_KEY_INITIAL.refillAmount / 3));
+    expect(limits.MCP_VERIFY_UNAUTHORIZED_ALERT).toEqual({ window: limits.EXCHANGE_ALERT_WINDOW, max: 20 });
+  });
+
+  it("bounds are MCP's own constant, as wide as WhatsApp's, and admit the initial values", () => {
+    expect(limits.MCP_KEY_BOUNDS).not.toBe(limits.WHATSAPP_KEY_BOUNDS);
+    expect(limits.MCP_KEY_BOUNDS).toEqual(limits.WHATSAPP_KEY_BOUNDS);
+    const { rateLimitMax, rateLimitTimeWindow, refillAmount } = limits.MCP_KEY_BOUNDS;
+    const initial = limits.MCP_KEY_INITIAL;
+    expect(initial.rateLimitMax).toBeGreaterThanOrEqual(rateLimitMax.min);
+    expect(initial.rateLimitMax).toBeLessThanOrEqual(rateLimitMax.max);
+    expect(initial.rateLimitTimeWindow).toBeGreaterThanOrEqual(rateLimitTimeWindow.min);
+    expect(initial.rateLimitTimeWindow).toBeLessThanOrEqual(rateLimitTimeWindow.max);
+    expect(initial.refillAmount).toBeGreaterThanOrEqual(refillAmount.min);
+    expect(initial.refillAmount).toBeLessThanOrEqual(refillAmount.max);
+  });
+
+  it('the verify body holds a maximal key with room to spare', () => {
+    expect(limits.VERIFY_KEY_MAX_LENGTH).toBe(256);
+    expect(limits.VERIFY_BODY_LIMIT).toBe(1024);
+    const body = JSON.stringify({ key: 'k'.repeat(limits.VERIFY_KEY_MAX_LENGTH), permissions: { mcp: ['complete'] } });
+    expect(Buffer.byteLength(body)).toBeLessThan(limits.VERIFY_BODY_LIMIT);
+  });
+});

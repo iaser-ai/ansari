@@ -24,6 +24,7 @@ beforeEach(() => {
   process.env.GEMINI_API_KEY = 'test-gemini-key';
   process.env.KALEMAT_API_KEY = 'test-kalemat-key';
   process.env.USUL_API_TOKEN = 'test-usul-token';
+  process.env.ENVIRONMENT = 'development';
 });
 
 let originalFetch: typeof globalThis.fetch;
@@ -47,13 +48,13 @@ const QURAN = { id: '2:153', text: 'يَٰٓأَيُّهَا ٱلَّذِينَ'
 const HADITH = {
   id: 'h1',
   source_book: 'Sahih Muslim',
-  chapter_number: '1',
+  chapter_number: 1,
   chapter_english: 'Patience',
-  section_number: '1',
+  section_number: 1,
   section_english: 'Patience',
-  hadith_number: '2999',
+  hadith_number: 2999,
   en_text: 'How wonderful is the affair of the believer',
-  ar_text: 'عَجَبًا لأَمْرِ الْمُؤْمِنِ',
+  text: 'عَجَبًا لأَمْرِ الْمُؤْمِنِ',
   grade_en: 'Sahih',
 };
 const USUL = {

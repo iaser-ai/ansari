@@ -1,0 +1,21 @@
+---
+VERDICT: APPROVE
+SUMMARY: Prior bearer-shape issue is correctly fixed; implementation, tests, documentation, and review artifacts align with the spec.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Protects both `/api/v2/mcp-complete` methods using `ansari-mcp` service keys verified by apps/auth. Requests fail closed, and trusted client attribution comes from key metadata.
+
+  ## Key Changes
+  - Adds the service-key verification route, limits, alerts, and operator tooling.
+  - Adds enforce/log-only gating, strict bearer validation, attribution, and rollout documentation.
+  - Provides comprehensive pglite, boundary, failure-path, and leak-scan coverage.
+
+  ## Test Plan
+  - Run `npm run build`.
+  - Run `npm test -- --exclude='**/e2e/**'`.
+  - Verify malformed credentials return 401 without contacting apps/auth, while outages return 503.

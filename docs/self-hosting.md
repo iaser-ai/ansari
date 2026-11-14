@@ -50,6 +50,7 @@ calling its account endpoints with the user's own JWT.
 | `DATABASE_URL` | Postgres connection string |
 | `KALEMAT_API_KEY` | Non-empty required — see caveat above |
 | `USUL_API_TOKEN` | Non-empty required — see caveat above |
+| `ENVIRONMENT` | The deployment label (#314 Amendment 3): `development`, `staging` or `production`, the same vocabulary as `apps/auth`, named after the legacy frontend's `EXPO_PUBLIC_ENVIRONMENT` (apps/frontend has no such variable). It is the Sentry environment. **No default** (owner, 2026-11-12): local and CI processes set `development` (the `.env.example` and `.env.ci` files do). When `NODE_ENV=production` it must be `staging` or `production`: a production boot without it, or labelled `development`, fails the boot check. `NODE_ENV` keeps its own jobs (test detection, production hardening) |
 
 ### Auth service (`apps/auth`; required when `NODE_ENV=production`)
 
@@ -110,6 +111,7 @@ empty-final retry ladder still applies as same-model retries.
 | `USUL_BASE_URL` | `https://api.usul.ai/v1/vector-search` | |
 | `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex fallback rung and terminal-error rescue (issues #74/#79). When unset (and `INKLING_API_KEY` too), both are skipped cleanly |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
+| `MCP_COMPLETE_KEY_MODE` | `enforce` | How `/api/v2/mcp-complete` treats its `Authorization: Bearer` service key (#314): `enforce` refuses a missing or invalid key with 401; an unreachable apps/auth is 503. `log-only` (rollout only) verifies and records the verdict (`unverified` when apps/auth is unreachable, with a Sentry warning) and always serves. Any other value fails validation |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
 | `IOS_LATEST_BUILD_VERSION` | `1` | |
@@ -122,7 +124,6 @@ empty-final retry ladder still applies as same-model retries.
 | Variable | Where used | Notes |
 |----------|-----------|-------|
 | `SENTRY_DSN` | `sentry.*.config.ts` | Optional. Sentry is disabled when unset (and always disabled under test). No user content is ever sent to Sentry |
-| `RAILWAY_ENVIRONMENT` | `sentry.server.config.ts` | Auto-injected by Railway; used as the Sentry environment tag. Falls back to `NODE_ENV`; never set manually |
 | `SENTRY_AUTH_TOKEN` | build-time only | Optional — source-map uploads during `next build`. The build succeeds without it |
 
 ### Provisioning admins
@@ -226,15 +227,28 @@ Verify admins with `grant-admin.ts --list` from `apps/auth/`.
 
 `apps/api`'s own boot check is the environment validation above; it queries nothing.
 
+Both services require `ENVIRONMENT` (`staging` or `production`) when `NODE_ENV=production`
+(#314 Amendment 3): it labels their Sentry events and is the environment segment of every service
+key's prefix (`ansari_<service>_<ENVIRONMENT>_`). Set it on each deployed `apps/api` and `apps/auth`
+**before** deploying a version that requires it, or the new deployment fails its boot (on
+Railway, a failed healthcheck keeps the previous deployment serving). Nothing reads it at build
+time.
+
 ### Service keys and the WhatsApp exchange (spec 329)
 
-`apps/auth` issues API keys to services (the WhatsApp service today; `ansari-mcp` is reserved
-for #314) through `@better-auth/api-key`. A service is one auth user under
+`apps/auth` issues API keys to services (the WhatsApp service, and `ansari-mcp` for
+`/api/v2/mcp-complete`, #314) through `@better-auth/api-key`. A service is one auth user under
 `@noreply.askansari.ai` with no credential. Keys are stored hashed in `auth.apikey`; the
 plugin's HTTP surface is blocked, so keys are created, listed, rotated, changed and revoked only
 with `apps/auth/scripts/service-keys.ts`, run from `apps/auth/` in the auth service's shell
 (`create-service`, `create-key`, `list`, `rotate`, `update-limits`, `revoke`; every write is
-shown first and confirmed by id). The create and rotate commands print the raw key once.
+shown first and confirmed by id). The create and rotate commands print the raw key once. The
+script reads `ENVIRONMENT` from its process env (it refuses to run without it) and puts it in the
+key's prefix: `ansari_<service>_<ENVIRONMENT>_`, e.g. `ansari_wa_production_`. Each route serves
+only a key whose stored prefix names its own service and its own `ENVIRONMENT`, so a key leaked
+from one environment is refused in another; a WhatsApp key issued before #314 (bare `ansari_wa_`, or the
+pre-rename `wa_`) is still accepted during the compatibility window the runbook describes. MCP
+keys have no window: only labelled ones are served.
 `docs/cutover/service-keys-runbook.md` is the operator's procedure: issuance, handoff, rotation,
 revocation, the alerts and the eligibility repair.
 
@@ -262,3 +276,24 @@ auth database (after the duplicate check in the runbook, in a quiet window: it l
 without it. On a deployment that tracks Ansari's own order: staging gets `0001` before the merge,
 and production gets the whole auth journal, in order, at its cutover
 (`docs/cutover/better-auth-cutover.md`).
+
+### MCP completions need a service key (#314)
+
+`POST /api/v2/mcp-complete` on `apps/api` requires `Authorization: Bearer <key>` (the scheme word
+in any case), where the key is an `ansari-mcp` service key made with `service-keys.ts`
+(`create-key ansari-mcp … --client-id <ansari-mcp id>`; the client id is required and must be
+`ansari-mcp` or `ansari-mcp-<suffix>`). For every request, `apps/api` asks `apps/auth` at its
+public origin, `POST /api/service/verify-key` with `{"key": "...", "permissions": {"mcp":
+["complete"]}}`; the route serves that permission set only, so a WhatsApp key is refused. It
+answers `200 {valid: true, client_id, key_id}` or one `200 {valid: false}` for every refusal,
+`400` for a malformed body and `500` otherwise; it sits outside Better Auth's router (no per-IP
+rule, no CORS) and carries no credential but the key itself, which also spends one unit of the
+key's own budget and window.
+
+In `enforce` mode (`MCP_COMPLETE_KEY_MODE`, above) a missing or refused key is `401
+{"error":"Unauthorized"}`, and `apps/auth` unreachable, or slower than apps/api's client timeout
+(`AUTH_SERVICE_TIMEOUT_MS` in `apps/api/lib/auth-service/client.ts`, 3 s), is `503 {"error":"Authentication service unavailable"}`, with nothing persisted and no
+model call. The thread's `client` is the key's client id; a different `X-Ansari-Client` is
+ignored. The route's per-IP cap (120 a minute) stays. An MCP server built from `apps/mcp` sends
+its `ANSARI_API_AUTHORIZATION` verbatim, so that variable holds `Bearer ` and the key (`Bearer ansari_mcp_<environment>_<64 letters>`). Issuance,
+handoff, rollout, limits, alerts and rotation: `docs/cutover/service-keys-runbook.md`.

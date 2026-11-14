@@ -1,0 +1,15 @@
+## Phase 2 Review (Iteration 2)
+
+The Iteration 1 concern regarding the expired-key row has been cleanly resolved:
+- [codev/specs/314-protect-v2-mcp-complete-with-b.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/specs/314-protect-v2-mcp-complete-with-b.md#L3) now includes the security-architect-approved Amendment 1 and updates Scenario 2 ([line 339](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/specs/314-protect-v2-mcp-complete-with-b.md#L339)) to reflect `@better-auth/api-key` 1.7.7's `validateApiKey` behavior of deleting expired keys upon presentation.
+- [apps/auth/tests/service-verify.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify.test.ts#L244-L248) explicitly asserts both sides (`toBeDefined()` for kept rows and `toBeUndefined()` for the expired key), ensuring any future plugin behavior change is caught immediately.
+
+All Phase 2 deliverables—the `POST /api/service/verify-key` router ([service-verify.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts)), shared relation check ([apikey-relation.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/apikey-relation.ts)), generalized alert factory ([alerts.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts)), mount order ahead of `corsFor` ([app.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/app.ts)), and comprehensive PGlite/Sentry/upgrade-guard test suites—are complete and ready to proceed to Phase 3.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 implementation and spec Amendment 1 for the expired-key plugin behavior are complete, well-tested, and ready for Phase 3.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

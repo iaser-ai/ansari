@@ -11,7 +11,7 @@ import { inspect } from 'node:util';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { limits, serviceUsers } from '@ansari/auth';
+import { ENVIRONMENTS, getEnv, limits, serviceUsers, type Environment } from '@ansari/auth';
 
 import { TEST_JWT_AUDIENCE, TEST_JWT_ISSUER } from '../../../packages/auth/tests/helpers/auth-db';
 import {
@@ -23,6 +23,9 @@ import {
 import { createApp } from '../src/app';
 import { exchangeLimitKey, WHATSAPP_SESSION_PATH } from '../src/routes/whatsapp';
 import { BASE, rateLimitRow, send, signUpTokens, startService, type Service } from './helpers/service';
+
+/** The ENVIRONMENT the app under test runs as (the test env sets none, so the default); pinned in beforeAll. */
+const HERE: Environment = 'development';
 
 const WHATSAPP = { whatsapp: ['mint'] };
 
@@ -67,17 +70,17 @@ let key: string;
 /** A fresh exchange-alert window, so one test's counts never reach the next. */
 const nextAlertWindow = () => clock.advance(limits.EXCHANGE_ALERT_WINDOW * 1000);
 
+/** The alerts object of the service last started here, so a test can spy on what the route calls. */
+let exchangeAlerts: ReturnType<typeof createExchangeAlerts>;
+
 function startExchangeService(): Promise<Service> {
-  return startService({
-    exchange: {
-      alerts: createExchangeAlerts({ send: (alert) => alerts.push(alert), now: clock.now }),
-      now: clock.now,
-    },
-  });
+  exchangeAlerts = createExchangeAlerts({ send: (alert) => alerts.push(alert), now: clock.now });
+  return startService({ exchange: { alerts: exchangeAlerts, now: clock.now } });
 }
 
 beforeAll(async () => {
   service = await startExchangeService();
+  expect(getEnv().ENVIRONMENT).toBe(HERE);
   serviceUserId = (await serviceUsers.createServiceUser(service.db, 'whatsapp')).id;
   key = await createKey();
 });
@@ -92,7 +95,9 @@ type KeyBody = Record<string, unknown>;
 /** A key created in process, as the service-keys script does, owned by `userId`. */
 async function createKey(body: KeyBody = {}, on: Service = service, userId = serviceUserId) {
   const created = await on.auth.api.createApiKey({
-    body: { userId, prefix: 'ansari_wa_', name: 'test', permissions: WHATSAPP, rateLimitEnabled: false, ...body },
+    // This environment's label by default (second review, finding 2); the legacy
+    // prefixes have their own dedicated tests.
+    body: { userId, prefix: serviceUsers.keyPrefix('whatsapp', HERE), name: 'test', permissions: WHATSAPP, rateLimitEnabled: false, ...body },
   });
   remember(keyHash(created.key));
   return remember(created.key);
@@ -219,6 +224,14 @@ describe('key refusals: one byte-identical 401, no rows', () => {
     ],
     ['a key with mcp: complete only', async () => ({ bearer: await createKey({ permissions: { mcp: ['complete'] } }) })],
     ['a key with no permissions', async () => ({ bearer: await seededKey('update auth.apikey set permissions = null where key = $1') })],
+    // #314 Amendment 3: a stored prefix that is not this service's and this environment's.
+    ...ENVIRONMENTS.filter((e) => e !== HERE).map(
+      (e) => [`a key labelled for ${e}`, async () => ({ bearer: await createKey({ prefix: `ansari_wa_${e}_` }) })] as [string, () => Promise<PostOptions>]
+    ),
+    ['a key with a foreign prefix', async () => ({ bearer: await createKey({ prefix: 'evil_' }) })],
+    ['a key with an MCP prefix', async () => ({ bearer: await createKey({ prefix: serviceUsers.keyPrefix('ansari-mcp', HERE) }) })],
+    ['a key with an unknown environment', async () => ({ bearer: await createKey({ prefix: 'ansari_wa_qa_' }) })],
+    ['a key with no prefix', async () => ({ bearer: await createKey({ prefix: undefined }) })],
     [
       "another service's whatsapp: mint key",
       async () => {
@@ -274,6 +287,45 @@ describe('key refusals: one byte-identical 401, no rows', () => {
 });
 
 describe('the exchange', () => {
+  it('keyVerified counts only a served key: never one refused for its prefix (second review, finding 6)', async () => {
+    const spy = vi.spyOn(exchangeAlerts, 'keyVerified');
+    try {
+      for (const prefix of [
+        ...ENVIRONMENTS.filter((e) => e !== HERE).map((e) => `ansari_wa_${e}_`),
+        'evil_',
+        serviceUsers.keyPrefix('ansari-mcp', HERE),
+      ]) {
+        const refused = await createKey({ prefix });
+        expect((await exchange(newBsuid(), newPhone(), { bearer: refused })).status, prefix).toBe(401);
+      }
+      expect(spy).not.toHaveBeenCalled();
+      expect((await exchange(newBsuid(), newPhone(), { bearer: await createKey() })).status).toBe(200);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a bare ansari_wa_ key (issued before #314) still exchanges during the compatibility window', async () => {
+    const legacy = await createKey({ prefix: 'ansari_wa_' });
+    expect((await exchange(newBsuid(), newPhone(), { bearer: legacy })).status).toBe(200);
+  });
+
+  it('a pre-rename wa_ key (issued before 2026-10-30) still exchanges during the compatibility window (codex, PR #372)', async () => {
+    const legacy = await createKey({ prefix: 'wa_' });
+    expect(legacy.startsWith('wa_')).toBe(true);
+    expect((await exchange(newBsuid(), newPhone(), { bearer: legacy })).status).toBe(200);
+  });
+
+  it.each([...serviceUsers.acceptedKeyPrefixes('whatsapp', HERE)])(
+    'a key with the accepted prefix %s → 200 (this environment\'s label and, while legacy keys live, the bare and pre-rename wa_ prefixes)',
+    async (prefix) => {
+      const labelled = await createKey({ prefix });
+      expect(labelled.startsWith(prefix)).toBe(true);
+      expect((await exchange(newBsuid(), newPhone(), { bearer: labelled })).status).toBe(200);
+    }
+  );
+
   it('a new BSUID → 200 with a JWT for a new WhatsApp user and its one session', async () => {
     const bsuid = newBsuid();
     const before = await rowCounts();
@@ -659,7 +711,7 @@ describe('alerts', () => {
     const id = (await service.auth.api.createApiKey({
       body: {
         userId: serviceUserId,
-        prefix: 'ansari_wa_',
+        prefix: serviceUsers.keyPrefix('whatsapp', HERE),
         name: 'volume',
         permissions: WHATSAPP,
         rateLimitEnabled: true,
@@ -688,7 +740,7 @@ describe('alerts', () => {
     const created = await service.auth.api.createApiKey({
       body: {
         userId: serviceUserId,
-        prefix: 'ansari_wa_',
+        prefix: serviceUsers.keyPrefix('whatsapp', HERE),
         name: 'daily',
         permissions: WHATSAPP,
         rateLimitEnabled: false,

@@ -1,5 +1,5 @@
 import {McpServer} from '@modelcontextprotocol/server';
-import {attachRequestLifetime, createServerBudgets, registerPublicOperation, type OperationView} from '@saga-a2ui/react-mcp-stack/server';
+import {registerPublicOperation, type OperationView, type RequestLifetime} from '@saga-a2ui/react-mcp-stack/server';
 import {z} from 'zod';
 import type {AnswerCompleter} from './ansari-client.js';
 import {writeOperationLog,type OperationLogger} from './operation-log.js';
@@ -11,25 +11,19 @@ import {ANSWER_ENVELOPE_VERSION} from '../view/envelope.js';
 // Existing application identity and text, not a new release declaration.
 export const SERVER_NAME='ansari-mcp';
 export const TOOL_UNAVAILABLE_TEXT='Ansari could not complete this request.';
-/** The handler wait the tool declares; the request budget of each call below is the same, never the SDK default. */
+/** The handler wait the tool declares. The fetch app gives each request the same budget, never the SDK default. */
 export const HANDLER_BOUND_MS=60_000;
 export type CreateMcpServerOptions = {
   completer: AnswerCompleter;
   view: OperationView;
   logger: OperationLogger;
   release?: string;
-  requestMs?: number;
+  /** The request's lifetime, from the SDK's fetch app, which also ends it when this server closes. */
+  lifetime: RequestLifetime;
 };
 
 export function createAnsariMcpServer(options:CreateMcpServerOptions):McpServer{
-  // Without a context the SDK default 10 s request budget would clamp the declared handler bound below. The request
-  // budget is the declared bound itself: no new timeout target and no change to the SDK defaults. Each call gets its own.
-  const budgets=createServerBudgets({requestMs:options.requestMs??HANDLER_BOUND_MS});
-  const lifetime=budgets.startRequest();
   const server=new McpServer({name:SERVER_NAME,version:APP_VERSION},{capabilities:{tools:{},resources:{}}});
-  // The request's timer ends when this server does: on its transport closing, and on close() with or without a transport
-  // (the handler also disposes a server it never connected). The SDK owns that rule; the application subclasses nothing.
-  attachRequestLifetime(server,lifetime);
   registerPublicOperation(server,{
     name:'answer_islamic_question',
     title:'Answer Islamic Question',
@@ -44,7 +38,7 @@ export function createAnsariMcpServer(options:CreateMcpServerOptions):McpServer{
     view:options.view,
     failures:{absent:TOOL_UNAVAILABLE_TEXT,unavailable:TOOL_UNAVAILABLE_TEXT,invalidOutput:TOOL_UNAVAILABLE_TEXT},
     async handle({question},request){
-      writeOperationLog({event:'source.start',method:'tools/call'},options.logger,options.release);
+      writeOperationLog({level:'info',event:'source.start',method:'tools/call'},options.logger,options.release);
       await request.reportProgress({progress:0,total:1});
       // Source records do not claim terminal MCP delivery or upstream abortion.
       let answer:string;
@@ -52,13 +46,13 @@ export function createAnsariMcpServer(options:CreateMcpServerOptions):McpServer{
         answer=await options.completer.complete({question,signal:request.signal});
       } catch (error) {
         // Record source failure without inspecting or serializing the exception.
-        writeOperationLog({event:'source.error',method:'tools/call'},options.logger,options.release);
+        writeOperationLog({level:'error',event:'source.error',method:'tools/call'},options.logger,options.release);
         throw error;
       }
-      writeOperationLog({event:'source.complete',method:'tools/call',...answerFingerprint(answer)},options.logger,options.release);
+      writeOperationLog({level:'info',event:'source.complete',method:'tools/call',...answerFingerprint(answer)},options.logger,options.release);
       return {kind:'record' as const,record:{question,answer}};
     },
     project:record=>({text:record.answer,data:{version:ANSWER_ENVELOPE_VERSION,question:record.question,answer:record.answer}}),
-  },{lifetime});
+  },{lifetime:options.lifetime});
   return server;
 }

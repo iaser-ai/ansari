@@ -1,0 +1,34 @@
+### Review Assessment (Iteration 2)
+
+All feedback from Iteration 1 has been cleanly resolved:
+
+1. **Bearer Token Envelope Validation (`isServiceKeyShape`)**:
+   - [`client.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/lib/auth-service/client.ts#L147-L153) defines `SERVICE_KEY_MAX_LENGTH = 256` and `isServiceKeyShape` (`^[\x21-\x7E]{1,256}$`), matching `apps/auth`'s `VERIFY_KEY_MAX_LENGTH` envelope.
+   - [`route.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/src/app/api/v2/mcp-complete/route.ts#L86-L91) uses `isServiceKeyShape` in `bearerOf` so overlong (>256 chars), non-ASCII, or control-character tokens are classified locally as `missing` (returning `401 Unauthorized` without calling `apps/auth`, rather than forwarding to `apps/auth` and mapping its `400` response to a `503` outage).
+   - [`mcp-complete-key.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/tests/mcp-complete-key.test.ts#L320-L338) covers 257-character, non-ASCII, and DEL (`0x7F`) tokens (`401` with no `fetch`) as well as a 256-character boundary token across both `POST` and `GET`.
+
+2. **Tracked Consultation Artifacts & Review Document**:
+   - All consultation artifacts under `codev/projects/314-protect-v2-mcp-complete-with-b/` are tracked, and [`314-protect-v2-mcp-complete-with-b.md`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/reviews/314-protect-v2-mcp-complete-with-b.md) is complete and up to date.
+
+---
+VERDICT: APPROVE
+SUMMARY: Complete, well-tested implementation of ansari-mcp API key verification across apps/auth and apps/api, with Iteration 1's bearer token shape validation and artifact tracking cleanly resolved.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `POST` and `GET /api/v2/mcp-complete` on `apps/api` with `ansari-mcp` service API keys issued by `apps/auth`, verified on every request via a new `POST /api/service/verify-key` endpoint. Enforces fail-closed semantics (`401` on missing/refused keys, `503` on `apps/auth` outages with nothing persisted and no model calls), binds thread/message `client` attribution strictly to the key's `client_id`, and supports a `MCP_COMPLETE_KEY_MODE` (`log-only` | `enforce`, defaulting to `enforce`) transition setting.
+
+  ## Key Changes
+  - **`packages/types` & `packages/auth`**: Add `MCP_CLIENT_ID_PATTERN` / `isMcpClientId` (`^ansari-mcp(-[a-z0-9._-]+)?$`, max 64 chars), `MCP_KEY_INITIAL` / `MCP_KEY_BOUNDS`, MCP verify alert thresholds, and `clientIdOf` metadata parsing.
+  - **`apps/auth`**: Add `POST /api/service/verify-key` (`apps/auth/src/routes/service-verify.ts`) locked to `{ mcp: ['complete'] }` and the `ansari-mcp` service user, returning `{ valid: true, client_id, key_id }` or a byte-identical `{"valid":false}` with rate-limited Sentry alerts, no CORS headers, and no per-IP router throttle. Require `--client-id` in `service-keys.ts` when issuing/rotating `ansari-mcp` keys.
+  - **`apps/api`**: Add `verifyServiceKey` (`3s` timeout, strict response schema, `isServiceKeyShape` pre-check) in `apps/api/lib/auth-service/client.ts`, `MCP_COMPLETE_KEY_MODE` config validation, and `authorizeMcpRequest` in `/api/v2/mcp-complete/route.ts`.
+  - **Docs & Runbook**: Document per-deployment key issuance, `Bearer <key>` handoff, rollout steps, alert table, rotation, and plugin-upgrade checks in `docs/cutover/service-keys-runbook.md`, `docs/self-hosting.md`, `RELEASE.md`, and app READMEs.
+
+  ## Test Plan
+  - Run `apps/auth` pglite & unit suites (`service-verify.test.ts`, `service-verify-sentry.test.ts`, `service-keys.test.ts`, `blocked-paths.test.ts`, `limits.test.ts`).
+  - Run `apps/api` pglite & unit suites (`mcp-complete-key.test.ts`, `verify-service-key.test.ts`, `config.test.ts`, `boot-check.test.ts`, `mcp-complete.test.ts`).
+  - Verify leak scans confirm no key material appears in logs, Sentry events, responses, or plaintext DB columns.

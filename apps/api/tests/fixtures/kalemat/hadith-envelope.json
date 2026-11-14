@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "arabic_comment": "",
+      "chapter_arabic": "كتاب الجنائز",
+      "chapter_english": "Funerals (Al-Janaa'iz)",
+      "chapter_number": 23,
+      "en_text": "Narrated Anas: The Prophet (ﷺ) said, \"The real patience is at the first stroke of a calamity.\"",
+      "grade_ar": "صحيح",
+      "grade_en": "Sahih-Authentic",
+      "hadith_number": 1302,
+      "id": "1_23_42_1302",
+      "isnad_ar": "حَدَّثَنَا مُحَمَّدُ بْنُ بَشَّارٍ، حَدَّثَنَا غُنْدَرٌ، حَدَّثَنَا شُعْبَةُ، عَنْ ثَابِتٍ، قَالَ سَمِعْتُ أَنَسًا ـ رضى الله عنه ـ عَنِ",
+      "isnad_en": "Narrated Anas:",
+      "matn_ar": "النَّبِيِّ صلى الله عليه وسلم قَالَ ‏ ‏ الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولَى ‏‏‏.‏",
+      "matn_en": "The Prophet (ﷺ) said, \"The real patience is at the first stroke of a calamity.\"",
+      "section_arabic": "الصَّبْرِ عِنْدَ الصَّدْمَةِ الأُولَى",
+      "section_english": "Patience is to be observed at the first stroke of a calamity",
+      "section_number": 42,
+      "source_book": "Bukhari",
+      "source_book_ar": "البخاري",
+      "text": "حَدَّثَنَا مُحَمَّدُ بْنُ بَشَّارٍ، حَدَّثَنَا غُنْدَرٌ، حَدَّثَنَا شُعْبَةُ، عَنْ ثَابِتٍ، قَالَ سَمِعْتُ أَنَسًا ـ رضى الله عنه ـ عَنِ النَّبِيِّ صلى الله عليه وسلم قَالَ ‏ ‏ الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولَى ‏‏‏.‏",
+      "type": "hadith"
+    },
+    {
+      "arabic_comment": " ",
+      "chapter_arabic": "كتاب الجنائز",
+      "chapter_english": "Chapters Regarding Funerals",
+      "chapter_number": 6,
+      "en_text": "It was narrated from Anas bin Malik that the Messenger of Allah (ﷺ) said: ‘Patience should come with the first shock.”",
+      "grade_ar": "حسن",
+      "grade_en": "Hasan - Good",
+      "hadith_number": 1596,
+      "id": "4_6_-1_1596",
+      "isnad_ar": "حَدَّثَنَا مُحَمَّدُ بْنُ رُمْحٍ، أَنْبَأَنَا اللَّيْثُ بْنُ سَعْدٍ، عَنْ يَزِيدَ بْنِ أَبِي حَبِيبٍ، عَنْ سَعْدِ بْنِ سِنَانٍ، عَنْ أَنَسِ بْنِ مَالِكٍ، قَالَ",
+      "isnad_en": "It was narrated from Anas bin Malik that the Messenger of Allah (ﷺ) said:",
+      "matn_ar": "قَالَ رَسُولُ اللَّهِ صلى الله عليه وسلم إِنَّمَا الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولَى",
+      "matn_en": "‘Patience should come with the first shock.”",
+      "section_arabic": "",
+      "section_english": "",
+      "section_number": -1,
+      "source_book": "IbnMaja",
+      "source_book_ar": "ابن ماجه",
+      "text": "حَدَّثَنَا مُحَمَّدُ بْنُ رُمْحٍ، أَنْبَأَنَا اللَّيْثُ بْنُ سَعْدٍ، عَنْ يَزِيدَ بْنِ أَبِي حَبِيبٍ، عَنْ سَعْدِ بْنِ سِنَانٍ، عَنْ أَنَسِ بْنِ مَالِكٍ، قَالَ قَالَ رَسُولُ اللَّهِ صلى الله عليه وسلم إِنَّمَا الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولَى",
+      "type": "hadith"
+    }
+  ],
+  "total_results_num": 100
+}

@@ -1,0 +1,28 @@
+---
+VERDICT: APPROVE
+SUMMARY: All iteration-4 fixes are present; the implementation, tests, documentation, and develop rebase are PR-ready.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/api/v2/mcp-complete` with environment-labelled `ansari-mcp` service keys verified through apps/auth. Requests fail closed while preserving a temporary log-only rollout mode.
+
+  ## Key Changes
+  - Adds service-key verification, client attribution, alerting, and legacy-prefix compatibility.
+  - Adds `ENVIRONMENT` validation, Sentry configuration, deployment documentation, and comprehensive tests.
+
+  ## Test Plan
+  - Run `npm run build`.
+  - Run `npm test -- --exclude='**/e2e/**'`.
+  - Verify valid, refused, unavailable-auth, cross-environment, and legacy-key scenarios.
+
+---
+
+## ⚠️ REPOSITORY MOVED during the codex review (#1649).
+A consultant reviews the commit in front of it; it must never commit, or switch refs.
+  - HEAD: c0a803215e83fee089276d8e37d22a1a5490bcb2 -> b9391cc7128df22ef717651d2535b5159a6ccc26
+The files on disk may look untouched and still not be the ones this review describes.
+Check `git reflog` and `git status` before trusting this review or shipping the branch.

@@ -1,0 +1,17 @@
+### Phase 5 Review: Docs, Runbook, and Architecture Notes
+
+The iteration 1 finding in [service-keys-runbook.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/cutover/service-keys-runbook.md#L378) has been cleanly resolved: the `unauthorized-volume` diagnostic now accurately lists causes that reach `/api/service/verify-key` and clarifies that a variable missing the `Bearer ` prefix is handled at `apps/api` with the `missing` verdict without calling `apps/auth`.
+
+All Phase 5 deliverables and acceptance criteria are fulfilled:
+- **Runbook ([service-keys-runbook.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/cutover/service-keys-runbook.md#L272-L404))**: Covers `ansari-mcp` issuance, Worker/Railway/owner secret handoff, rollout (`log-only` → `enforce`), limits (`120` per `60 s`, `5,000` daily), alerts (including `client-id-invalid`), rotation, and the plugin upgrade check, structured under its own `##` heading so existing `cutover-docs.test.ts` section slices remain intact.
+- **Self-Hosting & Service Docs ([self-hosting.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/docs/self-hosting.md#L267-L286), [apps/mcp/README.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/mcp/README.md#L92), [apps/mcp/.env.example](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/mcp/.env.example#L15-L20), [apps/api/README.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/api/README.md#L27), [RELEASE.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/RELEASE.md#L94))**: Document the key requirement, `Bearer ansari_mcp_<64 letters>` format, verify contract, and `MCP_COMPLETE_KEY_MODE` setting.
+- **Architecture Notes ([arch-critical.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/resources/arch-critical.md#L13-L22), [arch.md](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/codev/resources/arch.md#L27))**: Amend the JWT-only statement in `arch-critical.md` in place (preserving line/fact caps) and add the MCP verify subsection to `arch.md`.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 5 documentation, runbook, and architecture updates are complete, accurate, and resolve the Iteration 1 feedback.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None

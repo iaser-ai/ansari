@@ -11,7 +11,7 @@ import { createApp, createServiceAuth } from './app';
 import { assertSchema } from './boot';
 
 const env = getEnv();
-initSentry(env.SENTRY_DSN, env.NODE_ENV);
+initSentry(env.SENTRY_DSN, env.ENVIRONMENT);
 
 // No admin check at boot (owner amendment 2026-10-17): admin is the role in
 // auth.users alone, granted by scripts/grant-admin.ts, and the window audits it

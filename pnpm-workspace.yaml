@@ -52,6 +52,11 @@ overrides:
   # Compatibility: A2UI React 0.13 needs adapter 0.2.1 (0.2.2 requires web_core 0.14).
   "@a2ui/react@0.13.0>@a2ui/markdown-it": "0.2.1"
 
+  # Security: @a2ui/markdown-it 0.2.1 (via the SAGA stack, apps/mcp) pins dompurify 3.4.11 exactly, which
+  # GHSA-cg2g-xh64-v4q7 and GHSA-mrv2-3pqr-j5jr affect (fixed in 3.4.17). Drop this once the adapter pins a
+  # patched dompurify.
+  "@a2ui/markdown-it>dompurify": "3.4.17"
+
   # Security overrides for transitive Dependabot alerts.
   # next@15.5 declares optionalDependencies.sharp ^0.34.3 — GHSA-f88m-g3jw-g9cj
   sharp: ^0.35.0

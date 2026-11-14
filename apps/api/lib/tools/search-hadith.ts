@@ -2,17 +2,18 @@ import { config } from '../config';
 import type { ToolDescription, DocumentBlock, ToolResult, IslamicSearchTool } from './types';
 import { trimCitationTitle } from './types';
 import { fetchJsonWithTimeout, unavailableResult, reportDegradedTool, toolLabel, ToolFetchError } from './resilience';
+import { kalematResults } from './kalemat-response';
 
+// The fields this tool reads, as they appear in a real response (checked 2026-11-12, issue
+// #383). The Arabic is in `text`; there is no `ar_text`.
 interface KalimatHadithResult {
   id: string;
   source_book: string;
-  chapter_number: string;
+  chapter_number: number;
   chapter_english: string;
-  section_number: string;
-  section_english: string;
-  hadith_number: string;
+  hadith_number: number;
   en_text: string;
-  ar_text: string;
+  text: string;
   grade_en: string;
 }
 
@@ -60,7 +61,7 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
         indexes: '["sunnah_lk"]',
       });
 
-      const data = await fetchJsonWithTimeout<KalimatHadithResult[]>(
+      const body = await fetchJsonWithTimeout<unknown>(
         `${this.baseUrl}?${params}`,
         {
           headers: {
@@ -71,16 +72,7 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
         { errorPrefix: 'Kalemat API error' },
       );
 
-      // A 200 whose body is not the expected array (an error object, a shape change) must
-      // NOT be waved through as "No results found" — that would tell the model the source
-      // had nothing to say, invisibly to the degraded counter and Sentry (issue #2). Fail
-      // loudly through the existing degraded path instead. Note `!data.length` alone would
-      // read `undefined` on a non-array and silently degrade to the benign empty branch.
-      if (!Array.isArray(data)) {
-        throw new ToolFetchError('Kalemat API error: unexpected response shape (expected an array)', {
-          errorClass: 'invalid_body',
-        });
-      }
+      const data = kalematResults<KalimatHadithResult>(body);
 
       if (data.length === 0) {
         return {
@@ -110,7 +102,7 @@ Use this when the user asks about prophetic traditions or what the Prophet said 
         title = `${trimCitationTitle(title)} (LK id ${hadith.id})`;
 
         const content = JSON.stringify({
-          ar: hadith.ar_text,
+          ar: hadith.text,
           en: hadith.en_text,
           grade: grade,
           collection: hadith.source_book,

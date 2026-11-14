@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // Issue #20 (PR #26): the first real Executor consumers. Both ingestion routes
@@ -43,9 +43,13 @@ vi.mock('@/lib/rate-limit', () => ({
 }));
 
 const API_KEY = 'rollback-test-leaderboard-key-at-least-32-chars';
-vi.mock('@/lib/config', () => ({
-  config: { leaderboard: { apiKey: 'rollback-test-leaderboard-key-at-least-32-chars' } },
-}));
+vi.mock('@/lib/config', async () => {
+  // mcp-complete's key gate (#314) reads authService and mcpCompleteKeyMode.
+  const { MCP_KEY_CONFIG } = await import('./helpers/mcp-key');
+  return {
+    config: { leaderboard: { apiKey: 'rollback-test-leaderboard-key-at-least-32-chars' }, ...MCP_KEY_CONFIG },
+  };
+});
 
 vi.mock('@/lib/ai/inkling-client', () => ({
   isInklingConfigured: () => false,
@@ -56,6 +60,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
 import { POST as mcpPost } from '../src/app/api/v2/mcp-complete/route';
 import { POST as chatPost } from '../src/app/api/v1/chat/completions/route';
+import { installMcpKeyStub, withMcpKey } from './helpers/mcp-key';
 
 let client: PGlite;
 
@@ -115,6 +120,14 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await installMcpKeyStub({ env: false });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+beforeEach(async () => {
   vi.clearAllMocks();
   mockRunFacilitator.mockImplementation(() => facilitatorEmits('A fine answer.'));
   await client.exec('DELETE FROM threads');
@@ -129,7 +142,7 @@ describe('POST /api/v2/mcp-complete — atomic inbound persistence', () => {
   function makeRequest(messages: Array<{ role: string; content: string }>): NextRequest {
     return new NextRequest('http://localhost/api/v2/mcp-complete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withMcpKey({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ messages }),
     });
   }

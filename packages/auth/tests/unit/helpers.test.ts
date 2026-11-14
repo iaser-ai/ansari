@@ -4,10 +4,12 @@
 import { CLIENT_HEADER, INVALID_CLIENT, parseClientId } from '@ansari/types/attribution';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import * as auth from '../../src';
 import { getEnv, resetEnvCache } from '../../src/env';
 import { deriveName } from '../../src/name';
 import { checkPasswordStrength, isBcryptHash, weakPasswordMessage } from '../../src/password';
 import { isReservedAddress, isSystemAddress } from '../../src/reserved';
+import { clientIdOf } from '../../src/service-users';
 import { BASE } from '../helpers/http';
 import { setAuthEnv } from '../helpers/auth-db';
 
@@ -147,5 +149,61 @@ describe('parseClientId (shared with apps/api)', () => {
   it('reports which source a value came from', () => {
     expect(parseClientId('x', 'y')).toMatchObject({ source: 'header' });
     expect(parseClientId(null, 'y')).toMatchObject({ source: 'query' });
+  });
+});
+
+describe('isMcpClientId (#314: shared by the script, the verify route and apps/api)', () => {
+  const { isMcpClientId, MCP_CLIENT_ID_PATTERN } = auth;
+
+  it.each([['ansari-mcp'], ['ansari-mcp-production'], ['ansari-mcp-beta'], ['ansari-mcp-a.b_c-2'], [`ansari-mcp-${'a'.repeat(53)}`]])(
+    'accepts %s, which parseClientId also accepts unchanged',
+    (id) => {
+      expect(isMcpClientId(id)).toBe(true);
+      expect(parseClientId(id, null)).toMatchObject({ kind: 'valid', clientId: id });
+    }
+  );
+
+  it.each([
+    ['another client', 'claude-skill'],
+    ['upper case', 'ANSARI-MCP'],
+    ['mixed case suffix', 'ansari-mcp-Prod'],
+    ['an underscore separator', 'ansari-mcp_x'],
+    ['no separator', 'ansari-mcpx'],
+    ['an empty suffix', 'ansari-mcp-'],
+    ['a prefix before the name', 'x-ansari-mcp'],
+    ['a space', 'ansari-mcp prod'],
+    ['a trailing newline', 'ansari-mcp\n'],
+    ['65 characters', `ansari-mcp-${'a'.repeat(54)}`],
+    ['the empty string', ''],
+  ])('refuses %s', (_case, id) => {
+    expect(isMcpClientId(id)).toBe(false);
+  });
+
+  it.each([[null], [undefined], [42], [{ clientId: 'ansari-mcp' }], [['ansari-mcp']]])('refuses a non-string (%j)', (value) => {
+    expect(isMcpClientId(value)).toBe(false);
+  });
+
+  it('is the one pattern, re-exported through @ansari/auth', () => {
+    expect(MCP_CLIENT_ID_PATTERN.source).toBe('^ansari-mcp(-[a-z0-9._-]+)?$');
+  });
+});
+
+describe('clientIdOf (a key\'s metadata, either plugin shape)', () => {
+  it.each([
+    ['JSON text (plugin 1.7.7)', '{"clientId":"ansari-mcp-production"}', 'ansari-mcp-production'],
+    ['an object (plugin 1.7.20)', { clientId: 'ansari-mcp-production' }, 'ansari-mcp-production'],
+    ['an off-pattern id, returned as stored', { clientId: 'claude-skill' }, 'claude-skill'],
+    ['null', null, null],
+    ['undefined', undefined, null],
+    ['malformed JSON', '{"clientId":', null],
+    ['JSON that is not an object', '"ansari-mcp"', null],
+    ['JSON null', 'null', null],
+    ['an array', ['ansari-mcp'], null],
+    ['no clientId', { other: 'x' }, null],
+    ['a numeric clientId', { clientId: 7 }, null],
+    ['a numeric clientId in text', '{"clientId":7}', null],
+    ['a nested clientId', { clientId: { id: 'ansari-mcp' } }, null],
+  ])('%s', (_case, metadata, expected) => {
+    expect(clientIdOf(metadata)).toBe(expected);
   });
 });

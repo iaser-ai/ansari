@@ -10,14 +10,11 @@
       "dependsOn": []
     },
     "test": {
-      "dependsOn": [
-        "build",
-        "build:worker"
-      ]
+      "dependsOn": []
     },
     "test:browser": {
       "dependsOn": [
-        "build"
+        "test"
       ],
       "cache": false
     },
@@ -33,8 +30,9 @@
         "MCP_ALLOWED_HOSTS",
         "MCP_ALLOWED_ORIGINS",
         "MCP_RESPONSE_MODE",
-        "ANSARI_RELEASE",
-        "RAILWAY_GIT_COMMIT_SHA"
+        "MCP_VIEW_DIAGNOSTICS_ORIGIN",
+        "MCP_LOG_LEVEL",
+        "ANSARI_RELEASE"
       ],
       "cache": false,
       "persistent": true
@@ -48,8 +46,9 @@
         "MCP_ALLOWED_HOSTS",
         "MCP_ALLOWED_ORIGINS",
         "MCP_RESPONSE_MODE",
-        "ANSARI_RELEASE",
-        "RAILWAY_GIT_COMMIT_SHA"
+        "MCP_VIEW_DIAGNOSTICS_ORIGIN",
+        "MCP_LOG_LEVEL",
+        "ANSARI_RELEASE"
       ],
       "cache": false,
       "persistent": true

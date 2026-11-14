@@ -34,9 +34,10 @@ You need **Node 22** (22.18 or newer; `.nvmrc` pins the major for `nvm use`).
 environment contract, and [`apps/api/README.md`](apps/api/README.md) covers the
 backend in more depth.
 
-This is a **pnpm workspace** (`apps/api/` + `apps/frontend/`) driven by
-**[Turborepo](https://turborepo.com)**: install once at the repo root, then run
-tasks from the root — `pnpm dev` brings up the whole stack (api, auth, frontend) at once.
+This is a **pnpm workspace** (`apps/api/`, `apps/auth/`, `apps/frontend/`, `apps/mcp/` and
+the shared `packages/*`) driven by **[Turborepo](https://turborepo.com)**: install once at the
+repo root, then run tasks from the root — `pnpm dev` brings up the whole stack (api, auth,
+frontend and the MCP server) at once.
 
 ```bash
 corepack enable         # provides pnpm (version pinned in package.json)
@@ -56,13 +57,26 @@ cp .env.example .env    # DATABASE_URL = the ansari_auth owner URL; the service'
 pnpm db:migrate         # applies packages/auth/drizzle/ to that DATABASE_URL
 cd ../..
 
-# Then, from the repo root: starts api (:3000), auth (:3100) and frontend together
+# Then, from the repo root: starts api (:3000), auth (:3100), the frontend and the
+# MCP server (:3001) together
 pnpm dev
 ```
 
+Both `.env` files need `ENVIRONMENT=development`. It has no default in any process
+(#314); the `.env.example` files set it, but a `.env` copied before then lacks it, and
+then api fails at its first config read and auth refuses to start, each naming
+`ENVIRONMENT`.
+
 `pnpm dev` includes `apps/auth`. Without its `.env`, auth's pane shows the
 env-validation error naming the missing variables and the other apps keep
-running; `pnpm dev:no-auth` starts api + frontend only. The frontend talks to
+running; `pnpm dev:no-auth` starts api + frontend only.
+
+`pnpm dev` also starts the MCP server (`apps/mcp`) on `:3001`, after a cached build
+that shows as its own `ansari-mcp#build` row. A local api refuses MCP calls without
+an `ansari-mcp` key, as a deployed one does: issue a development key and put
+`ANSARI_API_AUTHORIZATION=Bearer <key>` in `apps/mcp/.env`, or run api with
+`MCP_COMPLETE_KEY_MODE=log-only`. `pnpm mcp inspect` opens the MCP Inspector on it. The
+steps are in [`apps/mcp/README.md`](apps/mcp/README.md), under "Local development". The frontend talks to
 **staging** unless `EXPO_PUBLIC_API_URL=http://localhost:3000` and
 `EXPO_PUBLIC_AUTH_URL=http://localhost:3100` are set.
 
@@ -83,7 +97,8 @@ The test suites need neither database (they run on pglite).
 `pnpm dev` needs a real terminal: it runs Turbo's interactive UI so the Expo dev
 server keeps its keypress shortcuts (`i`, `a`, `w`, `r`) while sharing a console
 with the API and auth. To run one app on its own — or in a script or non-TTY shell — use
-`pnpm api dev`, `pnpm auth dev` or `pnpm frontend start`.
+`pnpm api dev`, `pnpm auth dev`, `pnpm frontend start` or, for the MCP server,
+`pnpm mcp build && pnpm mcp dev` (`pnpm dev:mcp` does both, in a real terminal).
 
 **Use pnpm, not npm or yarn.** The single authoritative lockfile is the root
 `pnpm-lock.yaml`; there are deliberately no per-package lockfiles. Shared

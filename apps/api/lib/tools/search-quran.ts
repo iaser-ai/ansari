@@ -2,6 +2,7 @@ import { config } from '../config';
 import type { ToolDescription, DocumentBlock, ToolResult, IslamicSearchTool } from './types';
 import { trimCitationTitle } from './types';
 import { fetchJsonWithTimeout, unavailableResult, reportDegradedTool, toolLabel, ToolFetchError } from './resilience';
+import { kalematResults } from './kalemat-response';
 
 interface KalimatQuranResult {
   id: string;      // e.g., "2:255" (Surah:Ayah)
@@ -51,7 +52,7 @@ Use this when the user asks about Quranic verses, ayahs, or wants to know what t
         getText: '1',  // 1 = Quran
       });
 
-      const data = await fetchJsonWithTimeout<KalimatQuranResult[]>(
+      const body = await fetchJsonWithTimeout<unknown>(
         `${this.baseUrl}?${params}`,
         {
           headers: {
@@ -62,16 +63,7 @@ Use this when the user asks about Quranic verses, ayahs, or wants to know what t
         { errorPrefix: 'Kalemat API error' },
       );
 
-      // A 200 whose body is not the expected array (an error object, a shape change) must
-      // NOT be waved through as "No results found" — that would tell the model the source
-      // had nothing to say, invisibly to the degraded counter and Sentry (issue #2). Fail
-      // loudly through the existing degraded path instead. Note `!data.length` alone would
-      // read `undefined` on a non-array and silently degrade to the benign empty branch.
-      if (!Array.isArray(data)) {
-        throw new ToolFetchError('Kalemat API error: unexpected response shape (expected an array)', {
-          errorClass: 'invalid_body',
-        });
-      }
+      const data = kalematResults<KalimatQuranResult>(body);
 
       if (data.length === 0) {
         return {

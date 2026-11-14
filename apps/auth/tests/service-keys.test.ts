@@ -3,19 +3,24 @@
 // posture, against the auth database on pglite. Script functions are driven
 // directly; Sentry through a spy transport.
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import * as Sentry from '@sentry/node';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { limits, serviceUsers } from '@ansari/auth';
+import { ENVIRONMENTS, limits, serviceUsers } from '@ansari/auth';
 
 import {
   checkKeyLimits,
   EXIT_NOTHING_WRITTEN,
   EXIT_UNRECORDED,
   KEY_EVENT_MESSAGE,
+  ENVIRONMENT_RULE,
+  MCP_CLIENT_ID_RULE,
   parseArgs,
   RefusedError,
+  runServiceKeys,
   sentryRecorder,
   serviceKeys,
   type KeyEvent,
@@ -34,7 +39,15 @@ const DB_URL_DISTINCT = 'postgres://opsname-zq:pw-zq-9@db.example:6543/authdb-zq
 
 const INITIAL = limits.WHATSAPP_KEY_INITIAL;
 const LIMIT_FLAGS = ['--rate-max', '60', '--rate-window', '60', '--daily', '3000'];
-const WA_KEY = /ansari_wa_[A-Za-z]{64}/g;
+const WA_KEY = /ansari_wa_staging_[A-Za-z]{64}/g;
+/** An ansari-mcp key's flags: its initial limits and the client id it must carry (#314). */
+const MCP_INITIAL = limits.MCP_KEY_INITIAL;
+const MCP_FLAGS = [
+  '--rate-max', String(MCP_INITIAL.rateLimitMax),
+  '--rate-window', String(MCP_INITIAL.rateLimitTimeWindow / 1000),
+  '--daily', String(MCP_INITIAL.refillAmount),
+  '--client-id', 'ansari-mcp-production',
+];
 
 let service: Service;
 
@@ -66,13 +79,17 @@ function memoryRecorder(flushed = true): Recorder & { events: KeyEvent[]; flushe
   };
 }
 
-type RunOptions = { url?: string | undefined; recorder?: Recorder; flushTimeoutMs?: number };
+type RunOptions = { url?: string | undefined; environment?: string | undefined; recorder?: Recorder; flushTimeoutMs?: number };
+
+/** The ENVIRONMENT these tests run the script under, unless a test says otherwise. */
+const SCRIPT_ENVIRONMENT = 'staging';
 
 async function run(argv: string[], opts: RunOptions = {}) {
   const connect = vi.fn(() => ({ db: service.db, auth: service.auth }));
   const print = vi.fn<(line: string) => void>();
   const result = await serviceKeys(argv, {
     databaseUrl: 'url' in opts ? opts.url : DB_URL,
+    environment: 'environment' in opts ? opts.environment : SCRIPT_ENVIRONMENT,
     connect,
     recorder: opts.recorder ?? memoryRecorder(),
     print,
@@ -100,7 +117,7 @@ async function createKey(kind: 'create-key' | 'rotate' = 'create-key', flags = L
   expect(result.exitCode, result.text).toBe(0);
   const prefix = serviceUsers.SERVICES[name as serviceUsers.ServiceName].prefix;
   const key = result.lines.find((l) => l.startsWith(prefix) && l.length > prefix.length + 60);
-  const id = /Created key ([0-9a-f-]{36})/.exec(result.text)?.[1];
+  const id = /Created \w+ key ([0-9a-f-]{36})/.exec(result.text)?.[1];
   if (!key || !id) throw new Error('no key in the output');
   return { ...result, key, id, userId };
 }
@@ -307,7 +324,7 @@ describe('every subcommand', () => {
     const userId = await createService();
     const first = await createKey();
     if (name === 'create-key') {
-      expect(first.text).toContain(`Created key ${first.id}`);
+      expect(first.text).toContain(`Created staging key ${first.id}`);
       return;
     }
     const argv =
@@ -320,7 +337,7 @@ describe('every subcommand', () => {
     const { text, exitCode } = await run([...argv, '--confirm', confirm]);
     expect(exitCode).toBe(0);
     expect(text).toContain(first.id);
-    if (name === 'rotate') expect(text).toMatch(/Created key [0-9a-f-]{36}/);
+    if (name === 'rotate') expect(text).toMatch(/Created staging key [0-9a-f-]{36}/);
   });
 });
 
@@ -511,7 +528,7 @@ describe('create-key', () => {
     expect(text).not.toContain(row!.key as string);
     expect(row).toMatchObject({
       reference_id: userId,
-      prefix: 'ansari_wa_',
+      prefix: 'ansari_wa_staging_',
       start: null,
       enabled: true,
       rate_limit_enabled: true,
@@ -550,6 +567,88 @@ describe('create-key', () => {
   });
 });
 
+describe('ansari-mcp keys: the client id (#314, scenario 14)', () => {
+  const NO_CLIENT = MCP_FLAGS.slice(0, -2);
+  const KEY = `ansari_mcp_${'Q'.repeat(64)}`;
+
+  it.each([
+    ['no --client-id', []],
+    ['another client', ['--client-id', 'claude-skill']],
+    ['upper case', ['--client-id', 'ANSARI-MCP']],
+    ['an underscore after the name', ['--client-id', 'ansari-mcp_x']],
+    ['no separator', ['--client-id', 'ansari-mcpx']],
+    ['an empty suffix', ['--client-id', 'ansari-mcp-']],
+    ['a prefix before the name', ['--client-id', 'x-ansari-mcp']],
+    ['65 characters', ['--client-id', `ansari-mcp-${'a'.repeat(54)}`]],
+    ['a key', ['--client-id', KEY]],
+    ['a key body', ['--client-id', `ansari-mcp-${'q'.repeat(40)}`]],
+  ] as [string, string[]][])('create-key and rotate refuse %s, write nothing and record nothing', async (_case, extra) => {
+    const userId = await createService('ansari-mcp');
+    for (const kind of ['create-key', 'rotate']) {
+      const before = await rowCounts();
+      const recorder = memoryRecorder();
+      const result = await run([kind, 'ansari-mcp', ...NO_CLIENT, ...extra, '--confirm', userId], { recorder });
+      expect(result.exitCode, result.text).toBe(1);
+      expect(result.text).toContain('--client-id');
+      // The value is never echoed (the fixed rule text itself names `ansari-mcp-`).
+      if (extra[1] !== undefined) expect(result.text.replace(MCP_CLIENT_ID_RULE, '')).not.toContain(extra[1]);
+      expect(await rowCounts()).toEqual(before);
+      expect(recorder.events).toEqual([]);
+    }
+  });
+
+  it('refuses a command built without the parser (runServiceKeys checks again)', async () => {
+    const userId = await createService('ansari-mcp');
+    for (const clientId of [null, 'claude-skill']) {
+      await expect(
+        runServiceKeys(
+          { db: service.db, auth: service.auth, environment: 'staging' },
+          { kind: 'create-key', service: 'ansari-mcp', confirm: userId, limits: MCP_INITIAL, name: null, clientId }
+        )
+      ).rejects.toBeInstanceOf(RefusedError);
+    }
+    expect((await rowCounts())?.keys).toBe(0);
+  });
+
+  it.each([['ansari-mcp'], ['ansari-mcp-production'], ['ansari-mcp-beta.2_x'], [`ansari-mcp-${'ab1-'.repeat(13)}x`]])(
+    'accepts %s, stores it as metadata.clientId, and list shows it',
+    async (clientId) => {
+      await createService('ansari-mcp');
+      const { id, key } = await createKey('create-key', [...NO_CLIENT, '--client-id', clientId], 'ansari-mcp');
+      const row = await keyRow(id);
+      expect(JSON.parse(row!.metadata as string)).toEqual({ clientId });
+      expect(JSON.parse(row!.permissions as string)).toEqual({ mcp: ['complete'] });
+      expect((await verify(key, { mcp: ['complete'] })).valid).toBe(true);
+      const { exitCode, text } = await run(['list', 'ansari-mcp']);
+      expect(exitCode).toBe(0);
+      expect(text).toContain(`client_id     ${clientId}`);
+    }
+  );
+
+  it('rotate needs the client id too, and keeps both keys live', async () => {
+    await createService('ansari-mcp');
+    const old = await createKey('create-key', MCP_FLAGS, 'ansari-mcp');
+    const fresh = await createKey('rotate', MCP_FLAGS, 'ansari-mcp');
+    expect(JSON.parse((await keyRow(fresh.id))!.metadata as string)).toEqual({ clientId: 'ansari-mcp-production' });
+    expect((await verify(old.key, { mcp: ['complete'] })).valid).toBe(true);
+    expect((await verify(fresh.key, { mcp: ['complete'] })).valid).toBe(true);
+  });
+
+  it('a whatsapp key still defaults its client id to the service name', async () => {
+    await createService();
+    const { id } = await createKey();
+    expect(JSON.parse((await keyRow(id))!.metadata as string)).toEqual({ clientId: 'whatsapp' });
+  });
+
+  it('checkKeyLimits uses MCP_KEY_BOUNDS for ansari-mcp', () => {
+    expect(serviceUsers.SERVICES['ansari-mcp'].bounds).toBe(limits.MCP_KEY_BOUNDS);
+    expect(checkKeyLimits('ansari-mcp', MCP_INITIAL)).toEqual(MCP_INITIAL);
+    expect(() =>
+      checkKeyLimits('ansari-mcp', { ...MCP_INITIAL, rateLimitMax: limits.MCP_KEY_BOUNDS.rateLimitMax.max + 1 })
+    ).toThrow(/Out of bounds/);
+  });
+});
+
 describe('list', () => {
   it('prints id, name, prefix, permissions, enabled, limits and dates per key; never a key or a hash', async () => {
     await createService();
@@ -565,7 +664,7 @@ describe('list', () => {
       expect(text).not.toContain(key.slice(3, 20));
       expect(text).not.toContain((await keyRow(id))!.key as string);
     }
-    for (const field of ['name          wa-a', 'name          wa-b', 'prefix        ansari_wa_', 'permissions   {"whatsapp":["mint"]}', 'enabled       true', 'limits        60 per 60 s; budget 3000 per 24 h', 'created       20', 'last request  20', 'last request  never']) {
+    for (const field of ['name          wa-a', 'name          wa-b', 'prefix        ansari_wa_', 'permissions   {"whatsapp":["mint"]}', 'client_id     whatsapp', 'enabled       true', 'limits        60 per 60 s; budget 3000 per 24 h', 'created       20', 'last request  20', 'last request  never']) {
       expect(text).toContain(field);
     }
     expect(text.match(WA_KEY)).toBeNull();
@@ -623,7 +722,7 @@ describe('revoke', () => {
   it("refuses a key that is not the service's", async () => {
     await createService();
     await createService('ansari-mcp');
-    const mcp = await createKey('create-key', LIMIT_FLAGS, 'ansari-mcp');
+    const mcp = await createKey('create-key', MCP_FLAGS, 'ansari-mcp');
     const { exitCode, text } = await run(['revoke', 'whatsapp', '--key', mcp.id, '--confirm', mcp.id]);
     expect(exitCode).toBe(1);
     expect(text).toMatch(/not a key of this service/);
@@ -690,7 +789,7 @@ describe('SECRET_SCANNING_PATTERNS', () => {
     await createService('whatsapp');
     await createService('ansari-mcp');
     const wa = (await createKey('create-key', LIMIT_FLAGS, 'whatsapp')).key;
-    const mcp = (await createKey('create-key', LIMIT_FLAGS, 'ansari-mcp')).key;
+    const mcp = (await createKey('create-key', MCP_FLAGS, 'ansari-mcp')).key;
     const { whatsapp, 'ansari-mcp': amcp } = serviceUsers.SECRET_SCANNING_PATTERNS;
     const { rows } = await service.client.query<{ token: string }>('select token from auth.session limit 1');
     const sessionToken = rows[0]?.token ?? (await import('better-auth/crypto')).generateRandomString(32);
@@ -712,6 +811,123 @@ describe('SECRET_SCANNING_PATTERNS', () => {
       return pattern.test(candidate);
     });
     expect(hits.filter(Boolean)).toHaveLength(2);
+  });
+
+  const NAMES = Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[];
+  const BODY = 'Q'.repeat(64);
+
+  // Both states of the legacy window are live code (second review, finding 2):
+  // the builders take the state, and every assertion below runs for both, so
+  // closing the window (LEGACY_UNLABELLED_KEYS = false) breaks nothing here.
+  describe.each([true, false])('the legacy window open: %s', (legacy) => {
+    it('the main pattern catches every labelled prefix, and the bare prefix only where the window accepts it', () => {
+      for (const name of NAMES) {
+        const pattern = serviceUsers.scanningPatternFor(name, legacy);
+        for (const env of ENVIRONMENTS) expect(pattern.test(`${serviceUsers.keyPrefix(name, env)}${BODY}`), `${name} ${env}`).toBe(true);
+        const bare = serviceUsers.SERVICES[name].prefix;
+        expect(pattern.test(`${bare}${BODY}`), `${name} bare`).toBe(legacy && serviceUsers.LEGACY_PREFIXES[name].includes(bare));
+        expect(pattern.test(`${bare}qa_${BODY}`)).toBe(false);
+      }
+    });
+
+    it('every prefix a route accepts, in every environment, is caught by the main or a legacy pattern (codex, PR #372)', () => {
+      for (const name of NAMES) {
+        const patterns = [serviceUsers.scanningPatternFor(name, legacy), ...serviceUsers.legacyScanningPatternsFor(name, legacy)];
+        for (const env of ENVIRONMENTS) {
+          for (const prefix of serviceUsers.acceptedKeyPrefixesFor(name, env, legacy)) {
+            expect(patterns.some((p) => p.test(`${prefix}${BODY}`)), `${name} ${env} ${prefix}`).toBe(true);
+          }
+        }
+      }
+    });
+
+    it('accepts exactly its own environment\'s prefix, plus the legacy prefixes only while open', () => {
+      for (const name of NAMES) {
+        for (const env of ENVIRONMENTS) {
+          expect(serviceUsers.acceptedKeyPrefixesFor(name, env, legacy)).toEqual(
+            legacy ? [serviceUsers.keyPrefix(name, env), ...serviceUsers.LEGACY_PREFIXES[name]] : [serviceUsers.keyPrefix(name, env)]
+          );
+        }
+        if (!legacy) expect(serviceUsers.legacyScanningPatternsFor(name, legacy)).toEqual([]);
+      }
+    });
+  });
+
+  it('the window today: WhatsApp keeps ansari_wa_ and wa_, ansari-mcp has none (second review, finding 1)', () => {
+    expect(serviceUsers.LEGACY_PREFIXES).toEqual({ whatsapp: ['ansari_wa_', 'wa_'], 'ansari-mcp': [] });
+    expect(serviceUsers.legacyScanningPatternsFor('whatsapp', true).map((p) => p.source)).toEqual(['wa_[A-Za-z]{64}']);
+    expect(serviceUsers.legacyScanningPatternsFor('ansari-mcp', true)).toEqual([]);
+    // The exported constants are the builders under the current state, whatever it is.
+    for (const name of NAMES) {
+      expect(serviceUsers.SECRET_SCANNING_PATTERNS[name].source).toBe(
+        serviceUsers.scanningPatternFor(name, serviceUsers.LEGACY_UNLABELLED_KEYS).source
+      );
+    }
+  });
+
+  it('the runbook names every legacy pattern by its source', () => {
+    const runbook = readFileSync(fileURLToPath(new URL('../../../docs/cutover/service-keys-runbook.md', import.meta.url)), 'utf8');
+    for (const pattern of Object.values(serviceUsers.LEGACY_SCANNING_PATTERNS).flat()) {
+      expect(runbook).toContain(`\`${pattern.source}\``);
+    }
+  });
+
+  it('keyPrefix is ansari_<service>_<environment>_ for every service and environment, all distinct', () => {
+    const all = (Object.keys(serviceUsers.SERVICES) as serviceUsers.ServiceName[]).flatMap((name) =>
+      ENVIRONMENTS.map((env) => serviceUsers.keyPrefix(name, env))
+    );
+    for (const prefix of all) expect(prefix).toMatch(/^ansari_[a-z]+_(development|staging|production)_$/);
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe('ENVIRONMENT (#314 Amendment 3)', () => {
+  it.each([[undefined], [''], ['prod'], ['live'], ['Production'], ['test']])(
+    'absent or not one of development, staging, production (%j) → refused before anything connects',
+    async (environment) => {
+      for (const argv of [['list', 'whatsapp'], ['create-key', 'whatsapp', ...LIMIT_FLAGS]]) {
+        const { exitCode, text, connect } = await run(argv, { environment });
+        expect(exitCode).toBe(1);
+        expect(text).toContain(ENVIRONMENT_RULE);
+        if (environment) expect(text.replace(ENVIRONMENT_RULE, '')).not.toContain(` ${environment} `);
+        expect(connect).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it('--env is no longer an option: the environment comes from the process alone', () => {
+    expect(() => parseArgs(['create-key', 'whatsapp', '--env', 'production', ...LIMIT_FLAGS])).toThrow(/not an option/);
+  });
+
+  it.each(ENVIRONMENTS.map((environment) => [environment]))(
+    'under %s: printed under the database line, named with its prefix in the show step',
+    async (environment) => {
+      await createService();
+      const { exitCode, lines, text } = await run(['create-key', 'whatsapp', ...LIMIT_FLAGS], { environment });
+      expect(exitCode).toBe(2);
+      const at = lines.findIndex((l) => l.startsWith('Auth database: '));
+      expect(lines[at + 1]).toBe(`Environment: ${environment} (a new key's prefix carries it: ansari_<service>_${environment}_)`);
+      expect(text).toContain(`environment ${environment} (prefix ansari_wa_${environment}_)`);
+    }
+  );
+
+  it('a created key carries ENVIRONMENT in its prefix, the row and list', async () => {
+    const userId = await createService();
+    const result = await run(['create-key', 'whatsapp', ...LIMIT_FLAGS, '--confirm', userId], { environment: 'production' });
+    expect(result.exitCode, result.text).toBe(0);
+    expect(result.lines.some((l) => /^ansari_wa_production_[A-Za-z]{64}$/.test(l))).toBe(true);
+    const id = /Created production key ([0-9a-f-]{36})/.exec(result.text)?.[1];
+    expect((await keyRow(id!))!.prefix).toBe('ansari_wa_production_');
+    expect((await run(['list', 'whatsapp'])).text).toContain('prefix        ansari_wa_production_');
+  });
+
+  it('a pasted labelled key is refused in --name, without echoing it', async () => {
+    const userId = await createService();
+    const pasted = `ansari_wa_production_${'k'.repeat(40)}`; // within the 64-character label bound, so the key-shape check decides
+    const result = await run(['create-key', 'whatsapp', ...LIMIT_FLAGS, '--name', pasted, '--confirm', userId]);
+    expect(result.exitCode).toBe(1);
+    expect(result.text).toMatch(/looks like a key/);
+    expect(result.text).not.toContain(pasted);
   });
 });
 
@@ -747,12 +963,12 @@ describe('the durable record', () => {
       recorder: sentryRecorder,
     });
     const key1 = first.lines.find((l) => l.startsWith('ansari_wa_'))!;
-    const id1 = /Created key ([0-9a-f-]{36})/.exec(first.text)![1]!;
+    const id1 = /Created \w+ key ([0-9a-f-]{36})/.exec(first.text)![1]!;
     const rotated = await run(['rotate', 'whatsapp', ...LIMIT_FLAGS, '--name', 'wa-2', '--confirm', userId], {
       recorder: sentryRecorder,
     });
     const key2 = rotated.lines.find((l) => l.startsWith('ansari_wa_'))!;
-    const id2 = /Created key ([0-9a-f-]{36})/.exec(rotated.text)![1]!;
+    const id2 = /Created \w+ key ([0-9a-f-]{36})/.exec(rotated.text)![1]!;
     await run(['update-limits', 'whatsapp', '--key', id2, ...LIMIT_FLAGS, '--confirm', id2], { recorder: sentryRecorder });
     await run(['revoke', 'whatsapp', '--key', id1, '--confirm', id1], { recorder: sentryRecorder });
     await run(['list', 'whatsapp'], { recorder: sentryRecorder });
@@ -810,7 +1026,7 @@ describe('the durable record', () => {
     expect(exitCode).not.toBe(0);
     expect(text).toMatch(/SENTRY RECORD OF THIS ACTION WAS NOT SENT/);
     expect(text).toMatch(/runbook's key log/);
-    const id = /Created key ([0-9a-f-]{36})/.exec(text)![1]!;
+    const id = /Created \w+ key ([0-9a-f-]{36})/.exec(text)![1]!;
     expect(text).toMatch(new RegExp(`action create-key, service whatsapp, user ${userId}, key ${id}`));
     // The write stands, and the key was still shown once (it is not stored anywhere else).
     expect(await keyRow(id)).toMatchObject({ enabled: true });

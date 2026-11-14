@@ -14,6 +14,7 @@ beforeEach(() => {
   process.env.GEMINI_API_KEY = 'test-gemini-key';
   process.env.KALEMAT_API_KEY = 'test-kalemat-key';
   process.env.USUL_API_TOKEN = 'test-usul-token';
+  process.env.ENVIRONMENT = 'development';
 });
 
 describe('Islamic Tools', () => {

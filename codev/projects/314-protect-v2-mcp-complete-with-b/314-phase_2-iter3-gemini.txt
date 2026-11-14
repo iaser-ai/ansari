@@ -1,0 +1,19 @@
+Phase 2 implementation is complete and addresses the Iteration 2 feedback cleanly.
+
+### Assessment
+
+- **Spec Adherence & Iteration 2 Resolution**:
+  - [`createKeyAlerts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts#L220-L284) now accepts `keyWindowFloorMs` and sets `gapMs = Math.max(keyWindowMs, keyWindowFloorMs)`, with [`createMcpVerifyAlerts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/alerts.ts#L331-L351) configuring `keyWindowFloorMs: limits.EXCHANGE_ALERT_WINDOW * 1000` so `key-window-volume` fires at most once per `EXCHANGE_ALERT_WINDOW` per key while preserving WhatsApp exchange behavior (`keyWindowFloorMs = 0`).
+  - [`serviceVerifyRouter`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/service-verify.ts#L79-L151) enforces the closed `{ mcp: ['complete'] }` permission set, validates key bounds, runs [`createApiKeyRelationCheck`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/routes/apikey-relation.ts#L11-L18) on plugin refusal, verifies `ansari-mcp` service-user ownership only after plugin acceptance, and validates `metadata.clientId` with `isMcpClientId`.
+  - [`createApp`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/src/app.ts#L67-L88) mounts `SERVICE_VERIFY_PATH` ahead of `corsFor`.
+- **Test Coverage**:
+  - [service-verify.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify.test.ts) covers all Phase 2 scenarios against PGlite, including the new unit test for `key-window-volume` deduplication across multiple 60 s key windows within a single `EXCHANGE_ALERT_WINDOW` ([L634-L659](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify.test.ts#L634-L659)).
+  - [service-verify-sentry.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-verify-sentry.test.ts) and [blocked-paths.test.ts](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/blocked-paths.test.ts) cover key-leak scrubbing and the plugin-upgrade guard.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 2 implementation and MCP window-volume alert deduplication match the spec and plan with full test coverage.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

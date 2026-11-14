@@ -24,7 +24,7 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 | Feedback & prefs | `POST /api/v2/feedback`, `GET/POST /api/v2/preferences` |
 | App support | `GET /api/v2/app-check` (version/maintenance gate) |
 | OpenAI-compat | `POST /api/v1/chat/completions` (bearer-token gated, for evaluation harnesses) |
-| MCP-style | `POST /api/v2/mcp-complete` (stateless completion for AI-skill integrations) |
+| MCP-style | `POST /api/v2/mcp-complete` (stateless completion for AI-skill integrations; requires an `ansari-mcp` service key as `Authorization: Bearer <key>`, verified at apps/auth, see `docs/self-hosting.md`) |
 | Admin | `GET /api/v2/admin/stats`, `/admin/analytics` dashboard |
 
 Auth is owned by `apps/auth` (Better Auth, spec 300): this service verifies its short-lived JWTs against the JWKS, and the `/v2/users/*` and password-reset routes are a compatibility layer over it with the legacy response shapes. No password, session or signing secret lives here.

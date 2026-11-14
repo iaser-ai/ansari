@@ -3,9 +3,9 @@
 // test shows the unrecorded path is taken on purpose, not because an
 // uninitialised Sentry's flush happens to answer false.
 import * as Sentry from '@sentry/node';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { EXIT_UNRECORDED, scriptRecorder, serviceKeys, unrecordedRecorder } from '../scripts/service-keys';
+import { EXIT_UNRECORDED, scriptRecorder, scriptSentryInit, serviceKeys, unrecordedRecorder, validEnvironment } from '../scripts/service-keys';
 import { startService, type Service } from './helpers/service';
 
 let service: Service;
@@ -21,6 +21,7 @@ async function run(argv: string[], recorder: ReturnType<typeof scriptRecorder>) 
   const lines: string[] = [];
   const result = await serviceKeys(argv, {
     databaseUrl: 'postgres://db.example:6543/auth',
+    environment: 'staging',
     connect: () => ({ db: service.db, auth: service.auth }),
     recorder,
     print: (line) => lines.push(line),
@@ -30,7 +31,7 @@ async function run(argv: string[], recorder: ReturnType<typeof scriptRecorder>) 
 
 it('no DSN: nothing is captured or flushed; the write stands, the banner names the key id, exit 3', async () => {
   expect(Sentry.getClient()).toBeUndefined();
-  const recorder = scriptRecorder(undefined);
+  const recorder = scriptRecorder(undefined, 'staging');
   expect(recorder).toBe(unrecordedRecorder);
   expect(Sentry.getClient()).toBeUndefined();
 
@@ -46,7 +47,7 @@ it('no DSN: nothing is captured or flushed; the write stands, the banner names t
     recorder
   );
   expect(keyed.exitCode, keyed.text).toBe(EXIT_UNRECORDED);
-  const keyId = /Created key ([0-9a-f-]{36})/.exec(keyed.text)![1]!;
+  const keyId = /Created \w+ key ([0-9a-f-]{36})/.exec(keyed.text)![1]!;
   const banner = keyed.text.slice(keyed.text.indexOf('THE SENTRY RECORD'));
   expect(banner).toContain('SENTRY_DSN is not set: no record was attempted.');
   expect(banner).toContain(`key ${keyId}`);
@@ -58,3 +59,20 @@ it('no DSN: nothing is captured or flushed; the write stands, the banner names t
   // the old implicit path (an uninitialised flush answering false) never printed.
   expect(Sentry.getClient()).toBeUndefined();
 });
+
+describe('the script\'s Sentry environment (#314 Amendment 3, codex)', () => {
+  it('is ENVIRONMENT, never NODE_ENV', () => {
+    const before = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(scriptSentryInit('https://public@o0.ingest.sentry.io/0', 'staging').environment).toBe('staging');
+      expect(scriptSentryInit('https://public@o0.ingest.sentry.io/0', 'production').environment).toBe('production');
+      // main() validates before scriptRecorder: a typo never reaches Sentry.init.
+      for (const bad of [undefined, '', 'prod', 'Production', 'test']) expect(validEnvironment(bad), String(bad)).toBeNull();
+      for (const good of ['development', 'staging', 'production']) expect(validEnvironment(good)).toBe(good);
+    } finally {
+      process.env.NODE_ENV = before;
+    }
+  });
+});
+

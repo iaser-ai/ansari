@@ -1,0 +1,28 @@
+### Phase 1 Implementation Review
+
+The Phase 1 implementation is clean, well-structured, and matches all deliverables and acceptance criteria in the specification and plan.
+
+#### Verification Summary
+
+1. **Spec Adherence & Plan Alignment (`phase_1`)**:
+   - **Client ID Rule**: [`MCP_CLIENT_ID_PATTERN`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/types/src/attribution.ts#L45) and [`isMcpClientId`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/types/src/attribution.ts#L48-L55) in `packages/types/src/attribution.ts` enforce `^ansari-mcp(-[a-z0-9._-]+)?$`, length $\le 64$, and subset alignment with `CLIENT_ID_PATTERN`. Both are re-exported from [`packages/auth/src/index.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/index.ts#L61) without altering `apps/auth/package.json`.
+   - **Limits & Thresholds**: [`packages/auth/src/limits.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/limits.ts#L262-L303) defines `MCP_KEY_INITIAL` (120 / 60s, 5,000 / day), a standalone `MCP_KEY_BOUNDS`, one-third alert thresholds (`MCP_VERIFY_KEY_ALERT = 40`, `MCP_VERIFY_DAILY_ALERT = 1666`), `MCP_VERIFY_UNAUTHORIZED_ALERT` (20 per `EXCHANGE_ALERT_WINDOW`), `VERIFY_BODY_LIMIT` (1024), and `VERIFY_KEY_MAX_LENGTH` (256).
+   - **Service Users & Metadata**: [`packages/auth/src/service-users.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/service-users.ts#L28-L31) binds `SERVICES['ansari-mcp'].bounds` to `MCP_KEY_BOUNDS`, selects `metadata` in [`listServiceKeys`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/service-users.ts#L115-L138), and provides [`clientIdOf`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/src/service-users.ts#L147-L159) supporting both JSON text (1.7.7) and parsed object (1.7.20) representations while safely returning `null` on malformed input.
+   - **Operator Script**: [`apps/auth/scripts/service-keys.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/scripts/service-keys.ts#L180-L186) enforces `--client-id` via `clientIdFor` in both `parseArgs` and `runServiceKeys` / `createKey`, never echoes rejected input values, preserves `whatsapp` default fallback behavior, and prints `client_id` in `list` output ([`keyLines`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/scripts/service-keys.ts#L289-L301)).
+
+2. **Code Quality & Error Handling**:
+   - Defense-in-depth checks in `parseArgs`, `runServiceKeys`, and `createKey` ensure direct programmatic calls to `runServiceKeys` cannot bypass `clientIdFor`.
+   - `MCP_CLIENT_ID_RULE` uses fixed refusal wording so invalid `--client-id` values (such as accidentally pasted secrets) are never echoed.
+
+3. **Test Coverage**:
+   - [`packages/auth/tests/unit/helpers.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/packages/auth/tests/unit/helpers.test.ts#L155-L209) thoroughly covers `isMcpClientId` (valid cases, near misses, 64/65 char boundaries, non-strings) and `clientIdOf` (string JSON, object, malformed JSON, primitives, arrays, non-string `clientId`).
+   - [`apps/auth/tests/limits.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/limits.test.ts#L488-L523) verifies limit relationships, distinct object identity for `MCP_KEY_BOUNDS`, and body byte limits.
+   - [`apps/auth/tests/service-keys.test.ts`](file:///Users/amrmohamed/repos/iaser/ansari/.builders/spir-314/apps/auth/tests/service-keys.test.ts#L563-L643) covers `create-key`, `rotate`, and `list` for `ansari-mcp` against pglite, including non-echoing refusal assertions and `whatsapp` backwards compatibility.
+
+---
+VERDICT: APPROVE
+SUMMARY: Phase 1 cleanly implements the ansari-mcp limits, client-id rules, metadata extraction, and script constraints with thorough test coverage.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None

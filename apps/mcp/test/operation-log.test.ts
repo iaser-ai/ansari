@@ -17,6 +17,7 @@ describe('operation log', () => {
     const records: unknown[] = [];
     writeOperationLog(
       {
+        level: 'info',
         event: 'tool.start',
         method: 'tools/call',
         requestId: 10,

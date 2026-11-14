@@ -21,7 +21,7 @@ is set at that point. In Railway, applying a variable change **redeploys** the s
 deployment, so the `backend` edits restart the legacy api: make them at a quiet hour the day
 before, and check that `backend` is healthy afterwards. Production values are shown; for staging, use the staging domains.
 
-- **`backend`: add** the four variables below. The new code does not start in production
+- **`backend`: add** the five variables below. The new code does not start in production
   without them.
 
   | Variable | Value |
@@ -30,6 +30,7 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | `AUTH_JWT_ISSUER` | `https://auth.askansari.ai` (set on its own) |
   | `AUTH_JWT_AUDIENCE` | `ansari-api` (the same as on `auth`) |
   | `AUTH_LAYER_ORIGIN` | `https://api.askansari.ai` (the same as on `auth`) |
+  | `ENVIRONMENT` | `production` (`staging` in staging; #314, also the Sentry environment) |
 
   Also on `backend`: `MAINTENANCE_MODE=false`. **Keep** `JWT_SECRET`,
   `ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`, `RESEND_API_KEY` and
@@ -49,6 +50,7 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | `RESEND_API_KEY` | the Resend key (reset emails are now sent by `auth`) |
   | `FRONTEND_URL` | the web origin (reset links point here) |
   | `NODE_ENV` | `production` |
+  | `ENVIRONMENT` | `production` (`staging` in staging; #314: required, and the environment in every service key's prefix) |
   | `PORT` | `3100` |
 
   Optional on `auth`: `SENTRY_DSN`, and `MARKETMAKER_URL` (copy `backend`'s value if it has

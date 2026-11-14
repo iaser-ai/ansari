@@ -1,0 +1,10 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: Strong plan overall, but two implementation details must be corrected before execution.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- Phase 1 must include `apps/auth/package.json` with a direct `@ansari/types` dependency, or explicitly re-export/import the helpers through `@ansari/auth`.
+- `packages/types` currently has no test script or Vitest dependency/config; the plan must name the required package changes or place those tests in an existing test package.
+- Phase 4 must stub `fetch` at the apps/auth HTTP boundary as specified; mocking `verifyServiceKey` bypasses the contract and should not be offered as an alternative.

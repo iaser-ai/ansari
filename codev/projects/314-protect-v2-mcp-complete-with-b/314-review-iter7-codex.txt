@@ -1,0 +1,19 @@
+---
+VERDICT: APPROVE
+SUMMARY: Iteration 6 findings are fixed; the reviewed 1f936578..HEAD changes introduce no new issues.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Protects `/api/v2/mcp-complete` with environment-labelled `ansari-mcp` service keys verified through apps/auth. Requests fail closed while supporting a temporary log-only rollout mode.
+
+  ## Key Changes
+  - Adds service-key verification, trusted client attribution, environment validation, and operational documentation.
+  - Covers `apps/api/scripts` in the `RAILWAY_*` source scan and corrects legacy-window and frontend-origin comments.
+
+  ## Test Plan
+  - Run the API and auth unit/integration suites and production boot probes.
+  - Verify missing/refused keys return 401, auth outages return 503, and valid keys attribute requests correctly.

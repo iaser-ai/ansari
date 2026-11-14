@@ -10,6 +10,7 @@ const REQUIRED_ENV: Record<string, string> = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   KALEMAT_API_KEY: 'placeholder-key',
   USUL_API_TOKEN: 'placeholder-token',
+  ENVIRONMENT: 'development',
 };
 
 let savedEnv: NodeJS.ProcessEnv;
