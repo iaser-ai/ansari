@@ -37,13 +37,13 @@ from ansari_whatsapp.utils.prefix_routing import route_by_prefix
 from ansari_whatsapp.utils.general_helpers import CORSMiddlewareWithLogging
 
 
-# Configure Sentry for error tracking when we're NOT developing locally
+# Configure Sentry for error tracking, except in development
 # NOTE: The SENTRY_DSN check is redundant, since Sentry's init() and other methods
 #   will be in "no-ops" mode (i.e., do nothing) if the DSN isn't configured.
 #   Source: https://docs.sentry.io/platforms/python/configuration/options/#dsn
 #   Nevertheless, we're adding it here for clarity.
-deployment_type = get_settings().DEPLOYMENT_TYPE
-if get_settings().SENTRY_DSN and deployment_type != "local":
+environment = get_settings().ENVIRONMENT
+if get_settings().SENTRY_DSN and environment != "development":
     ignore_errors = [
         "HTTP exception: 401",
         "HTTP exception: 403",
@@ -58,17 +58,17 @@ if get_settings().SENTRY_DSN and deployment_type != "local":
 
     sentry_sdk.init(
         dsn=get_settings().SENTRY_DSN,
-        environment=deployment_type,
+        environment=environment,
         # Add data like request headers and IP for users, if applicable;
         # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
         send_default_pii=False,
         # Set traces_sample_rate to 1.0 to capture 100%
         # of transactions for tracing.
-        traces_sample_rate=0.2 if deployment_type == "production" else 1.0,
+        traces_sample_rate=0.2 if environment == "production" else 1.0,
         # Set profiles_sample_rate to 1.0 to profile 100%
         # of sampled transactions.
         # We recommend adjusting this value in production.
-        profiles_sample_rate=0.2 if deployment_type == "production" else 1.0,
+        profiles_sample_rate=0.2 if environment == "production" else 1.0,
         before_send=sentry_before_send,
     )
 
@@ -115,7 +115,7 @@ async def trigger_error():
 
 
 # This open endpoint crashes on purpose, so it is only registered outside production
-if get_settings().DEPLOYMENT_TYPE != "production":
+if get_settings().ENVIRONMENT != "production":
     app.get("/sentry-debug")(trigger_error)
 
 
@@ -245,7 +245,7 @@ async def main_webhook(
     Note:
         - The function uses FastAPI's BackgroundTasks to process messages asynchronously,
           ensuring quick responses to Meta while handling potentially long-running operations.
-        - The prefix routing is a workaround until staging and local have numbers of their own (issue #363).
+        - The prefix routing is a workaround until staging and development have numbers of their own (issue #363).
     """
     # Step 1: Signature verification now handled by Depends(verify_meta_signature_dependency)
     # Step 2 and 3: Parse the JSON payload and extract message details from it
@@ -324,10 +324,10 @@ async def main_webhook(
             details={"error": str(e)},
         )
 
-    # The production number also feeds staging and local, which ignore what is not meant for them. This runs before the
+    # The production number also feeds staging and development, which ignore what is not meant for them. This runs before the
     # maintenance check, so an environment that ignores a message never sends its own maintenance notice, and the
     # answering one drops its prefix so the answer is not about it.
-    answers, incoming_msg_body = route_by_prefix(get_settings().DEPLOYMENT_TYPE, incoming_msg_body)
+    answers, incoming_msg_body = route_by_prefix(get_settings().ENVIRONMENT, incoming_msg_body)
     if not answers:
         logger.debug("Incoming message is meant for another environment, so it will not be processed here...")
         return create_response_for_meta(
@@ -399,7 +399,7 @@ if __name__ == "__main__":
     module_name = module_path.replace(os.sep, ".").replace(".py", "").replace("src.", "", 1) + ":app"
     logger.debug(f"Running FastAPI app with module name: {module_name}")
 
-    if settings.DEPLOYMENT_TYPE == "local":
+    if settings.ENVIRONMENT == "development":
         host = "localhost"
         reload_uvicorn = True
         reload_includes = [".env"]

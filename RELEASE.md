@@ -72,7 +72,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > Build: repo-root context, `legacy/whatsapp/Dockerfile`. Health check `/`. The Meta callback URL is
 > `https://<domain>/whatsapp/v2`, one Meta app per environment. Environment surface (full list in
 > `legacy/whatsapp/.env.example`):
-> `DEPLOYMENT_TYPE` (required, `staging` or `production`), `BACKEND_SERVER_URL` (apps/api),
+> `ENVIRONMENT` (required: `development`, `staging` or `production`; the same name apps/api and apps/auth use), `BACKEND_SERVER_URL` (apps/api),
 > `AUTH_SERVER_URL` and `AUTH_WHATSAPP_API_KEY` (apps/auth, issue #329),
 > `META_BUSINESS_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN_FROM_SYS_USER`, `META_ANSARI_APP_SECRET` and
 > `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
@@ -80,7 +80,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > **Prefix routing (issue #363):** one WhatsApp number can feed production, staging and a developer's machine. A message with no prefix is production's, `!s ` is staging's and `!d ` is local's; each environment ignores the others' and drops its own prefix before asking apps/api. On staging, testers must start every message with `!s `.
 >
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
-> `DEPLOYMENT_TYPE=local`.
+> `ENVIRONMENT=development`.
 >
 > **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000): set `PORT=3000` as a
 > service variable so Railway does not assign its own, and make the public domain's target port match. Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,

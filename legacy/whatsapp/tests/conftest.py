@@ -2,7 +2,7 @@ import os
 
 # Mock mode and dummy credentials so the suite runs with no backend. Exported env vars win, but a .env value does not.
 for key, value in {
-    "DEPLOYMENT_TYPE": "local",
+    "ENVIRONMENT": "development",
     "MOCK_META_API": "True",
     "MOCK_ANSARI_CLIENT": "True",
     "MOCK_AUTH_CLIENT": "True",
@@ -25,13 +25,13 @@ import pytest
 def answers_unprefixed_messages():
     """Start every test as production, which answers a message with no prefix.
 
-    The suite has to start as `local` (only local may switch mocks on), and local would ignore such a message. Setting the
-    value after start-up skips that check, and a test that needs another environment sets its own.
+    The suite has to start as `development` (the only one that may switch mocks on), which would ignore such a message.
+    Setting the value after start-up skips that check, and a test that needs another environment sets its own.
     """
     from ansari_whatsapp.utils.config import get_settings
 
     settings = get_settings()
-    original = settings.DEPLOYMENT_TYPE
-    settings.DEPLOYMENT_TYPE = "production"
+    original = settings.ENVIRONMENT
+    settings.ENVIRONMENT = "production"
     yield
-    settings.DEPLOYMENT_TYPE = original
+    settings.ENVIRONMENT = original

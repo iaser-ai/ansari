@@ -1,4 +1,4 @@
-"""Tests for maintenance mode and the prefix routing between production, staging and local (spec 321, issue #363)."""
+"""Tests for maintenance mode and the prefix routing between production, staging and development (spec 321, issue #363)."""
 
 import hashlib
 import hmac
@@ -140,7 +140,7 @@ def _post_unsupported():
     return client.post("/whatsapp/v2", content=body, headers={"X-Hub-Signature-256": f"sha256={signature}"})
 
 
-# ---------- prefix routing: one number feeds production, staging and local (issue #363) ----------
+# ---------- prefix routing: one number feeds production, staging and development (issue #363) ----------
 
 
 QUESTION = "what is ansari?"
@@ -150,7 +150,6 @@ QUESTION = "what is ansari?"
 ANSWERS = {
     "production": {QUESTION: QUESTION},
     "staging": {f"!s {QUESTION}": QUESTION},
-    "local": {f"!d {QUESTION}": QUESTION},
     "development": {f"!d {QUESTION}": QUESTION},
 }
 
@@ -160,7 +159,7 @@ MESSAGES = [QUESTION, f"!d {QUESTION}", f"!s {QUESTION}"]
 @pytest.mark.parametrize("message", MESSAGES)
 @pytest.mark.parametrize("environment", list(ANSWERS))
 def test_each_environment_answers_only_its_own_messages(monkeypatch, environment, message):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", environment)
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
 
     chat_calls = _spy_on_chat_calls(monkeypatch)
 
@@ -183,7 +182,7 @@ def test_each_environment_answers_only_its_own_messages(monkeypatch, environment
 
 @pytest.mark.parametrize("message", ["!dwhat", "!swhat", "!D what", "!S what", " !s what", "!x what"])
 def test_production_answers_anything_that_is_not_exactly_a_prefix(monkeypatch, message):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
 
     chat_calls = _spy_on_chat_calls(monkeypatch)
 
@@ -194,9 +193,9 @@ def test_production_answers_anything_that_is_not_exactly_a_prefix(monkeypatch, m
     assert chat_calls == [message]
 
 
-@pytest.mark.parametrize("environment", ["staging", "local", "development"])
+@pytest.mark.parametrize("environment", ["staging", "development"])
 def test_non_production_environments_ignore_a_message_of_a_type_they_cannot_read(monkeypatch, environment):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", environment)
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
 
     replies = _spy_on_replies(monkeypatch)
 
@@ -208,7 +207,7 @@ def test_non_production_environments_ignore_a_message_of_a_type_they_cannot_read
 
 
 def test_production_answers_an_unsupported_message_type_without_crashing(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
 
     chat_calls = _spy_on_chat_calls(monkeypatch)
 
@@ -221,7 +220,7 @@ def test_production_answers_an_unsupported_message_type_without_crashing(monkeyp
 
 @pytest.mark.parametrize(("environment", "message"), [("staging", QUESTION), ("production", f"!s {QUESTION}")])
 def test_an_environment_that_ignores_a_message_never_sends_the_maintenance_notice(monkeypatch, environment, message):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", environment)
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
 
     monkeypatch.setattr(get_settings(), "WA_MAINTENANCE_MODE", True)
 
@@ -235,7 +234,7 @@ def test_an_environment_that_ignores_a_message_never_sends_the_maintenance_notic
 
 
 def test_the_environment_that_answers_still_sends_the_maintenance_notice(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "staging")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "staging")
 
     monkeypatch.setattr(get_settings(), "WA_MAINTENANCE_MODE", True)
 
@@ -252,7 +251,7 @@ def test_the_environment_that_answers_still_sends_the_maintenance_notice(monkeyp
 def test_an_ignored_message_leaves_no_phone_number_bsuid_or_text_in_the_logs(monkeypatch, environment, message):
     from loguru import logger
 
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", environment)
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
 
     captured = []
 
@@ -309,28 +308,51 @@ def test_route_by_prefix_does_not_change_the_body_it_was_given():
 # ---------- start-up checks and request hardening (Amr's review of PR 327) ----------
 
 
-@pytest.mark.parametrize("deployment_type", ["local", "staging", "production"])
-def test_start_up_fails_without_the_app_secret(monkeypatch, deployment_type):
+@pytest.mark.parametrize("environment", ["development", "staging", "production"])
+def test_start_up_fails_without_the_app_secret(monkeypatch, environment):
     from ansari_whatsapp.utils.config import WhatsAppSettings
 
-    monkeypatch.setenv("DEPLOYMENT_TYPE", deployment_type)
+    monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("META_ANSARI_APP_SECRET")
 
     with pytest.raises(ValueError, match="META_ANSARI_APP_SECRET"):
         WhatsAppSettings(_env_file=None)
 
 
-@pytest.mark.parametrize(("deployment_type", "expected"), [("local", "DEBUG"), ("staging", "INFO"), ("production", "INFO")])
-def test_log_level_defaults_to_info_outside_local(monkeypatch, deployment_type, expected):
+@pytest.mark.parametrize(("environment", "expected"), [("development", "DEBUG"), ("staging", "INFO"), ("production", "INFO")])
+def test_log_level_defaults_to_info_outside_development(monkeypatch, environment, expected):
     from ansari_whatsapp.utils.config import WhatsAppSettings
 
-    monkeypatch.setenv("DEPLOYMENT_TYPE", deployment_type)
+    monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("LOGGING_LEVEL", raising=False)
-    if deployment_type != "local":
+    if environment != "development":
         for flag in ("MOCK_ANSARI_CLIENT", "MOCK_AUTH_CLIENT", "MOCK_META_API"):
             monkeypatch.setenv(flag, "False")
 
     assert WhatsAppSettings(_env_file=None).LOGGING_LEVEL == expected
+
+
+def test_local_is_no_longer_an_environment(monkeypatch):
+    from ansari_whatsapp.utils.config import WhatsAppSettings
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    # Mocks are refused outside development with a message that also names ENVIRONMENT, which would hide a missing refusal
+    for flag in ("MOCK_ANSARI_CLIENT", "MOCK_AUTH_CLIENT", "MOCK_META_API"):
+        monkeypatch.setenv(flag, "False")
+
+    with pytest.raises(ValueError, match="should match pattern"):
+        WhatsAppSettings(_env_file=None)
+
+
+def test_the_environment_is_required_and_the_old_name_is_not_read(monkeypatch):
+    from ansari_whatsapp.utils.config import WhatsAppSettings
+
+    monkeypatch.delenv("ENVIRONMENT")
+
+    monkeypatch.setenv("DEPLOYMENT_TYPE", "development")
+
+    with pytest.raises(ValueError, match="ENVIRONMENT"):
+        WhatsAppSettings(_env_file=None)
 
 
 def test_an_explicit_log_level_wins(monkeypatch):
