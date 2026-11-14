@@ -1,7 +1,7 @@
 id: '363'
 title: whatsapp-prefix-routing
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-14T00:07:09.005Z'
-updated_at: '2026-11-14T02:37:20.717Z'
+updated_at: '2026-11-14T02:37:24.944Z'
 pr_history:
   - phase: review
     pr_number: 390
