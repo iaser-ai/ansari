@@ -33,3 +33,26 @@
 - Blocked on: the owner running the harness with credentials. Command and estimate sent to
   the architect. Nothing in the scorers has seen a real model answer yet; the first results
   file gets read by hand before the gates are believed.
+
+## 2026-11-15 — first credentialed run in progress (20261115-194357-74223bc3)
+
+- Owner approved the three-model run; the architect runs it with credentials in the
+  process environment. Owner requirement added: cost per answer and per 1,000 answers in
+  the comparison and the recommendation, price inputs shown and marked confirmed or not.
+  Done in `595df47f` (report Cost section; `confirmed` and `next` in `eval/models.json`).
+  I could not read the Vertex pricing page from here; all prices are marked NOT confirmed.
+- Scorer corrections, declared (`b225ae52`). Read from the partial results file: every one
+  of the 18 quotes the scorer failed in the first 21 turns was a scorer error, not a model
+  error. Causes: the ornate brackets ﴿ ﴾ were treated as letters, so `﴿verse﴾ الآية` was
+  one quote with a wrong last word; Arabic tafsir text (in the prose and in tafsir
+  citation entries) was read as Quran and compared with the nearest reference; a tafsir
+  entry's English line naming another verse was taken as the entry's label. Also one short
+  English answer read as "language undetermined". Each fix has a regression test paired
+  with a misquote that must still fail. Gates G1 to G6 are unchanged; G1's "labelled"
+  now means a reference on the quote's own line (or its paragraph for a clear attempt at
+  a verse in hand), which is what the pre-registered wording says.
+- The run environment is slow for all three models after the first minute (10 to 56 s to
+  the first tool call, 11 of the first 42 turns timed out, baseline included, no 429s).
+  Read as Vertex throttling or load, not a model property. Told the architect;
+  recommended letting it finish and running the set again with `--concurrency 1`.
+- My cost estimate was high: prompts are 5K to 8K tokens, not 20K. A full run is about $3.
