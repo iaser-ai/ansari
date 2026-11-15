@@ -123,7 +123,11 @@ export interface QuranScore {
   labelled: string[];
   /** Named verses with no source text in hand. */
   unverifiable: string[];
-  /** Runs of Arabic left out because the answer itself is in Arabic script and the run is neither quoted nor vowelled. */
+  /**
+   * Runs of Arabic script left out as the answer's own prose: in an answer written in
+   * Arabic script, a run that is neither quoted nor vowelled; in any answer, a run in
+   * Urdu or Persian (it holds letters Arabic does not use).
+   */
   proseRunsSkipped: number;
   expected: ExpectedRefScore[];
 }
@@ -161,6 +165,12 @@ const ATTEMPT_OVERLAP = 0.5;
 const HADITH_OVERLAP = 0.6;
 /** A run this short that matches nothing is a phrase, not a quote. */
 const TERM_WORDS = 4;
+/**
+ * Letters Urdu and Persian write and Arabic does not. A run holding one is Urdu or
+ * Persian (a translation of the verse, the answer's own prose), never Quran text: none of
+ * the verse texts the search returns contains any of them.
+ */
+const NOT_ARABIC = /[پچژگٹڈڑںےھہۂۃ]/u;
 
 interface Chain {
   keys: string[];
@@ -334,6 +344,11 @@ export function scoreQuran(input: QuranInput): QuranScore {
     // In an answer written in Arabic script the prose is Arabic too. Only a run that is
     // quoted (between marks) or vowelled like scripture is read as a quote.
     if (arabicAnswer && !segment.delimited && !(segment.vowelDensity >= VOWELLED && segment.words >= 3)) {
+      proseRunsSkipped++;
+      continue;
+    }
+    // Urdu or Persian, quoted or not: a translation of a verse is not the verse.
+    if (NOT_ARABIC.test(segment.text)) {
       proseRunsSkipped++;
       continue;
     }

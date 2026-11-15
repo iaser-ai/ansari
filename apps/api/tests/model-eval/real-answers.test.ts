@@ -176,3 +176,24 @@ describe('language of a short answer', () => {
     expect(scoreLanguage('Sabr. Tawakkul. Shukr the', 'en')).toMatchObject({ detected: 'latin-script', inLanguage: false });
   });
 });
+
+describe('an Urdu translation of a verse is not the verse', () => {
+  const V_4_101 = 'وَإِذَا ضَرَبْتُمْ فِى ٱلْأَرْضِ فَلَيْسَ عَلَيْكُمْ جُنَاحٌ أَن تَقْصُرُوا۟ مِنَ ٱلصَّلَوٰةِ إِنْ خِفْتُمْ أَن يَفْتِنَكُمُ ٱلَّذِينَ كَفَرُوٓا۟';
+  const sources = { thisTurn: [{ key: '4:101', ar: V_4_101 }] };
+  /** gemini-3.7-flash, question ur-fiqh-travel-prayer: the Urdu line was scored as a misquote of 4:101. */
+  const urdu = (arabic: string) => `قرآن مجید میں اللہ تعالیٰ کا ارشاد ہے (4:101):
+> **﴿${arabic}﴾**
+> *"اور جب تم زمین میں سفر کرو تو تم پر اس بات میں کوئی گناہ نہیں کہ نماز مختصر کر کے پڑھو۔"* (4:101)`;
+
+  it('the Arabic is scored, the Urdu under it is left out', () => {
+    const score = scoreQuran(input(urdu('وَإِذَا ضَرَبْتُمْ فِى ٱلْأَرْضِ فَلَيْسَ عَلَيْكُمْ جُنَاحٌ أَن تَقْصُرُوا مِنَ ٱلصَّلَوٰةِ'), sources));
+    expect(score.quotes.map((q) => q.outcome)).toEqual(['exact']);
+    expect(score.proseRunsSkipped).toBeGreaterThanOrEqual(1);
+  });
+
+  it('known-bad: a wrong word in the Arabic of an Urdu answer still fails', () => {
+    const failed = hardFails(input(urdu('وَإِذَا ضَرَبْتُمْ فِى ٱلْأَرْضِ فَلَيْسَ عَلَيْكُمْ إِثْمٌ أَن تَقْصُرُوا مِنَ ٱلصَّلَوٰةِ'), sources));
+    expect(failed.map((q) => q.outcome)).toEqual(['mismatch']);
+    expect(failed[0].diff?.extra).toEqual(['ءثم']);
+  });
+});
