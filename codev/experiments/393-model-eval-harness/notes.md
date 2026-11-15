@@ -55,15 +55,93 @@ the harness takes `--repeats` for a larger run on the categories that matter.
 
 ## Approach
 
-*(filled in during the design phase)*
+Design decisions, made before any model call. The hypotheses and gates above were committed
+first (`36efd792`) and have not been edited since.
+
+**One seam into the facilitator.** `runFacilitator(history, onMessage, { model })` pins a
+request to one Gemini model: every call targets it, the cross-model 429 failover is off
+(`noModelFallback`), and the request never escalates to Inkling. Without that, an answer
+recorded under `gemini-4-argon` could have been written by the fallback model. A pinned
+model that cannot answer is recorded as an error. No route passes `model`; the public API is
+untouched.
+
+**In process, not over HTTP.** The harness calls `runFacilitator` directly, so it needs no
+database, no auth service and no running server, and it reads the same terminal event
+(usage, tool-call records, provenance) the chat route persists. Follow-up turns replay
+history the way the route does.
+
+**Ground truth is Kalimat's text, not the model's and not mine.** A Quran quote is compared
+with the retrieved text of the verse it is labelled with. When the answer names a reference
+no search returned (a quote from memory), the runner looks that verse up through the same
+`search_quran` tool and stores it in the results file, so every score can be recomputed
+offline (`eval/rescore.ts`).
+
+**Three levels of Arabic comparison**, because Kalimat returns Uthmani script and models
+often retype in standard spelling: as written, standard spelling (documented folds in
+`eval/lib/arabic.ts`), and ignoring alefs. The first two pass. An alef-only difference is
+listed for a human and does not count against the gate. Anything else is `mismatch`. The
+staging misquote (بِعَيْنِنَا for بِأَعْيُنِنَا) differs at every level.
+
+**Hard failures are narrow on purpose.** Only `mismatch` (labelled with a verse, text is
+not that verse) and `wrong_reference` (text is a different verse than the label) count for
+G1. Arabic near a reference that matches nothing in hand is `suspect`; a label that could
+not be looked up is `unverifiable`; honorifics and short terms are `term`. Those are
+reported and listed, never silently passed as correct.
+
+**Question set v1** (`eval/questions/v1.json`): 41 questions, 46 turns, written for this
+experiment, none taken from a user's conversation.
+
+| Category | Questions | | Language | Questions |
+|---|---|---|---|---|
+| quran-by-reference | 6 | | en | 28 |
+| quran-by-topic | 8 | | ar | 6 |
+| near-identical | 7 | | fr | 2 |
+| hadith-grade | 7 | | id | 2 |
+| fiqh | 8 | | ur | 2 |
+| follow-up (two turns) | 5 | | tr | 1 |
+
+**Size of the first run.** Three models x 46 turns = 138 facilitator requests, roughly 280
+to 550 model calls (each request is one call per tool round plus the final answer), plus a
+Kalimat lookup for each from-memory reference. Estimated cost about 6 US dollars, range 5
+to 12, at prices found by web search and not confirmed against the live pricing page
+(`eval/models.json` says so per model). The optional models (`gemini-3.8-flash`,
+`gemini-4-carbon`) are left out of the first run: no confirmed price, and each adds a third
+to the bill. Adding one later is one more id in `--models`.
 
 ## Environment & Reproduction
 
-*(filled in when the harness exists)*
+- Node >= 22, `pnpm install` at the repo root. No database and no other service.
+- Credentials in `apps/api/.env.eval.local` (git-ignored): Vertex project, location and
+  credentials, `KALEMAT_API_KEY`, `USUL_API_TOKEN`, a dummy `DATABASE_URL`,
+  `ENVIRONMENT=development`. The exact file is in `apps/api/eval/README.md`.
+- Run, from the repo root:
+
+  ```bash
+  pnpm --filter ansari-api exec tsx --env-file=.env.eval.local eval/run.ts \
+    --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
+  ```
+
+  Add `--dry-run` to print the plan and call count without calling anything.
+- Output: `apps/api/eval/results/<run id>.json` and `<run id>.md`.
+- Tests: `pnpm --filter ansari-api exec vitest run tests/model-eval` (115 tests, no
+  credentials).
+
+Checked without credentials: the scorers and the report against fixtures; the runner
+against a scripted facilitator; and the real import path once with the placeholder
+credentials in `.env.ci`, which recorded the expected Vertex error row with the right
+provenance and wrote both files. Not checked: any real model answer. The scorers have
+never seen one, so the first results file gets read by hand before its gates are believed
+(see Next Steps).
 
 ## Code
 
-*(filled in when the harness exists)*
+- Seam: `apps/api/lib/facilitator/agent.ts` (`model` option), `apps/api/lib/ai/gemini-client.ts`
+  (`noModelFallback`); tests in `apps/api/tests/facilitator-pinned-model.test.ts` and
+  `apps/api/tests/gemini-fast-failover.test.ts`.
+- Harness: `apps/api/eval/` (`run.ts`, `rescore.ts`, `lib/`, `questions/v1.json`,
+  `models.json`, `README.md`).
+- Harness tests: `apps/api/tests/model-eval/`.
+- Described in `codev/resources/arch.md`, "Gemini facilitator & message history".
 
 ## Results
 
@@ -72,3 +150,17 @@ the harness takes `--repeats` for a larger run on the categories that matter.
 ## What Worked / What Didn't
 
 ## Next Steps
+
+1. Owner runs the command above with credentials and hands back the results file.
+2. Read every quote the report lists as failed, suspect or alef-only against the raw
+   answers before believing the gates. If a scorer is wrong, fix it, say so here with the
+   before and after counts, and rescore. The gates themselves do not change.
+3. Fill in Results with the comparison table, the gate outcomes and the recommendation.
+
+## Flaky Tests
+
+`tests/migration/window-migration.test.ts > 0009 scaffold cleanup (scenario 15) > aborts on
+a row in any single scaffold table` timed out once (30 s limit) in a full local run of the
+apps/api suite while other builders were using the machine, and passed when run on its own.
+This branch does not touch it or anything it imports. Not skipped: one timeout under load
+is not enough to disable a migration guard.
