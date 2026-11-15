@@ -421,8 +421,26 @@ export async function* runFacilitator(
      * ladder rung and the #79 rescue.
      */
     provider?: 'gemini' | 'inkling';
+    /**
+     * Pin the whole request to one Gemini model (issue #393). EVALUATION ONLY: no
+     * route passes it. Every call of the request (tool-loop iterations, same-model
+     * retries, the synthesis pass) targets this model instead of config.gemini.model,
+     * and no other model may answer: the intra-Vertex 429 failover, the empty-final
+     * ladder's Inkling rung and the #79 Inkling rescue are all off, so a failure
+     * surfaces as a failure rather than as another model's answer under this model's
+     * name. Same reasoning as `provider: 'inkling'` above. Selects Gemini whatever
+     * PRIMARY_BACKEND says; combining it with `provider: 'inkling'` throws.
+     */
+    model?: string;
   }
 ): AsyncGenerator<FacilitatorStreamEvent> {
+  const pinnedModel = options?.model;
+  if (pinnedModel !== undefined && options?.provider === 'inkling') {
+    throw new Error("runFacilitator: `model` pins a Gemini model and cannot be combined with provider 'inkling'");
+  }
+  // Spread into every Gemini call's options; empty when the request is not pinned, so
+  // an unpinned request's calls are exactly what they were before the seam existed.
+  const pinnedCallOptions = pinnedModel !== undefined ? { model: pinnedModel, noModelFallback: true } : {};
   const tools = getGeminiToolDescriptions();
   const tracker: ToolUsageTracker = { history: [], callsWithArgs: [] };
 
@@ -487,7 +505,8 @@ export async function* runFacilitator(
   // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
   // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
   // ladder still applies, as same-model (Inkling) retries.
-  let useInklingRung = (options?.provider ?? config.primaryBackend) === 'inkling';
+  let useInklingRung =
+    pinnedModel === undefined && (options?.provider ?? config.primaryBackend) === 'inkling';
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
@@ -500,7 +519,7 @@ export async function* runFacilitator(
   const currentProvenance = (): ModelProvenance =>
     useInklingRung
       ? { provider: 'inkling', modelId: config.inkling.model }
-      : { provider: 'gemini', modelId: config.gemini.model };
+      : { provider: 'gemini', modelId: pinnedModel ?? config.gemini.model };
 
   // Overall request-time budget (Spec 49). softDeadline = when we stop starting new tool
   // work; the reserve between it and hardDeadline is the window for one synthesis pass.
@@ -608,7 +627,7 @@ export async function* runFacilitator(
             ...synthesisOptions,
             timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
           })
-        : streamGemini('', synthesisOptions);
+        : streamGemini('', { ...synthesisOptions, ...pinnedCallOptions });
       for await (const event of stream) {
         if (event.type === 'text') {
           synthText += event.data;
@@ -709,7 +728,7 @@ export async function* runFacilitator(
             ...callOptions,
             timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
           })
-        : streamGemini(currentQuery, callOptions);
+        : streamGemini(currentQuery, { ...callOptions, ...pinnedCallOptions });
 
       const toolCallsCollected: GeminiToolCall[] = [];
       let response: GeminiResponse | null = null;
@@ -789,10 +808,13 @@ export async function* runFacilitator(
           // config.gemini is never read AT ALL: on an inkling-only deployment (no
           // Gemini credentials) that getter throws, which would break the documented
           // same-model retry.
-          const currentModel = useInklingRung ? config.inkling.model : config.gemini.model;
+          const currentModel = useInklingRung
+            ? config.inkling.model
+            : (pinnedModel ?? config.gemini.model);
           // Rung 2 (#74/#79) runs on Inkling's separate (non-Vertex) infrastructure;
           // without TINKER_API_KEY the ladder is the single same-model retry.
-          const inklingAvailable = isInklingConfigured();
+          // A pinned request (#393) never leaves its model: same-model retry only.
+          const inklingAvailable = pinnedModel === undefined && isInklingConfigured();
           const maxRetries = inklingAvailable ? MAX_EMPTY_FINAL_RETRIES : 1;
           const summary = {
             degenerateKind,
@@ -1021,8 +1043,10 @@ export async function* runFacilitator(
       //     delivered tokens would duplicate them),
       //   - enough gathering budget remains for a real attempt (≥20s before the soft
       //     deadline, which also keeps Spec 49's synthesis reserve intact), and
-      //   - TINKER_API_KEY is configured.
+      //   - TINKER_API_KEY is configured, and
+      //   - the request is not pinned to one model (#393).
       if (
+        pinnedModel === undefined &&
         !useInklingRung &&
         !inklingRescueUsed &&
         !visibleTextDelivered &&
