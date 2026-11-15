@@ -112,6 +112,18 @@ pnpm --filter ansari-api exec -- tsx eval/rescore.ts eval/results/<run id>.json
 Recomputes every score from what the file recorded and rewrites the report. Use it after
 correcting a scorer or adding a price to `models.json`.
 
+## Check that a clean result means something
+
+```bash
+pnpm --filter ansari-api exec -- tsx eval/selfcheck.ts eval/results/<run id>.json
+```
+
+"No failed quotes" is only good news if a failed quote would have been seen. This takes
+each answer in the results file that quotes a verse correctly, corrupts that quote two ways
+(swaps two words, drops a word), scores it again, and reports how many corruptions the
+scorer failed, how many it only listed for reading, and how many it missed. No model is
+called. Run it on every results file before believing its Quran numbers.
+
 ## Add a model
 
 1. Pass its id in `--models`. Nothing else is needed to run it.

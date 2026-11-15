@@ -197,3 +197,32 @@ describe('an Urdu translation of a verse is not the verse', () => {
     expect(failed[0].diff?.extra).toEqual(['ءثم']);
   });
 });
+
+describe('a misquote of a verse that a retrieved hadith or tafsir also cites still fails', () => {
+  // Found by corrupting real answers (eval/selfcheck.ts): the corrupted verse shared most
+  // of its letters with the tafsir or hadith that cites the verse, and was set aside as
+  // that source's text.
+  const verseInHand = { thisTurn: [{ key: '2:286', ar: V_2_286 }] };
+  const HADITH_CITING_2_286 = {
+    lkId: '2_1_57_328',
+    ar: 'فَأَنْزَلَ اللَّهُ عَزَّ وَجَلَّ لاَ يُكَلِّفُ اللَّهُ نَفْسًا إِلاَّ وُسْعَهَا لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ رَبَّنَا لاَ تُؤَاخِذْنَا إِنْ نَسِينَا أَوْ أَخْطَأْنَا قَالَ نَعَمْ',
+    en: '',
+    grade: 'Sahih',
+    collection: 'Muslim',
+  };
+  const swapped = 'Allah says (2:286): ﴿لا يكلف الله نفسا إلا وسعها لها ما كسبت وعليها اكتسبت ما﴾';
+
+  it('with a hadith in hand that cites the verse', () => {
+    expect(outcomes(input(swapped, { ...verseInHand, hadith: [HADITH_CITING_2_286] }))).toEqual(['mismatch']);
+  });
+
+  it('with a tafsir in hand that cites the verse', () => {
+    const tafsir = 'عن قتادة قوله: ﴿لا يكلف الله نفسا إلا وسعها لها ما كسبت﴾ أي: من خير، ﴿وعليها ما اكتسبت﴾ أي: من شر';
+    expect(outcomes(input(swapped, { ...verseInHand, otherTexts: [tafsir] }))).toEqual(['mismatch']);
+  });
+
+  it('near-miss: the hadith quoted word for word beside the same reference is hadith text', () => {
+    const answer = 'On this verse (2:286) the hadith says: فَأَنْزَلَ اللَّهُ عَزَّ وَجَلَّ لاَ يُكَلِّفُ اللَّهُ نَفْسًا إِلاَّ وُسْعَهَا';
+    expect(hardFails(input(answer, { ...verseInHand, hadith: [HADITH_CITING_2_286] }))).toEqual([]);
+  });
+});

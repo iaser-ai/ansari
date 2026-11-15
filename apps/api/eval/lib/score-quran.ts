@@ -11,11 +11,11 @@
  *     returned, so a quote written from memory is still checked against a source.
  *  3. Decide the outcome (QuoteOutcome).
  *
- * A quote fails (gate G1) only when it carries a label: `mismatch` and `wrong_reference`
- * both need a reference on the quote's own line or heading its citation entry, or, for a
- * mismatch that is plainly an attempt at a verse in hand, in its paragraph. Arabic that a
- * tafsir, fiqh or hadith search returned is that source's text and is set aside. What is
- * left over and looks wrong without a label is `suspect`: listed for a person to read.
+ * A quote fails (gate G1) only when it carries a label. `wrong_reference` needs the
+ * reference on the quote's own line or heading its citation entry. `mismatch` needs that,
+ * or a text that is plainly an attempt at a verse named near it. Arabic that a tafsir,
+ * fiqh or hadith search returned word for word is that source's text and is set aside.
+ * What is left over and looks wrong without a label is `suspect`: listed for a person.
  *
  * What it cannot see is stated rather than guessed: a quote with no reference near it and
  * no matching verse in hand is `unattributed`, and is counted, not scored.
@@ -39,10 +39,10 @@ export interface PoolVerse {
  * - `skeleton`: the same only once alefs are ignored. Probably correct; read it.
  * - `wrong_reference`: the text is a verse in hand, but not the one named on its own line
  *   (or heading its citation entry).
- * - `mismatch`: the text is not in any verse in hand, and a reference sits on its own
- *   line, or one sits in its paragraph and the text is clearly an attempt at a verse in
- *   hand (half its letter windows are that verse's). The quoted text differs from its
- *   source.
+ * - `mismatch`: the text is not in any verse in hand, and either it is clearly an attempt
+ *   at a verse it is labelled with (half its letter windows are that verse's; the label
+ *   may be on its line, in its paragraph, nearby, or head its citation entry), or a
+ *   reference sits on its own line. The quoted text differs from its source.
  * - `suspect`: read it. Either four or more words of Arabic that match nothing, with a
  *   reference only in the paragraph or nearby (or resembling a verse in hand with no
  *   reference at all); or the text of one verse in a paragraph that names only another.
@@ -413,32 +413,62 @@ export function scoreQuran(input: QuranInput): QuranScore {
     }
 
     // 3. The text is in no verse in hand.
-    const fromSource = (source: NormalizedText) => matchLevel(whole, source) !== null || overlap(whole, source) >= HADITH_OVERLAP;
-    if (hadithNorm.some(fromSource)) {
+    // 3a. Word for word in a hadith, tafsir or fiqh result, or inside a citation entry
+    // that is not a Quran entry: that source's text, not a quotation of the Quran.
+    if (hadithNorm.some(copied)) {
       quotes.push({ ...base, outcome: 'hadith_text', matched: [], grounding: null });
       continue;
     }
-    // Text a tafsir or fiqh search returned, or Arabic inside a citation entry that is
-    // not a Quran entry: that source's words, not a quotation of the Quran.
-    const inOtherEntry = segment.where === 'citation' && labelVerses.size === 0;
-    if (inOtherEntry || otherNorm.some(fromSource)) {
+    if (otherNorm.some(copied) || (segment.where === 'citation' && labelVerses.size === 0)) {
       quotes.push({ ...base, outcome: 'other_source', matched: [], grounding: null });
       continue;
     }
+
+    const share = (norm: NormalizedText) => Math.max(...forms.map((f) => overlap(f, norm)));
     let nearest: { key: string; overlap: number } | undefined;
+    let nearestLabelled: { key: string; overlap: number } | undefined;
     for (const [key, { norm }] of pool) {
-      const share = Math.max(...forms.map((f) => overlap(f, norm)));
-      if (!nearest || share > nearest.overlap) nearest = { key, overlap: share };
+      const candidate = { key, overlap: share(norm) };
+      if (!nearest || candidate.overlap > nearest.overlap) nearest = candidate;
+      if (labelVerses.has(key) && (!nearestLabelled || candidate.overlap > nearestLabelled.overlap)) nearestLabelled = candidate;
     }
     const diffAgainst = (key: string) => ({ against: key, ...wordDiff(segment.text, pool.get(key)!.verse.ar) });
+    // A short run is scripture only when it is written like scripture: vowelled, or in ﴿ ﴾.
+    const phrase = (segment.words < TERM_WORDS && segment.vowelDensity < VOWELLED && !segment.delimited) || onlyFormulae;
 
-    if (nearest && nearest.overlap >= ATTEMPT_OVERLAP) {
-      // An attempt at a verse in hand. It fails only with a reference on its line or in
-      // its paragraph: gate G1 is about quotes that are labelled.
-      const named = scoped.scope === 'line' || scoped.scope === 'paragraph';
+    // 3b. An attempt at a verse it is labelled with: most of its letters are that verse's,
+    // and they are not that verse. This comes before the looser test below, or a misquote
+    // of a verse that a retrieved hadith or tafsir also cites would pass as that source's text.
+    if (nearestLabelled && nearestLabelled.overlap >= ATTEMPT_OVERLAP && !phrase) {
       quotes.push({
         ...base,
-        outcome: named ? 'mismatch' : segment.words < TERM_WORDS || onlyFormulae ? 'term' : 'suspect',
+        outcome: 'mismatch',
+        matched: [],
+        nearest: nearestLabelled,
+        diff: diffAgainst(nearestLabelled.key),
+        grounding: grounding([nearestLabelled.key]),
+      });
+      continue;
+    }
+
+    // 3c. Mostly the words of a hadith, tafsir or fiqh result (the model cut or joined it).
+    const mostly = (source: NormalizedText) => overlap(whole, source) >= HADITH_OVERLAP;
+    if (hadithNorm.some(mostly)) {
+      quotes.push({ ...base, outcome: 'hadith_text', matched: [], grounding: null });
+      continue;
+    }
+    if (otherNorm.some(mostly)) {
+      quotes.push({ ...base, outcome: 'other_source', matched: [], grounding: null });
+      continue;
+    }
+
+    // 3d. An attempt at a verse in hand that it is not labelled with. With a reference on
+    // its own line it is a failed quote; otherwise gate G1, which is about labelled
+    // quotes, does not count it and a person reads it.
+    if (nearest && nearest.overlap >= ATTEMPT_OVERLAP) {
+      quotes.push({
+        ...base,
+        outcome: phrase ? 'term' : scoped.scope === 'line' ? 'mismatch' : 'suspect',
         matched: [],
         nearest,
         diff: diffAgainst(nearest.key),
