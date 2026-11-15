@@ -209,13 +209,17 @@ function paragraphBounds(text: string, start: number, end: number): [number, num
   return [from, after ? end + after.index : text.length];
 }
 
+/** The end of a sentence: a full stop, question or exclamation mark, any closing marks, then a space. */
+const SENTENCE_END = /[.!?؟。]["'»”)\]*_`]*\s/u;
+
 /** How far after / before a segment a label still counts as `near`. */
 const NEAR_AFTER = 400;
 const NEAR_BEFORE = 200;
 
 /**
- * The labels a segment is read against, nearest scope first: the labels on its own line;
- * failing that, in its paragraph; failing that, the closest one shortly after or before.
+ * The labels a segment is read against, nearest scope first: the labels on its own line
+ * (those after it, only within its sentence); failing that, in its paragraph; failing
+ * that, the closest one shortly after or before.
  * A segment inside a citation entry is read against the references that entry is headed
  * with, and against nothing when it is headed with none.
  */
@@ -230,7 +234,12 @@ export function labelsFor(
   }
   const within = ([from, to]: [number, number]) => labels.body.filter((l) => l.start >= from && l.end <= to);
 
-  const onLine = within(lineBounds(parsed.body, segment.start, segment.end));
+  // A label after the quote labels it only within the same sentence: in
+  // `In «quote», the words show no case ending. In 5:69, …` the reference opens the next
+  // sentence and is about something else. A label before the quote keeps the whole line
+  // (`Quran 68:48. «quote»`).
+  const sameSentence = (l: RefOccurrence) => l.start < segment.end || !SENTENCE_END.test(parsed.body.slice(segment.end, l.start));
+  const onLine = within(lineBounds(parsed.body, segment.start, segment.end)).filter(sameSentence);
   if (onLine.length > 0) return { scope: 'line', labels: onLine };
   const inParagraph = within(paragraphBounds(parsed.body, segment.start, segment.end));
   if (inParagraph.length > 0) return { scope: 'paragraph', labels: inParagraph };

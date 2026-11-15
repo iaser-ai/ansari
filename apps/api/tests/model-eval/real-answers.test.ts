@@ -226,3 +226,24 @@ describe('a misquote of a verse that a retrieved hadith or tafsir also cites sti
     expect(hardFails(input(answer, { ...verseInHand, hadith: [HADITH_CITING_2_286] }))).toEqual([]);
   });
 });
+
+describe('a reference in the next sentence is not the quote’s label', () => {
+  const V_2_62 = 'إِنَّ ٱلَّذِينَ ءَامَنُوا۟ وَٱلَّذِينَ هَادُوا۟ وَٱلنَّصَـٰرَىٰ وَٱلصَّـٰبِـِٔينَ مَنْ ءَامَنَ بِٱللَّهِ وَٱلْيَوْمِ ٱلْـَٔاخِرِ';
+  const V_5_69 = 'إِنَّ ٱلَّذِينَ ءَامَنُوا۟ وَٱلَّذِينَ هَادُوا۟ وَٱلصَّـٰبِـُٔونَ وَٱلنَّصَـٰرَىٰ مَنْ ءَامَنَ بِٱللَّهِ وَٱلْيَوْمِ ٱلْـَٔاخِرِ';
+  const sources = { thisTurn: [{ key: '2:62', ar: V_2_62 }, { key: '5:69', ar: V_5_69 }] };
+
+  it('gemini-4-argon, near-2-62-vs-5-69: the words of 2:62, then a new sentence about 5:69', () => {
+    const answer =
+      'In `الَّذِينَ آمَنُوا وَالَّذِينَ هَادُوا وَالنَّصَارَىٰ`, none of those words show visible case endings (*harakat zahirah*). In **5:69**, by placing the Sabians first, the Quran highlights a nuance.';
+    const score = scoreQuran(input(answer, sources));
+    expect(score.quotes.map((q) => q.outcome)).toEqual(['suspect']);
+    expect(score.quotes[0].matched).toEqual(['2:62']);
+  });
+
+  it('known-bad: the same words with 5:69 in their own sentence are a wrong reference', () => {
+    const after = 'The verse reads `الَّذِينَ آمَنُوا وَالَّذِينَ هَادُوا وَالنَّصَارَىٰ` (5:69). It promises a reward.';
+    const before = 'Quran 5:69. `الَّذِينَ آمَنُوا وَالَّذِينَ هَادُوا وَالنَّصَارَىٰ`';
+    expect(outcomes(input(after, sources))).toEqual(['wrong_reference']);
+    expect(outcomes(input(before, sources))).toEqual(['wrong_reference']);
+  });
+});
