@@ -78,3 +78,15 @@
   price is the least certain number; asked for the GCP billing rate.
 - Open for the owner, none blocking the PR: confirm prices; why the Vertex project stalls
   at four parallel conversations.
+
+## 2026-11-15 — PR #395 review: one change requested, done
+
+- Reviews: codex APPROVE, claude APPROVE, gemini skipped; CI green.
+- Requested: a source-scan test that fails if a route passes `model` to `runFacilitator`.
+  Added `apps/api/tests/source-scan/facilitator-model-pin.test.ts` (AST scan, strict: the
+  options must be absent or an object literal written at the call with no `model`, no
+  spread, no unreadable key). Proven on 11 planted lines and 9 near-misses, and on the
+  real tree: planting `{ model }` in the chat route makes it fail (1 hit in 4 calls, 28
+  files), restoring it makes it pass. Also scans that nothing under src/lib/db imports
+  from `eval/`.
+- Not merged, gate not approved: the architect is taking the decision to the owner.

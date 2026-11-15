@@ -5,8 +5,11 @@ and budgets) once per model, scores every answer with code, and writes a results
 a comparison report. Built for issue #393; meant to be re-run whenever a new model appears.
 
 It lives in `apps/api/eval/` because it calls `runFacilitator` in process: beside the code
-it measures, typechecked and linted with it, and outside `lib/` and `src/` so no route can
-import it. Its tests are in `apps/api/tests/model-eval/` and run with the normal suite.
+it measures, typechecked and linted with it, and outside `lib/` and `src/`. Its tests are
+in `apps/api/tests/model-eval/` and run with the normal suite. Two rules keep it out of
+production, both enforced by `tests/source-scan/facilitator-model-pin.test.ts`: nothing
+under `src/`, `lib/` or `db/` imports from `eval/`, and no route passes `model` to
+`runFacilitator`.
 
 ## Run it
 
