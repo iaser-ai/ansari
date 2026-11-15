@@ -1,7 +1,7 @@
 /**
  * What the search tools returned, read back out of the facilitator's tool-call records:
- * the Quran verses and the hadith a turn retrieved. These are the texts an answer's
- * quotes and `LK id` tokens are checked against.
+ * the Quran verses and the hadith a turn retrieved, and the text of every other result.
+ * These are the texts an answer's quotes and `LK id` tokens are checked against.
  *
  * The record's `content` is exactly what the model received (`formatToolResultForGemini`):
  * `{ results: [{ title, context, content }], summary }`. search_quran titles a verse
@@ -39,6 +39,12 @@ export interface ToolCallSummary {
 export interface TurnSources {
   verses: RetrievedVerse[];
   hadith: RetrievedHadith[];
+  /**
+   * The raw text of every result a tool other than search_quran returned (tafsir, fiqh
+   * encyclopedia, hadith): Arabic an answer copies from these is that source's text, not
+   * a Quran quote.
+   */
+  otherTexts: string[];
   calls: ToolCallSummary[];
 }
 
@@ -68,7 +74,7 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 /** The verses, hadith and call summaries in one turn's tool-call records. */
 export function turnSources(records: ToolCallRecord[] | null | undefined): TurnSources {
-  const out: TurnSources = { verses: [], hadith: [], calls: [] };
+  const out: TurnSources = { verses: [], hadith: [], otherTexts: [], calls: [] };
   if (!records) return out;
   const uses = new Map<string, ToolUseRecord>();
   for (const record of records) {
@@ -82,6 +88,7 @@ export function turnSources(records: ToolCallRecord[] | null | undefined): TurnS
     // skipped or refused call carries a notice, not a source.
     if (record.status === 'ok') {
       for (const result of resultsOf(record)) {
+        if (name !== 'search_quran' && str(result.content)) out.otherTexts.push(str(result.content));
         const body = parseJsonObject(result.content);
         if (!body) continue;
         const verse = QURAN_TITLE.exec(str(result.title));

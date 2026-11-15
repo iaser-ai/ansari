@@ -11,6 +11,12 @@
  *     returned, so a quote written from memory is still checked against a source.
  *  3. Decide the outcome (QuoteOutcome).
  *
+ * A quote fails (gate G1) only when it carries a label: `mismatch` and `wrong_reference`
+ * both need a reference on the quote's own line or heading its citation entry, or, for a
+ * mismatch that is plainly an attempt at a verse in hand, in its paragraph. Arabic that a
+ * tafsir, fiqh or hadith search returned is that source's text and is set aside. What is
+ * left over and looks wrong without a label is `suspect`: listed for a person to read.
+ *
  * What it cannot see is stated rather than guessed: a quote with no reference near it and
  * no matching verse in hand is `unattributed`, and is counted, not scored.
  */
@@ -31,16 +37,20 @@ export interface PoolVerse {
  * - `exact`: the quote's letters are in a verse it is labelled with, as written there.
  * - `standard`: the same after the standard-spelling rules. Correct, retyped.
  * - `skeleton`: the same only once alefs are ignored. Probably correct; read it.
- * - `wrong_reference`: the text is a verse in hand, but not one named on its line or in
- *   its paragraph.
- * - `mismatch`: the text is not in any verse in hand, and either it is clearly an attempt
- *   at one of them (half its letter windows are that verse's) or a reference sits on its
- *   own line. The quoted text differs from its source.
- * - `suspect`: four or more words of Arabic with a reference in the paragraph or nearby,
- *   matching nothing. Could be a misquote, could be other Arabic; read it.
+ * - `wrong_reference`: the text is a verse in hand, but not the one named on its own line
+ *   (or heading its citation entry).
+ * - `mismatch`: the text is not in any verse in hand, and a reference sits on its own
+ *   line, or one sits in its paragraph and the text is clearly an attempt at a verse in
+ *   hand (half its letter windows are that verse's). The quoted text differs from its
+ *   source.
+ * - `suspect`: read it. Either four or more words of Arabic that match nothing, with a
+ *   reference only in the paragraph or nearby (or resembling a verse in hand with no
+ *   reference at all); or the text of one verse in a paragraph that names only another.
  * - `unlabelled`: the text is a verse in hand, with no reference near it.
  * - `unverifiable`: a reference is named but no source text for it could be fetched.
  * - `hadith_text`: the Arabic is from a hadith a search returned. Not Quran.
+ * - `other_source`: the Arabic is from another search result (tafsir, fiqh encyclopedia),
+ *   or sits in a citation entry that is not headed with a Quran reference. Not Quran.
  * - `term`: under four words next to a reference and matching nothing: a phrase.
  * - `unattributed`: Arabic with no reference near it that matches nothing in hand.
  */
@@ -54,12 +64,13 @@ export type QuoteOutcome =
   | 'unlabelled'
   | 'unverifiable'
   | 'hadith_text'
+  | 'other_source'
   | 'term'
   | 'unattributed';
 
 export const QUOTE_OUTCOMES: readonly QuoteOutcome[] = [
   'exact', 'standard', 'skeleton', 'wrong_reference', 'mismatch', 'suspect', 'unlabelled',
-  'unverifiable', 'hadith_text', 'term', 'unattributed',
+  'unverifiable', 'hadith_text', 'other_source', 'term', 'unattributed',
 ];
 
 /** The outcomes that mean the answer quoted Quran text (rightly or wrongly). */
@@ -146,7 +157,7 @@ const MIN_LETTERS = 6;
 const VOWELLED = 0.25;
 /** Share of a failed quote's letter windows that must be a verse's to call it an attempt at that verse. */
 const ATTEMPT_OVERLAP = 0.5;
-/** The same, against a retrieved hadith's Arabic, to set a run aside as hadith text. */
+/** The same, against a retrieved hadith's or other source's Arabic, to set a run aside as that source's text. */
 const HADITH_OVERLAP = 0.6;
 /** A run this short that matches nothing is a phrase, not a quote. */
 const TERM_WORDS = 4;
@@ -243,6 +254,10 @@ export interface QuranInput {
   lookups: Record<string, { ar: string } | null>;
   /** Hadith in hand (any turn), to tell hadith Arabic from Quran Arabic. */
   hadith: RetrievedHadith[];
+  /** Text of every non-Quran search result of this turn: tafsir, fiqh, hadith. */
+  otherTexts?: string[];
+  /** The same, from earlier turns of the conversation. */
+  earlierOtherTexts?: string[];
   /** References the question expects the answer to quote, e.g. ['52:48']. */
   expectRefs?: string[];
 }
@@ -288,16 +303,27 @@ export function scoreQuran(input: QuranInput): QuranScore {
   const pool = new Map([...poolVerses].map(([key, verse]) => [key, { verse, norm: normalizeAll(verse.ar) }]));
   const chains = buildChains(pool);
   const hadithNorm = input.hadith.filter((h) => h.ar).map((h) => normalizeAll(h.ar));
+  const normTexts = (texts: string[] | undefined) =>
+    (texts ?? []).map((t) => normalizeAll(t)).filter((t) => t.standard.length >= MIN_LETTERS);
+  const otherThisTurn = normTexts(input.otherTexts);
+  const otherEarlier = normTexts(input.earlierOtherTexts);
+  const otherNorm = [...otherThisTurn, ...otherEarlier];
   const arabicAnswer = arabicShare(parsed.body) > 0.6;
 
   const labelled = new Set<string>();
   for (const ref of labels.all) for (const key of versesOf(ref)) labelled.add(key);
   const unverifiable = [...labelled].filter((key) => !pool.has(key));
 
-  const grounding = (keys: string[]): QuoteScore['grounding'] => {
+  /**
+   * Where the quoted verse came from. A verse search_quran returned counts; so does a
+   * quote whose words stand in another search result (a tafsir or hadith that cites the
+   * verse): the model had the text in front of it either way.
+   */
+  const grounding = (keys: string[], quote?: NormalizedText): QuoteScore['grounding'] => {
     const origins = keys.map((k) => pool.get(k)?.verse.origin);
-    if (origins.includes('this_turn')) return 'this_turn';
-    if (origins.includes('earlier_turn')) return 'earlier_turn';
+    const within = (sources: NormalizedText[]) => quote !== undefined && sources.some((s) => matchLevel(quote, s) !== null);
+    if (origins.includes('this_turn') || within(otherThisTurn)) return 'this_turn';
+    if (origins.includes('earlier_turn') || within(otherEarlier)) return 'earlier_turn';
     return keys.length > 0 ? 'none' : null;
   };
 
@@ -335,11 +361,19 @@ export function scoreQuran(input: QuranInput): QuranScore {
     };
     const byLevel = Object.fromEntries(LEVELS.map((l) => [l, containing(l)])) as Record<MatchLevel, Set<string>>;
 
+    // A citation entry not headed with a Quran reference (a hadith, a tafsir) whose words
+    // are in a retrieved source: the entry's own text, verse fragments inside it included.
+    const copied = (source: NormalizedText) => matchLevel(whole, source) !== null;
+    if (segment.where === 'citation' && labelVerses.size === 0 && (hadithNorm.some(copied) || otherNorm.some(copied))) {
+      quotes.push({ ...base, outcome: hadithNorm.some(copied) ? 'hadith_text' : 'other_source', matched: [], grounding: null });
+      continue;
+    }
+
     // 1. The text is in a verse it is labelled with.
     const labelledLevel = LEVELS.find((l) => [...byLevel[l]].some((k) => labelVerses.has(k)));
     if (labelledLevel) {
       const matched = [...byLevel[labelledLevel]].filter((k) => labelVerses.has(k));
-      quotes.push({ ...base, outcome: OUTCOME_OF[labelledLevel], matched, grounding: grounding(matched) });
+      quotes.push({ ...base, outcome: OUTCOME_OF[labelledLevel], matched, grounding: grounding(matched, whole) });
       continue;
     }
 
@@ -349,15 +383,31 @@ export function scoreQuran(input: QuranInput): QuranScore {
     const anyLevel = LEVELS.find((l) => byLevel[l].size > 0);
     if (anyLevel) {
       const matched = [...byLevel[anyLevel]];
-      const named = scoped.scope === 'line' || scoped.scope === 'paragraph';
-      const outcome: QuoteOutcome = !named ? 'unlabelled' : labelsMissingText ? 'unverifiable' : 'wrong_reference';
-      quotes.push({ ...base, outcome, matched, grounding: grounding(matched) });
+      // Only a reference on the quote's own line (or heading its entry) labels it. A
+      // paragraph that names one verse and quotes another may be discussing both: read it.
+      const outcome: QuoteOutcome =
+        scoped.scope === 'line'
+          ? labelsMissingText
+            ? 'unverifiable'
+            : 'wrong_reference'
+          : scoped.scope === 'paragraph'
+            ? 'suspect'
+            : 'unlabelled';
+      quotes.push({ ...base, outcome, matched, grounding: grounding(matched, whole) });
       continue;
     }
 
     // 3. The text is in no verse in hand.
-    if (hadithNorm.some((h) => matchLevel(whole, h) !== null || overlap(whole, h) >= HADITH_OVERLAP)) {
+    const fromSource = (source: NormalizedText) => matchLevel(whole, source) !== null || overlap(whole, source) >= HADITH_OVERLAP;
+    if (hadithNorm.some(fromSource)) {
       quotes.push({ ...base, outcome: 'hadith_text', matched: [], grounding: null });
+      continue;
+    }
+    // Text a tafsir or fiqh search returned, or Arabic inside a citation entry that is
+    // not a Quran entry: that source's words, not a quotation of the Quran.
+    const inOtherEntry = segment.where === 'citation' && labelVerses.size === 0;
+    if (inOtherEntry || otherNorm.some(fromSource)) {
+      quotes.push({ ...base, outcome: 'other_source', matched: [], grounding: null });
       continue;
     }
     let nearest: { key: string; overlap: number } | undefined;
@@ -368,9 +418,12 @@ export function scoreQuran(input: QuranInput): QuranScore {
     const diffAgainst = (key: string) => ({ against: key, ...wordDiff(segment.text, pool.get(key)!.verse.ar) });
 
     if (nearest && nearest.overlap >= ATTEMPT_OVERLAP) {
+      // An attempt at a verse in hand. It fails only with a reference on its line or in
+      // its paragraph: gate G1 is about quotes that are labelled.
+      const named = scoped.scope === 'line' || scoped.scope === 'paragraph';
       quotes.push({
         ...base,
-        outcome: 'mismatch',
+        outcome: named ? 'mismatch' : segment.words < TERM_WORDS || onlyFormulae ? 'term' : 'suspect',
         matched: [],
         nearest,
         diff: diffAgainst(nearest.key),

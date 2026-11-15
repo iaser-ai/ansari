@@ -34,6 +34,7 @@ export function costUsd(record: Pick<TurnRecord, 'usage'>, price: ModelPrice | u
 export interface EarlierTurns {
   verses: RetrievedVerse[];
   hadith: RetrievedHadith[];
+  otherTexts: string[];
 }
 
 export function scoreTurn(record: TurnRecord, earlier: EarlierTurns, price: ModelPrice | undefined): TurnScores {
@@ -44,6 +45,8 @@ export function scoreTurn(record: TurnRecord, earlier: EarlierTurns, price: Mode
     earlierTurns: earlier.verses,
     lookups: record.lookups,
     hadith: [...sources.hadith, ...earlier.hadith],
+    otherTexts: sources.otherTexts,
+    earlierOtherTexts: earlier.otherTexts,
     expectRefs: record.expectRefs,
   });
   const hadith = scoreHadith({ answer: record.answer, thisTurn: sources.hadith, earlierTurns: earlier.hadith });
@@ -88,13 +91,14 @@ export function scoreRun(run: RunFile): void {
   }
   for (const turns of conversations.values()) {
     turns.sort((a, b) => a.turn - b.turn);
-    const earlier: EarlierTurns = { verses: [], hadith: [] };
+    const earlier: EarlierTurns = { verses: [], hadith: [], otherTexts: [] };
     for (const record of turns) {
       if (record.outcome === 'ok') record.scores = scoreTurn(record, earlier, run.prices[record.model]);
       else delete record.scores;
       const sources = turnSources(record.toolCalls);
       earlier.verses.push(...sources.verses);
       earlier.hadith.push(...sources.hadith);
+      earlier.otherTexts.push(...sources.otherTexts);
     }
   }
 }

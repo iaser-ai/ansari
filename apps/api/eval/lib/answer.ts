@@ -70,9 +70,13 @@ export function parseAnswer(answer: string): ParsedAnswer {
 
 // ── Arabic runs ──────────────────────────────────────────────────────────────
 
-/** Arabic letters (tatweel included), not digits or punctuation. */
+/**
+ * Arabic letters (tatweel included), not digits or punctuation. The presentation-forms
+ * block is split around U+FD3E and U+FD3F: those are the ornate brackets ﴿ ﴾, and a
+ * bracket must end a run, or `﴿verse﴾ الآية` reads as one quote with a wrong last word.
+ */
 const LETTERS =
-  '\\u0620-\\u064A\\u066E\\u066F\\u0671-\\u06D3\\u06D5\\u06E5\\u06E6\\u06EE\\u06EF\\u06FA-\\u06FC\\u06FF\\u0750-\\u077F\\u08A0-\\u08B4\\uFB50-\\uFDFB\\uFE70-\\uFEFC';
+  '\\u0620-\\u064A\\u066E\\u066F\\u0671-\\u06D3\\u06D5\\u06E5\\u06E6\\u06EE\\u06EF\\u06FA-\\u06FC\\u06FF\\u0750-\\u077F\\u08A0-\\u08B4\\uFB50-\\uFD3D\\uFD40-\\uFDFB\\uFE70-\\uFEFC';
 /** Vowel marks and Quranic annotation signs. */
 const MARKS = '\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06DC\\u06DF-\\u06E4\\u06E7\\u06E8\\u06EA-\\u06ED\\u08D3-\\u08FF';
 /** What may sit between the letters of one run: spaces on a line, joiners, ۞ and ۩. */
@@ -157,7 +161,12 @@ export interface Label extends RefOccurrence {
 export interface AnswerLabels {
   /** Labels in the prose, by position: written references and `[n]` markers resolved. */
   body: Label[];
-  /** References written inside each citation entry, by entry number. */
+  /**
+   * The references each citation entry is headed with, by entry number: the ones on its
+   * first line (`[1] Quran 2:286`). An entry headed with none is not a Quran entry: a
+   * hadith, a tafsir or a fiqh source, whose Arabic is that source's text. A reference
+   * further down such an entry (a tafsir saying "when 2:284 was revealed") is not a label.
+   */
   byEntry: Map<number, RefOccurrence[]>;
   /** Every distinct reference the answer names, anywhere. */
   all: RefOccurrence[];
@@ -168,8 +177,9 @@ export function answerLabels(parsed: ParsedAnswer): AnswerLabels {
   const all: RefOccurrence[] = [];
   for (const entry of parsed.entries) {
     const refs = findRefs(entry.text).map((r) => ({ ...r, start: r.start + entry.start, end: r.end + entry.start }));
+    const headerEnd = entry.start + (entry.text.indexOf('\n') === -1 ? entry.text.length : entry.text.indexOf('\n'));
     // The first entry with a number wins, as it does for a reader.
-    if (!byEntry.has(entry.number)) byEntry.set(entry.number, refs);
+    if (!byEntry.has(entry.number)) byEntry.set(entry.number, refs.filter((r) => r.end <= headerEnd));
     all.push(...refs);
   }
 
@@ -206,7 +216,8 @@ const NEAR_BEFORE = 200;
 /**
  * The labels a segment is read against, nearest scope first: the labels on its own line;
  * failing that, in its paragraph; failing that, the closest one shortly after or before.
- * A segment inside a citation entry is read against that entry's references only.
+ * A segment inside a citation entry is read against the references that entry is headed
+ * with, and against nothing when it is headed with none.
  */
 export function labelsFor(
   segment: ArabicSegment,

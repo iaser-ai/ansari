@@ -75,17 +75,20 @@ All by code; the functions are in `eval/lib/` and each file's header states its 
 
 | Measure | How |
 |---|---|
-| Quran quote matches its source | Every run of Arabic is compared with the retrieved text of the verse it is labelled with (`score-quran.ts`). Letters only, at three levels (`arabic.ts`): as written, in standard spelling, and ignoring alefs. A reference the answer names that no search returned is looked up, so a quote written from memory is still checked. |
-| The reference is right | A quote whose text is a different verse than its label is `wrong_reference`; a question can also list the references its answer should quote (`expectRefs`). |
+| Quran quote matches its source | Every run of Arabic is compared with the retrieved text of the verse it is labelled with (`score-quran.ts`). Letters only, at three levels (`arabic.ts`): as written, in standard spelling, and ignoring alefs. A reference the answer names that no search returned is looked up, so a quote written from memory is still checked. Arabic a tafsir, fiqh or hadith search returned, and Arabic in a citation entry not headed with a Quran reference, is that source's text and is set aside. |
+| The reference is right | A quote whose text is a different verse than the reference on its own line (or heading its citation entry) is `wrong_reference`; a question can also list the references its answer should quote (`expectRefs`). |
 | Hadith `LK id` came from a search | Every `LK id` token is looked up among the ids `search_hadith` returned in that turn, an earlier turn, or nowhere (`fabricated`). Also: hadith citations with no id, and stated grades that contradict the search result (`score-hadith.ts`). |
 | Answer is in the question's language | Script share of the prose, then function words or script-specific letters (`score-language.ts`). |
-| Searched before quoting | Per quote: the verse came from a search in this turn, an earlier turn, or none. Per turn: scripture quoted with no result from the matching search tool. |
+| Searched before quoting | Per quote: the verse (or the quoted words, inside a tafsir or hadith result) came from a search in this turn, an earlier turn, or none. Per turn: scripture quoted with no result from the matching search tool. |
 | Latency, tokens, cost, tools, failures | Time to first event and first visible text, total time; tokens summed over the turn's model calls; cost per answer and per 1,000 answers from `models.json` (see Prices); tool calls and how many returned no source; errors, budget syntheses and retries (read from the facilitator's own log lines, attributed per request). |
 
 The report states counts and lists every failed quote with its diff, every fabricated id,
-every answer in the wrong language and every error. Two buckets are for a human to read,
-not for the gate: quotes that differ from their source only by an alef, and Arabic near a
-reference that matches nothing.
+every answer in the wrong language and every error. A quote fails only when it is labelled:
+a reference on its own line, or in its paragraph when the text is plainly an attempt at a
+verse in hand. Two buckets are for a human to read, not for the gate: quotes that differ
+from their source only by an alef, and `suspect` Arabic (text near a reference that
+matches nothing, text resembling a verse with no reference at all, or one verse's text in
+a paragraph that names only another).
 
 ### Limits, stated
 

@@ -25,6 +25,8 @@ export interface ModelStats {
     wrongReference: number;
     mismatch: number;
     suspect: number;
+    /** Arabic set aside as the text of a hadith, tafsir or fiqh source: not a Quran quote. */
+    otherSource: number;
     unlabelled: number;
     unverifiable: number;
     hardFails: number;
@@ -100,6 +102,7 @@ export function modelStats(model: string, records: TurnRecord[]): ModelStats {
       wrongReference: sum((r) => r.scores!.quran.counts.wrong_reference),
       mismatch: sum((r) => r.scores!.quran.counts.mismatch),
       suspect: sum((r) => r.scores!.quran.counts.suspect),
+      otherSource: sum((r) => r.scores!.quran.counts.hadith_text + (r.scores!.quran.counts.other_source ?? 0)),
       unlabelled: sum((r) => r.scores!.quran.counts.unlabelled),
       unverifiable: sum((r) => r.scores!.quran.counts.unverifiable),
       hardFails: sum((r) => r.scores!.quran.counts.wrong_reference + r.scores!.quran.counts.mismatch),
@@ -357,9 +360,10 @@ export function renderReport(run: RunFile): string {
         row('… **wrong reference**', (s) => `${s.quran.wrongReference}`),
         row('… no reference near the quote', (s) => `${s.quran.unlabelled}`),
         row('Suspect Arabic near a reference (read these)', (s) => `${s.quran.suspect}`),
+        row('Arabic set aside as hadith, tafsir or fiqh text', (s) => `${s.quran.otherSource}`),
         row('Quotes with no source text to check', (s) => `${s.quran.unverifiable}`),
         row('Quran quotes not from a search in the same turn', (s) => `${s.quran.notFromThisTurn} (${pct(s.quran.notFromThisTurn, s.quran.quotes)})`),
-        row('… of which no search ever returned the verse', (s) => `${s.quran.fromMemory}`),
+        row('… of which no search returned the verse or its words', (s) => `${s.quran.fromMemory}`),
         row('Turns quoting Quran with no search_quran result', (s) => `${s.scriptureWithoutSearch.quran}`),
         row('Expected references named / quoted correctly', (s) => `${s.expected.labelled} / ${s.expected.quoted} of ${s.expected.refs}`),
         row('LK ids cited', (s) => `${s.hadith.ids}`),

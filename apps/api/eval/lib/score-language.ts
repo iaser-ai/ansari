@@ -44,8 +44,14 @@ const LATIN_WORD = /[\p{Script=Latin}]+(?:['’][\p{Script=Latin}]+)?/gu;
 const SCRIPT_SHARE = 0.6;
 /** Share of Arabic-script letters that are non-Arabic letters, above which the text is Urdu or Persian. */
 const NON_ARABIC_SHARE = 0.02;
-/** Fewest function-word hits needed to name a Latin-script language. */
+/** Function-word hits that name a Latin-script language outright. */
 const MIN_HITS = 5;
+/**
+ * A short answer (a verse and its translation) has few function words. Fewer hits still
+ * name the language when no other language comes close: at least this many, and at least
+ * twice the runner-up's.
+ */
+const MIN_HITS_CLEAR = 2;
 
 export interface LanguageScore {
   expected: string;
@@ -92,7 +98,8 @@ export function scoreLanguage(answer: string, expected: string): LanguageScore {
   }
   const ranked = Object.entries(hits).sort((a, b) => b[1] - a[1]);
   const [best, bestHits] = ranked[0];
-  let detected = bestHits >= MIN_HITS ? best : 'latin-script';
+  const runnerUp = ranked[1]?.[1] ?? 0;
+  let detected = bestHits >= MIN_HITS || (bestHits >= MIN_HITS_CLEAR && bestHits >= 2 * runnerUp) ? best : 'latin-script';
   // Indonesian and Malay share most function words; an answer is not failed for the tie.
   if ((detected === 'id' || detected === 'ms') && (expected === 'id' || expected === 'ms')) detected = expected;
   // Between the two scripts: neither dominates. Named, and never a pass.
