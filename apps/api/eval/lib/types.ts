@@ -112,8 +112,10 @@ export interface ModelPrice {
   /** US dollars per million output tokens (visible and thinking); null when not known. */
   outputPerMTok: number | null;
   source?: string;
-  /** True only when a person has checked the numbers against the provider's live pricing page. */
+  /** True only when a person has checked the numbers against the Vertex AI pricing page. */
   confirmed?: boolean;
+  /** A weaker check than `confirmed`, in a few words: shown beside the NO in the report. */
+  checked?: string;
   /** A price change already announced: the report also costs the run at this price. */
   next?: { from: string; inputPerMTok: number; outputPerMTok: number };
 }

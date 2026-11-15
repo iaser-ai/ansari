@@ -126,6 +126,8 @@ The report's Cost section gives, per model, the price inputs, the cost per answe
 - `confirmed`: `true` only after a person has checked the numbers against the
   [Vertex AI pricing page](https://cloud.google.com/vertex-ai/generative-ai/pricing). The
   report marks every figure for an unconfirmed model. Put the date you checked in `source`.
+- `checked` (optional): a weaker check in a few words, such as "Developer API page, Vertex
+  unconfirmed". It is shown beside the NO; the price still counts as not confirmed.
 - `next` (optional): an announced price change, `{ "from": "2026-12-01", "inputPerMTok":
   4, "outputPerMTok": 20 }`. The report then also costs the run at that price, because an
   introductory rate that ends next month is not the price a decision should rest on.

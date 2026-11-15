@@ -276,7 +276,9 @@ function costSection(run: RunFile, stats: ModelStats[], base: ModelStats): strin
       ['Measure', ...stats.map((s) => s.model)],
       [
         row('Price, US$ per million tokens: input / output', (s) => pricePair(price(s)?.inputPerMTok, price(s)?.outputPerMTok)),
-        row('Price checked against the live pricing page', (s) => (price(s)?.confirmed === true ? 'yes' : '**NO**')),
+        row('Price confirmed on the Vertex AI pricing page', (s) =>
+          price(s)?.confirmed === true ? 'yes' : price(s)?.checked ? `**NO** (${price(s)?.checked})` : '**NO**',
+        ),
         row('Tokens per answer: input / output / thinking', (s) => `${num(s.tokens.promptMean)} / ${num(s.tokens.outputMean)} / ${num(s.tokens.thoughtsMean)}`),
         row('Answers costed', (s) => `${s.cost.priced} of ${s.ok}`),
         row('**Cost per answer**', (s) => usd(cost(s).perAnswer)),

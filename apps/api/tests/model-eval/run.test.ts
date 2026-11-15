@@ -355,7 +355,11 @@ describe('report', () => {
   it('costs an answer and 1,000 answers, shows the price inputs, and marks an unchecked price', () => {
     const report = renderReport(run);
     expect(report).toContain('| Price, US$ per million tokens: input / output | $1.00 / $4.00 | n/a |');
-    expect(report).toContain('| Price checked against the live pricing page | **NO** | **NO** |');
+    expect(report).toContain('| Price confirmed on the Vertex AI pricing page | **NO** | **NO** |');
+    // A weaker check is named beside the NO, and is still a NO.
+    const partly = renderReport({ ...run, prices: { ...run.prices, 'good-model': { inputPerMTok: 1, outputPerMTok: 4, checked: 'Developer API page, Vertex unconfirmed' } } });
+    expect(partly).toContain('| Price confirmed on the Vertex AI pricing page | **NO** (Developer API page, Vertex unconfirmed) | **NO** |');
+    expect(partly).toContain('**Prices not confirmed** for `good-model`, `bad-model`.');
     expect(report).toContain('| Tokens per answer: input / output / thinking | 10000 / 800 / 200 | 10000 / 800 / 200 |');
     expect(report).toContain('| Answers costed | 4 of 4 | 0 of 3 |');
     expect(report).toContain('| **Cost per answer** | $0.0140 | n/a |');
@@ -376,7 +380,7 @@ describe('report', () => {
         'bad-model': { inputPerMTok: 3, outputPerMTok: 12, confirmed: true, source: 'pricing page, read 2026-11-15' },
       },
     });
-    expect(report).toContain('| Price checked against the live pricing page | yes | yes |');
+    expect(report).toContain('| Price confirmed on the Vertex AI pricing page | yes | yes |');
     expect(report).not.toContain('Prices not confirmed');
     expect(report).not.toContain('(price not confirmed)');
     expect(report).toContain('| Announced price change: input / output | $2.00 / $8.00 from 2027-01-01 | none known |');
