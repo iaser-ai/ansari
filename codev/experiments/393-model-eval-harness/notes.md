@@ -386,3 +386,9 @@ a row in any single scaffold table` timed out once (30 s limit) in a full local 
 apps/api suite while other builders were using the machine, and passed when run on its own.
 This branch does not touch it or anything it imports. Not skipped: one timeout under load
 is not enough to disable a migration guard.
+
+A second full run before the PR (1452 passed) failed the same test again and also
+`tests/contract/legacy-users-contract.test.ts > POST /v2/users/login > finds a lowercase
+row from a mixed-case email`. Both passed when the two files were run on their own (73 of
+73), and this branch touches neither. Both look like timeouts when the whole suite runs in
+parallel on a busy machine; CI is the place to see whether they are flaky there.
