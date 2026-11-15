@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'node:path';
 import { installLogCapture } from '../../eval/lib/capture';
 import { loadQuestionSet, parseQuestionSet } from '../../eval/lib/question-set';
-import { evaluateGates, modelStats, percentile, renderReport } from '../../eval/lib/report';
+import { costSummary, evaluateGates, modelStats, percentile, renderReport } from '../../eval/lib/report';
 import { planJobs, runConversation, runJobs, type FacilitatorEvent, type HistoryMessage, type RunnerDeps } from '../../eval/lib/runner';
 import { costUsd, scoreRun } from '../../eval/lib/score';
 import type { Question, RunFile, TurnRecord } from '../../eval/lib/types';
@@ -349,6 +349,69 @@ describe('report', () => {
     expect(report).toContain('No price in models.json for `bad-model`');
     // And says None where there is nothing, rather than leaving a section out.
     expect(report).toContain('## Grades that contradict the search result\n\nNone.');
+  });
+
+  // Each good-model answer is 10,000 input and 1,000 output tokens at $1 / $4: $0.014.
+  it('costs an answer and 1,000 answers, shows the price inputs, and marks an unchecked price', () => {
+    const report = renderReport(run);
+    expect(report).toContain('| Price, US$ per million tokens: input / output | $1.00 / $4.00 | n/a |');
+    expect(report).toContain('| Price checked against the live pricing page | **NO** | **NO** |');
+    expect(report).toContain('| Tokens per answer: input / output / thinking | 10000 / 800 / 200 | 10000 / 800 / 200 |');
+    expect(report).toContain('| Answers costed | 4 of 4 | 0 of 3 |');
+    expect(report).toContain('| **Cost per answer** | $0.0140 | n/a |');
+    expect(report).toContain('| **Cost per 1,000 answers** | $14.00 | n/a |');
+    expect(report).toContain('| … relative to the baseline | 1.00x | n/a |');
+    expect(report).toContain('| Cost per answer / per 1,000 answers / this run | $0.0140 / $14.00 / $0.06 (price not confirmed) | n/a / n/a / n/a |');
+    expect(report).toContain('**Prices not confirmed** for `good-model`, `bad-model`.');
+    // No announced change in these prices: the rows for one are left out.
+    expect(report).not.toContain('Announced price change');
+  });
+
+  it('a confirmed price reads as confirmed, and an announced change is costed beside the current price', () => {
+    const report = renderReport({
+      ...run,
+      prices: {
+        'good-model': { inputPerMTok: 1, outputPerMTok: 4, confirmed: true, source: 'pricing page, read 2026-11-15', next: { from: '2027-01-01', inputPerMTok: 2, outputPerMTok: 8 } },
+        // Same tokens, three times the price, no announced change.
+        'bad-model': { inputPerMTok: 3, outputPerMTok: 12, confirmed: true, source: 'pricing page, read 2026-11-15' },
+      },
+    });
+    expect(report).toContain('| Price checked against the live pricing page | yes | yes |');
+    expect(report).not.toContain('Prices not confirmed');
+    expect(report).not.toContain('(price not confirmed)');
+    expect(report).toContain('| Announced price change: input / output | $2.00 / $8.00 from 2027-01-01 | none known |');
+    // The run recorded bad-model's scores with no price, so its cost stays n/a until rescored.
+    expect(report).toContain('| Cost per 1,000 answers after the announced changes | $28.00 | n/a |');
+    expect(report).toContain('- `good-model`: pricing page, read 2026-11-15');
+  });
+
+  it('costSummary: the later figure equals the current one without an announced change, and never invents a cost', () => {
+    const good = modelStats('good-model', run.records);
+    const now = costSummary(good, { inputPerMTok: 1, outputPerMTok: 4 });
+    expect(now.perAnswer).toBeCloseTo(0.014, 10);
+    expect(now.per1000).toBeCloseTo(14, 8);
+    expect(now.laterPer1000).toBeCloseTo(14, 8);
+    const later = costSummary(good, { inputPerMTok: 1, outputPerMTok: 4, next: { from: '2027-01-01', inputPerMTok: 2, outputPerMTok: 8 } });
+    expect(later.per1000).toBeCloseTo(14, 8);
+    expect(later.laterPer1000).toBeCloseTo(28, 8);
+    // An unpriced model has no cost now, so it has none later either, even with a `next` price.
+    const bad = modelStats('bad-model', run.records);
+    expect(costSummary(bad, { inputPerMTok: null, outputPerMTok: null, next: { from: '2027-01-01', inputPerMTok: 2, outputPerMTok: 8 } })).toEqual({
+      perAnswer: null,
+      per1000: null,
+      laterPerAnswer: null,
+      laterPer1000: null,
+    });
+  });
+
+  it('rescoring with a three-times price gives three times the cost per 1,000 answers', () => {
+    const copy = structuredClone(run);
+    copy.prices['bad-model'] = { inputPerMTok: 3, outputPerMTok: 12 };
+    scoreRun(copy);
+    const report = renderReport(copy);
+    expect(report).toContain('| **Cost per 1,000 answers** | $14.00 | $42.00 |');
+    expect(report).toContain('| … relative to the baseline | 1.00x | 3.00x |');
+    expect(report).toMatch(/\| G6 Cost \(not gated\) \| FAIL: mean \$0\.0420 per answer, 3\.00x the baseline's \$0\.0140; see Cost \|/);
   });
 
   it('percentile is nearest-rank', () => {

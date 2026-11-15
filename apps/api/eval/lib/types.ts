@@ -112,6 +112,10 @@ export interface ModelPrice {
   /** US dollars per million output tokens (visible and thinking); null when not known. */
   outputPerMTok: number | null;
   source?: string;
+  /** True only when a person has checked the numbers against the provider's live pricing page. */
+  confirmed?: boolean;
+  /** A price change already announced: the report also costs the run at this price. */
+  next?: { from: string; inputPerMTok: number; outputPerMTok: number };
 }
 
 export interface RunFile {

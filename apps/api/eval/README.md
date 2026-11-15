@@ -80,7 +80,7 @@ All by code; the functions are in `eval/lib/` and each file's header states its 
 | Hadith `LK id` came from a search | Every `LK id` token is looked up among the ids `search_hadith` returned in that turn, an earlier turn, or nowhere (`fabricated`). Also: hadith citations with no id, and stated grades that contradict the search result (`score-hadith.ts`). |
 | Answer is in the question's language | Script share of the prose, then function words or script-specific letters (`score-language.ts`). |
 | Searched before quoting | Per quote: the verse came from a search in this turn, an earlier turn, or none. Per turn: scripture quoted with no result from the matching search tool. |
-| Latency, tokens, cost, tools, failures | Time to first event and first visible text, total time; tokens summed over the turn's model calls; cost from `models.json`; tool calls and how many returned no source; errors, budget syntheses and retries (read from the facilitator's own log lines, attributed per request). |
+| Latency, tokens, cost, tools, failures | Time to first event and first visible text, total time; tokens summed over the turn's model calls; cost per answer and per 1,000 answers from `models.json` (see Prices); tool calls and how many returned no source; errors, budget syntheses and retries (read from the facilitator's own log lines, attributed per request). |
 
 The report states counts and lists every failed quote with its diff, every fabricated id,
 every answer in the wrong language and every error. Two buckets are for a human to read,
@@ -114,6 +114,24 @@ correcting a scorer or adding a price to `models.json`.
 1. Pass its id in `--models`. Nothing else is needed to run it.
 2. For cost, add its price to `eval/models.json` (US dollars per million input and output
    tokens, with where the number came from). A model without a price reports cost as n/a.
+
+### Prices
+
+The report's Cost section gives, per model, the price inputs, the cost per answer and per
+1,000 answers, and the ratio to the baseline. Each entry in `eval/models.json` carries:
+
+- `confirmed`: `true` only after a person has checked the numbers against the
+  [Vertex AI pricing page](https://cloud.google.com/vertex-ai/generative-ai/pricing). The
+  report marks every figure for an unconfirmed model. Put the date you checked in `source`.
+- `next` (optional): an announced price change, `{ "from": "2026-12-01", "inputPerMTok":
+  4, "outputPerMTok": 20 }`. The report then also costs the run at that price, because an
+  introductory rate that ends next month is not the price a decision should rest on.
+
+After editing prices, run `eval/rescore.ts` on the results file: no model is called.
+
+What the cost figure is: model tokens only, at the full input price (the facilitator does
+not report cached-input tokens, so a caching discount makes the real bill lower), averaged
+over this question set, which is not production's mix of questions.
 
 ## Add or change a question
 

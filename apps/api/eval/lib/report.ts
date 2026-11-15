@@ -4,7 +4,7 @@
  * id, each answer in the wrong language, each error). Counts, not just verdicts.
  */
 import { HARD_FAIL, type QuoteScore } from './score-quran';
-import type { RunFile, TurnRecord } from './types';
+import type { ModelPrice, RunFile, TurnRecord } from './types';
 
 type Grounding = 'this_turn' | 'earlier_turn' | 'none';
 
@@ -205,7 +205,7 @@ export function evaluateGates(base: ModelStats, cand: ModelStats): GateResult[] 
     {
       gate: 'G6 Cost (not gated)',
       pass: cost,
-      detail: `mean ${usd(cand.cost.perAnswerMean)} per answer (baseline ${usd(base.cost.perAnswerMean)})`,
+      detail: `mean ${usd(cand.cost.perAnswerMean)} per answer, ${times(cand.cost.perAnswerMean, base.cost.perAnswerMean)} the baseline's ${usd(base.cost.perAnswerMean)}; see Cost`,
     },
   ];
 }
@@ -222,6 +222,95 @@ function table(header: string[], rows: string[][]): string {
 const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 const clip = (text: string, max = 160): string => (text.length <= max ? text : `${text.slice(0, max)}…`);
 const where = (r: TurnRecord): string => `${r.questionId}${r.turn > 0 ? ` turn ${r.turn + 1}` : ''}${r.repeat > 0 ? ` (repeat ${r.repeat + 1})` : ''}`;
+
+const usd2 = (value: number | null): string => (value === null ? 'n/a' : `$${value.toFixed(2)}`);
+const times = (value: number | null, base: number | null): string =>
+  value === null || base === null || base === 0 ? 'n/a' : `${(value / base).toFixed(2)}x`;
+
+export interface CostSummary {
+  /** Mean cost of one answer (one facilitator request, all its model calls) at the price the run recorded. */
+  perAnswer: number | null;
+  per1000: number | null;
+  /**
+   * The same answers costed once the model's announced price change (`next`) is in effect;
+   * equal to the current figures for a model with no announced change.
+   */
+  laterPerAnswer: number | null;
+  laterPer1000: number | null;
+}
+
+/** Cost per answer and per 1,000 answers, now and after any announced price change. */
+export function costSummary(stats: ModelStats, price: ModelPrice | undefined): CostSummary {
+  const perAnswer = stats.cost.perAnswerMean;
+  const { promptMean, outputMean, thoughtsMean } = stats.tokens;
+  const next = price?.next;
+  const laterPerAnswer =
+    perAnswer === null
+      ? null
+      : next === undefined
+        ? perAnswer
+        : promptMean === null || outputMean === null || thoughtsMean === null
+          ? null
+          : (promptMean * next.inputPerMTok + (outputMean + thoughtsMean) * next.outputPerMTok) / 1_000_000;
+  const k = (v: number | null) => (v === null ? null : v * 1000);
+  return { perAnswer, per1000: k(perAnswer), laterPerAnswer, laterPer1000: k(laterPerAnswer) };
+}
+
+/** `$0.75 / $3.75`, or n/a when either side is unknown. */
+const pricePair = (input: number | null | undefined, output: number | null | undefined): string =>
+  input === null || input === undefined || output === null || output === undefined ? 'n/a' : `${usd2(input)} / ${usd2(output)}`;
+
+function costSection(run: RunFile, stats: ModelStats[], base: ModelStats): string[] {
+  const price = (s: ModelStats): ModelPrice | undefined => run.prices[s.model];
+  const cost = (s: ModelStats) => costSummary(s, price(s));
+  const baseCost = cost(base);
+  const row = (label: string, pick: (s: ModelStats) => string): string[] => [label, ...stats.map(pick)];
+  const anyNext = stats.some((s) => price(s)?.next !== undefined);
+  const unconfirmed = stats.filter((s) => price(s)?.confirmed !== true);
+  const out: string[] = ['## Cost', ''];
+  out.push(
+    table(
+      ['Measure', ...stats.map((s) => s.model)],
+      [
+        row('Price, US$ per million tokens: input / output', (s) => pricePair(price(s)?.inputPerMTok, price(s)?.outputPerMTok)),
+        row('Price checked against the live pricing page', (s) => (price(s)?.confirmed === true ? 'yes' : '**NO**')),
+        row('Tokens per answer: input / output / thinking', (s) => `${num(s.tokens.promptMean)} / ${num(s.tokens.outputMean)} / ${num(s.tokens.thoughtsMean)}`),
+        row('Answers costed', (s) => `${s.cost.priced} of ${s.ok}`),
+        row('**Cost per answer**', (s) => usd(cost(s).perAnswer)),
+        row('**Cost per 1,000 answers**', (s) => usd2(cost(s).per1000)),
+        row('… relative to the baseline', (s) => times(cost(s).perAnswer, baseCost.perAnswer)),
+        ...(anyNext
+          ? [
+              row('Announced price change: input / output', (s) => {
+                const next = price(s)?.next;
+                return next === undefined ? 'none known' : `${pricePair(next.inputPerMTok, next.outputPerMTok)} from ${next.from}`;
+              }),
+              row('Cost per 1,000 answers after the announced changes', (s) => usd2(cost(s).laterPer1000)),
+              row('… relative to the baseline, both after their changes', (s) => times(cost(s).laterPerAnswer, baseCost.laterPerAnswer)),
+            ]
+          : []),
+      ],
+    ),
+    '',
+  );
+  out.push(
+    '- An answer is one facilitator request: every model call of the turn (tool rounds, retries, the final answer). Thinking tokens are billed at the output price.',
+    '- The mean is over this question set. Production traffic has a different mix of questions and longer histories, so read the ratio between models before the dollar figure.',
+    '- Input is costed at the full input price. The facilitator does not report cached-input tokens, so any caching discount Vertex applies makes the real bill lower than this.',
+    '- Model cost only: the search services are not in it. An errored turn reports no usage and is not costed.',
+    ...(unconfirmed.length > 0
+      ? [
+          `- **Prices not confirmed** for ${unconfirmed.map((s) => `\`${s.model}\``).join(', ')}. Every dollar figure for those models is an estimate until someone checks \`eval/models.json\` against the pricing page, sets \`confirmed\`, and runs \`eval/rescore.ts\`.`,
+        ]
+      : []),
+    '',
+    'Where each price came from:',
+    '',
+    ...stats.map((s) => `- \`${s.model}\`: ${price(s)?.source ?? 'no source recorded'}`),
+    '',
+  );
+  return out;
+}
 
 export function renderReport(run: RunFile): string {
   const stats = run.models.map((m) => modelStats(m, run.records));
@@ -285,11 +374,17 @@ export function renderReport(run: RunFile): string {
         row('Total time: median / p90', (s) => `${ms(s.latency.totalMedian)} / ${ms(s.latency.totalP90)}`),
         row('Tool calls per answer (calls that returned no source)', (s) => `${num(s.tools.callsMean, 1)} (${s.tools.notOk})`),
         row('Tokens per answer: input / output / thinking', (s) => `${num(s.tokens.promptMean)} / ${num(s.tokens.outputMean)} / ${num(s.tokens.thoughtsMean)}`),
-        row('Cost per answer / whole run', (s) => `${usd(s.cost.perAnswerMean)} / ${usd(s.cost.total)}`),
+        row('Cost per answer / per 1,000 answers / this run', (s) => {
+          const c = costSummary(s, run.prices[s.model]);
+          const mark = c.perAnswer !== null && run.prices[s.model]?.confirmed !== true ? ' (price not confirmed)' : '';
+          return `${usd(c.perAnswer)} / ${usd2(c.per1000)} / ${usd2(s.cost.total)}${mark}`;
+        }),
       ],
     ),
     '',
   );
+
+  out.push(...costSection(run, stats, base));
 
   out.push('## Quran quotes by where the verse came from', '');
   out.push(
