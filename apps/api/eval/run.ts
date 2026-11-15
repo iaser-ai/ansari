@@ -2,7 +2,7 @@
  * Model evaluation harness (issue #393): run a question set through the real facilitator
  * for each model, score every answer, write a results file and a comparison report.
  *
- *   pnpm --filter ansari-api exec tsx --env-file=<env file> eval/run.ts \
+ *   pnpm --filter ansari-api exec -- tsx --env-file=<env file> eval/run.ts \
  *     --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
  *
  * See eval/README.md.

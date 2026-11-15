@@ -13,9 +13,13 @@ import it. Its tests are in `apps/api/tests/model-eval/` and run with the normal
 From the repo root, with an env file that holds real credentials:
 
 ```bash
-pnpm --filter ansari-api exec tsx --env-file=.env.eval.local eval/run.ts \
+pnpm --filter ansari-api exec -- tsx --env-file=.env.eval.local eval/run.ts \
   --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
 ```
+
+The `--` after `exec` is required: without it pnpm takes `--env-file` for itself and the
+run stops with `node: .env.eval.local: not found`. The env file path is relative to
+`apps/api/`.
 
 The first model is the baseline the others are compared against. The run prints one line
 per conversation and ends with the two paths it wrote, under `apps/api/eval/results/`:
@@ -99,7 +103,7 @@ reference that matches nothing.
 ## Rescore without calling a model
 
 ```bash
-pnpm --filter ansari-api exec tsx eval/rescore.ts eval/results/<run id>.json
+pnpm --filter ansari-api exec -- tsx eval/rescore.ts eval/results/<run id>.json
 ```
 
 Recomputes every score from what the file recorded and rewrites the report. Use it after

@@ -117,7 +117,7 @@ to the bill. Adding one later is one more id in `--models`.
 - Run, from the repo root:
 
   ```bash
-  pnpm --filter ansari-api exec tsx --env-file=.env.eval.local eval/run.ts \
+  pnpm --filter ansari-api exec -- tsx --env-file=.env.eval.local eval/run.ts \
     --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
   ```
 
