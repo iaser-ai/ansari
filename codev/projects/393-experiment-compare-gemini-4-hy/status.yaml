@@ -1,7 +1,7 @@
 id: '393'
 title: experiment-compare-gemini-4-hy
 protocol: experiment
-phase: design
+phase: execute
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -11,4 +11,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-15T18:58:32.974Z'
-updated_at: '2026-11-15T19:35:56.203Z'
+updated_at: '2026-11-15T19:36:01.425Z'
