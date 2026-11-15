@@ -46,6 +46,7 @@ database; generate + migrate.
 - `lib/ai/prompts/facilitator.ts` — the system prompt; changes need cited justification
 - `src/app/api/` — HTTP surface (`v2/*` product API, `v1/chat/completions` OpenAI-compat, `health`)
 - `tests/` — Vitest suites (`*.test.ts`); the full suite runs without external services
+- `eval/` — model evaluation harness: runs a question set through the real facilitator per model and scores the answers (`eval/README.md`); not imported by the app
 
 ## Conventions
 

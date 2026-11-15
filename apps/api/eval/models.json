@@ -1,0 +1,22 @@
+{
+  "note": "US dollars per million tokens, Vertex AI on-demand, global. Thinking tokens are billed at the output price. A null price makes the report say n/a for cost rather than guess. Prices change: check them against https://cloud.google.com/vertex-ai/generative-ai/pricing before relying on a cost figure, then run eval/rescore.ts.",
+  "models": {
+    "gemini-3.7-flash": {
+      "inputPerMTok": 0.75,
+      "outputPerMTok": 3.75,
+      "source": "Vertex AI pricing page via web search, 2026-11-15. Introductory rate through 2026-12-31; 1.50 / 7.50 from 2027-01-01. Not confirmed against the live page."
+    },
+    "gemini-3.8-flash": { "inputPerMTok": null, "outputPerMTok": null, "source": "not found, 2026-11-15" },
+    "gemini-4-hydrogen": {
+      "inputPerMTok": 1.5,
+      "outputPerMTok": 7.5,
+      "source": "Vertex AI pricing page via web search, 2026-11-15. Not confirmed against the live page."
+    },
+    "gemini-4-argon": {
+      "inputPerMTok": 2.0,
+      "outputPerMTok": 10.0,
+      "source": "Third-party listings via web search, 2026-11-15. Introductory rate through 2026-11-30; 4.00 / 20.00 from 2026-12-01. Not confirmed against the live page."
+    },
+    "gemini-4-carbon": { "inputPerMTok": null, "outputPerMTok": null, "source": "input 4.00 reported from 2026-12-01, output not found, 2026-11-15" }
+  }
+}
