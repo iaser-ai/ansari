@@ -56,3 +56,25 @@
   Read as Vertex throttling or load, not a model property. Told the architect;
   recommended letting it finish and running the set again with `--concurrency 1`.
 - My cost estimate was high: prompts are 5K to 8K tokens, not 20K. A full run is about $3.
+
+## 2026-11-15 — both runs in, results written
+
+- Runs: `20261115-194357-74223bc3` (4 parallel, 33 of 138 turns timed out, all models
+  stalled) and `20261115-202431-b1ff309c` (1 at a time, 138 of 138 answered). Reports and
+  gzipped results are in `codev/experiments/393-model-eval-harness/results/`.
+- Result in one line: no failed Quran quote, no fabricated LK id and no wrong-language
+  answer for any model in either run. hydrogen passes every gate; argon fails latency
+  (clean run) and reliability (loaded run). Recommendation: production stays on
+  3.7-flash, hydrogen is the staging candidate, argon no. Details and cost table in notes.md.
+- H2 action rule triggered (follow-up turns quote Quran without a same-turn search, all
+  models; flash and argon also quote verses no search returned). Filed #394.
+- More scorer corrections after reading every flagged quote in both runs (Urdu
+  translations, a label in the next sentence, set phrases), and one in the other
+  direction found by corrupting real answers: a misquoted verse that a retrieved hadith
+  or tafsir also cites was being set aside. `eval/selfcheck.ts` is that check, kept:
+  330 corruptions over both runs, 329 failed, 1 listed for reading, 0 missed.
+- Prices: architect read hydrogen and argon off the Gemini Developer API page (not Vertex).
+  3.7-flash is not on that page and my searched figure equals 3.8-flash's, so the baseline
+  price is the least certain number; asked for the GCP billing rate.
+- Open for the owner, none blocking the PR: confirm prices; why the Vertex project stalls
+  at four parallel conversations.
