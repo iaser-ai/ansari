@@ -60,7 +60,7 @@ Not shipped: the `GEMINI_FALLBACK_MODEL` attempt. The bound the architect asked 
 
 Verification: new tests fail with each change reverted (the client test then shows production's exact "truncated after 0 chars" message) and pass with it; api suite 1 329 passed / 3 skipped, typecheck, lint (0 errors), build. The test frame is the body the live endpoint returned. The fixed client has NOT been run against the live endpoint: that needs the key, which is now the architect's to run.
 
-What production does after this ships: the same requests still fail, but the error (and the SSE `error` event's text, which is the thrown message today) says why.
+What production does after this ships: the same requests still fail, but the log says why. The user sees it too: the thread route appends `Error: <thrown message>` to the stream (`src/app/api/v2/threads/[id]/route.ts`, `case 'error'`), so the text changes from "[inkling] stream ended before completion … truncated after 0 chars" to "[inkling] provider error in stream — invalid_request_error: Prompt length plus max_tokens exceeds the model's context window: …". Same shape, different words, still a raw internal string. Whether users should see a plain message instead is the architect's call; not changed here.
 
 ### Proposal for the owner's question (not implemented)
 What each failure class does today:
