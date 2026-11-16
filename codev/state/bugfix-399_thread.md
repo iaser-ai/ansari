@@ -83,3 +83,18 @@ CMAP:
 
 Local checks need Node 22 (default here is 26, under which a frontend `localStorage` test fails 11/11); porch ran through `fnm exec --using=22`. `consult` needed `--issue 399`: without it, it listed every project and exited 0 without reviewing.
 
+## #402 folded into PR #401 (2026-11-16)
+
+Architect direction (23:43Z): owner's standing rule is to fix issues as we go, so fix #402 in PR #401 with a test, `Fixes #402`; keep `Refs #399`; the friendlier user message goes to the #400 builder; the pr gate is not approved. The architect also ran the fixed Inkling client against the live endpoint (150k-token prompt throws the provider's reason in 0.7 s), which closes my open item.
+
+Fix:
+- `GeminiResponse.modelId` (required): the model that wrote the response. Set by `streamWithRetry` per attempt, by `callGemini`, and by the Inkling client.
+- `gemini-client` logs `[gemini] <label>: answered by fallback <model> (primary <model> did not answer)` when the fallback's answer is returned, on the streaming and non-streaming paths. The existing "falling back" lines only say it was tried.
+- Facilitator `currentProvenance()` on the gemini path names the model the latest response named. It is cleared before every call, so a call that fails without a response names the model it asked for. The empty-final log's `model` field uses the same value.
+
+No schema, route or response-shape change: `model_id` is stored, never served. One thing the architect should know: the #99 comment on `ModelProvenance` (`db/schema/messages.ts`) said the failover was deliberately "not distinguished here". I rewrote that comment; rows written before this change still name the configured primary where the fallback answered.
+
+Limit: a call that fails after failing over still records the model it asked for (the primary), because an error carries no model. Only answered calls are exact.
+
+Verification: 10 new or extended tests fail with the lib change reverted; the per-call reset has its own test, which fails with the reset removed. Workspace typecheck, lint, test (api 1 341 passed / 3 skipped) and build pass under Node 22. Not exercised against live Vertex: a real failover needs a 429 from the primary.
+

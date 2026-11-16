@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * Per-turn model provenance on the facilitator's terminal events (issue #99).
@@ -7,6 +7,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * `provenance: {provider, modelId}` describing the call that produced — or
  * failed to produce — the final turn:
  *  - gemini-primary done → {gemini, config.gemini.model};
+ *  - a turn gemini-client served from GEMINI_FALLBACK_MODEL → {gemini, that model},
+ *    read from the response, per call (issue #402);
  *  - forced provider 'inkling' → {inkling, config.inkling.model};
  *  - a #79-rescued turn reports inkling even though the primary was gemini —
  *    this is what makes "rescued on Inkling" queryable, not just a Sentry event;
@@ -38,8 +40,9 @@ const h = vi.hoisted(() => ({
   inkling: { model: 'tinker://sft-dpo-bf16', timeoutMs: 180000 },
 }));
 
-function doneResponse(text: string, finishReason?: string) {
+function doneResponse(text: string, finishReason?: string, modelId?: string) {
   return {
+    modelId,
     text,
     toolCalls: [],
     rawPayload: { role: 'model', parts: text ? [{ text }] : [] },
@@ -50,16 +53,18 @@ function doneResponse(text: string, finishReason?: string) {
   };
 }
 
-function textRound(text: string): () => AsyncGenerator<AnyEvent> {
+// `modelId` is the model the client says answered (issue #402); omitted, the response
+// names none, as in the suites written before the field existed.
+function textRound(text: string, modelId?: string): () => AsyncGenerator<AnyEvent> {
   return async function* () {
     if (text) yield { type: 'text', data: text };
-    yield { type: 'done', response: doneResponse(text, 'STOP') };
+    yield { type: 'done', response: doneResponse(text, 'STOP', modelId) };
   };
 }
 
-function emptyRound(finishReason?: string): () => AsyncGenerator<AnyEvent> {
+function emptyRound(finishReason?: string, modelId?: string): () => AsyncGenerator<AnyEvent> {
   return async function* () {
-    yield { type: 'done', response: doneResponse('', finishReason) };
+    yield { type: 'done', response: doneResponse('', finishReason, modelId) };
   };
 }
 
@@ -145,6 +150,10 @@ beforeEach(() => {
   h.inkling = { model: 'tinker://sft-dpo-bf16', timeoutMs: 180000 };
 });
 
+afterEach(() => {
+  vi.restoreAllMocks(); // the console spies some cases install
+});
+
 describe('done-event provenance', () => {
   it('a gemini-primary turn reports {gemini, config.gemini.model}', async () => {
     h.scripts = [textRound('An answer.')];
@@ -179,6 +188,70 @@ describe('done-event provenance', () => {
   it("the #74 empty-final ladder's Inkling rung reports inkling", async () => {
     h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
     h.inklingScripts = [textRound('Ladder answer.')];
+
+    const last = terminal(await collect(runFacilitator([userMessage('q')])));
+    expect(last.type).toBe('done');
+    expect(last.provenance).toEqual({ provider: 'inkling', modelId: 'tinker://sft-dpo-bf16' });
+  });
+});
+
+describe('a turn served by GEMINI_FALLBACK_MODEL reports the fallback, not the primary (issue #402)', () => {
+  it('done: the model the response names', async () => {
+    h.scripts = [textRound('An answer.', 'gemini-fallback')];
+
+    const last = terminal(await collect(runFacilitator([userMessage('q')])));
+    expect(last.type).toBe('done');
+    expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'gemini-fallback' });
+  });
+
+  it('synthesis: the model the synthesis response names', async () => {
+    h.scripts = [textRound('Synthesized from context.', 'gemini-fallback')];
+
+    const last = terminal(
+      await collect(runFacilitator([userMessage('q')], undefined, { budgetMs: 5000, reserveMs: 5000 }))
+    );
+    expect(last.type).toBe('done');
+    expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'gemini-fallback' });
+  });
+
+  it('per call, not per request: a fallback-served empty final, then the primary answers the retry', async () => {
+    h.scripts = [emptyRound('STOP', 'gemini-fallback'), textRound('An answer.', 'gemini-3.7-flash')];
+
+    const last = terminal(await collect(runFacilitator([userMessage('q')])));
+    expect(last.type).toBe('done');
+    expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'gemini-3.7-flash' });
+  });
+
+  it('an empty final the fallback wrote is logged and reported under the fallback', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.scripts = [emptyRound('SAFETY', 'gemini-fallback')];
+
+    const last = terminal(await collect(runFacilitator([userMessage('q')])));
+
+    expect(last.type).toBe('error');
+    expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'gemini-fallback' });
+    expect(error).toHaveBeenCalledWith(
+      '[facilitator] empty final completion — failing',
+      expect.objectContaining({ model: 'gemini-fallback' })
+    );
+  });
+
+  it('a later call that fails with no response names the model it asked for, not the earlier answerer', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.inklingConfigured = false;
+    h.scripts = [emptyRound('STOP', 'gemini-fallback'), errorRound('dual-pool 429 exhaustion')];
+
+    const last = terminal(await collect(runFacilitator([userMessage('q')])));
+    expect(last.type).toBe('error');
+    expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'gemini-3.7-flash' });
+  });
+
+  it('an Inkling-served turn is unaffected by what an earlier Gemini call named', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.scripts = [emptyRound('STOP', 'gemini-fallback'), emptyRound('STOP', 'gemini-fallback')];
+    h.inklingScripts = [textRound('Ladder answer.', 'tinker://sft-dpo-bf16')];
 
     const last = terminal(await collect(runFacilitator([userMessage('q')])));
     expect(last.type).toBe('done');

@@ -475,6 +475,7 @@ export async function* streamInkling(
       // excluded above), so the complete-turn view equals the replay view.
       allParts: responseParts,
       hasThinking: false,
+      modelId: config.inkling.model,
       usage,
       durationMs: Date.now() - startTime,
       finishReason,

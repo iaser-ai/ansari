@@ -160,6 +160,7 @@ describe('streamInkling', () => {
 
     const response = doneOf(events);
     expect(response.text).toBe('Patience is a virtue.');
+    expect(response.modelId).toBe('thinkingmachines/Inkling');
     expect(response.finishReason).toBe('STOP');
     expect(response.toolCalls).toEqual([]);
     expect(response.rawPayload).toEqual({
