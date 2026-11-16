@@ -62,3 +62,27 @@ password; `tests/migration/window-migration.test.ts` scaffold cleanup, at the 30
 timeout). Machine load average was about 30 (other builders). Both files pass alone
 (73 tests), and the full suite passes with the root script's `--maxWorkers=4` (94 files).
 Nothing skipped.
+
+**Verified on the built image.** `docker build -f apps/api/Dockerfile .` from this branch,
+then listed inside the container: `/repo/apps` holds `api` only, `/repo/apps/api/eval`
+does not exist, 0 harness files anywhere outside `node_modules`, and the control file
+(`apps/api/lib/facilitator/agent.ts`) is there.
+
+**Real path, placeholder credentials.** One conversation with `apps/api/.env.ci` as the
+env file: config, facilitator, search tool and prompt all loaded through `@/` under tsx,
+Vertex refused the placeholder key, and the run recorded the error row with the right
+provenance and wrote both files. No real credentials were used; no model answered.
+
+**Local checks need Node 22.** This machine's default Node is 26, under which
+`apps/frontend/hooks/useKeyboard.web.test.ts` fails 11/11 (`window.localStorage`
+undefined; Node 26 has its own `localStorage` global). Same finding as bugfix-383. Porch
+was run through `fnm exec --using=22`, with `apps/auth/.env.ci` exported as well. The eval
+checks and the dry-run comparison were repeated under Node 22: same results.
+
+Porch's `tests` check has a 300 s limit and the full `pnpm test` took 298 to 310 s here
+with the machine at load 30 to 70 (other builders, plus my image build). It timed out
+once for that reason and passed on the rerun.
+
+## 2026-11-15 — pr
+
+Implement phase done (porch checks green under Node 22). Opening the PR against `develop`.
