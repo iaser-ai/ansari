@@ -1,0 +1,14 @@
+id: bugfix-399
+title: production-inkling-rescue-fail
+protocol: bugfix
+phase: investigate
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-16T21:35:42.822Z'
+updated_at: '2026-11-16T21:35:42.823Z'
