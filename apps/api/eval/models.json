@@ -1,0 +1,53 @@
+{
+  "note": "US dollars per million tokens, on-demand. Thinking tokens are billed at the output price. A null price makes the report say n/a for cost rather than guess. `confirmed` is true only after a person has checked the numbers against the Vertex AI pricing page (https://cloud.google.com/vertex-ai/generative-ai/pricing), which is what the app is billed through. `checked` names a weaker check (another pricing page) and is shown beside the NO. `next` is an announced price change; the report costs the run at both prices. After editing, run eval/rescore.ts.",
+  "models": {
+    "gemini-3.7-flash": {
+      "inputPerMTok": 0.75,
+      "outputPerMTok": 3.75,
+      "confirmed": false,
+      "next": {
+        "from": "2027-01-01",
+        "inputPerMTok": 1.5,
+        "outputPerMTok": 7.5
+      },
+      "source": "Web search, 2026-11-15. NOT listed on the Gemini Developer API pricing page read the same day. The figures are identical to that page's price for gemini-3.8-flash (0.75 / 3.75 through 2026-12-31, then 1.50 / 7.50), so the search result may have been 3.8-flash's price. Treat the baseline's cost as the least certain number here."
+    },
+    "gemini-3.8-flash": {
+      "inputPerMTok": 0.75,
+      "outputPerMTok": 3.75,
+      "confirmed": false,
+      "checked": "Developer API page, Vertex unconfirmed",
+      "next": {
+        "from": "2027-01-01",
+        "inputPerMTok": 1.5,
+        "outputPerMTok": 7.5
+      },
+      "source": "Gemini Developer API pricing page (aistudio.google.com/docs/pricing), read 2026-11-15 by the architect; the Vertex AI page would not load. Introductory rate through 2026-12-31."
+    },
+    "gemini-4-hydrogen": {
+      "inputPerMTok": 1.5,
+      "outputPerMTok": 7.5,
+      "confirmed": false,
+      "checked": "Developer API page, Vertex unconfirmed",
+      "source": "Gemini Developer API pricing page (aistudio.google.com/docs/pricing), read 2026-11-15 by the architect; the Vertex AI page would not load. Output price includes thinking tokens. No introductory rate shown."
+    },
+    "gemini-4-argon": {
+      "inputPerMTok": 2.0,
+      "outputPerMTok": 10.0,
+      "confirmed": false,
+      "checked": "Developer API page, Vertex unconfirmed",
+      "next": {
+        "from": "2026-12-01",
+        "inputPerMTok": 4.0,
+        "outputPerMTok": 20.0
+      },
+      "source": "Gemini Developer API pricing page (aistudio.google.com/docs/pricing), read 2026-11-15 by the architect; the Vertex AI page would not load. Output price includes thinking tokens. Introductory rate through 2026-11-30."
+    },
+    "gemini-4-carbon": {
+      "inputPerMTok": null,
+      "outputPerMTok": null,
+      "confirmed": false,
+      "source": "input 4.00 reported from 2026-12-01, output not found, 2026-11-15"
+    }
+  }
+}

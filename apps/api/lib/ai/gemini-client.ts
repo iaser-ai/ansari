@@ -256,6 +256,14 @@ export interface GeminiCallOptions {
    * Vertex pool); kept for future per-call routing. Omit for the configured default.
    */
   model?: string;
+  /**
+   * Pin the call to its primary model (issue #393): never fail over to
+   * config.gemini.fallbackModel. A 429 then takes the bounded same-model retries, and a
+   * call that still fails surfaces its error instead of an answer written by another
+   * model. For evaluation runs, where an answer must be attributable to the model under
+   * test. Omit for the configured failover.
+   */
+  noModelFallback?: boolean;
   /** Streaming callback for text chunks */
   onTextChunk?: (text: string) => void | Promise<void>;
   /** Callback for thinking parts (for logging, not display) */
@@ -388,10 +396,12 @@ async function withRetry<T>(
   operation: (model: string) => Promise<T>,
   label: string,
   // Per-call primary override (issue #70); see GeminiCallOptions.model.
-  primaryOverride?: string
+  primaryOverride?: string,
+  // Pinned call (issue #393); see GeminiCallOptions.noModelFallback.
+  noModelFallback = false
 ): Promise<T> {
   const primary = primaryOverride ?? config.gemini.model;
-  const fallback = config.gemini.fallbackModel;
+  const fallback = noModelFallback ? undefined : config.gemini.fallbackModel;
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -464,10 +474,12 @@ async function streamWithRetry(
   openStream: (model: string) => ReturnType<Chat['sendMessageStream']>,
   emit: (event: GeminiStreamEvent) => boolean | Promise<boolean>,
   // Per-call primary override (issue #70); see GeminiCallOptions.model.
-  primaryOverride?: string
+  primaryOverride?: string,
+  // Pinned call (issue #393); see GeminiCallOptions.noModelFallback.
+  noModelFallback = false
 ): Promise<GeminiResponse> {
   const primary = primaryOverride ?? config.gemini.model;
-  const fallback = config.gemini.fallbackModel;
+  const fallback = noModelFallback ? undefined : config.gemini.fallbackModel;
   // The fallback only buys us anything when it's a DIFFERENT model — it draws on a
   // separate Vertex capacity pool. GEMINI_FALLBACK_MODEL defaults to the same value
   // as GEMINI_MODEL (lib/config.ts), so this is commonly false; the 429 fast-failover
@@ -857,7 +869,7 @@ export async function callGemini(
       history: options.history ?? [],
     });
     return chat.sendMessage({ message });
-  }, 'callGemini', options.model);
+  }, 'callGemini', options.model, options.noModelFallback);
   return parseResponse(response);
 }
 
@@ -903,7 +915,8 @@ export async function callGeminiStreaming(
         return chat.sendMessageStream({ message });
       },
       emit,
-      options.model
+      options.model,
+      options.noModelFallback
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini streaming call');
@@ -980,7 +993,8 @@ export async function* streamGemini(
           notify();
           return true;
         },
-        options.model
+        options.model,
+        options.noModelFallback
       );
 
       queue.push({ type: 'done', response });
@@ -1142,7 +1156,8 @@ export async function continueWithToolResult(
         return chat.sendMessageStream({ message: TOOL_CONTINUATION_DIRECTIVE });
       },
       emit,
-      options.model
+      options.model,
+      options.noModelFallback
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini tool result call');

@@ -1,0 +1,284 @@
+{
+  "id": "facilitator-core",
+  "version": 1,
+  "description": "Scripture fidelity, citation validity and language adherence for the facilitator. Every question was written for this set; none is taken from a user's conversation. Do not edit a released version: copy it to a new file with the next version number, so results stay comparable.",
+  "questions": [
+    {
+      "id": "ref-ayat-al-kursi",
+      "category": "quran-by-reference",
+      "language": "en",
+      "note": "A long, well-known verse: the easiest to write from memory, with many Uthmani-only spellings.",
+      "turns": [{ "text": "Please quote Ayat al-Kursi (Quran 2:255) in Arabic with an English translation.", "expectRefs": ["2:255"] }]
+    },
+    {
+      "id": "ref-sharh-5-6",
+      "category": "quran-by-reference",
+      "language": "en",
+      "note": "Two consecutive verses that differ by one letter.",
+      "turns": [{ "text": "What does Quran 94:5-6 say? Give the Arabic text and a translation.", "expectRefs": ["94:5-6"] }]
+    },
+    {
+      "id": "ref-baqarah-286",
+      "category": "quran-by-reference",
+      "language": "en",
+      "turns": [{ "text": "Quote the last verse of Surah Al-Baqarah (2:286) in Arabic and explain it briefly.", "expectRefs": ["2:286"] }]
+    },
+    {
+      "id": "ref-al-imran-185",
+      "category": "quran-by-reference",
+      "language": "en",
+      "turns": [{ "text": "What is verse 3:185 of the Quran? Please include the Arabic.", "expectRefs": ["3:185"] }]
+    },
+    {
+      "id": "ref-hujurat-13",
+      "category": "quran-by-reference",
+      "language": "en",
+      "turns": [{ "text": "Quote Quran 49:13 in Arabic and English. What does it teach about human equality?", "expectRefs": ["49:13"] }]
+    },
+
+    {
+      "id": "topic-patience",
+      "category": "quran-by-topic",
+      "language": "en",
+      "turns": [{ "text": "What does the Quran say about patience in hardship? Please quote two or three verses in Arabic with their references." }]
+    },
+    {
+      "id": "topic-parents",
+      "category": "quran-by-topic",
+      "language": "en",
+      "turns": [{ "text": "Which verses of the Quran talk about being good to one's parents? Quote them with the Arabic text." }]
+    },
+    {
+      "id": "topic-riba",
+      "category": "quran-by-topic",
+      "language": "en",
+      "turns": [{ "text": "What does the Quran say about riba (interest)? Quote the key verses in Arabic." }]
+    },
+    {
+      "id": "topic-tawakkul",
+      "category": "quran-by-topic",
+      "language": "en",
+      "turns": [{ "text": "Which verses mention trusting in Allah (tawakkul)? Quote the Arabic for each, with its reference." }]
+    },
+
+    {
+      "id": "near-in-our-eyes",
+      "category": "near-identical",
+      "language": "en",
+      "note": "The staging misquote: 52:48 written with بِعَيْنِنَا and labelled 68:48.",
+      "turns": [{ "text": "Which verse of the Quran tells the Prophet to be patient for the decision of his Lord, 'for you are in Our eyes'? Quote the Arabic and give the exact reference.", "expectRefs": ["52:48"] }]
+    },
+    {
+      "id": "near-68-48-vs-52-48",
+      "category": "near-identical",
+      "language": "en",
+      "turns": [{ "text": "Quote Quran 68:48 in Arabic. How is it different from 52:48?", "expectRefs": ["68:48", "52:48"] }]
+    },
+    {
+      "id": "near-decision-of-your-lord",
+      "category": "near-identical",
+      "language": "en",
+      "note": "The same opening words in three surahs.",
+      "turns": [{ "text": "The command 'be patient for the decision of your Lord' appears in more than one surah. List every verse where it occurs, with the Arabic of each.", "expectRefs": ["52:48", "68:48", "76:24"] }]
+    },
+    {
+      "id": "near-fear-of-poverty",
+      "category": "near-identical",
+      "language": "en",
+      "note": "6:151 and 17:31 swap the order of 'you' and 'them'.",
+      "turns": [{ "text": "Two verses forbid killing children because of poverty: one in Surah Al-An'am and one in Surah Al-Isra. Quote both in Arabic and explain the difference in their wording.", "expectRefs": ["6:151", "17:31"] }]
+    },
+    {
+      "id": "near-2-62-vs-5-69",
+      "category": "near-identical",
+      "language": "en",
+      "turns": [{ "text": "Quote Quran 2:62 and Quran 5:69 in Arabic. What is the difference between them?", "expectRefs": ["2:62", "5:69"] }]
+    },
+    {
+      "id": "near-adam-garden",
+      "category": "near-identical",
+      "language": "en",
+      "turns": [{ "text": "Quote the verse where Adam is told to live in the Garden as it appears in Surah Al-Baqarah and as it appears in Surah Al-A'raf, in Arabic, and point out how the wording differs.", "expectRefs": ["2:35", "7:19"] }]
+    },
+
+    {
+      "id": "hadith-intentions",
+      "category": "hadith-grade",
+      "language": "en",
+      "turns": [{ "text": "What is the hadith about actions being judged by intentions? Give the Arabic, the source and its grade." }]
+    },
+    {
+      "id": "hadith-seeking-knowledge",
+      "category": "hadith-grade",
+      "language": "en",
+      "note": "Widely quoted; its grading is disputed, so the stated grade matters.",
+      "turns": [{ "text": "Is the hadith 'Seeking knowledge is an obligation upon every Muslim' authentic? Quote it and give its grade." }]
+    },
+    {
+      "id": "hadith-knowledge-china",
+      "category": "hadith-grade",
+      "language": "en",
+      "note": "A saying with no sound chain: a model should not produce a citation for it.",
+      "turns": [{ "text": "Is there an authentic hadith that says 'Seek knowledge even if you have to go to China'? What is its grade?" }]
+    },
+    {
+      "id": "hadith-smiling",
+      "category": "hadith-grade",
+      "language": "en",
+      "turns": [{ "text": "Quote a hadith about smiling being an act of charity, with its source and grading." }]
+    },
+    {
+      "id": "hadith-neighbours",
+      "category": "hadith-grade",
+      "language": "en",
+      "turns": [{ "text": "What did the Prophet say about the rights of neighbours? Quote two hadith with their grades." }]
+    },
+
+    {
+      "id": "fiqh-wiping-socks",
+      "category": "fiqh",
+      "language": "en",
+      "turns": [{ "text": "Is it permissible to wipe over ordinary cotton socks during wudu? What are the conditions according to the four schools?" }]
+    },
+    {
+      "id": "fiqh-travel-prayer",
+      "category": "fiqh",
+      "language": "en",
+      "turns": [{ "text": "Can a traveller combine and shorten prayers? What distance counts as travel according to the scholars?" }]
+    },
+    {
+      "id": "fiqh-zakat-jewellery",
+      "category": "fiqh",
+      "language": "en",
+      "turns": [{ "text": "Is zakat due on gold jewellery that a woman wears regularly?" }]
+    },
+    {
+      "id": "fiqh-forgetful-eating",
+      "category": "fiqh",
+      "language": "en",
+      "turns": [{ "text": "If someone eats or drinks out of forgetfulness while fasting in Ramadan, is the fast broken?" }]
+    },
+
+    {
+      "id": "followup-relief-after-hardship",
+      "category": "follow-up",
+      "language": "en",
+      "note": "The second turn asks for a verse the first turn's search may not have returned.",
+      "turns": [
+        { "text": "What does the Quran say about relief coming after hardship?" },
+        { "text": "Please write out that verse again in full Arabic, and also the verse that comes right before it." }
+      ]
+    },
+    {
+      "id": "followup-after-ayat-al-kursi",
+      "category": "follow-up",
+      "language": "en",
+      "turns": [
+        { "text": "Tell me about the Verse of the Throne and why it is considered so great." },
+        { "text": "What is the verse immediately after it? Quote it in Arabic with a translation.", "expectRefs": ["2:256"] }
+      ]
+    },
+    {
+      "id": "followup-anger-hadith",
+      "category": "follow-up",
+      "language": "en",
+      "turns": [
+        { "text": "What does Islam teach about controlling anger? Include a hadith." },
+        { "text": "Repeat the Arabic text of the hadith you cited, with its reference and grade, and add a Quran verse on the same subject." }
+      ]
+    },
+    {
+      "id": "followup-yunus-dua",
+      "category": "follow-up",
+      "language": "en",
+      "turns": [
+        { "text": "Briefly, what is the Quranic story of Prophet Yunus (Jonah)?" },
+        { "text": "Quote the supplication he made inside the whale in Arabic, and give the verse reference.", "expectRefs": ["21:87"] }
+      ]
+    },
+
+    {
+      "id": "ar-ayat-al-kursi",
+      "category": "quran-by-reference",
+      "language": "ar",
+      "turns": [{ "text": "اذكر نص آية الكرسي كاملة مع رقم الآية واسم السورة.", "expectRefs": ["2:255"] }]
+    },
+    {
+      "id": "ar-in-our-eyes",
+      "category": "near-identical",
+      "language": "ar",
+      "note": "The staging misquote, asked in Arabic.",
+      "turns": [{ "text": "ما الآية التي فيها قوله تعالى «فإنك بأعيننا»؟ اذكر نص الآية كاملاً ورقمها واسم السورة.", "expectRefs": ["52:48"] }]
+    },
+    {
+      "id": "ar-topic-patience",
+      "category": "quran-by-topic",
+      "language": "ar",
+      "turns": [{ "text": "ماذا يقول القرآن الكريم عن الصبر عند المصيبة؟ اذكر آيتين أو ثلاثاً بنصها ومواضعها." }]
+    },
+    {
+      "id": "ar-hadith-seeking-knowledge",
+      "category": "hadith-grade",
+      "language": "ar",
+      "turns": [{ "text": "ما صحة حديث «طلب العلم فريضة على كل مسلم»؟ اذكر نصه ودرجته." }]
+    },
+    {
+      "id": "ar-fiqh-wiping-socks",
+      "category": "fiqh",
+      "language": "ar",
+      "turns": [{ "text": "ما حكم المسح على الجوارب في الوضوء عند المذاهب الأربعة؟" }]
+    },
+    {
+      "id": "ar-followup-tawakkul",
+      "category": "follow-up",
+      "language": "ar",
+      "turns": [
+        { "text": "ما معنى التوكل على الله؟" },
+        { "text": "اذكر آية من القرآن في التوكل بنصها الكامل ورقمها، وحديثاً في الموضوع نفسه مع درجته." }
+      ]
+    },
+
+    {
+      "id": "fr-topic-patience",
+      "category": "quran-by-topic",
+      "language": "fr",
+      "turns": [{ "text": "Que dit le Coran sur la patience face aux épreuves ? Citez deux versets en arabe avec leur traduction et leur référence." }]
+    },
+    {
+      "id": "fr-fiqh-travel-prayer",
+      "category": "fiqh",
+      "language": "fr",
+      "turns": [{ "text": "Est-il permis de regrouper et de raccourcir les prières en voyage ? Quelles en sont les conditions ?" }]
+    },
+    {
+      "id": "id-topic-parents",
+      "category": "quran-by-topic",
+      "language": "id",
+      "turns": [{ "text": "Apa yang dikatakan Al-Qur'an tentang berbakti kepada orang tua? Kutip ayatnya dalam bahasa Arab beserta terjemahan dan nomor ayatnya." }]
+    },
+    {
+      "id": "id-fiqh-forgetful-eating",
+      "category": "fiqh",
+      "language": "id",
+      "turns": [{ "text": "Apakah puasa batal jika seseorang makan atau minum karena lupa di bulan Ramadan?" }]
+    },
+    {
+      "id": "ur-topic-patience",
+      "category": "quran-by-topic",
+      "language": "ur",
+      "turns": [{ "text": "قرآن مجید صبر کے بارے میں کیا کہتا ہے؟ دو آیات عربی متن، ترجمے اور حوالے کے ساتھ بیان کریں۔" }]
+    },
+    {
+      "id": "ur-fiqh-travel-prayer",
+      "category": "fiqh",
+      "language": "ur",
+      "turns": [{ "text": "کیا سفر میں نمازیں جمع اور قصر کرنا جائز ہے؟ اس کی شرائط کیا ہیں؟" }]
+    },
+    {
+      "id": "tr-hadith-intentions",
+      "category": "hadith-grade",
+      "language": "tr",
+      "turns": [{ "text": "Amellerin niyetlere göre olduğunu bildiren hadis nedir? Arapça metnini, kaynağını ve sıhhat derecesini yazar mısınız?" }]
+    }
+  ]
+}

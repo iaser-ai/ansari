@@ -228,3 +228,80 @@ describe('429 fast-failover (issue #44)', () => {
     expect(sdk.establishCalls).toBe(2);
   });
 });
+
+/**
+ * Pinned calls (issue #393): `noModelFallback` keeps a call on its primary model. The
+ * evaluation harness pins every call so an answer is attributable to the model under
+ * test; the same 429 that fails over above must retry the pinned model instead.
+ */
+describe('noModelFallback pins a call to its model (issue #393)', () => {
+  it('a 429 retries the pinned model and never reaches the fallback', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      },
+      async function* (model: string) {
+        yield textChunk(`answer from ${model}`);
+      },
+    ];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const texts: string[] = [];
+    for await (const ev of streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })) {
+      if (ev.type === 'text') texts.push(ev.data);
+    }
+
+    expect(texts.join('')).toBe('answer from model-under-test');
+    expect(sdk.modelsTried).toEqual(['model-under-test', 'model-under-test']);
+  });
+
+  it('a pinned model that keeps 429ing surfaces the error; the fallback never answers', async () => {
+    const always429 = (): AsyncGenerator<unknown> =>
+      // eslint-disable-next-line require-yield
+      (async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      })();
+    sdk.scripts = [always429, always429, always429, always429, always429, always429];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    let caught: unknown = null;
+    try {
+      for await (const _ev of streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })) {
+        // nothing is expected to arrive
+      }
+    } catch (e) {
+      caught = e;
+    }
+
+    expect((caught as Error).message).toContain('RESOURCE_EXHAUSTED');
+    // MAX_RETRIES (3) + 1 attempts, every one on the pinned model.
+    expect(sdk.modelsTried).toEqual(Array(4).fill('model-under-test'));
+  });
+
+  // The control: the same override WITHOUT the pin still fails over, so the two tests
+  // above pass because of the pin and not because the override changed the fallback.
+  it('control: a model override without the pin still fails over on a 429', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      },
+      async function* (model: string) {
+        yield textChunk(`answer from ${model}`);
+      },
+    ];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const texts: string[] = [];
+    for await (const ev of streamGemini('What is sabr?', { model: 'model-under-test' })) {
+      if (ev.type === 'text') texts.push(ev.data);
+    }
+
+    expect(texts.join('')).toBe('answer from gemini-fallback');
+    expect(sdk.modelsTried).toEqual(['model-under-test', 'gemini-fallback']);
+  });
+});
