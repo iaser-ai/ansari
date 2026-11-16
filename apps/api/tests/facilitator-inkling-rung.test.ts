@@ -491,6 +491,35 @@ describe('an escalated request logs which model answered (issue #399)', () => {
     });
   });
 
+  it('an escalated request that ends in the synthesis pass logs the line too', async () => {
+    // The rescued Inkling tool round returns after the soft deadline (95 s of the default
+    // 120 s budget), so the answer comes from the tools-disabled synthesis pass, on Inkling.
+    h.scripts = [errorRound('No response from Gemini for 60s - possible hang')];
+    h.inklingScripts = [
+      async function* () {
+        await new Promise((resolve) => setTimeout(resolve, 96_000));
+        yield* toolRound(['search_quran'])();
+      },
+      textRound('Synthesized answer.'),
+    ];
+
+    const { events } = await collectOnVirtualClock(
+      runFacilitator([userMessage('q')]) as AsyncGenerator<Event>,
+      120_000
+    );
+
+    expect(h.inklingCalls).toHaveLength(2);
+    expect(h.inklingCalls[1].options.tools).toBeUndefined(); // the synthesis call
+    expect(textOf(events)).toBe('Synthesized answer.');
+    expect(events.map((e) => e.type)).toContain('done');
+    expect(answeredLogs()).toHaveLength(1);
+    expect(answeredLogs()[0][1]).toMatchObject({
+      provider: 'inkling',
+      modelId: 'thinkingmachines/Inkling',
+      escalation: 'terminal-error rescue',
+    });
+  });
+
   it('a rescue that fails logs no answer: the error names Inkling instead', async () => {
     h.scripts = [errorRound('No response from Gemini for 60s - possible hang')];
     h.inklingScripts = [errorRound('[inkling] provider error in stream — invalid_request_error: too long')];

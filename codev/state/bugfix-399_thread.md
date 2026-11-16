@@ -71,3 +71,15 @@ What each failure class does today:
 Can a same-project Gemini fallback help a hang? For the 9 hangs on 0.3–4.5 MB threads I do not expect so: another Gemini model gets the same prompt, and only 35 s of gathering budget remain once a hang is called at 60 s. For the 7 short-thread hangs it might, but nothing in the logs shows whether another pool was responsive at those moments, and Inkling already took those.
 
 Recommendation: do history windowing first (it is behind 12 of the 13 errors), then re-measure with the new answered-by line. If a Gemini fallback on hang is still wanted, it needs a shorter time-to-first-chunk cut than 60 s to leave it room, which is a design change.
+
+## PR (2026-11-16)
+
+PR #401 against `develop`, `Refs #399` (not `Fixes`): the rescue still fails on long threads, and the owner's fallback question is a proposal awaiting a decision. Whether #399 closes with this PR is the architect's call. History windowing is #400.
+
+CMAP:
+- codex REQUEST_CHANGES. (1) No test for the answered-by line on the synthesis path: valid, test added (fails with that call removed). (2) `Refs` rather than `Fixes`: left for the architect.
+- claude COMMENT. Same test gap. Also for the architect: the user-visible error text changes; and a pre-existing gap, filed as #402: an answer served by `GEMINI_FALLBACK_MODEL` is recorded and logged as the primary model.
+- gemini SKIPPED. Its CLI (`agy`) exited with code 3 on two attempts, as on #385 and #398. Not an approval.
+
+Local checks need Node 22 (default here is 26, under which a frontend `localStorage` test fails 11/11); porch ran through `fnm exec --using=22`. `consult` needed `--issue 399`: without it, it listed every project and exited 0 without reviewing.
+
