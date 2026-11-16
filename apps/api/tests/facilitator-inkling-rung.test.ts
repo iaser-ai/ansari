@@ -452,6 +452,69 @@ describe('Inkling rescue on terminal Gemini errors (issue #79)', () => {
   });
 });
 
+describe('an escalated request logs which model answered (issue #399)', () => {
+  const answeredLogs = () =>
+    vi.mocked(console.warn).mock.calls.filter(([label]) => label === '[facilitator] escalated request answered');
+
+  it('terminal-error rescue answered on Inkling → one line naming provider and model', async () => {
+    h.scripts = [errorRound('No response from Gemini for 60s - possible hang')];
+    h.inklingScripts = [toolRound(['search_quran']), textRound('Rescued answer.')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+
+    expect(events.map((e) => e.type)).toContain('done');
+    expect(answeredLogs()).toEqual([
+      [
+        '[facilitator] escalated request answered',
+        {
+          provider: 'inkling',
+          modelId: 'thinkingmachines/Inkling',
+          escalation: 'terminal-error rescue',
+          elapsedMs: expect.any(Number),
+          iterations: 3, // failed Gemini call, Inkling tool round, Inkling answer
+        },
+      ],
+    ]);
+  });
+
+  it('empty-final ladder answered on Inkling → the line names the ladder', async () => {
+    h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
+    h.inklingScripts = [textRound('Ladder answer.')];
+
+    await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+
+    expect(answeredLogs()).toHaveLength(1);
+    expect(answeredLogs()[0][1]).toMatchObject({
+      provider: 'inkling',
+      modelId: 'thinkingmachines/Inkling',
+      escalation: 'empty-final ladder',
+    });
+  });
+
+  it('a rescue that fails logs no answer: the error names Inkling instead', async () => {
+    h.scripts = [errorRound('No response from Gemini for 60s - possible hang')];
+    h.inklingScripts = [errorRound('[inkling] provider error in stream — invalid_request_error: too long')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+
+    expect(events.find((e) => e.type === 'error')?.data).toBe(
+      '[inkling] provider error in stream — invalid_request_error: too long'
+    );
+    expect(answeredLogs()).toHaveLength(0);
+  });
+
+  it('no escalation, no line: a healthy Gemini answer and an inkling-primary request', async () => {
+    h.scripts = [textRound('Gemini answer.')];
+    await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+
+    h.inklingScripts = [textRound('Primary Inkling answer.')];
+    await collect(runFacilitator([userMessage('q')], undefined, { provider: 'inkling' }) as AsyncGenerator<Event>);
+
+    expect(h.inklingCalls).toHaveLength(1);
+    expect(answeredLogs()).toHaveLength(0);
+  });
+});
+
 describe('Inkling per-call timeout cap — min(remaining budget, INKLING_TIMEOUT_MS) (issue #90)', () => {
   it('caps the Inkling call at config.inkling.timeoutMs when the budget has more remaining', async () => {
     // Remaining-to-soft at rescue time is ~95s (default budget 120s − reserve

@@ -505,8 +505,9 @@ export async function* runFacilitator(
   // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
   // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
   // ladder still applies, as same-model (Inkling) retries.
-  let useInklingRung =
+  const inklingPrimary =
     pinnedModel === undefined && (options?.provider ?? config.primaryBackend) === 'inkling';
+  let useInklingRung = inklingPrimary;
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
@@ -528,6 +529,22 @@ export async function* runFacilitator(
   const startTime = Date.now();
   const softDeadline = startTime + budgetMs - reserveMs;
   const hardDeadline = startTime + budgetMs;
+
+  // No silent escalation (issue #399): when a request that left Gemini for Inkling — the
+  // empty-final ladder's rung (#74) or the terminal-error rescue (#79), never an
+  // inkling-primary request — ends in an answer, name the model that wrote it. Engagement
+  // is logged where it happens; without this line an answered escalation leaves no trace,
+  // and the logs cannot tell it from one that never finished. No PII: provider, model id
+  // and counters only.
+  const logEscalatedAnswer = () => {
+    if (!useInklingRung || inklingPrimary) return;
+    console.warn('[facilitator] escalated request answered', {
+      ...currentProvenance(),
+      escalation: inklingRescueUsed ? 'terminal-error rescue' : 'empty-final ladder',
+      elapsedMs: Date.now() - startTime,
+      iterations,
+    });
+  };
 
   // Token usage summed across every Gemini call in this turn (initial + tool-loop continuations).
   const totalUsage: GeminiUsageMetadata = {
@@ -683,6 +700,7 @@ export async function* runFacilitator(
       });
     }
     logShortCircuit('done');
+    logEscalatedAnswer();
     yield {
       type: 'done',
       data: '',
@@ -889,6 +907,7 @@ export async function* runFacilitator(
           });
         }
 
+        logEscalatedAnswer();
         yield {
           type: 'done',
           data: '',
