@@ -113,3 +113,16 @@ Implement phase done (porch checks green under Node 22). Opening the PR against 
   in the pnpm catalog so apps/api and apps/eval cannot drift (touches apps/api's
   manifest); add `eval (lint, typecheck, test)` to `develop`'s required checks (admin);
   reconcile CONTRIBUTING.md's "five required checks" with the four in branch protection.
+
+## 2026-11-16 — pr gate approved, merging
+
+- Final CI on the PR (head `202eb41c`): all seven checks green.
+- Architect integration review on the PR: no changes requested. My open question is
+  answered there: the api service's live watch patterns on staging and production match
+  `apps/api/railway.toml` and do not cover `apps/eval`.
+- The architect relayed the human's explicit approval of the `pr` gate and of merging
+  PR #398 (2026-11-16T15:11Z). I ran `porch approve 397 pr` on that instruction, not
+  before. Merging with a merge commit (no squash) once CI is green on the final head.
+- Still open for others: add `eval (lint, typecheck, test)` to `develop`'s required
+  checks (repo admin); the pnpm catalog follow-up for `tsx`, `vitest`, `zod` and
+  `@types/node`; move any existing `apps/api/.env.eval.local` to `apps/eval/`.
