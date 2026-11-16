@@ -90,3 +90,15 @@
   files), restoring it makes it pass. Also scans that nothing under src/lib/db imports
   from `eval/`.
 - Not merged, gate not approved: the architect is taking the decision to the owner.
+
+## 2026-11-16 — Owner approved; gate approved, merging
+
+- CI green on 0a4b4bd3 (the source-scan test).
+- Architect relayed the owner's decision (made 2026-11-15, relayed 2026-11-16T05:12Z): yes
+  to merging PR #395, and the `experiment-complete` gate is approved by the human. I ran
+  `porch approve 393 experiment-complete` on that instruction, not before.
+- The approval covers merging the harness, question set, README and report. No deployed
+  setting was changed by this project; `GEMINI_MODEL` is the owner's to change.
+- Left open for others: confirm prices in `apps/api/eval/models.json` (the baseline's
+  first) and rescore; #394 (search before quoting on follow-ups); the parallel-stall
+  issue the architect filed.

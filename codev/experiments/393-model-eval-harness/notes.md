@@ -1,6 +1,6 @@
 # Experiment 393: Facilitator model comparison and a reusable evaluation harness
 
-**Status**: Complete, awaiting the owner's decision · **Date**: 2026-11-15
+**Status**: Complete. The owner approved merging the harness and report (relayed 2026-11-16); which model to deploy remains the owner's decision · **Date**: 2026-11-15
 
 Source: issue #393. No spec file exists for this project; the issue is the spec.
 
