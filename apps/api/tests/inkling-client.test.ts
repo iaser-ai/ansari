@@ -618,6 +618,14 @@ describe('streamInkling', () => {
       );
     });
 
+    it('an error with a message but no type is labelled plainly as an error', async () => {
+      fetchMock.mockResolvedValue(sseResponse([{ error: { message: 'sampler unavailable' } }]));
+
+      await expect(collect(streamInkling('q'))).rejects.toThrow(
+        '[inkling] provider error in stream — error: sampler unavailable'
+      );
+    });
+
     it('an error of an unexpected shape is reported as its JSON, capped at 500 chars', async () => {
       fetchMock.mockResolvedValue(sseResponse([{ error: 'x'.repeat(2000) }]));
 

@@ -98,3 +98,5 @@ Limit: a call that fails after failing over still records the model it asked for
 
 Verification: 10 new or extended tests fail with the lib change reverted; the per-call reset has its own test, which fails with the reset removed. Workspace typecheck, lint, test (api 1 341 passed / 3 skipped) and build pass under Node 22. Not exercised against live Vertex: a real failover needs a 429 from the primary.
 
+CMAP on the updated branch (c8a10b32): codex APPROVE, claude APPROVE, gemini SKIPPED (`agy` exited 3 again; not an approval). Claude's non-blocking notes: #399 needs closing by hand; the provider's error text reaches Sentry (provider-generated today, same assumption the rescue summary already makes); one untested branch in `describeStreamError` (error with no `type`), now covered.
+
