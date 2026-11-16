@@ -86,3 +86,30 @@ once for that reason and passed on the rerun.
 ## 2026-11-15 — pr
 
 Implement phase done (porch checks green under Node 22). Opening the PR against `develop`.
+
+- **PR #398** opened against `develop` (`Closes #397`). Not merged; the `pr` gate is the
+  human's.
+- First CI run on the PR: all green, including the new `eval (lint, typecheck, test)` job
+  (48 s, its first run anywhere).
+- CMAP: codex APPROVE, claude APPROVE, gemini SKIPPED. The Gemini lane did not review:
+  its CLI (`agy`) exited with code 3. That is not an approval. (The first attempt at all
+  three stopped at once with "Multiple projects found"; `--issue 397` fixed it.)
+- Taken from the Claude review:
+  - The watch-pattern claim was stated as fact about the live service, but the check
+    reads `apps/api/railway.toml`, which Railway does not read here (the dashboard is the
+    live config). README, arch.md and the PR body now say "recorded watch patterns", and
+    that `pnpm-lock.yaml` is watched, so a dependency change in apps/eval still redeploys
+    the api. **I have not seen the dashboard.** Someone with access should confirm the api
+    service's watch patterns there match the toml.
+  - `apps/eval/models.json`'s note still said `eval/rescore.ts`. Fixed.
+  - The Dockerfile COPY reader takes one line per instruction; a continued or heredoc
+    COPY is now refused. Proven on a planted continued COPY (fails), restored (passes).
+- Not taken, with the reason: the review said the next plain `pnpm install` would rewrite
+  the lockfile block. Checked: `pnpm install --lockfile-only` on this branch changes
+  nothing (0 diff lines). The re-resolution of unrelated entries happens when a manifest
+  next changes, as it would have without this PR. The importer block itself is pnpm's
+  own output, taken from a pinned install.
+- Follow-ups worth an issue, not done here: put `tsx`, `vitest`, `zod` and `@types/node`
+  in the pnpm catalog so apps/api and apps/eval cannot drift (touches apps/api's
+  manifest); add `eval (lint, typecheck, test)` to `develop`'s required checks (admin);
+  reconcile CONTRIBUTING.md's "five required checks" with the four in branch protection.

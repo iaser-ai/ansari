@@ -241,7 +241,8 @@ describe('the app does not import the evaluation harness (issues #393, #397)', (
 
   // Issue #397: the harness left apps/api so that it is not in the api image
   // (`COPY apps/api apps/api`) and an eval-only edit does not redeploy the api
-  // (watch pattern `apps/api/**`). Each claim is read from the file that decides it.
+  // (watch pattern `apps/api/**`). The Dockerfile decides the first. For the second,
+  // railway.toml is the reviewable record; the live patterns are in the Railway dashboard.
   it('tells a COPY source or watch pattern that takes in the harness from one that does not', () => {
     for (const bad of ['.', './', 'apps', './apps/', 'apps/eval', 'apps/eval/', 'apps/**', 'apps/*', '**', 'apps/eval/lib/*.ts']) {
       expect(reachesHarness(bad), bad).toBe(true);
@@ -257,7 +258,11 @@ describe('the app does not import the evaluation harness (issues #393, #397)', (
     const manifest = JSON.parse(readSource('apps/api/package.json')) as Record<string, Record<string, string> | undefined>;
     expect({ ...manifest.dependencies, ...manifest.devDependencies }).not.toHaveProperty('ansari-eval');
 
-    const copied = [...readSource('apps/api/Dockerfile').matchAll(/^COPY\s+(.+)$/gm)].flatMap((m) => m[1].trim().split(/\s+/).slice(0, -1));
+    // The COPY reader takes one line per instruction. A continued or heredoc COPY
+    // would be read in part, so it is refused rather than half-checked.
+    const dockerfile = readSource('apps/api/Dockerfile');
+    expect(dockerfile).not.toMatch(/^COPY\b.*(\\|<<)/m);
+    const copied = [...dockerfile.matchAll(/^COPY\s+(.+)$/gm)].flatMap((m) => m[1].trim().split(/\s+/).slice(0, -1));
     const watchList = readSource('apps/api/railway.toml').match(/^watchPatterns = \[([\s\S]*?)^\]/m);
     const watched = [...(watchList?.[1] ?? '').matchAll(/^\s*"([^"]+)"/gm)].map((m) => m[1]);
     const reaching = [...copied, ...watched].filter(reachesHarness);

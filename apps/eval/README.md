@@ -7,15 +7,19 @@ a comparison report. Built for issue #393; meant to be re-run whenever a new mod
 It is its own workspace package, `ansari-eval`, in `apps/eval/` (issue #397). It calls
 apps/api's `runFacilitator` in process, so `@/` here means what it means in apps/api:
 `tsconfig.json` (read by tsx and tsc) and `vitest.config.ts` map `@/lib`, `@/db` and `@/`
-to `../api/lib`, `../api/db` and `../api/src`. It is never deployed: the api image copies
-`apps/api`, `packages` and the root manifests, and the api service watches `apps/api/**`,
-so neither the harness nor a results file ships in the image or triggers a deploy.
+to `../api/lib`, `../api/db` and `../api/src`. It is never deployed. The api image copies
+`apps/api`, `packages` and the root manifests, so the harness and its results are not in
+it. The api service's recorded watch patterns (`apps/api/railway.toml`) are `apps/api/**`,
+`packages/**` and the root manifests, so a new question or a results file does not
+redeploy the api. Two limits on that: Railway reads its dashboard, not the toml, so the
+live patterns are whatever the dashboard holds; and `pnpm-lock.yaml` is a watched file, so
+adding or bumping a dependency of this package does redeploy the api.
 
 Three rules keep it out of production, all enforced by
 `apps/api/tests/source-scan/facilitator-model-pin.test.ts`: nothing under apps/api's
 `src/`, `lib/` or `db/` imports the harness, by path or as `ansari-eval`; no route passes
 `model` to `runFacilitator`; and no `COPY` source in the api Dockerfile or watch pattern
-in the api `railway.toml` takes in `apps/eval`.
+recorded in the api `railway.toml` takes in `apps/eval`.
 
 ## Run it
 
