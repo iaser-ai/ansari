@@ -1,7 +1,7 @@
 id: '400'
 title: thread-history-is-unbounded-lo
 protocol: pir
-phase: plan
+phase: implement
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -17,4 +17,4 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-16T23:43:50.996Z'
-updated_at: '2026-11-16T23:57:46.842Z'
+updated_at: '2026-11-16T23:57:50.276Z'
