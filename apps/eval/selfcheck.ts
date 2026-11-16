@@ -1,7 +1,7 @@
 /**
  * Does the Quran scorer catch a misquote in the answers of a real run?
  *
- *   pnpm --filter ansari-api exec -- tsx eval/selfcheck.ts <results.json>
+ *   pnpm --filter ansari-eval exec -- tsx selfcheck.ts <results.json>
  *
  * A run in which no quote fails is only good news if a failing quote would have been
  * seen. This takes every answer in a results file that has a correctly quoted verse of
@@ -40,7 +40,7 @@ function corrupt(text: string, how: Mutation): string | null {
 
 const file = process.argv[2];
 if (!file) {
-  console.error('usage: tsx eval/selfcheck.ts <results.json>');
+  console.error('usage: tsx selfcheck.ts <results.json>');
   process.exit(2);
 }
 const run = JSON.parse(readFileSync(path.resolve(file), 'utf8')) as RunFile;

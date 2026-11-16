@@ -305,7 +305,7 @@ function costSection(run: RunFile, stats: ModelStats[], base: ModelStats): strin
     '- Model cost only: the search services are not in it. An errored turn reports no usage and is not costed.',
     ...(unconfirmed.length > 0
       ? [
-          `- **Prices not confirmed** for ${unconfirmed.map((s) => `\`${s.model}\``).join(', ')}. Every dollar figure for those models is an estimate until someone checks \`eval/models.json\` against the pricing page, sets \`confirmed\`, and runs \`eval/rescore.ts\`.`,
+          `- **Prices not confirmed** for ${unconfirmed.map((s) => `\`${s.model}\``).join(', ')}. Every dollar figure for those models is an estimate until someone checks \`apps/eval/models.json\` against the pricing page, sets \`confirmed\`, and runs \`apps/eval/rescore.ts\`.`,
         ]
       : []),
     '',

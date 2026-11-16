@@ -1,0 +1,27 @@
+{
+  "name": "ansari-eval",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Model evaluation harness: runs a question set through apps/api's facilitator per model and scores the answers. Never deployed.",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@ansari/eslint-config": "workspace:*",
+    "@ansari/tsconfig": "workspace:*",
+    "@types/node": "25.9.5",
+    "eslint": "catalog:",
+    "tsx": "4.23.11",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "4.1.11"
+  }
+}

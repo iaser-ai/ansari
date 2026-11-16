@@ -1,7 +1,7 @@
 /**
  * Score a results file again and rewrite its report, without calling any model.
  *
- *   pnpm --filter ansari-api exec -- tsx eval/rescore.ts <results.json>
+ *   pnpm --filter ansari-eval exec -- tsx rescore.ts <results.json>
  *
  * For a corrected scorer, or prices added to models.json after the run. The raw answers,
  * tool-call records and looked-up verses in the file are untouched; only `scores`,
@@ -15,7 +15,7 @@ import type { ModelPrice, RunFile } from './lib/types';
 
 const file = process.argv[2];
 if (!file) {
-  console.error('usage: tsx eval/rescore.ts <results.json>');
+  console.error('usage: tsx rescore.ts <results.json>');
   process.exit(2);
 }
 

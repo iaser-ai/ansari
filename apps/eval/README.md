@@ -4,28 +4,35 @@ Runs a versioned question set through the **real facilitator** (its prompt, tool
 and budgets) once per model, scores every answer with code, and writes a results file and
 a comparison report. Built for issue #393; meant to be re-run whenever a new model appears.
 
-It lives in `apps/api/eval/` because it calls `runFacilitator` in process: beside the code
-it measures, typechecked and linted with it, and outside `lib/` and `src/`. Its tests are
-in `apps/api/tests/model-eval/` and run with the normal suite. Two rules keep it out of
-production, both enforced by `tests/source-scan/facilitator-model-pin.test.ts`: nothing
-under `src/`, `lib/` or `db/` imports from `eval/`, and no route passes `model` to
-`runFacilitator`.
+It is its own workspace package, `ansari-eval`, in `apps/eval/` (issue #397). It calls
+apps/api's `runFacilitator` in process, so `@/` here means what it means in apps/api:
+`tsconfig.json` (read by tsx and tsc) and `vitest.config.ts` map `@/lib`, `@/db` and `@/`
+to `../api/lib`, `../api/db` and `../api/src`. It is never deployed: the api image copies
+`apps/api`, `packages` and the root manifests, and the api service watches `apps/api/**`,
+so neither the harness nor a results file ships in the image or triggers a deploy.
+
+Three rules keep it out of production, all enforced by
+`apps/api/tests/source-scan/facilitator-model-pin.test.ts`: nothing under apps/api's
+`src/`, `lib/` or `db/` imports the harness, by path or as `ansari-eval`; no route passes
+`model` to `runFacilitator`; and no `COPY` source in the api Dockerfile or watch pattern
+in the api `railway.toml` takes in `apps/eval`.
 
 ## Run it
 
 From the repo root, with an env file that holds real credentials:
 
 ```bash
-pnpm --filter ansari-api exec -- tsx --env-file=.env.eval.local eval/run.ts \
+pnpm --filter ansari-eval exec -- tsx --env-file=.env.eval.local run.ts \
   --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
 ```
 
 The `--` after `exec` is required: without it pnpm takes `--env-file` for itself and the
-run stops with `node: .env.eval.local: not found`. The env file path is relative to
-`apps/api/`.
+run stops with `node: .env.eval.local: not found`. pnpm runs the command in `apps/eval/`,
+so the env file path and `run.ts` are relative to it. That is also what makes `@/`
+resolve: tsx reads the `tsconfig.json` of the directory it starts in.
 
 The first model is the baseline the others are compared against. The run prints one line
-per conversation and ends with the two paths it wrote, under `apps/api/eval/results/`:
+per conversation and ends with the two paths it wrote, under `apps/eval/results/`:
 
 - `<run id>.json`: inputs, model ids, git revision, dates, every raw answer, the tool-call
   records, the looked-up verses and the scores.
@@ -39,8 +46,8 @@ category:name>`, `--concurrency <n>` (default 4), `--questions <file>`, `--out <
 
 ### The env file
 
-`apps/api/.env.eval.local` (git ignores `.env.*.local`). The harness reads the same
-variables the app does, through `lib/config.ts`:
+`apps/eval/.env.eval.local` (git ignores `.env.*.local`). The harness reads the same
+variables the app does, through apps/api's `lib/config.ts`:
 
 ```bash
 # Vertex AI: the models under test are called here.
@@ -74,7 +81,7 @@ with the final model turn's raw payload.
 
 ## What is scored
 
-All by code; the functions are in `eval/lib/` and each file's header states its rules.
+All by code; the functions are in `lib/` and each file's header states its rules.
 
 | Measure | How |
 |---|---|
@@ -109,7 +116,7 @@ a paragraph that names only another).
 ## Rescore without calling a model
 
 ```bash
-pnpm --filter ansari-api exec -- tsx eval/rescore.ts eval/results/<run id>.json
+pnpm --filter ansari-eval exec -- tsx rescore.ts results/<run id>.json
 ```
 
 Recomputes every score from what the file recorded and rewrites the report. Use it after
@@ -118,7 +125,7 @@ correcting a scorer or adding a price to `models.json`.
 ## Check that a clean result means something
 
 ```bash
-pnpm --filter ansari-api exec -- tsx eval/selfcheck.ts eval/results/<run id>.json
+pnpm --filter ansari-eval exec -- tsx selfcheck.ts results/<run id>.json
 ```
 
 "No failed quotes" is only good news if a failed quote would have been seen. This takes
@@ -130,13 +137,13 @@ called. Run it on every results file before believing its Quran numbers.
 ## Add a model
 
 1. Pass its id in `--models`. Nothing else is needed to run it.
-2. For cost, add its price to `eval/models.json` (US dollars per million input and output
+2. For cost, add its price to `models.json` (US dollars per million input and output
    tokens, with where the number came from). A model without a price reports cost as n/a.
 
 ### Prices
 
 The report's Cost section gives, per model, the price inputs, the cost per answer and per
-1,000 answers, and the ratio to the baseline. Each entry in `eval/models.json` carries:
+1,000 answers, and the ratio to the baseline. Each entry in `models.json` carries:
 
 - `confirmed`: `true` only after a person has checked the numbers against the
   [Vertex AI pricing page](https://cloud.google.com/vertex-ai/generative-ai/pricing). The
@@ -147,7 +154,7 @@ The report's Cost section gives, per model, the price inputs, the cost per answe
   4, "outputPerMTok": 20 }`. The report then also costs the run at that price, because an
   introductory rate that ends next month is not the price a decision should rest on.
 
-After editing prices, run `eval/rescore.ts` on the results file: no model is called.
+After editing prices, run `rescore.ts` on the results file: no model is called.
 
 What the cost figure is: model tokens only, at the full input price (the facilitator does
 not report cached-input tokens, so a caching discount makes the real bill lower), averaged
@@ -155,7 +162,7 @@ over this question set, which is not production's mix of questions.
 
 ## Add or change a question
 
-Question sets are files in `eval/questions/`, validated on load (`lib/question-set.ts`).
+Question sets are files in `questions/`, validated on load (`lib/question-set.ts`).
 
 ```json
 {
@@ -177,7 +184,10 @@ both match. Write questions yourself. Do not copy a user's conversation out of a
 
 ## Tests
 
-`pnpm --filter ansari-api exec vitest run tests/model-eval`. Each scorer is tested against
-a known-bad answer it must fail and a near-miss it must pass; the staging misquote
-(بِعَيْنِنَا for بِأَعْيُنِنَا, labelled 68:48) is one of the fixtures. The runner, scoring and
-report are tested end to end against a scripted facilitator.
+`pnpm --filter ansari-eval test`, from the repo root; no env or credentials are needed.
+The suite is in `tests/`, and CI runs it with lint and typecheck in the `eval` job. Each
+scorer is tested against a known-bad answer it must fail and a near-miss it must pass;
+the staging misquote (بِعَيْنِنَا for بِأَعْيُنِنَا, labelled 68:48) is one of the fixtures. The
+runner, scoring and report are tested end to end against a scripted facilitator.
+`tests/run-command.test.ts` starts the run command itself under tsx, and loads the api
+modules a real run needs through `@/` under both tsx and vitest.

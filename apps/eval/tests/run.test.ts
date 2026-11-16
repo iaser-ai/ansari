@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'node:path';
-import { installLogCapture } from '../../eval/lib/capture';
-import { loadQuestionSet, parseQuestionSet } from '../../eval/lib/question-set';
-import { costSummary, evaluateGates, modelStats, percentile, renderReport } from '../../eval/lib/report';
-import { planJobs, runConversation, runJobs, type FacilitatorEvent, type HistoryMessage, type RunnerDeps } from '../../eval/lib/runner';
-import { costUsd, scoreRun } from '../../eval/lib/score';
-import type { Question, RunFile, TurnRecord } from '../../eval/lib/types';
+import { installLogCapture } from '../lib/capture';
+import { loadQuestionSet, parseQuestionSet } from '../lib/question-set';
+import { costSummary, evaluateGates, modelStats, percentile, renderReport } from '../lib/report';
+import { planJobs, runConversation, runJobs, type FacilitatorEvent, type HistoryMessage, type RunnerDeps } from '../lib/runner';
+import { costUsd, scoreRun } from '../lib/score';
+import type { Question, RunFile, TurnRecord } from '../lib/types';
 import {
   VERSES,
   HADITH,
@@ -227,7 +227,6 @@ describe('runner', () => {
     const { deps } = scriptedDeps();
     const throwing: RunnerDeps = {
       ...deps,
-      // eslint-disable-next-line require-yield
       facilitator: async function* () {
         throw new Error('Gemini is not configured');
       },
@@ -427,7 +426,7 @@ describe('report', () => {
 });
 
 describe('question set v1', () => {
-  const { set, sha256 } = loadQuestionSet(path.resolve(__dirname, '../../eval/questions/v1.json'));
+  const { set, sha256 } = loadQuestionSet(path.resolve(__dirname, '../questions/v1.json'));
 
   it('covers what issue #393 asks for', () => {
     const categories = new Set(set.questions.map((q) => q.category));

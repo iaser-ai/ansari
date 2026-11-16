@@ -8,8 +8,8 @@
  * The verse and tafsir texts are the ones the search tools returned in that run.
  */
 import { describe, it, expect } from 'vitest';
-import { scoreLanguage } from '../../eval/lib/score-language';
-import { HARD_FAIL, scoreQuran, type QuranInput } from '../../eval/lib/score-quran';
+import { scoreLanguage } from '../lib/score-language';
+import { HARD_FAIL, scoreQuran, type QuranInput } from '../lib/score-quran';
 import { VERSES } from './fixtures';
 
 const V_49_13 = "يَـٰٓأَيُّهَا ٱلنَّاسُ إِنَّا خَلَقْنَـٰكُم مِّن ذَكَرٍۢ وَأُنثَىٰ وَجَعَلْنَـٰكُمْ شُعُوبًا وَقَبَآئِلَ لِتَعَارَفُوٓا ۚ إِنَّ أَكْرَمَكُمْ عِندَ ٱللَّهِ أَتْقَىٰكُمْ ۚ إِنَّ ٱللَّهَ عَلِيمٌ خَبِيرٌ";
@@ -199,7 +199,7 @@ describe('an Urdu translation of a verse is not the verse', () => {
 });
 
 describe('a misquote of a verse that a retrieved hadith or tafsir also cites still fails', () => {
-  // Found by corrupting real answers (eval/selfcheck.ts): the corrupted verse shared most
+  // Found by corrupting real answers (selfcheck.ts): the corrupted verse shared most
   // of its letters with the tafsir or hadith that cites the verse, and was set aside as
   // that source's text.
   const verseInHand = { thisTurn: [{ key: '2:286', ar: V_2_286 }] };

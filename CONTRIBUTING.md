@@ -34,8 +34,8 @@ You need **Node 22** (22.18 or newer; `.nvmrc` pins the major for `nvm use`).
 environment contract, and [`apps/api/README.md`](apps/api/README.md) covers the
 backend in more depth.
 
-This is a **pnpm workspace** (`apps/api/`, `apps/auth/`, `apps/frontend/`, `apps/mcp/` and
-the shared `packages/*`) driven by **[Turborepo](https://turborepo.com)**: install once at the
+This is a **pnpm workspace** (`apps/api/`, `apps/auth/`, `apps/frontend/`, `apps/mcp/`, the
+model evaluation harness `apps/eval/`, and the shared `packages/*`) driven by **[Turborepo](https://turborepo.com)**: install once at the
 repo root, then run tasks from the root — `pnpm dev` brings up the whole stack (api, auth,
 frontend and the MCP server) at once.
 
@@ -146,7 +146,9 @@ You can still target one package directly — `pnpm api lint`, `pnpm frontend we
 - CI must be green before a PR can merge. `develop` requires all five checks:
   `api (lint, typecheck, test, build)`, `auth (lint, typecheck, test, build)`,
   `frontend (lint, typecheck)`, `whatsapp (lint, format, test)`, and
-  `gitleaks (secret scan)`. The
+  `gitleaks (secret scan)`. `eval (lint, typecheck, test)` (the model evaluation
+  harness, `apps/eval/`) also runs on every pull request and is not a required
+  check. The
   [Checks](#checks) above are the same tasks, so passing them locally is a good
   predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
 - Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`
