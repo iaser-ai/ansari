@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -86,6 +86,7 @@ function ModeProbe() {
 }
 
 afterEach(() => {
+  delete process.env.EXPO_PUBLIC_ENABLE_SOCIAL_AUTH;
   act(() => closeAuthSheet());
   cleanup();
   vi.clearAllMocks();
@@ -139,93 +140,108 @@ describe("AuthSheet (issue #245)", () => {
     );
   });
 
-  it("leads with Apple, then Google, both above the email form", () => {
-    raise("register");
-    const apple = screen.getByTestId("auth-apple");
-    const google = screen.getByTestId("auth-google");
-    const firstField = screen.getByTestId("first-name-input");
-    const follows = Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(apple.compareDocumentPosition(google) & follows).toBeTruthy();
-    expect(google.compareDocumentPosition(firstField) & follows).toBeTruthy();
-    expect(screen.getByText("or continue with email")).toBeTruthy();
-  });
-
-  it("omits the Apple button on Android", () => {
-    const originalOs = Platform.OS;
-    Platform.OS = "android";
-    try {
+  describe("when social auth is disabled (default)", () => {
+    it("does not render Apple, Google, or the 'or continue with email' divider", () => {
       raise("login");
       expect(screen.queryByTestId("auth-apple")).toBeNull();
-      expect(screen.getByTestId("auth-google")).toBeTruthy();
-    } finally {
-      Platform.OS = originalOs;
-    }
+      expect(screen.queryByTestId("auth-google")).toBeNull();
+      expect(screen.queryByText("or continue with email")).toBeNull();
+    });
   });
 
-  it("renders both Apple and Google buttons on iOS", () => {
-    const originalOs = Platform.OS;
-    Platform.OS = "ios";
-    try {
+  describe("when social auth is enabled via EXPO_PUBLIC_ENABLE_SOCIAL_AUTH", () => {
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_ENABLE_SOCIAL_AUTH = "true";
+    });
+
+    it("leads with Apple, then Google, both above the email form", () => {
+      raise("register");
+      const apple = screen.getByTestId("auth-apple");
+      const google = screen.getByTestId("auth-google");
+      const firstField = screen.getByTestId("first-name-input");
+      const follows = Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(apple.compareDocumentPosition(google) & follows).toBeTruthy();
+      expect(google.compareDocumentPosition(firstField) & follows).toBeTruthy();
+      expect(screen.getByText("or continue with email")).toBeTruthy();
+    });
+
+    it("omits the Apple button on Android", () => {
+      const originalOs = Platform.OS;
+      Platform.OS = "android";
+      try {
+        raise("login");
+        expect(screen.queryByTestId("auth-apple")).toBeNull();
+        expect(screen.getByTestId("auth-google")).toBeTruthy();
+      } finally {
+        Platform.OS = originalOs;
+      }
+    });
+
+    it("renders both Apple and Google buttons on iOS", () => {
+      const originalOs = Platform.OS;
+      Platform.OS = "ios";
+      try {
+        raise("login");
+        expect(screen.getByTestId("auth-apple")).toBeTruthy();
+        expect(screen.getByTestId("auth-google")).toBeTruthy();
+      } finally {
+        Platform.OS = originalOs;
+      }
+    });
+
+    it("clicking Apple signs in and closes the sheet", async () => {
+      signInWithApple.mockResolvedValueOnce(true);
       raise("login");
-      expect(screen.getByTestId("auth-apple")).toBeTruthy();
-      expect(screen.getByTestId("auth-google")).toBeTruthy();
-    } finally {
-      Platform.OS = originalOs;
-    }
-  });
+      fireEvent.click(screen.getByTestId("auth-apple"));
+      await waitFor(() => expect(mode).toBeNull());
+      expect(signInWithApple).toHaveBeenCalledTimes(1);
+    });
 
-  it("clicking Apple signs in and closes the sheet", async () => {
-    signInWithApple.mockResolvedValueOnce(true);
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-apple"));
-    await waitFor(() => expect(mode).toBeNull());
-    expect(signInWithApple).toHaveBeenCalledTimes(1);
-  });
+    it("cancelling Apple leaves sheet open without error", async () => {
+      signInWithApple.mockResolvedValueOnce(false);
+      raise("login");
+      fireEvent.click(screen.getByTestId("auth-apple"));
+      await waitFor(() => expect(signInWithApple).toHaveBeenCalledTimes(1));
+      expect(mode).toBe("login");
+      expect(screen.queryByTestId("auth-error")).toBeNull();
+    });
 
-  it("cancelling Apple leaves sheet open without error", async () => {
-    signInWithApple.mockResolvedValueOnce(false);
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-apple"));
-    await waitFor(() => expect(signInWithApple).toHaveBeenCalledTimes(1));
-    expect(mode).toBe("login");
-    expect(screen.queryByTestId("auth-error")).toBeNull();
-  });
+    it("error in Apple sign-in displays inline error message", async () => {
+      signInWithApple.mockRejectedValueOnce(new Error("Apple auth failed"));
+      raise("login");
+      fireEvent.click(screen.getByTestId("auth-apple"));
+      await waitFor(() =>
+        expect(screen.getByTestId("auth-error").textContent).toBe("Apple auth failed")
+      );
+      expect(mode).toBe("login");
+    });
 
-  it("error in Apple sign-in displays inline error message", async () => {
-    signInWithApple.mockRejectedValueOnce(new Error("Apple auth failed"));
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-apple"));
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-error").textContent).toBe("Apple auth failed")
-    );
-    expect(mode).toBe("login");
-  });
+    it("clicking Google signs in and closes the sheet", async () => {
+      signInWithGoogle.mockResolvedValueOnce(true);
+      raise("login");
+      fireEvent.click(screen.getByTestId("auth-google"));
+      await waitFor(() => expect(mode).toBeNull());
+      expect(signInWithGoogle).toHaveBeenCalledTimes(1);
+    });
 
-  it("clicking Google signs in and closes the sheet", async () => {
-    signInWithGoogle.mockResolvedValueOnce(true);
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-google"));
-    await waitFor(() => expect(mode).toBeNull());
-    expect(signInWithGoogle).toHaveBeenCalledTimes(1);
-  });
+    it("cancelling Google leaves sheet open without error", async () => {
+      signInWithGoogle.mockResolvedValueOnce(false);
+      raise("login");
+      fireEvent.click(screen.getByTestId("auth-google"));
+      await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1));
+      expect(mode).toBe("login");
+      expect(screen.queryByTestId("auth-error")).toBeNull();
+    });
 
-  it("cancelling Google leaves sheet open without error", async () => {
-    signInWithGoogle.mockResolvedValueOnce(false);
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-google"));
-    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1));
-    expect(mode).toBe("login");
-    expect(screen.queryByTestId("auth-error")).toBeNull();
-  });
-
-  it("error in Google sign-in displays inline error message", async () => {
-    signInWithGoogle.mockRejectedValueOnce(new Error("Google auth failed"));
-    raise("login");
-    fireEvent.click(screen.getByTestId("auth-google"));
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-error").textContent).toBe("Google auth failed")
-    );
-    expect(mode).toBe("login");
+    it("error in Google sign-in displays inline error message", async () => {
+      signInWithGoogle.mockRejectedValueOnce(new Error("Google auth failed"));
+      raise("login");
+      fireEvent.click(screen.getByTestId("auth-google"));
+      await waitFor(() =>
+        expect(screen.getByTestId("auth-error").textContent).toBe("Google auth failed")
+      );
+      expect(mode).toBe("login");
+    });
   });
 
   it("asks for both fields before trying", () => {

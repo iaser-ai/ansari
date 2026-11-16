@@ -13,6 +13,7 @@ import { RADIUS, rounded } from "@/constants/radius";
 import { isHovered } from "@/lib/web";
 import { heading } from "@/lib/semantics";
 import { useAuth } from "@/lib/auth/context";
+import { isSocialAuthEnabled } from "@/lib/auth/features";
 import { closeAuthSheet, setAuthSheetMode, useAuthSheet, type AuthMode } from "@/lib/authSheet";
 import { AnsariMarkBrass } from "@/components/AnsariMarkBrass";
 import { AppleMark, GoogleMark } from "@/components/BrandMarks";
@@ -225,7 +226,7 @@ export function AuthSheet() {
   };
 
   const handleAppleSignIn = async () => {
-    if (submitting) return;
+    if (submitting || !isSocialAuthEnabled()) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -239,7 +240,7 @@ export function AuthSheet() {
   };
 
   const handleGoogleSignIn = async () => {
-    if (submitting) return;
+    if (submitting || !isSocialAuthEnabled()) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -309,20 +310,32 @@ export function AuthSheet() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.providers}>
-          {Platform.OS !== "android" && (
-            <ProviderButton provider="Apple" onPress={handleAppleSignIn} disabled={submitting} />
-          )}
-          <ProviderButton provider="Google" onPress={handleGoogleSignIn} disabled={submitting} />
-        </View>
+        {isSocialAuthEnabled() && (
+          <>
+            <View style={styles.providers}>
+              {Platform.OS !== "android" && (
+                <ProviderButton
+                  provider="Apple"
+                  onPress={handleAppleSignIn}
+                  disabled={submitting}
+                />
+              )}
+              <ProviderButton
+                provider="Google"
+                onPress={handleGoogleSignIn}
+                disabled={submitting}
+              />
+            </View>
 
-        <View style={styles.dividerRow}>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
-            or continue with email
-          </Text>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-        </View>
+            <View style={styles.dividerRow}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
+                or continue with email
+              </Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+          </>
+        )}
 
         {isRegister && (
           <Animated.View entering={FACE_ENTER} style={styles.nameRow}>
