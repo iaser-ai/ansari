@@ -2,10 +2,10 @@
  * Model evaluation harness (issue #393): run a question set through the real facilitator
  * for each model, score every answer, write a results file and a comparison report.
  *
- *   pnpm --filter ansari-api exec -- tsx --env-file=<env file> eval/run.ts \
+ *   pnpm --filter ansari-eval exec -- tsx --env-file=<env file> run.ts \
  *     --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
  *
- * See eval/README.md.
+ * See README.md.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -33,11 +33,11 @@ interface Args {
   verbose: boolean;
 }
 
-const USAGE = `usage: tsx eval/run.ts --models <id,id,...> [options]
+const USAGE = `usage: tsx run.ts --models <id,id,...> [options]
 
   --models <ids>        Comma-separated model ids. The first is the baseline.
-  --questions <file>    Question set (default: eval/questions/v1.json).
-  --out <dir>           Where the results file and report go (default: eval/results).
+  --questions <file>    Question set (default: questions/v1.json).
+  --out <dir>           Where the results file and report go (default: results).
   --repeats <n>         Samples per question per model (default: 1).
   --concurrency <n>     Conversations in flight at once (default: 4).
   --only <ids>          Only these question ids or category:<name>, comma-separated.
@@ -116,14 +116,14 @@ function loadPrices(models: string[]): Record<string, ModelPrice> {
 
 /** The real facilitator and the real Quran lookup. Imported here so --dry-run needs no credentials. */
 async function realDeps(): Promise<{ deps: RunnerDeps; promptSha256: string }> {
-  const { config } = await import('../lib/config');
+  const { config } = await import('@/lib/config');
   // Touch the settings the run depends on now, so a missing credential fails before the
   // first question rather than as forty error rows.
   void config.gemini;
   void config.tools;
-  const { runFacilitator } = await import('../lib/facilitator/agent');
-  const { SearchQuran } = await import('../lib/tools/search-quran');
-  const { FACILITATOR_SYSTEM_PROMPT } = await import('../lib/ai/prompts/facilitator');
+  const { runFacilitator } = await import('@/lib/facilitator/agent');
+  const { SearchQuran } = await import('@/lib/tools/search-quran');
+  const { FACILITATOR_SYSTEM_PROMPT } = await import('@/lib/ai/prompts/facilitator');
 
   const search = new SearchQuran();
   const cache = new Map<string, Promise<{ ar: string; en: string } | null>>();

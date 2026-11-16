@@ -1,6 +1,6 @@
 // Source scan for issue #393. `runFacilitator` takes a `model` option that pins a request
 // to one Gemini model with cross-model failover and Inkling escalation switched off. It
-// exists for the evaluation harness (apps/api/eval) only. A route that passed it would
+// exists for the evaluation harness (apps/eval) only. A route that passed it would
 // take a user's request out of the production failover path, so no route may.
 //
 // The scan reads code through the TypeScript parser (comments and strings never count),
@@ -8,7 +8,9 @@
 // asserts a floor on what it walked, so an empty walk or a renamed function cannot pass.
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
-import { readSource, sourceFiles } from './scan';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { REPO_ROOT, readSource, sourceFiles } from './scan';
 
 function parse(source: string): ts.SourceFile {
   return ts.createSourceFile('scan.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -82,10 +84,14 @@ export function facilitatorModelHits(source: string): FacilitatorCallScan {
   return out;
 }
 
-/** Import or require specifiers that reach into the evaluation harness. */
+/**
+ * Import or require specifiers that reach into the evaluation harness: a path with an
+ * `eval` directory in it (apps/eval is `../../eval` from apps/api/lib), or the harness's
+ * package name, `ansari-eval`.
+ */
 export function evalImportHits(source: string): string[] {
   const hits: string[] = [];
-  const inEval = (specifier: string) => /(^|\/)eval(\/|$)/.test(specifier);
+  const inEval = (specifier: string) => /(^|\/)(ansari-)?eval(\/|$)/.test(specifier);
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       if (inEval(node.moduleSpecifier.text)) hits.push(node.moduleSpecifier.text);
@@ -102,6 +108,21 @@ export function evalImportHits(source: string): string[] {
   };
   visit(parse(source));
   return hits;
+}
+
+/** A file of the harness, where it lives since issue #397. */
+const HARNESS_FILE = 'apps/eval/lib/score.ts';
+
+/** Would this Docker COPY source or deploy watch pattern take in a file of the harness? */
+export function reachesHarness(pattern: string): boolean {
+  const glob = pattern.replace(/^(\.?\/)+/, '').replace(/\/+$/, '');
+  if (glob === '' || glob === '.') return true;
+  const body = glob
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '\0')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\0/g, '.*');
+  return new RegExp(`^${body}(/.*)?$`).test(HARNESS_FILE);
 }
 
 const IMPORT = "import { runFacilitator } from '@/lib/facilitator/agent';\n";
@@ -174,14 +195,19 @@ describe('no route pins a request to a model (issue #393)', () => {
   });
 });
 
-describe('the app does not import the evaluation harness (issue #393)', () => {
+describe('the app does not import the evaluation harness (issues #393, #397)', () => {
   it('catches planted lines', () => {
     for (const bad of [
+      // By path. The harness is apps/eval: `../../eval` from apps/api/lib or db, deeper from src.
       "import { scoreRun } from '../../eval/lib/score';",
       "import { scoreRun } from '@/eval/lib/score';",
       "export { runJobs } from '../eval/lib/runner';",
       "const { scoreRun } = await import('../../../eval/lib/score');",
-      "const prices = require('../eval/models.json');",
+      "const prices = require('../../eval/models.json');",
+      "import { scoreRun } from '../../../../apps/eval/lib/score';",
+      // By package name.
+      "import { scoreRun } from 'ansari-eval/lib/score';",
+      "const harness = await import('ansari-eval');",
     ]) {
       expect(evalImportHits(bad), bad).toHaveLength(1);
     }
@@ -192,6 +218,8 @@ describe('the app does not import the evaluation harness (issue #393)', () => {
       "import { evaluate } from '@/lib/evaluation/rules';",
       "import { retrieval } from './retrieval';",
       "import medieval from 'medieval-names';",
+      "import { rules } from 'ansari-evaluation';",
+      "import { rules } from '@/lib/ansari-evals/rules';",
       "// import { scoreRun } from '../../eval/lib/score';",
       "const path = '../../eval/lib/score';",
     ]) {
@@ -209,5 +237,39 @@ describe('the app does not import the evaluation harness (issue #393)', () => {
     console.info(`[source-scan] eval imports: ${Object.values(hits).flat().length} hits in ${files.length} files`);
     expect(files.length).toBeGreaterThanOrEqual(60);
     expect(hits).toEqual({});
+  });
+
+  // Issue #397: the harness left apps/api so that it is not in the api image
+  // (`COPY apps/api apps/api`) and an eval-only edit does not redeploy the api
+  // (watch pattern `apps/api/**`). The Dockerfile decides the first. For the second,
+  // railway.toml is the reviewable record; the live patterns are in the Railway dashboard.
+  it('tells a COPY source or watch pattern that takes in the harness from one that does not', () => {
+    for (const bad of ['.', './', 'apps', './apps/', 'apps/eval', 'apps/eval/', 'apps/**', 'apps/*', '**', 'apps/eval/lib/*.ts']) {
+      expect(reachesHarness(bad), bad).toBe(true);
+    }
+    for (const fine of ['apps/api', 'apps/api/**', 'apps/api/package.json', 'packages', 'packages/**', 'package.json', 'apps/evaluation/**', 'eval/**']) {
+      expect(reachesHarness(fine), fine).toBe(false);
+    }
+  });
+
+  it('is outside what the api image copies and what the api deploy watches', () => {
+    expect(existsSync(path.join(REPO_ROOT, 'apps/api/eval'))).toBe(false);
+    expect(existsSync(path.join(REPO_ROOT, HARNESS_FILE))).toBe(true);
+    const manifest = JSON.parse(readSource('apps/api/package.json')) as Record<string, Record<string, string> | undefined>;
+    expect({ ...manifest.dependencies, ...manifest.devDependencies }).not.toHaveProperty('ansari-eval');
+
+    // The COPY reader takes one line per instruction. A continued or heredoc COPY
+    // would be read in part, so it is refused rather than half-checked.
+    const dockerfile = readSource('apps/api/Dockerfile');
+    expect(dockerfile).not.toMatch(/^COPY\b.*(\\|<<)/m);
+    const copied = [...dockerfile.matchAll(/^COPY\s+(.+)$/gm)].flatMap((m) => m[1].trim().split(/\s+/).slice(0, -1));
+    const watchList = readSource('apps/api/railway.toml').match(/^watchPatterns = \[([\s\S]*?)^\]/m);
+    const watched = [...(watchList?.[1] ?? '').matchAll(/^\s*"([^"]+)"/gm)].map((m) => m[1]);
+    const reaching = [...copied, ...watched].filter(reachesHarness);
+    console.info(`[source-scan] api image: ${reaching.length} of ${copied.length} COPY sources and ${watched.length} watch patterns take in apps/eval`);
+    // Floors: both lists were read, and each still names the app itself.
+    expect(copied).toContain('apps/api');
+    expect(watched).toContain('apps/api/**');
+    expect(reaching).toEqual([]);
   });
 });

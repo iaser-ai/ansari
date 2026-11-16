@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { scoreHadith, gradeClasses } from '../../eval/lib/score-hadith';
-import { scoreLanguage } from '../../eval/lib/score-language';
+import { scoreHadith, gradeClasses } from '../lib/score-hadith';
+import { scoreLanguage } from '../lib/score-language';
 import { HADITH, ANSWER_WITH_CITATIONS } from './fixtures';
 
 describe('scoreHadith', () => {

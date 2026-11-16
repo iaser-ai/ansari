@@ -1,5 +1,5 @@
 {
-  "note": "US dollars per million tokens, on-demand. Thinking tokens are billed at the output price. A null price makes the report say n/a for cost rather than guess. `confirmed` is true only after a person has checked the numbers against the Vertex AI pricing page (https://cloud.google.com/vertex-ai/generative-ai/pricing), which is what the app is billed through. `checked` names a weaker check (another pricing page) and is shown beside the NO. `next` is an announced price change; the report costs the run at both prices. After editing, run eval/rescore.ts.",
+  "note": "US dollars per million tokens, on-demand. Thinking tokens are billed at the output price. A null price makes the report say n/a for cost rather than guess. `confirmed` is true only after a person has checked the numbers against the Vertex AI pricing page (https://cloud.google.com/vertex-ai/generative-ai/pricing), which is what the app is billed through. `checked` names a weaker check (another pricing page) and is shown beside the NO. `next` is an announced price change; the report costs the run at both prices. After editing, run rescore.ts.",
   "models": {
     "gemini-3.7-flash": {
       "inputPerMTok": 0.75,

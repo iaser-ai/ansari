@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeAll, normalizeStandard, normalizeVerbatim, matchLevel } from '../../eval/lib/arabic';
-import { AYAH_COUNTS, findRefs, formatRef, surahByArabicName, surahByEnglishName } from '../../eval/lib/quran-refs';
-import { scoreQuran, refsToLookUp, type QuranInput } from '../../eval/lib/score-quran';
+import { normalizeAll, normalizeStandard, normalizeVerbatim, matchLevel } from '../lib/arabic';
+import { AYAH_COUNTS, findRefs, formatRef, surahByArabicName, surahByEnglishName } from '../lib/quran-refs';
+import { scoreQuran, refsToLookUp, type QuranInput } from '../lib/score-quran';
 import {
   VERSES,
   HADITH,

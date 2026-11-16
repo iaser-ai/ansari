@@ -1,0 +1,23 @@
+{
+  "extends": "@ansari/tsconfig/base.json",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "target": "ES2017",
+    // The harness runs apps/api's facilitator in process, and apps/api's own
+    // files import each other through `@/`. So `@/` here means what it means
+    // there: the same three mappings as apps/api/tsconfig.json, one directory
+    // over. tsx reads them from this file (it runs with apps/eval as cwd);
+    // vitest.config.ts repeats them.
+    "paths": {
+      "@/*": ["../api/src/*"],
+      "@/lib/*": ["../api/lib/*"],
+      "@/db/*": ["../api/db/*"]
+    }
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

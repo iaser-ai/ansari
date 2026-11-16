@@ -4,6 +4,12 @@
 
 Source: issue #393. No spec file exists for this project; the issue is the spec.
 
+> **Moved since (issue #397).** The harness now lives in `apps/eval/` as the package
+> `ansari-eval`, with its tests in `apps/eval/tests/`. The paths and commands in these notes
+> are the ones that were true at the experiment's revision (`apps/api/eval/`,
+> `pnpm --filter ansari-api …`) and no longer run as written. The current commands are in
+> `apps/eval/README.md`.
+
 ## Goal
 
 Decide which Gemini model Ansari's facilitator should run on (staging first, then
