@@ -223,3 +223,14 @@ Checks: six more mutations, each failing its tests (5, 5, 4, 2, 1, 3). One full 
 two workers: api 1,405 passed / 3 skipped, frontend 783, apps/auth 635, packages/auth 289 / 1
 skipped, eval 145; typecheck and lint clean. Load average stayed under 12. Commit `e0ff7bbe`.
 The `pr` gate is still pending and still the human's.
+
+## pr gate approved by the human; merging (2026-11-17, 05:13Z)
+
+The architect relayed the owner's explicit approval of the pr gate and of merging PR #404. CI
+was green on `336f2603` (all six jobs). `porch approve 400 pr` ran its three structural checks
+and recorded the gate; `porch next` reports the protocol complete. Merging with a merge commit,
+no squash. No full test run for this, on the architect's word: the machine is busy.
+
+Left open for the owner, none of it blocking: the bytes-per-token ratio is still uncalibrated;
+68 production threads are blocked on their next message once this is deployed; the gemini
+consultation lane never ran.
