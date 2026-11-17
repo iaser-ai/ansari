@@ -396,8 +396,20 @@ or `log-only`. Any other value stops apps/api at boot.
    bearer), `refused` (`valid: false`) or `unverified` (apps/auth gave no usable answer; also the
    Sentry warning `mcp-complete key unverified (log-only)`). Expect no `missing` or `refused`
    from the MCP servers.
-4. Remove the variable, which enforces.
-5. Open the follow-up issue due one week after the enforce date: remove log-only mode,
+4. **Before enforcing, check the known callers that hold no key.** Enforcement closes the
+   no-key path (spec 314, option (a)); any caller that still relies on it fails with 401 from
+   that moment. Known today:
+   - the public **Ansari agent skill** (`ansari-project/ansari-skill`, `ansari/SKILL.md`): a
+     `curl` to this route with `X-Ansari-Client: ansari-skill` and no key. It cannot hold a
+     secret. Its fate is decided in #409 (route it through the MCP server, or a capped no-key
+     tier, spec 314 option (b)); the skill repo must change **in step** with apps/api;
+   - the **browsing-AI `?src=` prompt** (#87): header-less GETs, the same class.
+
+   Read the log-only week's `missing` verdicts by `X-Ansari-Client` (and the 30-day
+   `threads.client` query in spec 314) for any other caller, and do not enforce while one of
+   them carries traffic you intend to keep.
+5. Remove the variable, which enforces.
+6. Open the follow-up issue due one week after the enforce date: remove log-only mode,
    `MCP_COMPLETE_KEY_MODE` and its `turbo.json` entry, so a transition switch does not outlive
    the transition as a way to turn auth off.
 
