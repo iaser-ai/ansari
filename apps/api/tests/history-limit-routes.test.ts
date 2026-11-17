@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
  *
  * POST /api/v2/threads/[id] (raw text; the legacy mobile app) and
  * POST /api/v2/threads/[id]/chat (SSE; the web app and WhatsApp). From the warn
- * threshold the answer ends with a notice, in the stream and in the stored
+ * threshold the answer opens with a notice, in the stream and in the stored
  * message; from the block threshold the notice is the answer and the facilitator
  * is never called. Both arrive in the frames and the row shape the routes already
  * produce. The real config is used, with low thresholds set through the env.
@@ -45,8 +45,9 @@ vi.mock('@/lib/db/threads', () => ({
   getThreadWithMessages: vi.fn(),
 }));
 
+const mockMaybeGenerateThreadName = vi.fn();
 vi.mock('@/lib/ai/thread-naming', () => ({
-  maybeGenerateThreadName: vi.fn().mockResolvedValue(undefined),
+  maybeGenerateThreadName: (...args: unknown[]) => mockMaybeGenerateThreadName(...args),
 }));
 
 import { POST as threadPost } from '../src/app/api/v2/threads/[id]/route';
@@ -55,6 +56,7 @@ import { resetEnvCache } from '@/lib/config';
 import {
   BYTES_PER_TOKEN,
   HISTORY_BLOCK_MESSAGE,
+  HISTORY_MESSAGE_TOO_LONG_MESSAGE,
   HISTORY_WARNING_MESSAGE,
 } from '@/lib/facilitator/history-limit';
 
@@ -102,9 +104,9 @@ function makeRequest(url: string, body: unknown): NextRequest {
 const routeContext = (id: string) => ({ params: Promise.resolve({ id }) });
 
 /** The raw-text route's whole stream. */
-async function postThread(): Promise<string> {
+async function postThread(content = 'What is sabr?'): Promise<string> {
   const response = await threadPost(
-    makeRequest(`http://localhost/api/v2/threads/${THREAD.id}`, { content: 'What is sabr?' }),
+    makeRequest(`http://localhost/api/v2/threads/${THREAD.id}`, { content }),
     routeContext(THREAD.id)
   );
   expect(response.status).toBe(200);
@@ -112,9 +114,9 @@ async function postThread(): Promise<string> {
 }
 
 /** The SSE route's `data:` frames, in order. */
-async function postChat(): Promise<Array<{ type: string; content?: string; message?: string }>> {
+async function postChat(message = 'What is sabr?'): Promise<Array<{ type: string; content?: string; message?: string }>> {
   const response = await chatPost(
-    makeRequest(`http://localhost/api/v2/threads/${THREAD.id}/chat`, { message: 'What is sabr?' }),
+    makeRequest(`http://localhost/api/v2/threads/${THREAD.id}/chat`, { message }),
     routeContext(THREAD.id)
   );
   expect(response.status).toBe(200);
@@ -161,22 +163,22 @@ describe('under the warn threshold', () => {
   });
 });
 
-describe('from the warn threshold: the answer is given and ends with the warning', () => {
-  const WARNED = `${ANSWER}\n\n${HISTORY_WARNING_MESSAGE}`;
+describe('from the warn threshold: the answer is given and opens with the warning', () => {
+  const WARNED = `${HISTORY_WARNING_MESSAGE}\n\n${ANSWER}`;
 
   beforeEach(() => mockFindMessagesByThread.mockResolvedValue(threadOfTokens(WARN_TOKENS)));
 
-  it('raw-text route: answer then warning in the stream, stored as one text block', async () => {
+  it('raw-text route: warning then answer in the stream, stored as one text block', async () => {
     expect(await postThread()).toBe(WARNED);
     expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
     // One text block, so thread GET still serves `content` as a bare string.
     expect(assistantRows().map((m) => m.content)).toEqual([[{ type: 'text', text: WARNED }]]);
   });
 
-  it('SSE route: answer, then the warning as a text frame, then done', async () => {
+  it('SSE route: the warning as a text frame, then the answer, then done', async () => {
     expect(await postChat()).toEqual([
+      { type: 'text', content: `${HISTORY_WARNING_MESSAGE}\n\n` },
       { type: 'text', content: ANSWER },
-      { type: 'text', content: `\n\n${HISTORY_WARNING_MESSAGE}` },
       { type: 'done' },
     ]);
     expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
@@ -224,6 +226,56 @@ describe('from the block threshold: no model call, the notice is the answer', ()
     await postThread();
     const stored = mockCreateMessage.mock.calls.map((c) => c[0].role);
     expect(stored).toEqual(['user', 'assistant']);
+  });
+});
+
+describe('one incoming message over the block threshold on its own', () => {
+  // A short thread: what is too long is the message, not the conversation.
+  beforeEach(() => mockFindMessagesByThread.mockResolvedValue(threadOfTokens(10)));
+
+  const AT_BLOCK = 'a'.repeat(BLOCK_TOKENS * BYTES_PER_TOKEN);
+  const UNDER_BLOCK = 'a'.repeat(BLOCK_TOKENS * BYTES_PER_TOKEN - BYTES_PER_TOKEN);
+
+  it('raw-text route: told the message is too long; nothing stored, no model call, no thread name', async () => {
+    expect(await postThread(AT_BLOCK)).toBe(HISTORY_MESSAGE_TOO_LONG_MESSAGE);
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(mockFindMessagesByThread).not.toHaveBeenCalled();
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+    expect(mockMaybeGenerateThreadName).not.toHaveBeenCalled();
+  });
+
+  it('SSE route: one text frame with that message, then done, and no error frame; nothing stored', async () => {
+    expect(await postChat(AT_BLOCK)).toEqual([
+      { type: 'text', content: HISTORY_MESSAGE_TOO_LONG_MESSAGE },
+      { type: 'done' },
+    ]);
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(mockFindMessagesByThread).not.toHaveBeenCalled();
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+    expect(mockMaybeGenerateThreadName).not.toHaveBeenCalled();
+  });
+
+  it('the size is in bytes: Arabic of half as many characters is refused too', async () => {
+    const arabic = '\u0635'.repeat((BLOCK_TOKENS * BYTES_PER_TOKEN) / 2);
+    expect(await postThread(arabic)).toBe(HISTORY_MESSAGE_TOO_LONG_MESSAGE);
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+
+  it('one token under the threshold is stored and goes on to the ordinary thread check', async () => {
+    expect(await postThread(UNDER_BLOCK)).toBe(ANSWER);
+    expect(mockCreateMessage.mock.calls.map((c) => c[0].role)).toEqual(['user', 'assistant']);
+  });
+
+  it('logs the thread id and the estimate, and none of the message', async () => {
+    await postThread(AT_BLOCK);
+    expect(vi.mocked(console.warn).mock.calls).toEqual([
+      ['[history-limit] incoming message refused', { threadId: THREAD.id, estimatedTokens: BLOCK_TOKENS }],
+    ]);
+  });
+
+  it('says the message is too long, not the conversation, and does not suggest splitting it', () => {
+    expect(HISTORY_MESSAGE_TOO_LONG_MESSAGE).toMatch(/message is too long/);
+    expect(HISTORY_MESSAGE_TOO_LONG_MESSAGE).not.toMatch(/conversation|split|several|parts/i);
   });
 });
 

@@ -7,7 +7,7 @@ import { findThreadById, createMessage, findMessagesByThread, persistOrphanToolC
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
-import { limitThreadTurn } from '@/lib/facilitator/history-limit';
+import { HISTORY_MESSAGE_TOO_LONG_MESSAGE, incomingMessageTooLong, limitThreadTurn } from '@/lib/facilitator/history-limit';
 import { startHeartbeat, SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 
@@ -18,6 +18,12 @@ type RouteContext = {
 const chatSchema = z.object({
   message: z.string().min(1, 'Message is required'),
 });
+
+const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+};
 
 // POST /api/v2/threads/[id]/chat - Send a message and get streaming response
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -45,6 +51,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const { message } = parseResult.data;
+
+    // A message over the block threshold on its own is answered at once and NOT
+    // stored (issue #400): stored, it would block this thread for good.
+    if (incomingMessageTooLong(message, threadId)) {
+      const frames = [{ type: 'text', content: HISTORY_MESSAGE_TOO_LONG_MESSAGE }, { type: 'done' }];
+      return new Response(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''), {
+        headers: SSE_HEADERS,
+      });
+    }
 
     // Per-client attribution (spec 56). Capture before the stream — the
     // assistant message is written inside the async stream closure.
@@ -104,7 +119,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const heartbeat = startHeartbeat(() => safeEnqueue(encoder.encode(SSE_HEARTBEAT)));
 
         try {
-          // Thread history limits (issue #400): a long thread's answer ends with a
+          // Thread history limits (issue #400): a long thread's answer opens with a
           // notice, and a too-long thread gets the notice instead of a model call.
           const turn = limitThreadTurn(messageHistory, threadId, () => runFacilitator(messageHistory));
           for await (const event of turn) {
@@ -217,13 +232,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(stream, { headers: SSE_HEADERS });
   } catch (error) {
     console.error('Chat error:', error);
     Sentry.captureException(error);

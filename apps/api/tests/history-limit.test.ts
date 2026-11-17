@@ -15,7 +15,7 @@ import {
  *
  * The size of a thread is estimated from the text a turn would send (UTF-8 bytes
  * over BYTES_PER_TOKEN), never read from a stored token count. From the warn
- * threshold an answer ends with a notice; from the block threshold the notice is
+ * threshold an answer opens with a notice; from the block threshold the notice is
  * the answer and no model runs. The real config schema is used throughout.
  */
 
@@ -108,6 +108,17 @@ describe('assessHistory', () => {
   });
 });
 
+describe('the warning wording', () => {
+  // apps/frontend/lib/history-notice.test.ts puts this same sentence through the web
+  // app's citation strips. It cannot import from here, so the words are pinned on both
+  // sides: a rewording has to visit both files.
+  it('is the sentence the frontend test carries', () => {
+    expect(HISTORY_WARNING_MESSAGE).toBe(
+      'Note: this conversation is getting long. Please start a new conversation soon. Ansari cannot continue a conversation beyond a certain length.'
+    );
+  });
+});
+
 describe('limitThreadTurn', () => {
   const answer: FacilitatorStreamEvent[] = [
     { type: 'tool_use', data: '{"name":"search_quran"}' },
@@ -129,14 +140,29 @@ describe('limitThreadTurn', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('from the warn threshold: the warning follows the answer as one more text event before done', async () => {
+  it("from the warn threshold: the warning is one text event just ahead of the answer's first text", async () => {
     const run = runs(answer);
     const events = await collect(limitThreadTurn([userOfTokens(100)], 'thread-1', run));
     expect(run).toHaveBeenCalledTimes(1);
     expect(events).toEqual([
-      ...answer.slice(0, 3),
-      { type: 'text', data: `\n\n${HISTORY_WARNING_MESSAGE}` },
-      answer[3],
+      answer[0],
+      { type: 'text', data: `${HISTORY_WARNING_MESSAGE}\n\n` },
+      ...answer.slice(1),
+    ]);
+  });
+
+  it('the warning is sent once, and waits for the first text that is not blank', async () => {
+    const blankFirst: FacilitatorStreamEvent[] = [
+      { type: 'text', data: '\n' },
+      { type: 'text', data: 'Sabr' },
+      { type: 'text', data: ' is patience.' },
+      { type: 'done', data: '' },
+    ];
+    const events = await collect(limitThreadTurn([userOfTokens(100)], 'thread-1', runs(blankFirst)));
+    expect(events).toEqual([
+      blankFirst[0],
+      { type: 'text', data: `${HISTORY_WARNING_MESSAGE}\n\n` },
+      ...blankFirst.slice(1),
     ]);
   });
 

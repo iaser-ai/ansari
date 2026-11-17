@@ -43,7 +43,11 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@/db/schema';
 import { resetEnvCache } from '@/lib/config';
-import { HISTORY_BLOCK_MESSAGE, HISTORY_WARNING_MESSAGE } from '@/lib/facilitator/history-limit';
+import {
+  HISTORY_BLOCK_MESSAGE,
+  HISTORY_MESSAGE_TOO_LONG_MESSAGE,
+  HISTORY_WARNING_MESSAGE,
+} from '@/lib/facilitator/history-limit';
 import { GET as threadGet, POST as threadPost } from '../src/app/api/v2/threads/[id]/route';
 import { POST as chatPost } from '../src/app/api/v2/threads/[id]/chat/route';
 
@@ -149,16 +153,16 @@ afterEach(() => {
 });
 
 describe('a thread growing past both thresholds, as thread GET returns it', () => {
-  it('short: the answer alone. Long: answer and warning. Too long: the block message. Always a bare string', async () => {
+  it('short: the answer alone. Long: warning and answer. Too long: the block message. Always a bare string', async () => {
     // Turn 1, a short thread.
     await chat('What is sabr?');
     expect(answersOf(await storedMessages())).toEqual([ANSWER]);
 
     // Turn 2 takes the history past 100 estimated tokens: answered, with the warning.
     const warned = await chat('a'.repeat(500));
-    expect(warned).toContain(JSON.stringify(`\n\n${HISTORY_WARNING_MESSAGE}`));
+    expect(warned).toContain(JSON.stringify(`${HISTORY_WARNING_MESSAGE}\n\n`));
     expect(mockRunFacilitator).toHaveBeenCalledTimes(2);
-    const WARNED_ANSWER = `${ANSWER}\n\n${HISTORY_WARNING_MESSAGE}`;
+    const WARNED_ANSWER = `${HISTORY_WARNING_MESSAGE}\n\n${ANSWER}`;
     expect(answersOf(await storedMessages()).sort()).toEqual([ANSWER, WARNED_ANSWER].sort());
 
     // Turn 3 takes it past 200: no model call, and the block message is the answer.
@@ -189,12 +193,17 @@ describe('a thread growing past both thresholds, as thread GET returns it', () =
   });
 
   it('a block message is stored as a plain assistant row: one text block, no usage, no payload, no model', async () => {
-    await chat('c'.repeat(800));
+    // Two messages, each under the block threshold on its own, that cross it together.
+    // The stubbed model stores no usage either, so the first row is told apart by its text.
+    await chat('c'.repeat(396));
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
+    mockRunFacilitator.mockClear();
+    await chat('c'.repeat(396));
 
     const { rows } = await client.query<Record<string, unknown>>(
       `SELECT content, agent_name, input_tokens, output_tokens, thinking_tokens, total_tokens,
               raw_payload, tool_calls, model_provider, model_id
-       FROM messages WHERE role = 'assistant'`
+       FROM messages WHERE role = 'assistant' AND content::text NOT LIKE '%Sabr%'`
     );
     expect(rows).toEqual([
       {
@@ -211,5 +220,36 @@ describe('a thread growing past both thresholds, as thread GET returns it', () =
       },
     ]);
     expect(mockRunFacilitator).not.toHaveBeenCalled();
+  });
+});
+
+describe('one message over the block threshold on its own, as thread GET returns the thread', () => {
+  it('is refused on both routes and leaves no row, so the thread still answers the next message', async () => {
+    await chat('What is sabr?');
+
+    // 800 bytes is the whole block threshold in one message.
+    const refused = await chat('d'.repeat(800));
+    expect(refused).toContain(JSON.stringify(HISTORY_MESSAGE_TOO_LONG_MESSAGE));
+    expect(refused).toContain('"type":"done"');
+    expect(refused).not.toContain('"type":"error"');
+    const raw = await threadPost(
+      post(`http://localhost/api/v2/threads/${THREAD_ID}`, { content: 'e'.repeat(800) }),
+      routeContext
+    );
+    expect(await raw.text()).toBe(HISTORY_MESSAGE_TOO_LONG_MESSAGE);
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
+
+    // Nothing of either attempt was saved: the thread is as it was.
+    const before = await storedMessages();
+    expect(before.map((m) => m.content)).toEqual(['What is sabr?', ANSWER]);
+
+    // So the thread is not blocked: the next ordinary message is answered, with no notice.
+    const next = await chat('And what is shukr?');
+    expect(next).toContain(JSON.stringify(ANSWER));
+    expect(next).not.toContain(HISTORY_WARNING_MESSAGE);
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(2);
+    expect((await storedMessages()).map((m) => m.content).sort()).toEqual(
+      ['What is sabr?', ANSWER, 'And what is shukr?', ANSWER].sort()
+    );
   });
 });

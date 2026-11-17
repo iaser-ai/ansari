@@ -124,7 +124,7 @@ export const envSchema = z.object({
 
   // Thread history limits (issue #400), in estimated tokens of the history a
   // turn would send (lib/facilitator/history-limit.ts). At WARN the answer
-  // ends with a notice to start a new conversation; at BLOCK no model is
+  // opens with a notice to start a new conversation; at BLOCK no model is
   // called and the notice is the answer. WARN must be below BLOCK (checked
   // below); anything but a positive integer fails here, no clamping.
   THREAD_HISTORY_WARN_TOKENS: z.coerce

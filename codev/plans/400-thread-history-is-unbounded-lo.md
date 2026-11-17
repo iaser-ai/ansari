@@ -4,7 +4,7 @@ Issue #400. Scope is the owner's decision of 2026-11-16 (second comment on the i
 150,000 tokens, block at 200,000, a plain message when a prompt is too large for a model, every
 entry point covered, no new route, status or response shape.
 
-> **Amendments after approval (2026-11-17).** The plan below is as approved; four things were
+> **Amendments after approval (2026-11-17).** The plan below is as approved; six things were
 > built differently. The review (`codev/reviews/400-thread-history-is-unbounded-lo.md`) has the
 > reasons.
 >
@@ -16,6 +16,11 @@ entry point covered, no new route, status or response shape.
 > 3. The two stateless routes answer a block with their own sentence: "The conversation in this
 >    request is too long. Send fewer or shorter messages."
 > 4. `/v2/mcp-complete` tops out at about 60k estimated tokens, not 80k.
+> 5. The warning OPENS the answer; it does not end it. The web app cuts everything after a
+>    `Citations` heading, so a trailing warning vanished from cited answers (architect's
+>    integration review of PR #404).
+> 6. One incoming message over the block threshold on its own is told the message is too long
+>    and is not stored, so the thread stays usable (same review).
 
 ## Decisions needed at this gate
 
