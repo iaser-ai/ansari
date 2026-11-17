@@ -37,3 +37,11 @@
 - **Fixed.** `apps/frontend/lib/auth/guest.ts`: a candidate matching one of the four penalised patterns is drawn again, up to 100 times, then the function throws. The pattern list is a copy of the backend's; the frontend cannot import `@ansari/auth` (it pulls in bcrypt and pg). The 500-draw assertion is unchanged.
 - **Tests.** A `draw` option forces a candidate: a real `123…` output from the measurement is skipped, as is one for each of the other three patterns, and 100 penalised draws in a row throw. All five fail with the redraw removed.
 - Not re-measured after the fix: another 10,000,000 draws would cost four and a half CPU-minutes and the forced-draw tests cover the logic.
+
+## 2026-11-17 01:52Z — PR #405 open, pr gate pending
+
+- Third porch run, Node 22 forced by the shared config: `build` and `tests` passed (336 s). api 1354 passed and 3 skipped, auth 635, eval 145, frontend 780.
+- PR #405 opened against `develop`, `Closes #403`. The body is the review and quotes the old and new prompt wording for the owner.
+- CMAP not run: the change is small and the open question, whether the wording works on hydrogen, is one only the architect's replay answers.
+- Still open, with the owner: the global zod-locale fix for the other v2 routes. Left out of this PR on the architect's instruction.
+- Waiting at the pr gate. Not merging.
