@@ -100,3 +100,7 @@ Verification: 10 new or extended tests fail with the lib change reverted; the pe
 
 CMAP on the updated branch (c8a10b32): codex APPROVE, claude APPROVE, gemini SKIPPED (`agy` exited 3 again; not an approval). Claude's non-blocking notes: #399 needs closing by hand; the provider's error text reaches Sentry (provider-generated today, same assumption the rescue summary already makes); one untested branch in `describeStreamError` (error with no `type`), now covered.
 
+## Merge (2026-11-17)
+
+Architect's second pass on d3bc1446: no changes requested, stated limits accepted. At 00:09Z the architect relayed that the human (Waleed) explicitly approved the pr gate and the merge of PR #401. I ran `porch approve bugfix-399 pr` on that word and merged with a merge commit (no squash, branch kept) once CI was green on the final head. #402 closes with the merge; #399 stays open for the architect to close by hand; long threads are #400.
+
