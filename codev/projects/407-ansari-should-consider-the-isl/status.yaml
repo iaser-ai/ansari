@@ -1,0 +1,14 @@
+id: '407'
+title: ansari-should-consider-the-isl
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-17T15:51:25.512Z'
+updated_at: '2026-11-17T15:51:25.513Z'
