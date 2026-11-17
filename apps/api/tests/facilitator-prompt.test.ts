@@ -75,33 +75,32 @@ describe('Facilitator system prompt — tool names & degradation guidance', () =
   });
 });
 
-// Issue #403: on gemini-4-hydrogen the old out-of-scope section ("explain that you
-// are specialized in Islamic topics", "suggest reformulating the question") produced
-// flat refusals of everyday advice questions: 9 of 840 first answers in taqwabench's
-// JaleesBench run on staging, none on the June production run with the same text.
-// The section now tells the model to answer and bring the Islamic view in.
+// Issue #403: on gemini-4-hydrogen the out-of-scope section produced flat refusals
+// of everyday advice questions ("I specialize in Islamic topics... reformulate your
+// question"): 9 of 840 first answers in taqwabench's JaleesBench run on staging,
+// none on the June production run with the same text. The owner's fix is one
+// sentence after the section saying such questions are in scope; the section's own
+// four lines stay exactly as they were.
 describe('Facilitator system prompt — questions outside Islamic topics', () => {
-  const start = FACILITATOR_SYSTEM_PROMPT.indexOf('For questions outside Islamic knowledge domain:');
-  const section = FACILITATOR_SYSTEM_PROMPT.slice(start, FACILITATOR_SYSTEM_PROMPT.indexOf('\n\n', start));
+  const SECTION = [
+    'For questions outside Islamic knowledge domain:',
+    '1. Politely explain that you are specialized in Islamic topics',
+    '2. Suggest reformulating the question to relate to Islamic perspective if relevant',
+    '3. For purely secular topics, acknowledge the limits of your expertise',
+    '4. Avoid speculation on topics outside your knowledge base',
+  ].join('\n');
+  const ADVICE_SENTENCE =
+    'Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, and bring in the Islamic perspective where it is relevant.';
 
-  it('is the four-item section, and nothing else was cut into it', () => {
-    expect(start).toBeGreaterThan(-1);
-    expect(section.split('\n')).toHaveLength(5);
+  it('keeps the four original lines of the section word for word', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`\n\n${SECTION}\n`);
   });
 
-  it('forbids refusing on scope and forbids asking the user to reformulate', () => {
-    expect(section).toMatch(/never refuse a question because it is not about Islam/i);
-    expect(section).toMatch(/never ask the user to reformulate/i);
+  it('follows the section directly with the one sentence that puts everyday advice in scope', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${SECTION}\n${ADVICE_SENTENCE}\n\n`);
   });
 
-  it('asks for a real answer to everyday advice questions, with the Islamic perspective where relevant', () => {
-    expect(section).toMatch(/advice or guidance \(work, family, money, decisions\)/);
-    expect(section).toMatch(/give a real, helpful answer to what was asked/);
-    expect(section).toMatch(/Islamic perspective where it is relevant/);
-  });
-
-  it('no longer carries the wording that produced the refusals, anywhere in the prompt', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT).not.toMatch(/specialized in Islamic topics/i);
-    expect(FACILITATOR_SYSTEM_PROMPT).not.toMatch(/reformulating/i);
+  it('says that sentence once', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT.split(ADVICE_SENTENCE)).toHaveLength(2);
   });
 });
