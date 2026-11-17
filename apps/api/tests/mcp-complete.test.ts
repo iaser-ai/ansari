@@ -48,6 +48,7 @@ vi.mock('@/lib/rate-limit', () => ({
 import { GET, POST } from '../src/app/api/v2/mcp-complete/route';
 import { resetEnvCache } from '@/lib/config';
 import { installMcpKeyStub, MCP_TEST_CLIENT_ID, withMcpKey } from './helpers/mcp-key';
+import { HISTORY_REQUEST_TOO_LONG_MESSAGE } from '@/lib/facilitator/history-limit';
 
 // Every request presents a valid key (#314); the gate itself is tested in
 // mcp-complete-key.test.ts.
@@ -463,5 +464,80 @@ describe('mcp-complete client attribution (#314: the key decides)', () => {
       expect.objectContaining({ source: 'ai-skill', client: MCP_TEST_CLIENT_ID }),
       expect.anything()
     );
+  });
+});
+
+// Issue #400: a request whose history is at or over the block threshold is refused
+// as invalid input, in the route's own error shape, before anything is saved and
+// with no model call. There is no warning on this route: its caller sends the
+// history itself and has no conversation to restart.
+describe('mcp-complete thread history limit (issue #400)', () => {
+  const ANSWER = 'Patience (sabr) is mentioned many times in the Quran.';
+
+  function setThresholds(warn: number, block: number) {
+    vi.stubEnv('THREAD_HISTORY_WARN_TOKENS', String(warn));
+    vi.stubEnv('THREAD_HISTORY_BLOCK_TOKENS', String(block));
+    resetEnvCache();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupSuccessfulMocks();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('at the block threshold: 400 with the plain message, nothing saved, no model call', async () => {
+    setThresholds(100, 200);
+    const response = await POST(makePostRequest({ messages: [{ role: 'user', content: 'a'.repeat(800) }] }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: HISTORY_REQUEST_TOO_LONG_MESSAGE });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+    expect(mockCreateThread).not.toHaveBeenCalled();
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith('[history-limit] request refused', {
+      route: 'mcp-complete',
+      estimatedTokens: expect.any(Number),
+    });
+  });
+
+  it('GET is held to the same limit', async () => {
+    setThresholds(100, 200);
+    const response = await GET(makeGetRequest('a'.repeat(800)));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: HISTORY_REQUEST_TOO_LONG_MESSAGE });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+  });
+
+  it('between the warn and block thresholds: answered as usual, with no notice added', async () => {
+    setThresholds(100, 2000);
+    const response = await POST(makePostRequest({ messages: [{ role: 'user', content: 'a'.repeat(800) }] }));
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text.startsWith(`${ANSWER}\n\n---\n`)).toBe(true);
+    expect(text).not.toMatch(/conversation is getting long/i);
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
+  });
+
+  it('at the default thresholds the largest body the route accepts is answered', async () => {
+    // 20 messages of 4,000 three-byte characters: the most bytes the body schema
+    // allows (its cap counts UTF-16 units, and no unit encodes to more than three
+    // bytes). About 60,000 estimated tokens, under the default warn threshold.
+    const largest = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: '\u4e2d'.repeat(4000),
+    }));
+    largest[19].role = 'user';
+    const response = await POST(makePostRequest({ messages: largest }));
+
+    expect(response.status).toBe(200);
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
   });
 });

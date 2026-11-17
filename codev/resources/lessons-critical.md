@@ -20,7 +20,7 @@ STARTER: a few universal lessons are seeded; add your project's as you learn the
 
 ## Map of lessons-learned.md (consult when…)
 - Auth hardening (spec 4) — consult when working on sessions/tokens, revocation races, anti-oracle responses, or drizzle/pg error handling.
-- Gemini history fidelity (issue #70) — consult when persisting replayed payloads, cutting streams mid-loop, or changing the messages schema used by pglite test DDL.
+- Gemini history fidelity (issue #70) + Thread history limits (issue #400) — consult when persisting replayed payloads, cutting streams mid-loop, changing the messages schema used by pglite test DDL, measuring a thread's size, sending a notice every client must show, running a mutation check, or overriding a porch check in a builder worktree.
 - Tool-call persistence (spec 73) — consult when adding message columns, persisting on error paths, mocking modules routes import, or numbering migrations after a concurrent merge.
 - Monorepo migration & verification discipline (spec 48) + prototype promotion (issue #262) — consult when verifying build/cache/env changes, writing scan patterns, fixing docs across a monorepo, upgrading an Expo/RN SDK, or trusting a green check on code that only runs on native.
 - Incremental streaming render / Paced streaming reveal — frontend (issues #65, #189) — consult when rendering a streamed response incrementally, swapping a synthetic in-progress element for a persisted one without flicker, or pacing/animating streamed text against a cursor over revisable text.
