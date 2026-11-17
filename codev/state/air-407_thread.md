@@ -14,3 +14,11 @@
 - `porch done` for implement passed both checks: `build` (31.0s) and `tests` (216.6s; api, auth, eval, frontend), the one full-suite run.
 - PR #408 is open against `develop`, with the review in its body. Branch was 0 commits behind `origin/develop` at push.
 - No CMAP: one prompt line, wording dictated by the owner. What needs checking is the model's behaviour, and that is the architect's live replay.
+
+## 2026-11-17 — stopped for a reboot (shutdown notice from the architect, 18:08Z)
+
+- Where I stopped: PR phase, `pr` gate requested and NOT approved. Nothing is merged. No work is in progress and nothing is uncommitted except this note.
+- CI is green on `f7addf4a` (run 44120360282: api, auth, eval, frontend, gitleaks, whatsapp all pass). This note is a new commit, so CI runs again on it.
+- Architect was told: "PR #408 ready for review" (delivered) and "pr gate ready for approval" (held in the mailbox at the time, id e619b6f2).
+- Still open, neither mine to do: the architect's live replay of JLS-116, JLS-046, JLS-080 and one unrelated request, and the human's decision on the `pr` gate.
+- On resume: run `porch status 407`. If the human's approval has been relayed, run `porch approve 407 pr --a-human-explicitly-approved-this`, then `porch next` for the merge task. If not, wait.
