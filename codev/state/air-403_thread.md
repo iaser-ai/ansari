@@ -63,3 +63,9 @@
 - Local build passes on the revised commit from a cleared `.next` (26 s; the other three packages cached). CI on `26e67606`: all six jobs pass, api and auth builds included.
 - Lesson for whoever shares a worktree next: `next dev` and `next build` both write `apps/api/.next`. Check for a dev server (`lsof -a -d cwd -c node`) before building, and do not delete `.next` on the strength of one look; a server can start a moment later.
 - pr gate still pending with the owner. Not merging.
+
+## 2026-11-17 05:40Z — pr gate approved by the human; merging once CI is green
+
+- The architect relayed Waleed's explicit approval of the pr gate and of merging PR #405 with the one-sentence wording, on condition that all six CI jobs are green on the head.
+- CI on `ca544895`: all six green. Ran `porch approve 403 pr --a-human-explicitly-approved-this`.
+- Porch pushed two state commits (`status.yaml` only), which moved the PR head and restarted CI. Waiting for all six jobs on the new head before merging with a regular merge commit. If any goes red, I stop and tell the architect.
