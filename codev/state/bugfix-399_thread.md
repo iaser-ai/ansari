@@ -104,3 +104,15 @@ CMAP on the updated branch (c8a10b32): codex APPROVE, claude APPROVE, gemini SKI
 
 Architect's second pass on d3bc1446: no changes requested, stated limits accepted. At 00:09Z the architect relayed that the human (Waleed) explicitly approved the pr gate and the merge of PR #401. I ran `porch approve bugfix-399 pr` on that word and merged with a merge commit (no squash, branch kept) once CI was green on the final head. #402 closes with the merge; #399 stays open for the architect to close by hand; long threads are #400.
 
+## Stopped here (2026-11-17, shutdown notice before a reboot)
+
+Nothing in flight. PR #401 merged into `develop` on 2026-11-17 00:15Z (merge commit a1ceca4a); this branch's code is all in `develop`. Porch: protocol complete, phase verified. No uncommitted work at shutdown; the untracked files in the worktree are the builder's own scaffolding (`.builder-*`, `.claude/hooks/`).
+
+After the merge:
+- #402 closed with the merge.
+- #399 closed automatically, because commit 947fd3ab is titled `Fix #399: …` even though the PR said `Refs #399`. It was meant to be closed by the architect with a note that long threads still cannot be rescued (#400). I did not reopen it or comment; reported to the architect.
+- The repo deletes merged branches, so the remote branch was gone after the merge. Pushing this note recreates it with this one commit on top of what `develop` already has.
+- Porch has no PR record for the project (I never ran `porch done --pr`), so `porch done --merged 401` was refused.
+
+On resume there is no work owed. The only open item is the architect's: whether #399 gets a closing note.
+
