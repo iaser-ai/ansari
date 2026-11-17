@@ -1,0 +1,14 @@
+id: '403'
+title: hydrogen-refuses-everyday-advi
+protocol: air
+phase: implement
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-17T01:04:24.505Z'
+updated_at: '2026-11-17T01:04:24.513Z'
