@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   generateGuestCredentials,
   makeGuestPassword,
@@ -65,6 +65,48 @@ describe('makeGuestPassword — weakened generator fails, production passes', ()
       expect(password.length).toBeLessThanOrEqual(128);
       expect(passwordScore(password)).toBeGreaterThanOrEqual(5);
     }
+  });
+});
+
+// Issue #403: the 500-draw test above failed about once in 800 runs. A random
+// password that starts with "123" matches a common pattern, loses 2 points and
+// scores 4 (24 of 10,000,000 draws, measured; no other pattern ever matched).
+// The generator now draws again, so the property holds by construction. These
+// force the draw, since waiting for chance to produce one proves nothing.
+describe('makeGuestPassword: a penalised draw is drawn again', () => {
+  // A real generator output from the measurement, and a draw that is clean.
+  const PENALISED = '123!vpA^HZ@_kM';
+  const CLEAN = 'k7!vpA^HZ@_kM2';
+
+  it('the forced draw really is below the bar the production test asserts', () => {
+    expect(passwordScore(PENALISED)).toBe(4);
+    expect(passwordScore(CLEAN)).toBe(6);
+  });
+
+  it('skips a draw that starts with "123" and returns the next one', () => {
+    const draws = [PENALISED, PENALISED, CLEAN];
+    const draw = vi.fn(() => draws.shift() as string);
+
+    const password = makeGuestPassword({ draw });
+
+    expect(password).toBe(CLEAN);
+    expect(passwordScore(password)).toBeGreaterThanOrEqual(5);
+    expect(draw).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['xPassWord9!kQzR', 'aQWERTY7!bcdEf', 'zAbC123!kQmRtY'])(
+    'skips every pattern the backend penalises: %s',
+    (penalised) => {
+      expect(passwordScore(penalised)).toBeLessThan(5);
+      const draws = [penalised, CLEAN];
+      expect(makeGuestPassword({ draw: () => draws.shift() as string })).toBe(CLEAN);
+    },
+  );
+
+  it('fails loudly instead of looping forever when every draw is penalised', () => {
+    const draw = vi.fn(() => PENALISED);
+    expect(() => makeGuestPassword({ draw })).toThrow(/100 draws in a row/);
+    expect(draw).toHaveBeenCalledTimes(100);
   });
 });
 

@@ -29,3 +29,11 @@
 - The failure: `lib/auth/guest.test.ts > makeGuestPassword > the production generator always clears the bar with room to spare`, `expected 4 to be greater than or equal to 5`.
 - Read as a random flake, from the code only. The test draws 500 passwords and wants a score of 5 or more. A generated password scores 6 unless it matches a common pattern (minus 2), and `/^123/` is one. A 14-character password from the 74-character set starts with `123` about 3 times in a million, so about 1 run in 650 fails (my estimate, not measured). A score of 4 still clears the register route's minimum of 3, so no guest registration fails.
 - Not retried, not edited. Sent the output to the architect and asked for a third window.
+
+## 2026-11-17 01:45Z — the guest-password flake: measured, then fixed in this PR
+
+- The architect said not to rerun: confirm the cause by measurement, fix it in this PR so the property holds by construction, do not weaken the assertion.
+- **Measured.** One Node 22 process drew 10,000,000 passwords from the real `makeGuestPassword` and scored them with the real `checkPasswordStrength` (`packages/auth/src/password.ts`). 9,999,976 scored 6; 24 scored 4. All 24 started with `123`; no other pattern matched and none was unexplained. That is 2.4 per million draws, so the 500-draw test fails about once in 830 runs. My earlier figure from reading the code (3 per million, 1 in 650) was close but high.
+- **Fixed.** `apps/frontend/lib/auth/guest.ts`: a candidate matching one of the four penalised patterns is drawn again, up to 100 times, then the function throws. The pattern list is a copy of the backend's; the frontend cannot import `@ansari/auth` (it pulls in bcrypt and pg). The 500-draw assertion is unchanged.
+- **Tests.** A `draw` option forces a candidate: a real `123…` output from the measurement is skipped, as is one for each of the other three patterns, and 100 penalised draws in a row throw. All five fail with the redraw removed.
+- Not re-measured after the fix: another 10,000,000 draws would cost four and a half CPU-minutes and the forced-draw tests cover the logic.
