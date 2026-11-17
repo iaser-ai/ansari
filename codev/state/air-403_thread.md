@@ -45,3 +45,13 @@
 - CMAP not run: the change is small and the open question, whether the wording works on hydrogen, is one only the architect's replay answers.
 - Still open, with the owner: the global zod-locale fix for the other v2 routes. Left out of this PR on the architect's instruction.
 - Waiting at the pr gate. Not merging.
+
+## 2026-11-17 05:20Z — prompt revised on the owner's direction; build check blocked by a dev server in this worktree
+
+- The owner found the rewrite of the section bigger than needed. The four lines are back exactly as on `develop`, and one sentence follows item 4 on the next line: "Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, and bring in the Islamic perspective where it is relevant." The prompt differs from `develop` by that one line. Commit `d42a03de`.
+- Prompt tests rewritten: the four lines word for word, the sentence directly after them, the sentence once. The two sentence tests fail against `develop`'s prompt.
+- Porch cannot re-run `build` and `tests` from the pr gate, so I ran its two commands from `.codev/config.json` by hand.
+- **Tests passed** (126 s): api 1353 and 3 skipped, eval 145; auth 635 and frontend 780 were unchanged and came from the turbo cache.
+- **Build did not complete, twice** (14 s and 19 s): `Cannot find module './chunks/vendor-chunks/next@…'`. A `next dev -p 3113` was running from this worktree's `apps/api` (started 05:13:52Z, gone by about 05:15Z; an earlier dev session left files at 01:50Z). Not started by me; I assume the architect's replay server. Dev and build share `apps/api/.next`.
+- **What I did that may have hurt that server:** deleted `apps/api/.next` at about 05:13Z after seeing no process in the worktree, then ran a second build that wrote into it while the server was up. Told the architect.
+- No further build until the architect says the worktree is free. `tsc --noEmit` passes for the API. Pushed so the replay can go ahead; the PR body says the build is outstanding.
