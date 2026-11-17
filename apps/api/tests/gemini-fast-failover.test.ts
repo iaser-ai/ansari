@@ -230,6 +230,95 @@ describe('429 fast-failover (issue #44)', () => {
 });
 
 /**
+ * A failover must never be silent (issue #402): the response names the model that wrote
+ * it, and a fallback that answered is logged as such.
+ */
+describe('the response names the model that answered (issue #402)', () => {
+  const fail429 = (): AsyncGenerator<unknown> =>
+    // eslint-disable-next-line require-yield
+    (async function* () {
+      throw new Error(RESOURCE_EXHAUSTED);
+    })();
+  const answeredLines = () =>
+    vi.mocked(console.warn).mock.calls.map(([line]) => String(line)).filter((line) => line.includes('answered by fallback'));
+
+  async function doneResponseOf(stream: AsyncGenerator<{ type: string; response?: { modelId: string } }>) {
+    let response: { modelId: string } | undefined;
+    for await (const ev of stream) if (ev.type === 'done') response = ev.response;
+    if (!response) throw new Error('no done event');
+    return response;
+  }
+
+  it('streamGemini served by the fallback: modelId is the fallback, and one line says it answered', async () => {
+    sdk.scripts = [
+      fail429,
+      async function* () {
+        yield textChunk('Answer from the fallback pool');
+      },
+    ];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(streamGemini('What is sabr?'));
+
+    expect(response.modelId).toBe('gemini-fallback');
+    expect(answeredLines()).toEqual([
+      '[gemini] streamGemini: answered by fallback gemini-fallback (primary gemini-primary did not answer)',
+    ]);
+  });
+
+  it('streamGemini served by the primary, even after a retry: modelId is the primary, no such line', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(UNAVAILABLE);
+      },
+    ];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(streamGemini('What is sabr?'));
+
+    expect(sdk.modelsTried).toEqual(['gemini-primary', 'gemini-primary']);
+    expect(response.modelId).toBe('gemini-primary');
+    expect(answeredLines()).toEqual([]);
+  });
+
+  it('a fallback that was tried but failed is not logged as having answered', async () => {
+    sdk.scripts = [fail429, fail429, fail429, fail429];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    await expect(doneResponseOf(streamGemini('What is sabr?'))).rejects.toThrow('RESOURCE_EXHAUSTED');
+
+    expect(sdk.modelsTried.at(-1)).toBe('gemini-fallback');
+    expect(answeredLines()).toEqual([]);
+  });
+
+  it('callGeminiStreaming served by the fallback names it too', async () => {
+    sdk.scripts = [
+      fail429,
+      async function* () {
+        yield textChunk('Fallback answer');
+      },
+    ];
+    const { callGeminiStreaming } = await import('../lib/ai/gemini-client');
+
+    const response = await callGeminiStreaming('What is sabr?');
+
+    expect(response.modelId).toBe('gemini-fallback');
+    expect(answeredLines()).toHaveLength(1);
+  });
+
+  it('a pinned call answers as the pinned model', async () => {
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(
+      streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })
+    );
+
+    expect(response.modelId).toBe('model-under-test');
+  });
+});
+
+/**
  * Pinned calls (issue #393): `noModelFallback` keeps a call on its primary model. The
  * evaluation harness pins every call so an answer is attributable to the model under
  * test; the same 429 that fails over above must retry the pinned model instead.

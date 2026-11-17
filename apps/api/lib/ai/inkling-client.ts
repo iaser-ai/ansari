@@ -24,6 +24,11 @@
  *   excluded from both `text` and `rawPayload`.
  * - temperature 0 is the evaluated configuration (100/100 BATIK, 0 malformed
  *   tool calls, 0 empty finals).
+ * - The context window is 65,536 tokens for prompt PLUS max_tokens (measured on
+ *   the Tinker endpoint, issue #399): at max_tokens 8192 the prompt — system
+ *   prompt, tools and the whole thread history — must fit 57,344 tokens. A larger
+ *   request is refused with HTTP 200 and one in-stream error frame, which this
+ *   client surfaces; it does not trim history to fit.
  */
 import * as Sentry from '@sentry/nextjs';
 import { config } from '../config';
@@ -253,6 +258,27 @@ interface InklingStreamChunk {
     total_tokens?: number;
     completion_tokens_details?: { reasoning_tokens?: number };
   } | null;
+  /** Present only on a provider error frame (issue #399); see describeStreamError. */
+  error?: unknown;
+}
+
+/**
+ * The provider's reason from an in-stream error frame (issue #399). Tinker answers a
+ * request it rejects with HTTP 200 and a single `data: {"error": {"type", "message"}}`
+ * frame, then closes without `[DONE]`: a prompt that with max_tokens exceeds Inkling's
+ * 65,536-token context window arrives this way. Only fields that are present are used;
+ * any other shape is reported as its JSON.
+ */
+function describeStreamError(error: unknown): string {
+  const { type, message } = (typeof error === 'object' && error !== null ? error : {}) as {
+    type?: unknown;
+    message?: unknown;
+  };
+  const detail =
+    typeof message === 'string'
+      ? `${typeof type === 'string' ? type : 'error'}: ${message}`
+      : JSON.stringify(error);
+  return detail.slice(0, 500);
 }
 
 /** Extract the payload of a single SSE line, or null if it is not a `data:` line. */
@@ -380,6 +406,11 @@ export async function* streamInkling(
       } catch {
         throw new Error('[inkling] malformed SSE JSON chunk');
       }
+      // An error frame carries no choices: read as an ordinary chunk it is dropped, and
+      // the stream is then misreported as truncated after 0 chars (issue #399).
+      if (chunk.error !== undefined && chunk.error !== null) {
+        throw new Error(`[inkling] provider error in stream — ${describeStreamError(chunk.error)}`);
+      }
       const choice = chunk.choices?.[0];
       // choice.delta.reasoning_content is the hidden pass — intentionally dropped.
       if (typeof choice?.delta?.content === 'string' && choice.delta.content.length > 0) {
@@ -444,6 +475,7 @@ export async function* streamInkling(
       // excluded above), so the complete-turn view equals the replay view.
       allParts: responseParts,
       hasThinking: false,
+      modelId: config.inkling.model,
       usage,
       durationMs: Date.now() - startTime,
       finishReason,

@@ -329,8 +329,9 @@ export interface FacilitatorStreamEvent {
    * Set on every terminal event (`done` AND `error`) that a model call produced
    * (issue #99): the serving backend + model id of the call that produced —
    * or failed to produce — the final turn. A #79-rescued turn reports
-   * provider 'inkling' even though the request's primary was gemini, and the
-   * synthesis path reports the model that wrote the synthesis. Absent only
+   * provider 'inkling' even though the request's primary was gemini, a turn
+   * gemini-client served from GEMINI_FALLBACK_MODEL reports that model (#402), and
+   * the synthesis path reports the model that wrote the synthesis. Absent only
    * when no provider was ever engaged (e.g. no user message to process);
    * persist sites map absence to NULL.
    */
@@ -505,8 +506,9 @@ export async function* runFacilitator(
   // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
   // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
   // ladder still applies, as same-model (Inkling) retries.
-  let useInklingRung =
+  const inklingPrimary =
     pinnedModel === undefined && (options?.provider ?? config.primaryBackend) === 'inkling';
+  let useInklingRung = inklingPrimary;
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
@@ -516,10 +518,15 @@ export async function* runFacilitator(
   // to produce) the final turn — after any ladder escalation or #79 rescue flipped
   // useInklingRung. config.gemini is only read on the gemini path (same lazy-read
   // rule as the ladder's model label: an inkling-only deployment's getter throws).
+  // On the gemini path the model is the one that ANSWERED the latest Gemini call (issue
+  // #402): gemini-client can fail over to config.gemini.fallbackModel inside a call, and
+  // only the response says so. Cleared before every call, so a call that fails without a
+  // response names the model it asked for.
+  let answeringGeminiModel: string | undefined;
   const currentProvenance = (): ModelProvenance =>
     useInklingRung
       ? { provider: 'inkling', modelId: config.inkling.model }
-      : { provider: 'gemini', modelId: pinnedModel ?? config.gemini.model };
+      : { provider: 'gemini', modelId: answeringGeminiModel ?? pinnedModel ?? config.gemini.model };
 
   // Overall request-time budget (Spec 49). softDeadline = when we stop starting new tool
   // work; the reserve between it and hardDeadline is the window for one synthesis pass.
@@ -528,6 +535,22 @@ export async function* runFacilitator(
   const startTime = Date.now();
   const softDeadline = startTime + budgetMs - reserveMs;
   const hardDeadline = startTime + budgetMs;
+
+  // No silent escalation (issue #399): when a request that left Gemini for Inkling — the
+  // empty-final ladder's rung (#74) or the terminal-error rescue (#79), never an
+  // inkling-primary request — ends in an answer, name the model that wrote it. Engagement
+  // is logged where it happens; without this line an answered escalation leaves no trace,
+  // and the logs cannot tell it from one that never finished. No PII: provider, model id
+  // and counters only.
+  const logEscalatedAnswer = () => {
+    if (!useInklingRung || inklingPrimary) return;
+    console.warn('[facilitator] escalated request answered', {
+      ...currentProvenance(),
+      escalation: inklingRescueUsed ? 'terminal-error rescue' : 'empty-final ladder',
+      elapsedMs: Date.now() - startTime,
+      iterations,
+    });
+  };
 
   // Token usage summed across every Gemini call in this turn (initial + tool-loop continuations).
   const totalUsage: GeminiUsageMetadata = {
@@ -610,6 +633,7 @@ export async function* runFacilitator(
 
     let synthText = '';
     let synthResponse: GeminiResponse | null = null;
+    answeringGeminiModel = undefined;
     try {
       // Tools omitted → the model cannot emit a functionCall, so it must answer from context.
       // Once the request escalated to Inkling (#74/#79 — ladder rung or error rescue),
@@ -634,6 +658,7 @@ export async function* runFacilitator(
           yield { type: 'text', data: event.data };
         } else if (event.type === 'done') {
           synthResponse = event.response;
+          if (!useInklingRung) answeringGeminiModel = event.response.modelId;
         }
       }
     } catch (error) {
@@ -683,6 +708,7 @@ export async function* runFacilitator(
       });
     }
     logShortCircuit('done');
+    logEscalatedAnswer();
     yield {
       type: 'done',
       data: '',
@@ -707,6 +733,7 @@ export async function* runFacilitator(
     // rescue: re-issuing a call whose text partially reached the client would duplicate
     // delivered tokens (the #42 rule) — such failures must still surface as errors.
     let visibleTextDelivered = false;
+    answeringGeminiModel = undefined;
 
     try {
       // Stream the model response with real-time event delivery. Bound the tool-gathering
@@ -784,6 +811,7 @@ export async function* runFacilitator(
       if (!response) {
         throw new Error('Stream ended without response');
       }
+      if (!useInklingRung) answeringGeminiModel = response.modelId;
 
       addUsage(response.usage);
 
@@ -823,7 +851,8 @@ export async function* runFacilitator(
             iterations,
             toolCallCount: tracker.history.length,
             emptyFinalRetries,
-            model: currentModel,
+            // The model that wrote this final; `currentModel` is the one a retry asks for.
+            model: currentProvenance().modelId,
           };
           if (RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason) && emptyFinalRetries < maxRetries) {
             emptyFinalRetries++;
@@ -889,6 +918,7 @@ export async function* runFacilitator(
           });
         }
 
+        logEscalatedAnswer();
         yield {
           type: 'done',
           data: '',

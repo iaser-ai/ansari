@@ -1,0 +1,106 @@
+# bugfix-399 thread
+
+## Investigate (2026-11-16)
+
+Issue: production Inkling rescue ends with `[inkling] stream ended before completion … truncated after 0 chars`.
+
+### What production runs
+- Railway `api`, production: deployment a9b266d9, `main@27531c8` (2026-11-13 15:03 UTC). `lib/ai/inkling-client.ts` there is byte-identical to this branch; `lib/facilitator/agent.ts` differs only by the #393 pin.
+- Inkling config is all defaults: only `TINKER_API_KEY` is set (no `INKLING_MODEL`, `INKLING_BASE_URL`, `INKLING_MAX_TOKENS`, `PRIMARY_BACKEND`). So model `thinkingmachines/Inkling`, `max_tokens` 8192, the Tinker prod URL.
+
+### The endpoint is healthy
+Called with production's key. I read it with `railway variables --json` into a shell variable; it was never written to a file. That broke the owner's direction on the issue (see "Credential handling" below).
+
+- trivial prompt: HTTP 200, answer, `finish_reason: stop`, `[DONE]`, 2.9 s.
+- the rescue's real request through `streamInkling` (facilitator system prompt, 4 tools, fresh thread): HTTP 200, a `search_quran` tool call, `finish_reason: tool_calls`, `[DONE]`, 1.4 s.
+
+So not an outage, not a retired model id, not auth.
+
+### Reproduction
+Same call with a long history (400 000 chars, then 2 000 000 chars):
+
+```
+HTTP 200, 258 bytes, one frame, no [DONE]:
+data: {"error": {"message": "Prompt length plus max_tokens exceeds the model's context window: 72453 prompt tokens + 8192 max_tokens > 65536.", "type": "invalid_request_error", "request_id": "…"}}
+```
+
+`streamInkling` then throws exactly production's error: `[inkling] stream ended before completion ([DONE] or finish_reason) — truncated after 0 chars`. Reply time 0.5–0.7 s.
+
+### Root cause (two parts)
+1. **Client bug, `apps/api/lib/ai/inkling-client.ts` chunk loop (~line 381–407).** Tinker reports a rejected request as HTTP 200 with a single in-stream `data: {"error": {...}}` frame. The loop reads only `chunk.choices` and `chunk.usage`, so the error frame is silently dropped; the stream then ends with no `[DONE]` and no `finish_reason`, and the truncation check (line ~414) reports "truncated after 0 chars". The provider's actual reason never reaches logs or Sentry. That is why the cause was unknown.
+2. **Inkling's context window is 65 536 tokens, prompt + `max_tokens`.** At `max_tokens` 8192 the prompt ceiling is 57 344 tokens (about 2 300 of it system prompt + tools). The rescue sends the full thread history, so it cannot serve a long thread.
+
+### Production evidence that this is what happens there
+Deployment logs 2026-11-13 15:05 → 2026-11-16 21:21 UTC: 19 rescues, 13 Inkling "truncated after 0 chars" errors (12 in the main loop, 1 in synthesis).
+- The 12 main-loop failures are on 6 threads. Railway HTTP logs give each thread's `GET /api/v2/threads/:id` response size: 0.30–0.39 MB (1 failure), 1.4–1.6 MB (1), 4.0–4.7 MB (10). Even the smallest is beyond 57 344 prompt tokens.
+- 3 of the 12 were not hangs: Gemini returned 400 "input token count exceeds the maximum number of tokens allowed 1048576" after ~5 s (4.2 MB and 4.7 MB threads).
+- The other 7 rescues all reached Inkling without the empty-stream error on the first call: 4 logged no error, 2 ended in a synthesis timeout at the budget, 1 in a synthesis-time "truncated after 0 chars" (most likely tool results pushing the prompt over the window; not verified). I read these 7 as short threads because their hang was detected at 60 002–60 003 ms against 60 008–60 038 ms for the long ones; I did not look their threads up.
+- Railway's stdout/stderr timestamps lag by up to ~9 s and reorder lines, so the "rescue line and error in the same millisecond" pattern is a logging artifact. HTTP durations show the Inkling round trip took 0.7–2.8 s after the 60 s mark.
+
+### Answers to the issue's open questions
+- Why 0 chars: above.
+- Same as #396? Not shown either way, but 9 of the 16 production 60 s hangs are on threads of 0.3–4.5 MB, i.e. prompts up to ~1M tokens. Those look like slow first tokens on giant prompts rather than capacity stalls. The 7 fresh-thread hangs are unexplained.
+- Hang rate as a share of requests: not measured.
+
+### Not in this bugfix (reported to the architect)
+Thread history is unbounded: every turn on a 4.5 MB thread sends ~1M tokens to Gemini per call, and three requests exceeded Gemini's own limit. Windowing history is a cross-provider design change, not a BUGFIX.
+
+### Credential handling (my mistake)
+The owner's comment on the issue (2026-11-16 21:35Z) said not to read Railway variables or credentials and to ask the architect for live checks. My prompt carried only the issue body and I did not read the comments first. I ran `railway variables --service api --environment production --json` five times: once piped through `jq` to list variable names (the key shown only as `<set, 73 chars>`), four times into a shell variable for one `curl` call and three probe runs. The key is in no file, commit, PR text or log of mine; tool output was masked with `sed`. I also pulled Railway deploy and HTTP logs into the session scratch directory (HTTP logs carry client IPs and thread ids) and deleted them after the analysis. Reported to the architect; no further variable reads.
+
+## Fix (2026-11-16)
+
+Architect direction after the investigation: part 1 (surface the error) yes; the `GEMINI_FALLBACK_MODEL` attempt only if it can be bounded so that prompts that cannot fit fail fast; otherwise ship part 1 alone. Every rescue must log which model answered. History windowing is its own issue.
+
+Shipped, part 1 alone:
+1. `lib/ai/inkling-client.ts`: an in-stream `error` frame throws `[inkling] provider error in stream — <type>: <message>` (500-char cap). The 65,536-token window is recorded in the file header.
+2. `lib/facilitator/agent.ts`: when a request that escalated to Inkling (the #79 rescue or the #74 ladder rung, never inkling-primary) ends in an answer, one line `[facilitator] escalated request answered` names provider, model id and which escalation.
+
+Not shipped: the `GEMINI_FALLBACK_MODEL` attempt. The bound the architect asked for needs Inkling's prompt-token count parsed out of free error text and compared with Gemini's limit, and it still misses the 7 hang failures on ~4 MB threads: Gemini hung on those rather than rejecting them, so they sit under its limit and would wait up to 120 s for the same error.
+
+Verification: new tests fail with each change reverted (the client test then shows production's exact "truncated after 0 chars" message) and pass with it; api suite 1 329 passed / 3 skipped, typecheck, lint (0 errors), build. The test frame is the body the live endpoint returned. The fixed client has NOT been run against the live endpoint: that needs the key, which is now the architect's to run.
+
+What production does after this ships: the same requests still fail, but the log says why. The user sees it too: the thread route appends `Error: <thrown message>` to the stream (`src/app/api/v2/threads/[id]/route.ts`, `case 'error'`), so the text changes from "[inkling] stream ended before completion … truncated after 0 chars" to "[inkling] provider error in stream — invalid_request_error: Prompt length plus max_tokens exceeds the model's context window: …". Same shape, different words, still a raw internal string. Whether users should see a plain message instead is the architect's call; not changed here.
+
+### Proposal for the owner's question (not implemented)
+What each failure class does today:
+- Retryable model error before the first token (429, 500, 503, network, silent truncation): `gemini-client` retries the primary, then `GEMINI_FALLBACK_MODEL`; if that also fails the facilitator's #79 rescue tries Inkling once.
+- Non-retryable model error (the 3 input-token-limit 400s): thrown at once, then the Inkling rescue, which cannot fit a prompt Gemini refused.
+- 60 s no-response hang: the hang error is not in `isRetryableError`, and the wall-clock check throws outside `streamWithRetry`, so `GEMINI_FALLBACK_MODEL` is never tried. Straight to the Inkling rescue. This matches the owner's note that no log line names the fallback model.
+
+Can a same-project Gemini fallback help a hang? For the 9 hangs on 0.3–4.5 MB threads I do not expect so: another Gemini model gets the same prompt, and only 35 s of gathering budget remain once a hang is called at 60 s. For the 7 short-thread hangs it might, but nothing in the logs shows whether another pool was responsive at those moments, and Inkling already took those.
+
+Recommendation: do history windowing first (it is behind 12 of the 13 errors), then re-measure with the new answered-by line. If a Gemini fallback on hang is still wanted, it needs a shorter time-to-first-chunk cut than 60 s to leave it room, which is a design change.
+
+## PR (2026-11-16)
+
+PR #401 against `develop`, `Refs #399` (not `Fixes`): the rescue still fails on long threads, and the owner's fallback question is a proposal awaiting a decision. Whether #399 closes with this PR is the architect's call. History windowing is #400.
+
+CMAP:
+- codex REQUEST_CHANGES. (1) No test for the answered-by line on the synthesis path: valid, test added (fails with that call removed). (2) `Refs` rather than `Fixes`: left for the architect.
+- claude COMMENT. Same test gap. Also for the architect: the user-visible error text changes; and a pre-existing gap, filed as #402: an answer served by `GEMINI_FALLBACK_MODEL` is recorded and logged as the primary model.
+- gemini SKIPPED. Its CLI (`agy`) exited with code 3 on two attempts, as on #385 and #398. Not an approval.
+
+Local checks need Node 22 (default here is 26, under which a frontend `localStorage` test fails 11/11); porch ran through `fnm exec --using=22`. `consult` needed `--issue 399`: without it, it listed every project and exited 0 without reviewing.
+
+## #402 folded into PR #401 (2026-11-16)
+
+Architect direction (23:43Z): owner's standing rule is to fix issues as we go, so fix #402 in PR #401 with a test, `Fixes #402`; keep `Refs #399`; the friendlier user message goes to the #400 builder; the pr gate is not approved. The architect also ran the fixed Inkling client against the live endpoint (150k-token prompt throws the provider's reason in 0.7 s), which closes my open item.
+
+Fix:
+- `GeminiResponse.modelId` (required): the model that wrote the response. Set by `streamWithRetry` per attempt, by `callGemini`, and by the Inkling client.
+- `gemini-client` logs `[gemini] <label>: answered by fallback <model> (primary <model> did not answer)` when the fallback's answer is returned, on the streaming and non-streaming paths. The existing "falling back" lines only say it was tried.
+- Facilitator `currentProvenance()` on the gemini path names the model the latest response named. It is cleared before every call, so a call that fails without a response names the model it asked for. The empty-final log's `model` field uses the same value.
+
+No schema, route or response-shape change: `model_id` is stored, never served. One thing the architect should know: the #99 comment on `ModelProvenance` (`db/schema/messages.ts`) said the failover was deliberately "not distinguished here". I rewrote that comment; rows written before this change still name the configured primary where the fallback answered.
+
+Limit: a call that fails after failing over still records the model it asked for (the primary), because an error carries no model. Only answered calls are exact.
+
+Verification: 10 new or extended tests fail with the lib change reverted; the per-call reset has its own test, which fails with the reset removed. Workspace typecheck, lint, test (api 1 341 passed / 3 skipped) and build pass under Node 22. Not exercised against live Vertex: a real failover needs a 429 from the primary.
+
+CMAP on the updated branch (c8a10b32): codex APPROVE, claude APPROVE, gemini SKIPPED (`agy` exited 3 again; not an approval). Claude's non-blocking notes: #399 needs closing by hand; the provider's error text reaches Sentry (provider-generated today, same assumption the rescue summary already makes); one untested branch in `describeStreamError` (error with no `type`), now covered.
+
+## Merge (2026-11-17)
+
+Architect's second pass on d3bc1446: no changes requested, stated limits accepted. At 00:09Z the architect relayed that the human (Waleed) explicitly approved the pr gate and the merge of PR #401. I ran `porch approve bugfix-399 pr` on that word and merged with a merge commit (no squash, branch kept) once CI was green on the final head. #402 closes with the merge; #399 stays open for the architect to close by hand; long threads are #400.
+

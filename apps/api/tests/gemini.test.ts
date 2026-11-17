@@ -379,8 +379,10 @@ describe('Transient 429 recovery (retry + model fallback)', () => {
     const res = await callGemini('What is sabr?');
 
     expect(res.text).toBe('answer from gemini-primary'); // recovered
+    expect(res.modelId).toBe('gemini-primary');
     expect(sdk.calls).toBe(2); // one 429, then success on retry
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('RESOURCE_EXHAUSTED'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('answered by fallback'));
     warn.mockRestore();
   });
 
@@ -401,6 +403,11 @@ describe('Transient 429 recovery (retry + model fallback)', () => {
     expect(sdk.modelsTried.filter((m) => m === 'gemini-primary').length).toBe(4); // 4 primary attempts
     expect(sdk.modelsTried.at(-1)).toBe('gemini-fallback');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
+    // Issue #402: the response and the log both name the model that answered.
+    expect(res.modelId).toBe('gemini-fallback');
+    expect(warn).toHaveBeenCalledWith(
+      '[gemini] callGemini: answered by fallback gemini-fallback (primary gemini-primary did not answer)'
+    );
     warn.mockRestore();
   });
 });
