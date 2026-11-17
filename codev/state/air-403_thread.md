@@ -14,3 +14,10 @@
 ## 2026-11-17 01:14Z — holding
 
 - The architect asked for no build, typecheck or test run until about 01:28Z, because pir-400 is re-running its porch checks and failed once from machine load. Code is committed. What remains: `porch done 403` (its build and full-suite checks are the one full run), then the PR. Waiting for the architect's all-clear before starting it.
+
+## 2026-11-17 01:30Z — first porch run refused, waiting for a second window
+
+- The architect cleared one capped run at 01:25Z. `porch done 403`: `build` passed; `tests` failed after 287 s.
+- api 1354 passed (94 files, 3 skipped), auth 635 passed, eval 145 passed. Frontend 763 passed, 11 failed, all in `hooks/useKeyboard.web.test.ts` (`window.localStorage` undefined). This branch does not touch the frontend.
+- Cause: my shell's Node is 26.3.1 and the repo pins 22 (`.nvmrc`). It is the known Node 26 failure recorded in the bugfix-383, air-397 and bugfix-399 threads. I should have launched the check as bugfix-399 did, through `fnm exec --using=22`; Node 22.22.0 is installed.
+- Not retried. The architect is scheduling runs between builders and allowed one. Asked for a second window.
