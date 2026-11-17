@@ -126,3 +126,30 @@ manual bypass as on project 121, or something else. Waiting.
 
 Correction to "Taking in develop" above: I had not yet told the architect about merging instead
 of rebasing when I wrote that; it went in the same message as this block.
+
+## Unblocked: dev-approval gate pending (2026-11-17)
+
+Architect's word (00:39Z): make porch's `tests` check mirror CI, each app with its own env file,
+one after the other, gentle on the machine; no bypass; merge instead of rebase is fine; the
+single wording stands while the WhatsApp question is with the owner. Also (00:17Z): one test
+command at a time, at most 2 vitest workers, changed files only until the final check. My
+earlier runs had slowed the owner's machine.
+
+**A mistake of mine, undone.** The worktree's `.codev/config.json` is a symlink to the main
+workspace's file, not a copy. My first edit of the check went through it, so for about two
+minutes the main config carried my untested command. Restored byte-for-byte from the copy read
+at the start of the session, and told the architect. I should have looked at the file with
+`ls -l` before writing to it. The override now lives in `.codev/config.local.json` in this
+worktree only (codev's per-engineer layer, merged over `config.json`); untracked, not staged.
+
+The check, run once by `porch done 400` under Node 22: `build` passed, `tests` passed in 545 s.
+
+```
+sh -lc '(set -a; . ./apps/api/.env.ci; set +a; pnpm exec turbo run test --concurrency=1 --filter ansari-api... -- --maxWorkers=2) && (set -a; . ./apps/auth/.env.ci; set +a; pnpm exec turbo run test --concurrency=1 --filter ansari-auth... -- --maxWorkers=2) && (pnpm exec turbo run test --concurrency=1 --filter ansari-eval... -- --maxWorkers=2) && (pnpm exec turbo run test --concurrency=1 --filter ansari-frontend... -- --maxWorkers=2)'
+```
+
+with `"timeout_ms": 1500000`. It covers the same five test tasks as the root `pnpm test`.
+`packages/auth`'s rate-limit test passed in this serial run; its one earlier failure was in a
+run with everything in parallel.
+
+`porch next` reports `gate_pending: dev-approval`. Waiting for the human; not approving it myself.
