@@ -51,6 +51,7 @@ vi.mock('@/lib/config', () => ({
 
 import { streamInkling, isInklingConfigured } from '../lib/ai/inkling-client';
 import type { GeminiStreamEvent } from '../lib/ai/gemini-client';
+import { userFacingModelError, PROMPT_TOO_LARGE_MESSAGE } from '../lib/facilitator/agent';
 
 function sseBody(chunks: object[]): string {
   return chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -608,6 +609,20 @@ describe('streamInkling', () => {
       expect(message).toContain('invalid_request_error');
       expect(message).toContain('72453 prompt tokens + 8192 max_tokens > 65536');
       expect(message).not.toMatch(/truncated/i);
+    });
+
+    // Issue #400: the facilitator recognises this error by the provider's wording and
+    // tells the user in plain words. Checked on the error the real client throws for the
+    // real frame, so a change to how the client words it cannot quietly bring the raw
+    // text back; any other provider error keeps its own text.
+    it('the context-window error is the one the facilitator turns into its plain message', async () => {
+      fetchMock.mockResolvedValue(rawSseResponse(CONTEXT_WINDOW_FRAME));
+      const tooLarge = await collect(streamInkling('q')).catch((e: unknown) => e);
+      expect(userFacingModelError(tooLarge)).toBe(PROMPT_TOO_LARGE_MESSAGE);
+
+      fetchMock.mockResolvedValue(sseResponse([{ error: { type: 'server_error', message: 'sampler unavailable' } }]));
+      const other = await collect(streamInkling('q')).catch((e: unknown) => e);
+      expect(userFacingModelError(other)).toBe('[inkling] provider error in stream — server_error: sampler unavailable');
     });
 
     it('an error frame followed by [DONE] is still an error, never an empty completion', async () => {
