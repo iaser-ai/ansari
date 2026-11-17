@@ -171,6 +171,15 @@ also names this section, so the map still matches the cold file and stays at 34 
    changed the main workspace's `.codev/config.json` for about two minutes. I restored it
    byte-for-byte and told the architect, who has since put the new check there on purpose.
    Nothing in this PR touches that file; it is gitignored.
+10. **The pre-merge consultation was two reviews, not three.** Codex: APPROVE, no issues. Claude:
+    APPROVE, with two minor points, neither changed in this PR. The Gemini lane did not run (its
+    CLI exited with code 3) and its file records a skip, which porch counts as COMMENT. The two
+    points:
+    - The source scan accepts a stateless route if its file calls `assessHistory` anywhere; it
+      does not check that the verdict is acted on. The route tests cover today's two callers.
+    - For Arabic-heavy threads the estimate's error could go either way. The block sits about
+      five times below Gemini's limit, so this cannot bring the original failure back; it adds
+      to item 1's case for measuring the ratio.
 
 ## How to Test Locally
 

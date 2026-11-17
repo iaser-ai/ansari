@@ -184,3 +184,14 @@ and the 5-minute load average at the end was 40 on 18 cores (other sessions were
 same time). Every test in that file was slow (3 to 11 s each). I read it as a timeout under
 load, on one sample; the same test passed in the gate run. Not retried: the architect asked for
 one capped run and for flakes to be reported, not retried until green. Waiting for their word.
+
+## Review: PR #404 open, pr gate pending (2026-11-17)
+
+- The rerun of `porch approve` the architect ordered (01:14Z, with air-403 holding its builds)
+  passed: tests in 228 s. dev-approval recorded.
+- Review file, lessons (cold section, hot map entry) and an amendments note on the plan
+  committed. PR #404 opened against `develop`, body is the review file, `Fixes #400`.
+- Consultation, single pass: codex APPROVE, claude APPROVE (two minor points, in the review's
+  "Things to Look At", item 10). The gemini lane did NOT run: `agy` exited with code 3 and the
+  file is a skip that porch reads as COMMENT. So two reviews, not three. Told the architect.
+- `porch next` reports `gate_pending: pr`. Waiting for the human. Not merging.

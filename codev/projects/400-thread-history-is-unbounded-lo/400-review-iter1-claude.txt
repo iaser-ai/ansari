@@ -1,0 +1,40 @@
+I'll review this PR by reading the diff and the actual source files.Let me read the actual source files from disk instead.I've read the implementation files, config, all four routes, the test suites, the source scan, and verified branch/env/doc hygiene. Here's my review.
+
+## What I verified
+
+**Completeness & linkage** — PR body carries `Fixes #400`; base is `develop` (confirmed as `origin/HEAD`); branch is 0 commits behind `origin/develop`; code commits all follow `[PIR #400] ...`. The "Files Changed" list in the body matches the actual tree.
+
+**The core mechanism is sound.** `limitThreadTurn` (`history-limit.ts:79`) is a clean generator wrapper: `ok` → `yield* run()` verbatim; `block` → one text event + `done`, `run` never invoked; `warn` → passes the stream through and injects the notice immediately before `done`, but only if `answered` was set by a non-whitespace text event. I traced that against both thread routes: in each, the injected text lands in `fullText` before the `done` handler persists, so the notice is stored as a **single** text block — which is what keeps `formatMessageContent` (`[id]/route.ts:32`) returning a bare string and honors the frozen mobile contract in `arch-critical.md`. The `answered` guard correctly preserves the pre-existing empty-answer handling rather than letting a bare warning become the whole answer.
+
+**Env/infra discipline.** Both new vars are in `turbo.json` `globalEnv` (lines 150-151, with a comment explaining why) — this is the exact trap `arch-critical.md` warns about (strict mode: undeclared var → invisible to tasks *and* absent from the cache key). Zod validation is fail-fast with no clamping, and the cross-field `warn < block` rule is a `superRefine` on the object after defaults, so it can't be bypassed. `.env.example`, `docs/self-hosting.md`, `arch.md` (cold), and `lessons-learned.md` (cold) are all updated; hot-tier was correctly left alone with only a map-entry adjustment.
+
+**Error-surface coverage is complete.** I grepped every `yield { type: 'error' }` in `lib/` — there is exactly one terminal path that forwards provider text (`agent.ts:1083`), and it's the one wrapped by `userFacingModelError`. The other five all yield fixed strings. So there's no second leak of raw provider wording. `agent.ts`'s `-50` lines are a pure move of `convertToGeminiHistory` to `history.ts`; I diffed the moved body and it's byte-identical.
+
+**Tests.** `history-limit.test.ts` pins boundary behavior at `>= warn` / `>= block` on both defaults and overrides, proves bytes-not-characters with real Arabic, and proves the estimate reads `rawPayload` when present and ignores `thoughtSignature`. `history-limit-routes.test.ts` asserts `mockRunFacilitator` was **not called** on block (the thing that actually matters) and asserts the persisted row shape including `rawPayload: null` / `toolCalls: null`. The two negative tests under "the size is the estimate, never a stored token count" are the best tests in the PR — they'd catch a regression to `messages.input_tokens` from either direction.
+
+The source scan (`history-limit-coverage.test.ts`) is unusually good: AST-based, negative-tested against seven planted near-misses including namespace calls, aliased imports, the string/comment forms, and `limitThreadTurn(...)(runFacilitator(...))`; and it asserts the exact four files rather than a count, so a rename fails loudly instead of passing on zero.
+
+No debug code, no `TODO`/`FIXME`/`.only`/`.skip` additions anywhere in the diff.
+
+## Minor observations (non-blocking)
+
+1. **The scan's `assessed` branch is file-scoped, not flow-scoped.** `historyLimitScan` returns `assessed` for any bare `runFacilitator` in a file that calls `assessHistory` *anywhere* — a future route that calls `assessHistory` and then ignores `.verdict` would pass the scan. The route tests cover today's two callers, so this is a theoretical gap, but the file's own header comment ("its file also calls `assessHistory`") is honest about it.
+
+2. **The estimate's direction of error on Arabic is unverified, not just the magnitude.** The review file states the ratio rests on #399's two English-heavy threads. For Arabic the bytes-per-token could land either side of 4, so the effective margin to Gemini's 1,048,576 is unknown for Arabic-heavy threads. With ~5× headroom from the 200k block to the hard limit this can't reopen the failure the issue is about, so it's a calibration follow-up, not a defect — and the review already flags it as item 1 rather than hiding it.
+
+3. **A blocked thread is terminal and still grows.** Each retry stores a user message plus the block message. That's the deliberate design (it suppresses the web retry row), and it's disclosed as item 4 — just confirming it's intentional and that the growth per attempt is bounded and trivial.
+
+4. **Thresholds are read per call via the `config.threadHistory` getter**, so nothing touches env at import time — `pnpm build` stays env-free per `apps/api/CLAUDE.md`. Good.
+
+I did not edit, revert, or run anything that writes in this worktree.
+
+---
+VERDICT: APPROVE
+SUMMARY: Correct, well-tested, infra-hygienic implementation of the warn/block thresholds; the known gaps are calibration follow-ups that are honestly disclosed, not defects.
+CONFIDENCE: HIGH
+---
+
+KEY_ISSUES:
+- None blocking.
+- Minor: the source scan's `assessHistory` arm is file-scoped, so a future route could satisfy it without acting on `.verdict` (today's two callers are covered by route tests).
+- Minor: the 4-bytes-per-token ratio is uncalibrated and its direction of error on Arabic-heavy threads is unknown; the ~5x headroom to Gemini's 1,048,576 limit keeps this from reopening #400, but it's worth a follow-up measurement.
