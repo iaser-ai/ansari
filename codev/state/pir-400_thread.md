@@ -163,3 +163,24 @@ run with everything in parallel.
 - dev-approval is NOT approved. The owner asked the architect to run this branch locally with
   low thresholds first, from this worktree, read-only. I start no servers and no test runs
   until told otherwise.
+
+## dev-approval: approved by the human, not yet recorded by porch (2026-11-17, 01:05Z)
+
+The architect relayed the owner's explicit approval after running this branch locally
+(thresholds 300/600, live model, throwaway database): warning appended to a real answer, block
+in under a second on both thread routes with no model call, both saved, thread GET content still
+a string, a new thread answers normally.
+
+`porch approve 400 dev-approval --a-human-explicitly-approved-this` re-ran the checks and
+refused: `build` passed, `tests` failed after 497 s. One test, in a file this branch does not
+touch, hit vitest's 30 s limit:
+
+    FAIL tests/migration/window-migration.test.ts > 0009 scaffold cleanup (scenario 15)
+         > aborts on a row in any single scaffold table      34,772 ms   (limit 30,000)
+    Test Files 1 failed | 98 passed (99)   Tests 1 failed | 1395 passed | 3 skipped
+
+The whole api suite took 492 s where the gate run an hour earlier did all five packages in 545 s,
+and the 5-minute load average at the end was 40 on 18 cores (other sessions were building at the
+same time). Every test in that file was slow (3 to 11 s each). I read it as a timeout under
+load, on one sample; the same test passed in the gate run. Not retried: the architect asked for
+one capped run and for flakes to be reported, not retried until green. Waiting for their word.
