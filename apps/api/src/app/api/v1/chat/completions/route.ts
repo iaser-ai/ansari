@@ -28,6 +28,7 @@ import {
   type Message,
   type FacilitatorStreamEvent,
 } from '@/lib/facilitator/agent';
+import { assessHistory, HISTORY_REQUEST_TOO_LONG_MESSAGE } from '@/lib/facilitator/history-limit';
 import { db } from '@/lib/db/index';
 import { createThread, createMessage } from '@/lib/db/threads';
 import { getOrCreateSystemUser } from '@/lib/db/users';
@@ -318,6 +319,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const client = getClientId(request);
 
   const facilitatorMessages = toFacilitatorMessages(rewritten);
+
+  // Thread history limit (issue #400), before anything is saved: a request this
+  // long is refused as invalid input rather than sent to a model.
+  const history = assessHistory(facilitatorMessages);
+  if (history.verdict === 'block') {
+    console.warn('[history-limit] request refused', {
+      route: 'chat-completions',
+      estimatedTokens: history.estimatedTokens,
+    });
+    return openAIError(
+      HISTORY_REQUEST_TOO_LONG_MESSAGE,
+      400,
+      'invalid_request_error',
+      'context_length_exceeded'
+    );
+  }
 
   // Log to DB so we can observe leaderboard traffic in admin stats.
   // Failure to log is non-fatal — the caller still gets their answer.

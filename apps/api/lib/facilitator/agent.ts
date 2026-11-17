@@ -18,6 +18,7 @@ import {
 } from '../ai/gemini-client';
 import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
+import { convertToGeminiHistory } from './history';
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import { citabilityOf, type ToolResult } from '../tools/types';
@@ -98,6 +99,24 @@ const EMPTY_ANSWER_ERROR_MESSAGE =
   'The model returned an empty answer. Please try again.';
 const SAFETY_BLOCKED_ERROR_MESSAGE =
   'The response was blocked by the provider. Please rephrase your question and try again.';
+
+// A model refused the request because the prompt exceeds its limit (issue #400): Gemini's
+// 1,048,576-token input limit, or Inkling's 65,536-token window on a rescue of a thread it
+// cannot fit. Recognised by each provider's own wording, since neither error carries a code
+// that says so. The user is told in plain words; the provider's text goes to the log and
+// Sentry only. An error that matches neither wording still surfaces with its own text.
+const PROMPT_TOO_LARGE_ERRORS = [
+  /input token count.{0,40}exceeds the maximum number of tokens/i,
+  /exceeds the model's context window/i,
+];
+export const PROMPT_TOO_LARGE_MESSAGE =
+  'Ansari could not answer because this conversation is too long. Please try again, or start a new conversation.';
+
+/** What the user is told for a terminal model error: plain words for a prompt too large, else the error's own text. */
+export function userFacingModelError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return PROMPT_TOO_LARGE_ERRORS.some((pattern) => pattern.test(message)) ? PROMPT_TOO_LARGE_MESSAGE : message;
+}
 
 // Degenerate-fragment detection (issue #66). Beyond a fully empty final (#60), Vertex's
 // capacity-cut family can end a turn with a real finishReason and a single trivial token as
@@ -335,55 +354,6 @@ export interface FacilitatorStreamEvent {
    * persist sites map absence to NULL.
    */
   provenance?: ModelProvenance;
-}
-
-/**
- * Convert our message history to Gemini's Content[] format
- *
- * For assistant messages with rawPayload, uses the preserved Gemini Content
- * which includes tool calls and thought signatures. Falls back to text-only
- * for legacy messages without rawPayload.
- */
-function convertToGeminiHistory(messages: Message[]): Content[] {
-  const history: Content[] = [];
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      // Extract text from user messages
-      const textContent = msg.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n');
-
-      if (textContent) {
-        history.push({
-          role: 'user',
-          parts: [{ text: textContent }],
-        });
-      }
-    } else {
-      // For assistant messages, prefer rawPayload if available
-      // This preserves tool calls, citations, and thought signatures
-      if (msg.rawPayload) {
-        history.push(msg.rawPayload);
-      } else {
-        // Fallback for legacy messages without rawPayload
-        const textContent = msg.content
-          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-          .map((c) => c.text)
-          .join('');
-
-        if (textContent) {
-          history.push({
-            role: 'model',
-            parts: [{ text: textContent }],
-          });
-        }
-      }
-    }
-  }
-
-  return history;
 }
 
 /**
@@ -1081,7 +1051,7 @@ export async function* runFacilitator(
       Sentry.captureException(error);
       yield {
         type: 'error',
-        data: error instanceof Error ? error.message : 'Unknown error',
+        data: userFacingModelError(error),
         toolCalls: collectedToolCalls(),
         provenance: currentProvenance(),
       };

@@ -7,6 +7,7 @@ import { findThreadById, createMessage, findMessagesByThread, persistOrphanToolC
 import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
+import { limitThreadTurn } from '@/lib/facilitator/history-limit';
 import { startHeartbeat, SSE_HEARTBEAT } from '@/lib/streaming/heartbeat';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 
@@ -103,7 +104,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const heartbeat = startHeartbeat(() => safeEnqueue(encoder.encode(SSE_HEARTBEAT)));
 
         try {
-          for await (const event of runFacilitator(messageHistory)) {
+          // Thread history limits (issue #400): a long thread's answer ends with a
+          // notice, and a too-long thread gets the notice instead of a model call.
+          const turn = limitThreadTurn(messageHistory, threadId, () => runFacilitator(messageHistory));
+          for await (const event of turn) {
             heartbeat.touch();
             switch (event.type) {
               case 'text':

@@ -10,7 +10,7 @@
  *  - Response envelope matches OpenAI chat.completion shape and surfaces
  *    token usage from the facilitator.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const API_KEY = 'test-leaderboard-key-must-be-at-least-32-chars-long';
@@ -409,5 +409,76 @@ describe('GET /v1/chat/completions (health check)', () => {
     const body = await res.json();
     expect(body.healthy).toBe(true);
     expect(body.name).toBe('ansari-facilitator');
+  });
+});
+
+// Issue #400: a request whose history is at or over the block threshold is refused
+// as invalid input, in the OpenAI error shape, before anything is saved and with no
+// model call. No warning is ever appended: it would corrupt a benchmark answer.
+describe('thread history limit (issue #400)', () => {
+  async function withThresholds(warn: number, block: number) {
+    vi.stubEnv('THREAD_HISTORY_WARN_TOKENS', String(warn));
+    vi.stubEnv('THREAD_HISTORY_BLOCK_TOKENS', String(block));
+    (await import('@/lib/config')).resetEnvCache();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupSuccessfulMocks('B');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    (await import('@/lib/config')).resetEnvCache();
+  });
+
+  it('at the block threshold: 400 context_length_exceeded, nothing saved, no model call', async () => {
+    await withThresholds(100, 200);
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const { HISTORY_REQUEST_TOO_LONG_MESSAGE } = await import('@/lib/facilitator/history-limit');
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'a'.repeat(800) }] }, AUTH));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: {
+        message: HISTORY_REQUEST_TOO_LONG_MESSAGE,
+        type: 'invalid_request_error',
+        code: 'context_length_exceeded',
+      },
+    });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+    expect(mockCreateThread).not.toHaveBeenCalled();
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+
+  it('system messages count: they are sent to the model with the first user message', async () => {
+    await withThresholds(100, 200);
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        {
+          messages: [
+            { role: 'system', content: 'a'.repeat(800) },
+            { role: 'user', content: 'Q' },
+          ],
+        },
+        AUTH
+      )
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('context_length_exceeded');
+  });
+
+  it('between the warn and block thresholds: the answer is returned exactly, with no notice', async () => {
+    await withThresholds(100, 2000);
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'a'.repeat(800) }] }, AUTH));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe('B');
+    expect(mockRunFacilitator).toHaveBeenCalledTimes(1);
   });
 });
