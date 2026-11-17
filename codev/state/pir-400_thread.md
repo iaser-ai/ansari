@@ -234,3 +234,11 @@ no squash. No full test run for this, on the architect's word: the machine is bu
 Left open for the owner, none of it blocking: the bytes-per-token ratio is still uncalibrated;
 68 production threads are blocked on their next message once this is deployed; the gemini
 consultation lane never ran.
+
+## Stopped for a reboot (2026-11-17, 18:08Z)
+
+Shutdown notice from the architect: the Mac is being rebooted. Where this stands: nothing is in
+progress. PR #404 was merged into `develop` at 05:20Z (merge commit `d0cf3160`); issue #400 is
+closed; porch records the protocol complete and the PR merged (`b32596d7`). No uncommitted
+tracked work. The untracked `.codev/config.local.json` (the serial tests check) is left in the
+worktree. On resume there is no task to pick up: only answer the architect if they ask.
