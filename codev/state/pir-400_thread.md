@@ -195,3 +195,31 @@ one capped run and for flakes to be reported, not retried until green. Waiting f
   "Things to Look At", item 10). The gemini lane did NOT run: `agy` exited with code 3 and the
   file is a skip that porch reads as COMMENT. So two reviews, not three. Told the architect.
 - `porch next` reports `gate_pending: pr`. Waiting for the human. Not merging.
+
+## Architect's integration review of PR #404: two changes, made (2026-11-17)
+
+Not sent to the owner yet. The architect's review (on the PR) asked for two changes in this PR.
+
+1. **The warning vanished from cited answers in the web app.** `apps/frontend/lib/citations.ts`
+   cuts a `Citations` heading and everything after it, and I had appended the warning after the
+   answer. I had read the web app's stream handler and its re-read at plan time, but not what
+   it does to the text it shows. Now the warning is sent just ahead of the answer's first text,
+   so it is the first paragraph. `apps/frontend/lib/history-notice.test.ts` puts it through
+   `resolveCitations`, `mapMessage`, `stripUnbackedCitations` and `stripStreamingCitations`,
+   and asserts the old placement is lost on all four.
+2. **One oversized message killed its thread.** Both thread routes stored the message first.
+   Now a message over the block threshold on its own is answered "This message is too long for
+   Ansari to read. Please send a shorter message." and nothing is stored. I did not write "or
+   split it": the parts add up to the same size and the last one would block the thread.
+
+Costs I found and recorded in the review: a one-sentence Arabic answer reads left-to-right in
+the web app when the English warning is in front of it; the refused message's notice is on
+screen in the web app only until reload (read from `chat-reconcile.ts`, not watched).
+
+Not taken, the architect's two optional ideas: a size pre-check before loading a blocked
+thread's history, and a Sentry count of warned and blocked turns.
+
+Checks: six more mutations, each failing its tests (5, 5, 4, 2, 1, 3). One full serial run with
+two workers: api 1,405 passed / 3 skipped, frontend 783, apps/auth 635, packages/auth 289 / 1
+skipped, eval 145; typecheck and lint clean. Load average stayed under 12. Commit `e0ff7bbe`.
+The `pr` gate is still pending and still the human's.
