@@ -55,3 +55,11 @@
 - **Build did not complete, twice** (14 s and 19 s): `Cannot find module './chunks/vendor-chunks/next@…'`. A `next dev -p 3113` was running from this worktree's `apps/api` (started 05:13:52Z, gone by about 05:15Z; an earlier dev session left files at 01:50Z). Not started by me; I assume the architect's replay server. Dev and build share `apps/api/.next`.
 - **What I did that may have hurt that server:** deleted `apps/api/.next` at about 05:13Z after seeing no process in the worktree, then ran a second build that wrote into it while the server was up. Told the architect.
 - No further build until the architect says the worktree is free. `tsc --noEmit` passes for the API. Pushed so the replay can go ahead; the PR body says the build is outstanding.
+
+## 2026-11-17 05:30Z — revised prompt verified; waiting at the pr gate
+
+- The architect confirmed the dev server was theirs (the replay), stopped for good. My deletion of `apps/api/.next` broke their first replay; they reran it.
+- **Replay by the architect on `26e67606`:** JLS-046 and JLS-116, full answers 6 of 6 on hydrogen and 6 of 6 on `gemini-3.7-flash`, no scope wording, Islamic perspective present in all.
+- Local build passes on the revised commit from a cleared `.next` (26 s; the other three packages cached). CI on `26e67606`: all six jobs pass, api and auth builds included.
+- Lesson for whoever shares a worktree next: `next dev` and `next build` both write `apps/api/.next`. Check for a dev server (`lsof -a -d cwd -c node`) before building, and do not delete `.next` on the strength of one look; a server can start a moment later.
+- pr gate still pending with the owner. Not merging.
