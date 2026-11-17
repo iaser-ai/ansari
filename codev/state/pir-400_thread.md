@@ -153,3 +153,13 @@ with `"timeout_ms": 1500000`. It covers the same five test tasks as the root `pn
 run with everything in parallel.
 
 `porch next` reports `gate_pending: dev-approval`. Waiting for the human; not approving it myself.
+
+## Owner decisions at the dev-approval gate (2026-11-17, 00:56Z, via the architect)
+
+- WhatsApp wording: closed. One wording everywhere, no WhatsApp branch in apps/api. The plan's
+  WhatsApp variant is superseded by this.
+- The tests check above is now in the main `.codev/config.json`; my `config.local.json` is
+  redundant and stays where it is.
+- dev-approval is NOT approved. The owner asked the architect to run this branch locally with
+  low thresholds first, from this worktree, read-only. I start no servers and no test runs
+  until told otherwise.
