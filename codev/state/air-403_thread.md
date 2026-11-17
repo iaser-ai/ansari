@@ -21,3 +21,11 @@
 - api 1354 passed (94 files, 3 skipped), auth 635 passed, eval 145 passed. Frontend 763 passed, 11 failed, all in `hooks/useKeyboard.web.test.ts` (`window.localStorage` undefined). This branch does not touch the frontend.
 - Cause: my shell's Node is 26.3.1 and the repo pins 22 (`.nvmrc`). It is the known Node 26 failure recorded in the bugfix-383, air-397 and bugfix-399 threads. I should have launched the check as bugfix-399 did, through `fnm exec --using=22`; Node 22.22.0 is installed.
 - Not retried. The architect is scheduling runs between builders and allowed one. Asked for a second window.
+
+## 2026-11-17 01:33Z — second porch run refused on a random frontend flake
+
+- Second window granted at 01:30Z; the architect also made the shared checks force Node 22. Ran `fnm exec --using=22 porch done 403`: `build` passed; `tests` failed after 134 s.
+- api 1354, auth 635, eval 145 passed. Frontend 773 passed, 1 failed. `useKeyboard.web.test.ts` passes under Node 22.
+- The failure: `lib/auth/guest.test.ts > makeGuestPassword > the production generator always clears the bar with room to spare`, `expected 4 to be greater than or equal to 5`.
+- Read as a random flake, from the code only. The test draws 500 passwords and wants a score of 5 or more. A generated password scores 6 unless it matches a common pattern (minus 2), and `/^123/` is one. A 14-character password from the 74-character set starts with `123` about 3 times in a million, so about 1 run in 650 fails (my estimate, not measured). A score of 4 still clears the register route's minimum of 3, so no guest registration fails.
+- Not retried, not edited. Sent the output to the architect and asked for a third window.
