@@ -22,3 +22,14 @@
 - Architect was told: "PR #408 ready for review" (delivered) and "pr gate ready for approval" (held in the mailbox at the time, id e619b6f2).
 - Still open, neither mine to do: the architect's live replay of JLS-116, JLS-046, JLS-080 and one unrelated request, and the human's decision on the `pr` gate.
 - On resume: run `porch status 407`. If the human's approval has been relayed, run `porch approve 407 pr --a-human-explicitly-approved-this`, then `porch next` for the merge task. If not, wait.
+
+## 2026-11-17 — scope widened by the owner (architect's instruction, 21:19Z)
+
+- Resumed after the reboot at the `pr` gate, branch and remote both at `f9491fc9`, nothing lost.
+- The architect relayed, and the issue body (edited 21:19:48Z) now says: the heading "For questions outside Islamic knowledge domain:" and its four numbered lines must go too. The earlier "do not touch the four lines" was the architect's misreading of the owner. With the first version of this PR a Python question was still declined 3 of 3 on `gemini-4-hydrogen`.
+- Prompt: the whole section (heading, four lines, the #405 line) is now the one paragraph from the issue, with one blank line before and after. Against `develop` the prompt diff is 6 lines removed, 1 added, in one hunk. Nothing else in the prompt changed.
+- Test: `apps/api/tests/facilitator-prompt.test.ts` now asserts each of the five removed lines is gone (and the text of the four items without its list number), that the paragraph appears once, and that it sits between the line before the old section and the line after it with one blank line each side. 20 tests in the file, all pass.
+- Mutation checks on that file: prompt as pushed in `f9491fc9` → 7 of 20 fail; blank line before the paragraph removed → 1 fails; item 3 alone left behind as a bullet → 2 fail; restored → 20 pass.
+- I first added a check that the prompt never matches `/reformulat/i` and took it out again: it would fail a later, unrelated use of the word, and the line it guarded is already checked by name.
+- Local run: `pnpm build` exit 0. Full suite once with `--maxWorkers=2`, exit 0: api 99 files (ran), eval 5 files (ran), auth 18 + 23 files and frontend 61 files / 789 tests (replayed from turbo's cache, their inputs did not change).
+- Gate: still requested, not approved. I do not run `porch approve`; the gate is the owner's. The architect replays on staging's model once CI is green.

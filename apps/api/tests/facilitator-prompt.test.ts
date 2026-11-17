@@ -75,40 +75,57 @@ describe('Facilitator system prompt — tool names & degradation guidance', () =
   });
 });
 
-// Issue #403: on gemini-4-hydrogen the out-of-scope section produced flat refusals
-// of everyday advice questions ("I specialize in Islamic topics... reformulate your
-// question"): 9 of 840 first answers in taqwabench's JaleesBench run on staging,
-// none on the June production run with the same text. The owner's fix is one
-// line after the section saying such questions are in scope; the section's own
-// four lines stay exactly as they were.
+// Issue #403: on gemini-4-hydrogen the section headed "For questions outside Islamic
+// knowledge domain:" produced flat refusals of everyday advice questions ("I
+// specialize in Islamic topics... reformulate your question"): 9 of 840 first
+// answers in taqwabench's JaleesBench run on staging, none on the June production
+// run with the same text. PR #405 kept the section and added one sentence after it
+// saying such questions are in scope.
 //
-// Issue #407: that line first ended "and bring in the Islamic perspective where it
-// is relevant", which the model read as an afterthought: on a request that itself
-// raises an Islamic concern (JLS-116, pricing a mural of realistic human figures)
-// it gave the full help first and the Islamic view second. The owner's wording now
-// opens with the Islamic perspective applying to every question, and the advice is
-// given in light of it.
-describe('Facilitator system prompt — questions outside Islamic topics', () => {
-  const SECTION = [
+// Issue #407 replaces the whole section with one paragraph, in two steps:
+// - The #405 sentence ended "and bring in the Islamic perspective where it is
+//   relevant", which the model read as an afterthought: on a request that itself
+//   raises an Islamic concern (JLS-116, pricing a mural of realistic human figures)
+//   it gave the full help first and the Islamic view second. The owner's wording
+//   opens with the Islamic perspective applying to every question.
+// - With the heading and its four numbered lines still above that wording, the
+//   model still declined unrelated requests (a Python question, 3 of 3 on
+//   gemini-4-hydrogen). The owner had them removed, so nothing in the prompt now
+//   names a class of question that is outside Ansari's domain.
+describe('Facilitator system prompt — the Islamic perspective on every question', () => {
+  const PARAGRAPH =
+    'Islam is an all-encompassing way of life, so consider the Islamic perspective on every question, whatever the topic. Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, in light of that perspective.';
+  const REMOVED_LINES = [
     'For questions outside Islamic knowledge domain:',
     '1. Politely explain that you are specialized in Islamic topics',
     '2. Suggest reformulating the question to relate to Islamic perspective if relevant',
     '3. For purely secular topics, acknowledge the limits of your expertise',
     '4. Avoid speculation on topics outside your knowledge base',
-  ].join('\n');
-  const ADVICE_LINE =
-    'Islam is an all-encompassing way of life, so consider the Islamic perspective on every question, whatever the topic. Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, in light of that perspective.';
+  ];
+  // The lines on either side of the old section, which must now sit on either side
+  // of the paragraph with one blank line between.
+  const LINE_BEFORE = 'briefly note in your response that the source could not be consulted this time.';
+  const LINE_AFTER = 'Questions about hardship, trials, grief, loss, loneliness, anxiety, anger,';
 
-  it('keeps the four original lines of the section word for word', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`\n\n${SECTION}\n`);
+  it('says the paragraph once', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT.split(PARAGRAPH)).toHaveLength(2);
   });
 
-  it('follows the section directly with the one line that puts every question under the Islamic perspective', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${SECTION}\n${ADVICE_LINE}\n\n`);
+  it('puts the paragraph where the section was, as a paragraph of its own', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${LINE_BEFORE}\n\n${PARAGRAPH}\n\n${LINE_AFTER}`);
   });
 
-  it('says that line once', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT.split(ADVICE_LINE)).toHaveLength(2);
+  it.each(REMOVED_LINES)('no longer contains the line %j', (line) => {
+    expect(FACILITATOR_SYSTEM_PROMPT).not.toContain(line);
+  });
+
+  it('keeps none of the removed instructions in other words', () => {
+    // The text after each list number, and the two phrases that carried the refusal.
+    for (const line of REMOVED_LINES) {
+      expect(FACILITATOR_SYSTEM_PROMPT).not.toContain(line.replace(/^\d+\. /, ''));
+    }
+    expect(FACILITATOR_SYSTEM_PROMPT).not.toMatch(/outside Islamic knowledge domain/i);
+    expect(FACILITATOR_SYSTEM_PROMPT).not.toMatch(/specialized in Islamic topics/i);
   });
 
   it('no longer makes the Islamic perspective conditional on relevance', () => {
