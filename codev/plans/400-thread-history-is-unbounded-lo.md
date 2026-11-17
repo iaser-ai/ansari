@@ -4,6 +4,19 @@ Issue #400. Scope is the owner's decision of 2026-11-16 (second comment on the i
 150,000 tokens, block at 200,000, a plain message when a prompt is too large for a model, every
 entry point covered, no new route, status or response shape.
 
+> **Amendments after approval (2026-11-17).** The plan below is as approved; four things were
+> built differently. The review (`codev/reviews/400-thread-history-is-unbounded-lo.md`) has the
+> reasons.
+>
+> 1. **No WhatsApp wording.** One wording for every thread (owner's decision, 2026-11-17).
+>    apps/api may not name WhatsApp (spec 329, source scan 5), which this plan missed. Every
+>    passage below about wording by thread `source` is superseded.
+> 2. `convertToGeminiHistory` was moved to `lib/facilitator/history.ts`, not exported from
+>    `agent.ts`.
+> 3. The two stateless routes answer a block with their own sentence: "The conversation in this
+>    request is too long. Send fewer or shorter messages."
+> 4. `/v2/mcp-complete` tops out at about 60k estimated tokens, not 80k.
+
 ## Decisions needed at this gate
 
 1. **The size is an estimate from the text, not the stored `input_tokens`.** This departs from the
