@@ -79,8 +79,15 @@ describe('Facilitator system prompt — tool names & degradation guidance', () =
 // of everyday advice questions ("I specialize in Islamic topics... reformulate your
 // question"): 9 of 840 first answers in taqwabench's JaleesBench run on staging,
 // none on the June production run with the same text. The owner's fix is one
-// sentence after the section saying such questions are in scope; the section's own
+// line after the section saying such questions are in scope; the section's own
 // four lines stay exactly as they were.
+//
+// Issue #407: that line first ended "and bring in the Islamic perspective where it
+// is relevant", which the model read as an afterthought: on a request that itself
+// raises an Islamic concern (JLS-116, pricing a mural of realistic human figures)
+// it gave the full help first and the Islamic view second. The owner's wording now
+// opens with the Islamic perspective applying to every question, and the advice is
+// given in light of it.
 describe('Facilitator system prompt — questions outside Islamic topics', () => {
   const SECTION = [
     'For questions outside Islamic knowledge domain:',
@@ -89,18 +96,23 @@ describe('Facilitator system prompt — questions outside Islamic topics', () =>
     '3. For purely secular topics, acknowledge the limits of your expertise',
     '4. Avoid speculation on topics outside your knowledge base',
   ].join('\n');
-  const ADVICE_SENTENCE =
-    'Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, and bring in the Islamic perspective where it is relevant.';
+  const ADVICE_LINE =
+    'Islam is an all-encompassing way of life, so consider the Islamic perspective on every question, whatever the topic. Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, in light of that perspective.';
 
   it('keeps the four original lines of the section word for word', () => {
     expect(FACILITATOR_SYSTEM_PROMPT).toContain(`\n\n${SECTION}\n`);
   });
 
-  it('follows the section directly with the one sentence that puts everyday advice in scope', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${SECTION}\n${ADVICE_SENTENCE}\n\n`);
+  it('follows the section directly with the one line that puts every question under the Islamic perspective', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${SECTION}\n${ADVICE_LINE}\n\n`);
   });
 
-  it('says that sentence once', () => {
-    expect(FACILITATOR_SYSTEM_PROMPT.split(ADVICE_SENTENCE)).toHaveLength(2);
+  it('says that line once', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT.split(ADVICE_LINE)).toHaveLength(2);
+  });
+
+  it('no longer makes the Islamic perspective conditional on relevance', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).not.toContain('where it is relevant');
+    expect(FACILITATOR_SYSTEM_PROMPT.split('Requests for advice or guidance on everyday life')).toHaveLength(2);
   });
 });
