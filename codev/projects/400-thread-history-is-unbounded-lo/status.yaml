@@ -1,7 +1,7 @@
 id: '400'
 title: thread-history-is-unbounded-lo
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-16T23:43:50.996Z'
-updated_at: '2026-11-17T05:13:20.719Z'
+updated_at: '2026-11-17T05:13:32.884Z'
 pr_history:
   - phase: review
     pr_number: 404
