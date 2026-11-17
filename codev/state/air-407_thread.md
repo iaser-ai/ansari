@@ -8,3 +8,9 @@
 - Mutation check: with the old prompt file restored from `HEAD`, 3 of the 15 tests in that file fail (the three that name the new line); with the new prompt all 15 pass.
 - The only other copies of the old sentence in the repo are in `codev/state/air-403_thread.md` (a historical log, left as is) and `.builder-prompt.txt` (untracked). No docs or eval fixtures quote it.
 - I did not run any model. The live replay of JLS-116, JLS-046, JLS-080 and one unrelated request is the architect's, before the pr gate.
+
+## 2026-11-17 — pr
+
+- `porch done` for implement passed both checks: `build` (31.0s) and `tests` (216.6s; api, auth, eval, frontend), the one full-suite run.
+- PR #408 is open against `develop`, with the review in its body. Branch was 0 commits behind `origin/develop` at push.
+- No CMAP: one prompt line, wording dictated by the owner. What needs checking is the model's behaviour, and that is the architect's live replay.
