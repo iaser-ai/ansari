@@ -319,6 +319,119 @@ describe('POST /v1/chat/completions', () => {
   });
 });
 
+// Issue #403: the length cap is per role. An assistant message is one of Ansari's
+// own answers replayed as history, and those run past 8,000 characters (taqwabench's
+// JaleesBench run lost two conversations to the old flat cap), so it may be up to
+// 32,000; user and system messages keep 8,000. The 400 names the message and the limit.
+describe('message length caps (issue #403)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupSuccessfulMocks();
+  });
+
+  const history = (assistantChars: number) => [
+    { role: 'user', content: 'First question' },
+    { role: 'assistant', content: 'a'.repeat(assistantChars) },
+    { role: 'user', content: 'Follow-up' },
+  ];
+
+  it.each([8001, 32000])('accepts an assistant message of %i characters and replays it whole', async (chars) => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(makeRequest({ messages: history(chars) }, AUTH));
+
+    expect(res.status).toBe(200);
+    const sent = mockRunFacilitator.mock.calls[0][0];
+    expect(sent[1]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'a'.repeat(chars) }] });
+  });
+
+  it('refuses an assistant message of 32,001 characters, naming the message and the limit', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(makeRequest({ messages: history(32001) }, AUTH));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: {
+        message:
+          'messages.1.content: this assistant message is 32001 characters long; the limit for assistant messages is 32000',
+        type: 'invalid_request_error',
+        code: 'invalid_body',
+      },
+    });
+    expect(mockRunFacilitator).not.toHaveBeenCalled();
+    expect(mockCreateThread).not.toHaveBeenCalled();
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['user', 'system'])('a %s message keeps the 8,000 cap: 8,000 passes, 8,001 is refused', async (role) => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const messages = (chars: number) => [
+      { role, content: 'a'.repeat(chars) },
+      { role: 'user', content: 'Question' },
+    ];
+
+    expect((await POST(makeRequest({ messages: messages(8000) }, AUTH))).status).toBe(200);
+
+    const res = await POST(makeRequest({ messages: messages(8001) }, AUTH));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe(
+      `messages.0.content: this ${role} message is 8001 characters long; the limit for ${role} messages is 8000`
+    );
+  });
+
+  it('reports every over-long message, each with its own index and limit', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(
+      makeRequest(
+        {
+          messages: [
+            { role: 'user', content: 'a'.repeat(9000) },
+            { role: 'assistant', content: 'a'.repeat(40000) },
+            { role: 'user', content: 'Follow-up' },
+          ],
+        },
+        AUTH
+      )
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe(
+      'messages.0.content: this user message is 9000 characters long; the limit for user messages is 8000; ' +
+        'messages.1.content: this assistant message is 40000 characters long; the limit for assistant messages is 32000'
+    );
+  });
+
+  // The production bundle drops the step that installs the library's default
+  // messages, and every 400 without wording of its own then read "Invalid input"
+  // (seen on staging). The route passes the messages to the parse itself, so the
+  // text does not depend on that default. Removed here to stand in for the bundle.
+  it('says what is wrong with a field even when the library has no default messages', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const { z } = await import('zod');
+    const installed = z.config().localeError;
+    z.config({ localeError: undefined });
+    try {
+      const bare = z.string().safeParse(1);
+      expect(bare.error?.issues[0].message).toBe('Invalid input');
+
+      const res = await POST(makeRequest({ messages: [{ role: 'tool', content: 'x' }] }, AUTH));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.message).toBe(
+        'messages.0.role: Invalid option: expected one of "system"|"user"|"assistant"'
+      );
+    } finally {
+      z.config({ localeError: installed });
+    }
+  });
+
+  it('refuses an empty message in plain words', async () => {
+    const { POST } = await import('../src/app/api/v1/chat/completions/route');
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: '' }] }, AUTH));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe('messages.0.content: must not be empty');
+  });
+});
+
 describe('model routing (issue #74)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
