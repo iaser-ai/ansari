@@ -74,3 +74,33 @@ describe('Facilitator system prompt — tool names & degradation guidance', () =
     expect(FACILITATOR_SYSTEM_PROMPT).toMatch(/do not retry that tool/i);
   });
 });
+
+// Issue #403: on gemini-4-hydrogen the out-of-scope section produced flat refusals
+// of everyday advice questions ("I specialize in Islamic topics... reformulate your
+// question"): 9 of 840 first answers in taqwabench's JaleesBench run on staging,
+// none on the June production run with the same text. The owner's fix is one
+// sentence after the section saying such questions are in scope; the section's own
+// four lines stay exactly as they were.
+describe('Facilitator system prompt — questions outside Islamic topics', () => {
+  const SECTION = [
+    'For questions outside Islamic knowledge domain:',
+    '1. Politely explain that you are specialized in Islamic topics',
+    '2. Suggest reformulating the question to relate to Islamic perspective if relevant',
+    '3. For purely secular topics, acknowledge the limits of your expertise',
+    '4. Avoid speculation on topics outside your knowledge base',
+  ].join('\n');
+  const ADVICE_SENTENCE =
+    'Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain: answer what was asked, fully and practically, and bring in the Islamic perspective where it is relevant.';
+
+  it('keeps the four original lines of the section word for word', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`\n\n${SECTION}\n`);
+  });
+
+  it('follows the section directly with the one sentence that puts everyday advice in scope', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT).toContain(`${SECTION}\n${ADVICE_SENTENCE}\n\n`);
+  });
+
+  it('says that sentence once', () => {
+    expect(FACILITATOR_SYSTEM_PROMPT.split(ADVICE_SENTENCE)).toHaveLength(2);
+  });
+});

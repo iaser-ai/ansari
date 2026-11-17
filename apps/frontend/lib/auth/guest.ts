@@ -9,7 +9,7 @@ import type { RegisterInput } from './api';
  * `@ansari.chat` is a normal (non-reserved) domain on the backend, so these
  * register like any other account. The password is built to clear the backend's
  * strength check (score ≥ 3) with room to spare — length ≥ 12 plus one each of
- * lower/upper/digit/symbol.
+ * lower/upper/digit/symbol, and never one of the patterns the check penalises.
  *
  * NOTE ON PERSISTENCE: each registration creates a REAL, PERSISTENT staging
  * account. To avoid minting a new one on every tap, the credentials are stored
@@ -61,17 +61,23 @@ export interface GuestPasswordOptions {
    * check that cannot fail is not evidence (lessons-critical).
    */
   guaranteeVariety?: boolean;
+  /**
+   * Replaces the random draw of one candidate password. Tests pass it to force
+   * a candidate the backend would penalise and prove it is drawn again.
+   */
+  draw?: () => string;
 }
 
-export function makeGuestPassword(options: GuestPasswordOptions = {}): string {
-  const length = options.length ?? 14;
-  const charset = options.charset ?? ALNUM + SYMBOLS;
-  const guaranteeVariety = options.guaranteeVariety ?? true;
+/**
+ * The backend's strength check takes 2 points off a password that matches one
+ * of these (`checkPasswordStrength`, packages/auth/src/password.ts). A random
+ * password starts with "123" about twice in a million draws (24 of 10,000,000
+ * measured, issue #403), so a candidate that matches is drawn again.
+ */
+const PENALISED_PATTERNS = [/^123/, /password/i, /qwerty/i, /abc123/i];
+const MAX_DRAWS = 100;
 
-  if (!guaranteeVariety) {
-    return randomFromCharset(length, charset);
-  }
-
+function drawVaried(length: number, charset: string): string {
   const required = [
     LOWER[randomInt(LOWER.length)],
     UPPER[randomInt(UPPER.length)],
@@ -83,6 +89,27 @@ export function makeGuestPassword(options: GuestPasswordOptions = {}): string {
     charset,
   ).split('');
   return shuffle([...required, ...fill]);
+}
+
+export function makeGuestPassword(options: GuestPasswordOptions = {}): string {
+  const length = options.length ?? 14;
+  const charset = options.charset ?? ALNUM + SYMBOLS;
+  const guaranteeVariety = options.guaranteeVariety ?? true;
+
+  if (!guaranteeVariety) {
+    return randomFromCharset(length, charset);
+  }
+
+  const draw = options.draw ?? (() => drawVaried(length, charset));
+  for (let attempt = 0; attempt < MAX_DRAWS; attempt++) {
+    const password = draw();
+    if (!PENALISED_PATTERNS.some((pattern) => pattern.test(password))) {
+      return password;
+    }
+  }
+  throw new Error(
+    `makeGuestPassword: ${MAX_DRAWS} draws in a row matched a penalised pattern`,
+  );
 }
 
 /**

@@ -55,13 +55,31 @@ const MCQ_PATTERN = /\n\s*[ABCD][).]\s/;
 const LETTER_ANSWER_DIRECTIVE =
   '\n\nReply with only the single letter (A, B, C, or D) of the correct answer — no explanation, no markdown, no citations.';
 
+// Length caps per message, in characters (issue #403). An assistant message
+// is one of Ansari's own answers sent back as history, and those run past
+// 8,000, so it gets the larger cap; what the caller writes keeps 8,000.
+// The message is written here because the 400 must name the message and the
+// limit, whatever error text the validation library would produce.
+const MAX_MESSAGE_CHARS = { system: 8000, user: 8000, assistant: 32000 } as const;
+
 // OpenAI request body — accept the fields the leaderboard form sets and
 // ignore the rest. `messages` is the only required field that affects
 // behavior; everything else is metadata or a hint for letter-answer mode.
-const messageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
-  content: z.string().min(1).max(8000),
-});
+const messageSchema = z
+  .object({
+    role: z.enum(['system', 'user', 'assistant']),
+    content: z.string().min(1, 'must not be empty'),
+  })
+  .superRefine((m, ctx) => {
+    const limit = MAX_MESSAGE_CHARS[m.role];
+    if (m.content.length > limit) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['content'],
+        message: `this ${m.role} message is ${m.content.length} characters long; the limit for ${m.role} messages is ${limit}`,
+      });
+    }
+  });
 
 const requestSchema = z.object({
   model: z.string().optional(),
@@ -74,6 +92,12 @@ const requestSchema = z.object({
 });
 
 type OpenAIRequest = z.infer<typeof requestSchema>;
+
+// The validation library's English messages, passed to the parse explicitly
+// (issue #403). The library installs them as a default when it is imported,
+// and the production bundle drops that step, so on a deployed server every
+// message without wording of its own came out as "Invalid input".
+const VALIDATION_MESSAGES = z.locales.en().localeError;
 
 function openAIError(
   message: string,
@@ -257,7 +281,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const parsed = requestSchema.safeParse(body);
+  const parsed = requestSchema.safeParse(body, { error: VALIDATION_MESSAGES });
   if (!parsed.success) {
     return openAIError(
       parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '),
