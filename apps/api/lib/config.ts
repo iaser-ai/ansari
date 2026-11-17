@@ -122,6 +122,22 @@ export const envSchema = z.object({
   // is opened at enforce (rollout step 6).
   MCP_COMPLETE_KEY_MODE: z.enum(['log-only', 'enforce']).optional(),
 
+  // Thread history limits (issue #400), in estimated tokens of the history a
+  // turn would send (lib/facilitator/history-limit.ts). At WARN the answer
+  // ends with a notice to start a new conversation; at BLOCK no model is
+  // called and the notice is the answer. WARN must be below BLOCK (checked
+  // below); anything but a positive integer fails here, no clamping.
+  THREAD_HISTORY_WARN_TOKENS: z.coerce
+    .number()
+    .int('THREAD_HISTORY_WARN_TOKENS must be an integer')
+    .positive('THREAD_HISTORY_WARN_TOKENS must be positive')
+    .default(150000),
+  THREAD_HISTORY_BLOCK_TOKENS: z.coerce
+    .number()
+    .int('THREAD_HISTORY_BLOCK_TOKENS must be an integer')
+    .positive('THREAD_HISTORY_BLOCK_TOKENS must be positive')
+    .default(200000),
+
   // App version control
   MAINTENANCE_MODE: z
     .enum(['true', 'false', 'True', 'False', '1', '0'])
@@ -152,6 +168,13 @@ export const envSchema = z.object({
         });
       }
     }
+  }
+  if (env.THREAD_HISTORY_WARN_TOKENS >= env.THREAD_HISTORY_BLOCK_TOKENS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['THREAD_HISTORY_WARN_TOKENS'],
+      message: 'THREAD_HISTORY_WARN_TOKENS must be below THREAD_HISTORY_BLOCK_TOKENS',
+    });
   }
   // Fail fast at first config access, not at first chat request: an inkling
   // primary with no credential would otherwise serve a server whose every
@@ -289,6 +312,15 @@ export const config = {
   /** /v2/mcp-complete's key rollout mode (#314); `enforce` when unset. */
   get mcpCompleteKeyMode(): 'log-only' | 'enforce' {
     return getEnv().MCP_COMPLETE_KEY_MODE ?? 'enforce';
+  },
+
+  /** Thread history limits in estimated tokens (issue #400). */
+  get threadHistory() {
+    const env = getEnv();
+    return {
+      warnTokens: env.THREAD_HISTORY_WARN_TOKENS,
+      blockTokens: env.THREAD_HISTORY_BLOCK_TOKENS,
+    };
   },
 
   get appVersion() {

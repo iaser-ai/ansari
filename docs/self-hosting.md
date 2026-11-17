@@ -112,6 +112,8 @@ empty-final retry ladder still applies as same-model retries.
 | `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex fallback rung and terminal-error rescue (issues #74/#79). When unset (and `INKLING_API_KEY` too), both are skipped cleanly |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
 | `MCP_COMPLETE_KEY_MODE` | `enforce` | How `/api/v2/mcp-complete` treats its `Authorization: Bearer` service key (#314): `enforce` refuses a missing or invalid key with 401; an unreachable apps/auth is 503. `log-only` (rollout only) verifies and records the verdict (`unverified` when apps/auth is unreachable, with a Sentry warning) and always serves. Any other value fails validation |
+| `THREAD_HISTORY_WARN_TOKENS` | `150000` | From this many estimated tokens of thread history (the UTF-8 bytes of the text a turn would send, divided by 4), an answer on the thread routes ends with a notice asking the user to start a new conversation soon (#400). Must be a positive integer below `THREAD_HISTORY_BLOCK_TOKENS`; anything else fails validation |
+| `THREAD_HISTORY_BLOCK_TOKENS` | `200000` | From this many estimated tokens, no model is called: the thread routes answer with a notice to start a new conversation, and `/api/v2/mcp-complete` and `/api/v1/chat/completions` answer 400 (#400). Must be a positive integer |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
 | `IOS_LATEST_BUILD_VERSION` | `1` | |
