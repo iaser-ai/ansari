@@ -290,14 +290,15 @@ async def main_webhook(
             },
         )
         sentry_sdk.capture_exception(e)
-        if e.reply_to:
+        # One number feeds three environments, and an unreadable message has no prefix to route by, so only production notifies
+        if get_settings().ENVIRONMENT == "production" and e.reply_to:
             notifier = WhatsAppConversationManager(bsuid=e.reply_to)
             background_tasks.add_task(
                 notifier.send_whatsapp_message,
                 "It seems Meta sent your message in an unexpected format. This is not a problem in what you wrote, "
                 "so please send this chat as screenshot to the developers to investigate further",
             )
-        else:
+        elif not e.reply_to:
             logger.error("No phone number or BSUID in the payload, so the user could not be notified")
         return create_response_for_meta(
             success=False,
@@ -329,7 +330,7 @@ async def main_webhook(
     # answering one drops its prefix so the answer is not about it.
     answers, incoming_msg_body = route_by_prefix(get_settings().ENVIRONMENT, incoming_msg_body)
     if not answers:
-        logger.debug("Incoming message is meant for another environment, so it will not be processed here...")
+        logger.info(f"Ignoring a message meant for another environment (ENVIRONMENT={get_settings().ENVIRONMENT})")
         return create_response_for_meta(
             success=False,
             message="Message is meant for another environment",

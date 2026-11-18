@@ -78,6 +78,8 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
 > `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
 > **Prefix routing (issue #363):** one WhatsApp number can feed production, staging and a developer's machine. A message with no prefix is production's, `!s ` is staging's and `!d ` is development's; each environment ignores the others' and drops its own prefix before asking apps/api. On staging, testers must start every message with `!s `.
+> **Order of the Meta steps:** subscribe the production WhatsApp account to the staging (or development) app only once the prefix code is running there. In the other order, staging answers every real user's plain message on the production number, and users get two answers.
+> **`ENVIRONMENT=production` on the production service:** Sentry events are tagged `production` with 0.2 sample rates, and `/sentry-debug` is not mounted.
 >
 > The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
 > `ENVIRONMENT=development`.

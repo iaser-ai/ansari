@@ -24,5 +24,9 @@ def route_by_prefix(environment: str, body: object) -> tuple[bool, object]:
     if own is None:
         return not text.startswith(ALL_PREFIXES), body
     if text.startswith(own):
-        return True, {**body, "body": text[len(own) :]}
+        stripped = text[len(own) :]
+        if not stripped.strip():
+            # A bare prefix is not a question, and apps/api refuses an empty message
+            return False, body
+        return True, {**body, "body": stripped}
     return False, body

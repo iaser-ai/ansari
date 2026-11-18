@@ -218,6 +218,56 @@ def test_production_answers_an_unsupported_message_type_without_crashing(monkeyp
     assert chat_calls == []
 
 
+@pytest.mark.parametrize(("environment", "message"), [("staging", "!s "), ("staging", "!s   "), ("development", "!d ")])
+def test_a_bare_prefix_is_ignored_and_never_reaches_apps_api(monkeypatch, environment, message):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
+
+    chat_calls = _spy_on_chat_calls(monkeypatch)
+    replies = _spy_on_replies(monkeypatch)
+
+    response = _post(message)
+
+    assert response.json()["error_code"] == "DEV_FILTER"
+    assert chat_calls == []
+    assert replies == []
+
+
+def _post_unreadable(contacts: list | None = None):
+    """A message with neither `from` nor `from_user_id`, which the parser cannot read."""
+    settings = get_settings()
+    value = {
+        "metadata": {
+            "phone_number_id": settings.META_BUSINESS_PHONE_NUMBER_ID.get_secret_value(),
+            "display_phone_number": "+1234567890",
+        },
+        "messages": [
+            {"id": "wamid.TEST_NO_IDENTIFIER", "timestamp": str(int(time.time())), "type": "text", "text": {"body": "hi"}}
+        ],
+    }
+    if contacts is not None:
+        value["contacts"] = contacts
+    payload = {"object": "whatsapp_business_account", "entry": [{"changes": [{"value": value}]}]}
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    secret = settings.META_ANSARI_APP_SECRET.get_secret_value().encode("utf-8")
+    signature = hmac.new(secret, body, hashlib.sha256).hexdigest()
+    return client.post("/whatsapp/v2", content=body, headers={"X-Hub-Signature-256": f"sha256={signature}"})
+
+
+@pytest.mark.parametrize("environment", ["production", "staging", "development"])
+def test_only_production_notifies_the_user_about_an_unreadable_message(monkeypatch, environment):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
+
+    replies = _spy_on_replies(monkeypatch)
+
+    response = _post_unreadable(contacts=[{"profile": {"name": "Test User"}, "user_id": BSUID}])
+
+    assert response.json()["error_code"] == "UNEXPECTED_PAYLOAD_FORMAT"
+    if environment == "production":
+        assert any("unexpected format" in part for part in replies)
+    else:
+        assert replies == [], "one number feeds three environments, so only production may notify"
+
+
 @pytest.mark.parametrize(("environment", "message"), [("staging", QUESTION), ("production", f"!s {QUESTION}")])
 def test_an_environment_that_ignores_a_message_never_sends_the_maintenance_notice(monkeypatch, environment, message):
     monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
@@ -283,7 +333,9 @@ def test_an_ignored_message_leaves_no_phone_number_bsuid_or_text_in_the_logs(mon
         ("staging", {"body": "hi"}, False, {"body": "hi"}),
         ("development", {"body": "!d hi"}, True, {"body": "hi"}),
         ("development", {"body": "!s hi"}, False, {"body": "!s hi"}),
-        ("staging", {"body": "!s "}, True, {"body": ""}),
+        ("staging", {"body": "!s "}, False, {"body": "!s "}),
+        ("staging", {"body": "!s   "}, False, {"body": "!s   "}),
+        ("development", {"body": "!d "}, False, {"body": "!d "}),
         ("production", [{"code": 131051}], True, [{"code": 131051}]),
         ("staging", [{"code": 131051}], False, [{"code": 131051}]),
         ("development", None, False, None),

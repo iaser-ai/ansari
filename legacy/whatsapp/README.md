@@ -126,6 +126,8 @@ The Docker image has not been built or run by the author of this change. Do that
 
 ### Staging smoke test
 
+Steps 3 to 8 start with `!s `, because staging ignores messages without it.
+
 1. `GET /` returns 200.
 2. Meta's webhook verification succeeds for the staging callback URL.
 3. A message starting with `!s ` gets an answer, and a message with no prefix or with `!d ` gets no reply from staging.
@@ -139,6 +141,7 @@ The Docker image has not been built or run by the author of this change. Do that
 
 ### Known gaps to confirm before production
 
+- **Order of the Meta steps.** The production WhatsApp account may be subscribed to the staging (or development) app only once the prefix code is running there. In the other order, staging answers every real user's plain message on the production number, and users get two answers.
 - A real phone's webhook has never reached this service. Meta's dashboard sample webhooks did (signature verified, `from_user_id` present), and one production-number send to a real BSUID was accepted by Meta (HTTP 200, delivery and read statuses followed). That send used a direct HTTP call with the same endpoint and body shape, not `MetaApiServiceReal` itself.
 - `apps/auth`'s `/whatsapp` route (issue #329) does not exist yet, so the real sign-in call has never been exercised. The service has run against a real `apps/api` (with a real JWT from `apps/auth` returned by the mock sign-in): a thread was created and the chat stream answered.
 - The Docker image has not been built or run.
