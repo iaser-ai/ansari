@@ -1,5 +1,5 @@
 """The Meta sender logs Meta's error as structured, masked fields, and never a phone number, BSUID or message text
-outside local (spec 321, follow-up #339 review)."""
+outside development (spec 321, follow-up #339 review)."""
 
 import asyncio
 import json
@@ -74,10 +74,10 @@ def _failed_send_log(method: str, recipient: str = BSUID) -> str:
     return "\n".join(captured)
 
 
-@pytest.mark.parametrize("deployment_type", ["local", "staging", "development", "production"])
+@pytest.mark.parametrize("environment", ["development", "staging", "production"])
 @pytest.mark.parametrize("method", ["send_message", "send_typing_indicator"])
-def test_meta_error_fields_are_logged_in_every_environment(monkeypatch, method, deployment_type):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+def test_meta_error_fields_are_logged_in_every_environment(monkeypatch, method, environment):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
     _meta_answers(monkeypatch, httpx.Response(400, text=META_REPLY))
 
     log_text = _failed_send_log(method)
@@ -88,10 +88,10 @@ def test_meta_error_fields_are_logged_in_every_environment(monkeypatch, method, 
     assert "Recipient phone number not in allowed list" in log_text
 
 
-@pytest.mark.parametrize("deployment_type", ["local", "staging", "development", "production"])
+@pytest.mark.parametrize("environment", ["development", "staging", "production"])
 @pytest.mark.parametrize("method", ["send_message", "send_typing_indicator"])
-def test_an_error_that_echoes_the_recipient_is_masked_in_every_environment(monkeypatch, method, deployment_type):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+def test_an_error_that_echoes_the_recipient_is_masked_in_every_environment(monkeypatch, method, environment):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
     _meta_answers(monkeypatch, httpx.Response(400, text=ECHOING_REPLY))
 
     log_text = _failed_send_log(method, recipient="US.99999999999999999999")
@@ -103,11 +103,11 @@ def test_an_error_that_echoes_the_recipient_is_masked_in_every_environment(monke
     assert "<phone>" in meta_line and "<bsuid>" in meta_line
 
 
-@pytest.mark.parametrize("deployment_type", ["staging", "development", "production"])
+@pytest.mark.parametrize("environment", ["staging", "production"])
 @pytest.mark.parametrize("recipient", [PHONE, BSUID])
 @pytest.mark.parametrize("method", ["send_message", "send_typing_indicator"])
-def test_no_phone_bsuid_message_text_or_message_id_is_logged_outside_local(monkeypatch, method, recipient, deployment_type):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+def test_no_phone_bsuid_message_text_or_message_id_is_logged_outside_development(monkeypatch, method, recipient, environment):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
     _meta_answers(monkeypatch, httpx.Response(400, text=ECHOING_REPLY))
 
     log_text = _failed_send_log(method, recipient)
@@ -119,9 +119,9 @@ def test_no_phone_bsuid_message_text_or_message_id_is_logged_outside_local(monke
     assert get_settings().META_ACCESS_TOKEN_FROM_SYS_USER.get_secret_value() not in log_text
 
 
-@pytest.mark.parametrize("deployment_type", ["staging", "development", "production"])
-def test_a_400_logs_which_keys_were_sent_but_not_their_values(monkeypatch, deployment_type):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_a_400_logs_which_keys_were_sent_but_not_their_values(monkeypatch, environment):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", environment)
     _meta_answers(monkeypatch, httpx.Response(400, text=META_REPLY))
 
     log_text = _failed_send_log("send_message", PHONE)
@@ -129,8 +129,8 @@ def test_a_400_logs_which_keys_were_sent_but_not_their_values(monkeypatch, deplo
     assert "Payload keys: ['messaging_product', 'text', 'to', 'type']" in log_text
 
 
-def test_local_logs_the_full_request_body_but_never_the_token(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "local")
+def test_development_logs_the_full_request_body_but_never_the_token(monkeypatch):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
     _meta_answers(monkeypatch, httpx.Response(400, text=META_REPLY))
 
     log_text = _failed_send_log("send_message", PHONE)
@@ -141,9 +141,8 @@ def test_local_logs_the_full_request_body_but_never_the_token(monkeypatch):
     assert get_settings().META_ACCESS_TOKEN_FROM_SYS_USER.get_secret_value() not in log_text
 
 
-@pytest.mark.parametrize("deployment_type", ["staging", "development"])
-def test_non_local_test_environments_log_a_masked_body_with_the_safe_fields_readable(monkeypatch, deployment_type):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", deployment_type)
+def test_staging_logs_a_masked_body_with_the_safe_fields_readable(monkeypatch):
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "staging")
     _meta_answers(monkeypatch, httpx.Response(400, text=META_REPLY))
 
     log_text = _failed_send_log("send_message", PHONE)
@@ -155,7 +154,7 @@ def test_non_local_test_environments_log_a_masked_body_with_the_safe_fields_read
 
 
 def test_production_logs_no_request_values_and_no_headers(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
     _meta_answers(monkeypatch, httpx.Response(400, text=META_REPLY))
 
     log_text = _failed_send_log("send_message", PHONE)
@@ -166,7 +165,7 @@ def test_production_logs_no_request_values_and_no_headers(monkeypatch):
 
 
 def test_request_details_are_only_logged_for_a_400(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "local")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "development")
     _meta_answers(monkeypatch, httpx.Response(403, text=META_REPLY))
 
     log_text = _failed_send_log("send_message")
@@ -177,7 +176,7 @@ def test_request_details_are_only_logged_for_a_400(monkeypatch):
 
 
 def test_a_reply_that_is_not_the_standard_error_object_logs_only_its_size(monkeypatch):
-    monkeypatch.setattr(get_settings(), "DEPLOYMENT_TYPE", "production")
+    monkeypatch.setattr(get_settings(), "ENVIRONMENT", "production")
     _meta_answers(monkeypatch, httpx.Response(400, text=f"upstream said {PHONE} {BSUID} <html>"))
 
     log_text = _failed_send_log("send_message", PHONE)
