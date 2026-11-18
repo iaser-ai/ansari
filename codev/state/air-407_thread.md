@@ -33,3 +33,10 @@
 - I first added a check that the prompt never matches `/reformulat/i` and took it out again: it would fail a later, unrelated use of the word, and the line it guarded is already checked by name.
 - Local run: `pnpm build` exit 0. Full suite once with `--maxWorkers=2`, exit 0: api 99 files (ran), eval 5 files (ran), auth 18 + 23 files and frontend 61 files / 789 tests (replayed from turbo's cache, their inputs did not change).
 - Gate: still requested, not approved. I do not run `porch approve`; the gate is the owner's. The architect replays on staging's model once CI is green.
+
+## 2026-11-18 — pr gate approved by the human
+
+- CI was green on `8e496a1e` (run 44179330547, all 6 jobs). The architect replayed JLS-116, JLS-046, JLS-080 and the unrelated request on `gemini-4-hydrogen`, 3 of 3 each (the architect's report; I ran no model).
+- The architect relayed (15:52Z) that the owner explicitly approved the `pr` gate for PR #408 at `8e496a1e`. Before recording it I checked: PR head `8e496a1e`, CI green, PR mergeable and clean. `develop` had 22 newer commits, all in `legacy/whatsapp` and codev docs; none touch the prompt or its test.
+- Ran `porch approve 407 pr --a-human-explicitly-approved-this`. Porch pushed its two bookkeeping commits (`8d4d3951`, `6c39565d`), which change only `status.yaml`. The code the owner approved is unchanged.
+- Merging PR #408 into `develop` with a merge commit (no squash) once CI is green on the new head.
