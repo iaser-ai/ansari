@@ -348,8 +348,9 @@ about five minutes after it; then `auth`, `mcp` and `whatsapp` went pending in t
 (11:22:47Z, cause not established) and `backend` got nothing until the owner deployed it by hand
 (the runbook's step 10). So: let CI on `main` finish, then wait for a deployment of the promoted
 commit on `auth` and on `backend`. **For each that does not appear**, deploy the latest commit of
-`main` on it by hand and confirm the deployment's commit is the promoted one. Record `auth`'s
-deployment ID and what started it. The web service builds only if its watch
+`main` on it by hand and confirm the deployment's commit is the promoted one. If both an automatic
+and a manual deployment appear, let the later one finish and confirm the **Active** deployment's
+commit is the promoted one. Record `auth`'s deployment ID and what started it. The web service builds only if its watch
 paths matched the push (staging's always does); in production such a rebuild still has
 `MAINTENANCE_MODE=true` set, and `web_flag_on` must still print `web-flag-ON`. Wait until each is
 healthy.

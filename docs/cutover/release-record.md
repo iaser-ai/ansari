@@ -188,6 +188,13 @@ the security architect" is what the security architect measured from the owner's
 network. "Git" and "GitHub" are read from the repository and its API by the close-out builder.
 **owner to fill** marks a value only the owner can see or hold; none of these is guessed.
 
+> **Rollback-critical, needed before anything else:** `cutover_at` and the deadline
+> (`cutover_at` + 24 hours); `backend`'s and legacy web's step 1 deployment IDs and commits;
+> `auth`'s current deployment ID. **Until these are filled, [`rollback.md`](rollback.md) cannot be
+> run as written** (it takes `cutover_at` as a `psql` variable, redeploys "the deployment whose ID
+> the release record holds", and checks `auth`'s deployment ID). All are **owner to fill** in the
+> rows below (steps 1, 3, 16).
+
 ### Commits
 
 | What | Value | Source |
@@ -261,6 +268,10 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
   `ansari-mcp`, created and tested working (owner's statement). The GitHub statuses show `mcp`
   redeploying 11:42:59Z to 11:43:13Z and `whatsapp` 11:44:56Z to 11:45:25Z. Key ids and names:
   **owner to fill** (an id is not a secret; a key is never written here).
+- **The keys under a rollback** ([`rollback.md`](rollback.md), "Service keys"): WhatsApp is refused
+  by the restored legacy `apps/api` (HS256 only), so it answers no one; MCP is served
+  unauthenticated, as before the window; emptying the auth database deletes both keys, which are
+  then created again and both variables replaced (warn the owner before the drop).
 - **`MCP_COMPLETE_KEY_MODE` stays `log-only`** on `backend`. Enforcement comes after a week of
   verdicts, with #409.
 
@@ -271,6 +282,15 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
 - What the push to `main` started, if anything: why production `backend` did not auto-deploy,
   what started the 11:22:47Z deployments of `auth`, `mcp` and `whatsapp`, and when `auth`'s
   source became `main` (main architect; the owner).
-- Every **owner to fill** row above.
+- Every other **owner to fill** row above (the rollback-critical ones are in the block at the
+  top of this section).
+- **No revert of the promotion is merged to `main` while production `auth`'s auto-deploy is on;
+  turn it off first.** `27531c8f` has no `apps/auth/Dockerfile`, and `auth`'s source is `main`
+  ([`rollback.md`](rollback.md), step 7).
+- Capture the request headers on each edge path in production and replace the provisional shapes
+  in [`edge-header-shapes.json`](edge-header-shapes.json); its via-Cloudflare shape's name
+  describes a request Cloudflare refuses (`403`, `error code: 1000`; [`edge-check.md`](edge-check.md)).
+- Step 9's `auth-tree-matches` was stated by the owner ("it's fine"), not shown. The rollback
+  states that rest on it ((a) and (c)) are moot for this window, which is in state (b).
 - `RELEASE.md`'s sentences on `auth`'s source branch and on the auto-deploy after a promotion (the
   main architect's to reconcile).

@@ -428,7 +428,7 @@ describe('the window runbook', () => {
       const text = read(rel);
       expect(text, rel).not.toMatch(/\*\*step 10's push to `main`\s+starts no `auth` deployment\*\*/);
       expect(text, rel).not.toMatch(/starts \*\*no\*\* `auth` deployment|Wait for `backend` only/);
-      expect(text, rel).not.toMatch(/\(it deploys from `develop`|`auth` deploys from `develop`(?!`)/);
+      expect(text, rel).not.toMatch(/\(it\s+deploys\s+from\s+`develop`|`auth`\s+deploys\s+from\s+`develop`(?!`)/);
       expect(text, rel).not.toMatch(/`auth` is untouched/);
     }
     const step9 = steps[stepOf(/Attach `auth\.askansari\.ai`/) - 1] as string;
@@ -1086,3 +1086,64 @@ describe('the release record: the production window, as run (2026-11-21, #416 cl
     expect('`ansari_wa_production_`').not.toMatch(key);
   });
 });
+
+describe('review round 1 of PR #422: the rollback after the 2026-11-21 window', () => {
+  const rollback = read(ROLLBACK);
+  const record = read(RECORD);
+  const runbook = read(RUNBOOK);
+
+  it('says the rollback inputs are unfilled: the record has a rollback-critical block, the rollback says to get them first', () => {
+    const asRun = record.slice(record.indexOf('## 2026-11-21: the production window, as run'));
+    const block = asRun.indexOf('**Rollback-critical, needed before anything else:**');
+    expect(block).toBeGreaterThan(0);
+    expect(block).toBeLessThan(asRun.indexOf('### Commits'));
+    expect(asRun).toMatch(/\*\*Until these are filled, \[`rollback\.md`\]\(rollback\.md\) cannot be\s+> run as written\*\*/);
+    const head = rollback.slice(0, rollback.indexOf('Rollback is a **redeploy'));
+    expect(head).toMatch(/\*\*If the release record does not yet\s+hold `cutover_at` or the deployment IDs\*\*/);
+    expect(head).toMatch(/before step 2 or step 3\. Never pick a deployment by eye\./);
+  });
+
+  it('gives the service keys a disposition, read from the code at 27531c8f', () => {
+    expect(rollback).not.toMatch(/a rollback has no service user or key to deal with/);
+    for (const part of ['**(a) WhatsApp is refused by the restored api.**', '**(b) MCP keeps being served, unauthenticated.**', '**(c) Emptying the production auth database deletes both keys.**']) {
+      expect(rollback, part).toContain(part);
+    }
+    expect(rollback).toContain('legacy/whatsapp/src/ansari_whatsapp/services/auth_client_real.py');
+    expect(rollback).toContain('27531c8f:apps/api/src/app/api/v2/mcp-complete/route.ts');
+    // (The claims were read from 27531c8f by hand; the api CI job's checkout is shallow, so no git lookup here.)
+    expect(runbook).toMatch(/\*\*Since 2026-11-21, after the window: the drop deletes the production service keys\.\*\*/);
+  });
+
+  it('handles a deployment in flight wherever the three states are listed', () => {
+    const step3 = rollback.slice(rollback.indexOf('## 3. Auto-deploy off'), rollback.indexOf('## 4.'));
+    const step7 = rollback.slice(rollback.indexOf('## 7.'), rollback.indexOf('## A second attempt'));
+    const step16 = runbook.slice(runbook.indexOf('## 16.'), runbook.indexOf('## Orphan app rows'));
+    for (const [name, text] of [['rollback step 3', step3], ['rollback step 7', step7], ['runbook step 16', step16]] as const) {
+      expect(text, name).toMatch(/does not cancel it/);
+      expect(text, name).toMatch(/cancel\s+it\s+in\s+the\s+dashboard,\s+then\s+classify\s+the\s+state/);
+    }
+  });
+
+  it('names the second attempt\'s state, and step 11 points there', () => {
+    const second = rollback.slice(rollback.indexOf('## A second attempt'), rollback.indexOf('## If no second attempt'));
+    expect(second).toMatch(/\*\*The state in a second attempt is \(a\) throughout:\*\*/);
+    expect(second).toMatch(/still\s+the deployment step 9 checked and that step 9's tree line still prints `auth-tree-matches`/);
+    const step11 = runbook.split(/^## (?=\d+\. )/m).find((s) => s.startsWith('11. ')) as string;
+    expect(step11).toMatch(/This\s+bullet describes the \*\*first attempt\*\*/);
+    expect(step11).toMatch(/\*\*Production: both an automatic and a manual deployment\*\*/);
+  });
+
+  it('guards a revert of the promotion while auth deploys from main', () => {
+    const guard = /\*\*No revert of the promotion is merged to `main` while production `auth`'s auto-deploy is on;\s+turn it off first\.\*\*/;
+    expect(rollback.slice(rollback.indexOf('## 7.'))).toMatch(guard);
+    expect(record).toMatch(guard);
+    expect(rollback).toContain('`git cat-file -e 27531c8f:apps/auth/Dockerfile` fails');
+  });
+
+  it('leaves no edge-check cell blank', () => {
+    const rows = read('docs/cutover/edge-check.md').split('\n').filter((l) => /^\| .* \| (phase 13|window step 1[12]) \|/.test(l));
+    expect(rows.length).toBe(10);
+    for (const row of rows) expect(row, row).not.toMatch(/\|\s*\|/);
+  });
+});
+

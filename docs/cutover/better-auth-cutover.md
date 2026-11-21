@@ -240,6 +240,13 @@ drop runs **in one transaction** with the whole auth journal: every file of
 database runs this procedure by name. Staging empties with the drop alone
 (`psql "$AUTH_DATABASE_URL" -X -c 'DROP SCHEMA auth CASCADE'`).
 
+> **Since 2026-11-21, after the window: the drop deletes the production service keys.** The
+> production auth database holds the `whatsapp` and `ansari-mcp` service users and their keys.
+> Warn the owner before running this: afterwards both keys are created again by
+> [`service-keys-runbook.md`](service-keys-runbook.md) (never before a `copy.sh: audit OK`), and
+> `AUTH_WHATSAPP_API_KEY` and `ANSARI_API_AUTHORIZATION` are replaced
+> ([`rollback.md`](rollback.md), "Service keys", (c)).
+
 Why, read from the code:
 - `/health` answers `200` on `select 1` alone (`apps/auth/src/routes/health.ts`), so it stays `200`
   with **no** auth schema. It proves nothing here.
@@ -855,6 +862,8 @@ psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f apps/api/
 **Why the serving `apps/api` is unaffected** (main, M1; re-derived for #416). The evidence is
 the code `origin/main` serves, `27531c8f`, read with `git show origin/main:<path>` and
 `git grep <pattern> origin/main -- apps/api` on 2026-11-21. It is not `develop` minus spec 300.
+(Since the window's promotion `origin/main` is `c314fa59`: read every `origin/main:` path in this
+step at `27531c8f` now.)
 Its schema (`apps/api/db/schema/index.ts` on `origin/main`) exports exactly `users`, `tokens`,
 `threads`, `messages`, `feedback`, `shares`, `preferences` and `tool-call-orphans`. Its journal
 ends at `0008_model_provenance`. If the recorded `backend` commit (step 1) is not `origin/main`'s
@@ -1019,7 +1028,12 @@ is again a maintenance build: run step 3's ON check after it, which must print `
   and confirm the deployment's commit is step 10's. Record its ID and what started it (the push,
   or the dashboard): from here on `auth` is in [`rollback.md`](rollback.md)'s state (b). Until it
   is live, the deployment step 9 checked serves the same code. On 2026-11-21 a deployment of the
-  promoted commit went live at 11:23:18Z; what started it is not established (step 10).
+  promoted commit went live at 11:23:18Z; what started it is not established (step 10). This
+  bullet describes the **first attempt**. In a second attempt after a rollback, `auth`'s
+  auto-deploy is off and nothing is deployed on it here: see [`rollback.md`](rollback.md), "A
+  second attempt", production overrides.
+- **Production: both an automatic and a manual deployment** (on `auth` or `backend`): let the
+  later one finish, then confirm the **Active** deployment's commit is step 10's.
 - **Production: if no `backend` deployment appears.** On 2026-11-21 production `backend` got no
   deployment until the owner ran **Deploy latest commit** on it by hand (pending 11:25:39Z,
   success 11:27:11Z), while `auth`, `mcp` and `whatsapp` had deployments from 11:22:47Z. The
@@ -1250,6 +1264,10 @@ deployment of the promoted commit (step 11), whatever started it:
 - **(c) Promoted commit's build failed:** a failed build leaves the previous deployment serving
   (`RELEASE.md`). `auth` is still on the step 9 deployment, with source `main`. Retry, or tell the
   security architect.
+
+A deployment of the promoted commit that is still building is none of these yet: turning
+auto-deploy off (a rollback) does not cancel it. Wait for it to end, or cancel it in the
+dashboard, then classify the state.
 
 [`rollback.md`](rollback.md) step 3 handles each.
 

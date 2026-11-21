@@ -1,7 +1,9 @@
 # Better Auth cutover: rollback (spec 300)
 
 **Valid until `cutover_at` + 24 hours** (both are in the window's release record). After the
-deadline, do **not** roll back: fix forward on `develop`.
+deadline, do **not** roll back: fix forward on `develop`. **If the release record does not yet
+hold `cutover_at` or the deployment IDs** (for the 2026-11-21 window: its "Rollback-critical"
+block), get them from the owner before step 2 or step 3. Never pick a deployment by eye.
 
 Rollback is a **redeploy, not a restore**. The window dropped nothing the legacy code reads
 (`password_hash`, `is_admin`, `session_version` and `tokens` all stay until the contract PR), so
@@ -22,8 +24,10 @@ second attempt, or "If no second attempt follows" below, both by
 [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)). Until then such an account can still sign in
 at `auth.askansari.ai` directly and get a JWT. The restored legacy `apps/api` rejects that JWT: it
 verifies only HS256 tokens signed with `JWT_SECRET`
-(`origin/main:apps/api/lib/auth/jwt.ts:47-48`, called from
-`origin/main:apps/api/lib/auth/middleware.ts`'s `authenticateRequest`), and `apps/auth` signs
+(`27531c8f:apps/api/lib/auth/jwt.ts:47-48`, called from
+`27531c8f:apps/api/lib/auth/middleware.ts`'s `authenticateRequest`; `27531c8f` is the `main` the
+2026-11-21 window promoted over, before #418's `b1b6ddf0`, whose `apps/api` is the same; these
+citations said `origin/main`, which is now the promoted commit), and `apps/auth` signs
 EdDSA. So it reaches no thread and no answer.
 
 Each step: what to run, the mechanical **check**, and what to do if it fails. Database steps run
@@ -139,6 +143,10 @@ push in between:
      - **(c) Promoted commit's build failed:** still the window step 9 deployment; source
        `main`.
 
+     **A deployment in flight:** if a deployment of the promoted commit is building on `auth`
+     (or `backend`) when the rollback starts, turning auto-deploy off does not cancel it. Wait
+     for it to end, or cancel it in the dashboard, then classify the state.
+
      In each, auto-deploy is off (item 1), so no push to `develop` or `main` moves it.
      `origin/main` before the promotion has no `apps/auth/Dockerfile`: never turn `auth`'s
      auto-deploy back on for a revert of the promotion; tell the security architect.
@@ -239,11 +247,49 @@ window never ran, deployed onto an auth database that holds every migrated hash.
 - **State (c), promoted commit's build failed:** `auth` is still on window step 9's deployment;
   source `main`.
 
+If a deployment of the promoted commit was still building when the rollback started, turning
+auto-deploy off does not cancel it: wait for it to end, or cancel it in the dashboard, then
+classify the state (step 3, item 4).
+
+**No revert of the promotion is merged to `main` while production `auth`'s auto-deploy is on;
+turn it off first.** This holds outside a rollback too: a fix forward after the deadline, or
+anyone's revert PR. Production `auth`'s source is `main` with auto-deploy on (owner's statement,
+2026-11-21), and the `main` before the promotion has no `apps/auth/Dockerfile`
+(`git cat-file -e 27531c8f:apps/auth/Dockerfile` fails; it succeeds at `c314fa59`), so a revert
+merged to `main` would hand `auth` a tree without its Dockerfile.
+
 In all three its auto-deploy stays off until the security architect says otherwise, so neither
 `develop` nor `main` needs to stay frozen for it.
 
-**Service keys:** none. No `create-service` or `create-key` runs in the window (owner's decision,
-2026-11-21), so a rollback has no service user or key to deal with.
+**Service keys.** None is created in the window (owner's decision, 2026-11-21), but after the
+2026-11-21 window the owner created production `whatsapp` and `ansari-mcp` keys
+([`release-record.md`](release-record.md), "After the window"). Their disposition under a rollback:
+- **(a) WhatsApp is refused by the restored api.** The WhatsApp service exchanges its key at
+  `apps/auth` for the user's token (`POST /api/whatsapp/session`,
+  `legacy/whatsapp/src/ansari_whatsapp/services/auth_client_real.py`) and sends that EdDSA token
+  as `Authorization: Bearer` to `apps/api` (`…/services/ansari_client_real.py:58-59`). `apps/auth`
+  stays up, so the exchange still works, but the restored legacy `apps/api` verifies only HS256
+  (the opening of this page), so every call answers `401` (`27531c8f:apps/api/lib/auth/middleware.ts`,
+  `Invalid or expired token`). WhatsApp then re-exchanges once, is refused again, and replies "An
+  error occurred while processing your message" (`…/services/whatsapp_conversation_manager.py:340-355`).
+  So **under a rollback WhatsApp answers no one**. The owner decides what the WhatsApp service
+  does meanwhile. How production WhatsApp was served before 2026-11-21 is **not established**:
+  `27531c8f` has no `legacy/whatsapp` and no WhatsApp reference under `apps/api/src` or
+  `apps/api/lib` (`git grep -i whatsapp 27531c8f -- apps/api/src apps/api/lib` prints nothing), so
+  nothing here says how to restore it.
+- **(b) MCP keeps being served, unauthenticated.** The legacy `/api/v2/mcp-complete`
+  (`27531c8f:apps/api/src/app/api/v2/mcp-complete/route.ts`) never reads the `Authorization`
+  header: it rate-limits per IP and reads only the optional `X-Ansari-Client` attribution header
+  (`getClientId`). So `apps/mcp`'s key (`ANSARI_API_AUTHORIZATION`) is ignored, and MCP is served
+  as it was before the window. The key stays valid at `apps/auth`.
+- **(c) Emptying the production auth database deletes both keys.** The service users are rows in
+  `auth.users`, and `auth.apikey` references them with `ON DELETE cascade`
+  (`packages/auth/drizzle/0001_api_key.sql`); the drop removes everything in any case. A second
+  attempt and "If no second attempt follows" both empty it. **Before that drop, warn the owner**:
+  afterwards, both keys must be created again by [`service-keys-runbook.md`](service-keys-runbook.md)
+  (never before a second attempt's `copy.sh: audit OK`), and `AUTH_WHATSAPP_API_KEY` on the
+  WhatsApp service and `ANSARI_API_AUTHORIZATION` on `apps/mcp` replaced. Until then the WhatsApp
+  exchange is refused (`401`), and `apps/mcp`'s calls carry a key that no longer exists.
 
 ## A second attempt (restart procedure)
 
@@ -259,13 +305,19 @@ attempt).** After a rollback, production `auth` is in state (a), (b) or (c) with
   print `auth-tree-matches`, the owner deploys `auth` at the promoted commit from the dashboard (a
   manual deploy works with auto-deploy off), records the new ID and commit, and the check is
   re-run.
-- **Steps 11 and 16:** `auth` stays on the deployment step 9 checked, which serves the promoted
-  commit's code (step 11's manual deploy of `auth` is not run). At step 16 the owner records that deployment as the state, and turns `auth`'s
+- **The state in a second attempt is (a) throughout:** with auto-deploy off, no deployment of the
+  promoted commit starts by itself, and none is expected. `auth` stays on the deployment step 9
+  checked, whose tree step 9 matched to the promoted commit's.
+- **Steps 11 and 16:** step 11's production `auth` bullet is replaced by this: wait for nothing
+  and deploy nothing on `auth` (its manual deploy is not run); check instead that `auth` is still
+  the deployment step 9 checked and that step 9's tree line still prints `auth-tree-matches`.
+  Step 16 records that deployment as the state (a). At step 16 the owner records that deployment as the state, and turns `auth`'s
   auto-deploy back on **only on the security architect's word**.
 - **Who restores anything:** the owner, on the security architect's word. Nothing is restored by
   default.
 
-The copy refuses a non-empty auth database. To try the window again: empty the auth database
+The copy refuses a non-empty auth database. To try the window again: warn the owner that emptying
+it deletes the production service users and keys ("Service keys", (c), above), then empty the auth database
 (**production:** [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply); the apply record stays true, and step 5
 then runs as **check only**. **Staging:** `DROP SCHEMA auth CASCADE`), then follow the window
 runbook from **step 5** (the auth
@@ -289,8 +341,9 @@ checkout of the promoted commit, whose code window step 9 checked `auth` runs).
 
 `auth` stays online after a production rollback (step 3, item 4), so run the window runbook's
 [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply): the drop and
-the whole auth journal, in one transaction. `auth` then returns to its state of 2026-11-21: the schema
-applied, zero users, serving.
+the whole auth journal, in one transaction. `auth` then returns to its state of 2026-11-21 before the
+window: the schema applied, zero users, serving. **Warn the owner first:** the drop also deletes
+the production service users and keys ("Service keys", (c), above).
 
 **Check (production):** the procedure's own check: the journal check prints `<tag>|t` for every
 file `files` lists, in order; the users-and-accounts count prints `0`; the JWKS probe prints
