@@ -132,12 +132,17 @@ migration runbook were both proven in real releases on 2026-08-02.
 >
 > **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
 > and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so a change needs a
-> redeploy. **Both are mandatory on every web service, staging included**: the
-> image build fails at its guard (`apps/frontend/scripts/check-web-env.mjs`, #317)
-> when either is unset or empty, naming the variable. They name the SAME environment:
-> production `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
+> redeploy. **Both are mandatory on every web service built from
+> `apps/frontend/Dockerfile.web`**: today that is staging web only, and a production
+> `apps/frontend` service when one is created (#305). The image build fails at its guard
+> (`apps/frontend/scripts/check-web-env.mjs`, #317) when either is unset or empty,
+> naming the variable. They name the SAME environment: production
+> `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
 > `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai`; a pair
 > with one production host and not the other fails the build, showing both values.
+> **Production web stays on `legacy/frontend-web` for now (#416):** it builds from its
+> own `legacy/frontend-web/Dockerfile`, takes `EXPO_PUBLIC_API_V2_URL`, and has no such
+> guard; neither variable above is set on it.
 > The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
 > `expo start`/`expo export` only, never an image. The web app signs in at
 > `EXPO_PUBLIC_AUTH_URL` (spec 300).

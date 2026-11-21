@@ -34,3 +34,14 @@
   `main`'s surface, so it is reported to the architect and not edited.
 - Legacy web's delete page goes to `/welcome` even when the `DELETE` fails, so the smoke test
   checks that a sign-in after the delete fails.
+
+## 2026-11-21: scope addition (security architect, on the owner's word)
+
+- The `EXPO_PUBLIC_*` "mandatory on every web service" notes are now scoped to web services built
+  from `apps/frontend/Dockerfile.web`, in `RELEASE.md`, `apps/frontend/railway.toml` (comments
+  only) and `apps/frontend/README.md`. A grep found no fourth place.
+  `Dockerfile.web:16` and `check-web-env.mjs:12` describe that image itself, so they are already
+  correctly scoped and were left as they are.
+- `rollback.md` now records the owner's statement to me that `auth` stays online during a
+  rollback: in production, step 3 item 4 does not remove its deployment and step 5 is skipped.
+  Which deployment it stays on is marked not decided.

@@ -82,13 +82,13 @@ push in between:
 **Check:** auto-deploy shows off on all three; `backend` and the web service are healthy, each on
 the commit the release record holds for it; `auth` has no active deployment.
 
-> **Production, 2026-11-21: not decided.** Before the window, production `auth` had a live
-> deployment and an attached domain, kept by the owner's decision
-> ([`release-record.md`](release-record.md)). So window step 1 records a deployment ID for it,
-> not `none`. Two things are not decided: whether item 4 above returns `auth` to that recorded
-> deployment or to no deployment, and whether step 5 detaches the domain. Neither changes what
-> the legacy `apps/api` serves, because it never calls `apps/auth`. Ask the owner before the
-> window (#416).
+> **Production, 2026-11-21: `auth` stays online during a rollback** (owner's statement to the
+> builder, 2026-11-21). In production, item 4 above does **not** remove `auth`'s deployment, and
+> step 5 does **not** detach `auth.askansari.ai`. Before the window, production `auth` already
+> had a live deployment and an attached domain ([`release-record.md`](release-record.md)), so
+> window step 1 records a deployment ID for it, not `none`. **Not decided:** which deployment
+> `auth` stays on: step 10's, or the pre-window one step 1 recorded. Either way, the legacy
+> `apps/api` that the rollback restores never calls `apps/auth`.
 
 ## 4. The web domain back
 
@@ -101,6 +101,9 @@ release record holds** (window step 1), redeploying that ID if anything else is 
 service's deployed commit equals the commit the release record holds for it.
 
 ## 5. Detach `auth.askansari.ai`
+
+> **Production, 2026-11-21:** skipped. `auth` stays online during a rollback (owner's
+> statement; step 3's note), so the domain stays attached and this step's check does not apply.
 
 Remove the public domain from the `auth` service. It was attached at window step 9 (spec H-5),
 before anything deployed, so a rollback from any step from 9 on detaches it here; step 3 has
