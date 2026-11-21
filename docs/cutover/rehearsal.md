@@ -53,11 +53,11 @@ A clone would have shown two things that staging cannot:
 
 ## Un-rehearsed residuals
 
-- **The production web swap (window step 13).** Staging web already serves `apps/frontend`
-  (title Ansari, built against `api-staging`). So on staging, step 13 rehearses only the rebuild
-  the merge triggers, with `EXPO_PUBLIC_AUTH_URL`, and re-attaching the domain step 3 detached. Production's change of the web service's
-  Dockerfile path, from legacy web to `apps/frontend`, is not rehearsed. Its rollback,
-  [`rollback.md`](rollback.md) step 4 (restore the previous legacy web deployment), is unchanged.
+- **Legacy web against the new `apps/api` (window steps 13 and 14; #416).** The backend-only
+  release (owner, 2026-11-21) keeps production web on legacy web, with no web swap. Staging web
+  serves `apps/frontend`, so steps 13 and 14 on staging re-attach and smoke-test `apps/frontend`,
+  not legacy web. Legacy web against the staging api (sign up, sign in, ask, reset password,
+  delete account) has never been run, and #416 lists it as evidence still blank.
 
 ## Owner-accepted residuals (not a rehearsal gap)
 
@@ -162,9 +162,9 @@ After the copy, sign each seeded user in against the staging auth service with
 | 8 Admin roles | | no | | |
 | 9 Attach `auth.askansari.ai` | | no | | |
 | 10 Promote `develop` to `main` (staging: merge the cutover PR) | | no | | |
-| 11 The deploys: `auth`, `backend` and web | | no | | |
+| 11 The deploys: `auth` and `backend` | | no | | |
 | 12 Edge probe on the `apps/api` production domains | | no | | |
-| 13 Replace legacy web | | no | | |
+| 13 The web domain back on legacy web | | no | | |
 | 14 Public smoke tests | | no | | |
 | 15 Maintenance mode off | | no | | |
 | 16 Re-enable alerting | | no | | |
@@ -203,7 +203,8 @@ The audits, both sides (`copy.sh` output):
 | Released mobile build (or the same build pointed at staging) | | | | | |
 | Admin analytics login | | n/a | n/a | n/a | n/a |
 
-`legacy/frontend-web` is retired at go-live and is not run.
+`legacy/frontend-web` is not retired in this release: it stays production's web app (backend-only,
+owner 2026-11-21). Its run against the staging api is the residual above.
 
 ## Part D: stored-guest sign-in (G-5)
 

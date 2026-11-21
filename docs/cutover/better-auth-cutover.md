@@ -8,6 +8,27 @@ operator SQL is described in
 [`apps/auth/scripts/cutover/README.md`](../../apps/auth/scripts/cutover/README.md).
 The commands alone, in order, are in [`deploy-guide.md`](deploy-guide.md).
 
+**A backend-only release (owner, 2026-11-21; #416).** The production window releases `apps/api`
+and `apps/auth`. Production web **stays on `legacy/frontend-web`**, served by the legacy web
+service, which is the only web service in production. `apps/frontend` is **not** released to
+production in this window, and nothing in this runbook swaps the web app. The production `auth`
+service and its `auth.askansari.ai` domain stay serving until the window, and the auth schema
+(`0000_auth_schema`, `0001_api_key`) was applied ahead of it. The user copy, the app migrations
+`0009` to `0011` and the admin grants stay in the window. The record is
+[`release-record.md`](release-record.md).
+
+**What the promotion carries (measured 2026-11-21).** `main` is **not** "current except for spec
+300". It is the 2026-09-24 release (`debee8e8`, PR #180) plus the #383 hotfix (PR #384, merged
+2026-11-13): `origin/main` is `27531c8f`. `git rev-list --count origin/main..origin/develop`
+printed `1469` against `develop` at `3a30749c`, and `git rev-list --count origin/develop..origin/main`
+printed `0`, so step 10's push is a fast-forward that promotes **all** of those commits, spec 300
+among them. Re-measure both counts on the day, against the commit being promoted, and record them.
+The app journal of `origin/main` ends at `0008_model_provenance` and `develop`'s at
+`0011_better_auth_window`, so step 7's three files are the whole app-schema difference.
+`legacy/frontend-web` is identical on both (`git diff --stat origin/main origin/develop -- legacy/frontend-web`
+prints nothing). Not established: which Railway services rebuild on the push (watch paths are
+dashboard configuration). If the legacy web service rebuilds, it builds the same sources.
+
 **The operator environment (spec H-8).** Every database step runs on **the owner's machine**, in
 one terminal session, through **Railway's Tailscale forwarder** (docs.railway.com, "Set up a
 Tailscale forwarder"), from a checkout of the commit being deployed (step 10 checks it).
@@ -69,11 +90,24 @@ read -rs AUTH_DATABASE_URL && export AUTH_DATABASE_URL
 - **The operator scripts** run from the same checkout:
   `(cd apps/auth && DATABASE_URL="$AUTH_DATABASE_URL" pnpm exec tsx scripts/grant-admin.ts …)`
   (and `ban-user.ts`). They need no `psql`, and they also run in the auth image.
-- **The checkout is the `builder-spir-300` worktree** (owner, 2026-10-19). It is **not** cleaned
-  up after #315 merges: it stays until the production cutover is done. If it is gone by then, the
-  fallback is a fresh checkout of `develop` at the commit being promoted.
-- **The builder is idle during each window:** no edits and no git operations in that worktree.
-  Nothing checks the checkout any more, so an edit made mid-window would run unnoticed.
+- **The checkout is a fresh clone at the commit being promoted** (#416), the one step 1 records,
+  never a builder worktree. The `builder-spir-300` worktree named here before is at `6ed22431`
+  (2026-10-19). It has no `auth-journal.mjs` and no `0001_api_key.sql`, and its `copy.sh`,
+  `02-import-auth.sql` and `grant-admin.ts` are older. Before anything else, verify the checkout.
+  `<recorded commit>` is the full hash in the release record:
+
+  ```bash
+  git fetch origin && git checkout --detach <recorded commit>
+  [ "$(git rev-parse HEAD)" = "<recorded commit>" ] && echo checkout-at-recorded-commit
+  ls apps/auth/scripts/cutover/auth-journal.mjs packages/auth/drizzle/0001_api_key.sql
+  pnpm install --frozen-lockfile
+  ```
+
+  The second line prints `checkout-at-recorded-commit`, and `ls` lists both files with no error.
+  `pnpm install` is there because the operator scripts run through `pnpm exec tsx`, which a
+  fresh clone does not have yet.
+- **No edits in the checkout during the window.** Nothing checks the checkout after this, so an
+  edit made mid-window would run unnoticed.
 - **The session ends with the window:** `exit` the shell, which takes the URLs with it. They are
   never set on a service and never written to a file.
 
@@ -136,7 +170,7 @@ promote `develop`. Each step is run as written, except for these differences:
 
 | Production | Staging rehearsal |
 |---|---|
-| Step 10 promotes `develop` to `main`; Railway auto-deploys `auth`, `backend` and web from `main` | Step 10 **merges the cutover PR** to `develop`; Railway auto-deploys the staging services from `develop` |
+| Step 10 promotes `develop` to `main`; Railway auto-deploys `auth` and `backend` from `main` (production web is legacy web, which this release does not change) | Step 10 **merges the cutover PR** to `develop`; Railway auto-deploys the staging services from `develop` |
 | The scripts run from the `develop` tip about to be promoted | The scripts run from the **cutover PR's head**, current with `develop` (the freeze); step 10 checks that the merge commit's tree equals it |
 | The operator environment, with production's URLs | The **same machine, forwarder setup and checkout path**, with staging's forwarder and URLs (the rehearsal proves this environment, not only the SQL); `CUTOVER_ENV=staging`, which the seed also requires |
 | `api.askansari.ai`, `api-35.ansari.chat`; `auth.askansari.ai`; the production web domain | `api-staging.askansari.ai`; `auth-staging.askansari.ai`; the staging web domain. Service names are on main's sheet |
@@ -145,7 +179,7 @@ promote `develop`. Each step is run as written, except for these differences:
 | The app database is production's | The staging app database (Postgres 18) with its **existing staging users**, no production restore (R-1), plus the anomaly seed below |
 | Step 1 records the rollback targets: `backend`, the legacy web service and `auth` (deployment ID and commit, or none) | `backend`, the **staging web service** (it already serves `apps/frontend`) and `auth` (the PIR #59 deployment removed before step 9) |
 | Step 2: the public maintenance notice | The team only; no public notice |
-| Step 3 detaches the production web domain from the legacy web service; step 13 attaches it to the `apps/frontend` web service, and its rollback is [`rollback.md`](rollback.md) step 4 | Staging web **already serves `apps/frontend`**. Step 3 detaches its domain and step 13 re-attaches it, after the merge rebuilt it with `EXPO_PUBLIC_AUTH_URL`; the swap itself is **not rehearsed** ([`rehearsal.md`](rehearsal.md), residuals) |
+| Step 3 detaches the production web domain from the legacy web service; step 13 re-attaches it to the **same** legacy web service (no web swap: backend-only, owner 2026-11-21); [`rollback.md`](rollback.md) steps 1 and 4 detach and re-attach it the same way | Staging web **already serves `apps/frontend`**. Step 3 detaches its domain and step 13 re-attaches it, after the merge rebuilt it with `EXPO_PUBLIC_AUTH_URL`. Legacy web against the new `apps/api` is **not** part of this rehearsal ([`rehearsal.md`](rehearsal.md), residuals) |
 | Steps 9, 11 and 12: production domains | `auth-staging.askansari.ai` attaches at step 9, after the admin roles and before the merge; its DNS record exists, unattached, before the run, and staging `backend`'s `AUTH_URL` is that domain before the merge. The staging domains are probed on **both paths**: via Cloudflare once the owner orange-clouds `api-staging` and `auth-staging`, and direct with `--resolve` ([`edge-check.md`](edge-check.md)). The staging verdict is recorded only after both paths are measured |
 | Step 16 closes the window | Then the **rollback** is rehearsed ([`rollback.md`](rollback.md), all of it). Then the second forward run (rollback's restart procedure), so staging ends on `develop` with auto-deploy on |
 
@@ -176,13 +210,19 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 
 ## 1. Preconditions (all must hold; any missing → do not start)
 
-- **`main` is current except for spec 300.** A normal release of `develop` at the tip just
-  before the cutover PR has been promoted and has soaked, so this window promotes only the
-  spec 300 delta. That soaked release is the `apps/api` serving during steps 3 to 9.
+- **What the promotion carries is measured and recorded** (#416; the top of this runbook). The
+  earlier precondition here, that `main` is current except for spec 300, is **false**. `main` is
+  the 2026-09-24 release plus the #383 hotfix, and the promotion carries every commit of
+  `origin/main..<commit being promoted>`. Record that count, the `origin/main` commit, and the
+  commit of the `backend` deployment that is serving (the rollback target below). That deployment
+  is the `apps/api` serving during steps 3 to 9. Step 7's table is derived from `origin/main`'s
+  code. If the recorded `backend` commit is not `origin/main`'s tip, re-derive the table against it
+  before starting.
 - **The rollback targets are recorded, before anything changes.** In the release record, write
   the **current Railway deployment ID and its commit** for the `backend` service, the legacy web
-  service and the `auth` service (`none` if it has no deployment). On staging there is no legacy
-  web, so record the staging web service instead. Rollback step 3 returns each service to exactly
+  service and the `auth` service (`none` if it has no deployment; production, 2026-11-21: it has
+  one, see [`release-record.md`](release-record.md)). On staging there is no legacy web, so record
+  the staging web service instead. Rollback step 3 returns each service to exactly
   these, never to one picked by eye from a list that by then has new entries.
 - **The commit being deployed is recorded:** in production, the `develop` tip about to be
   promoted (the cutover PR's merge, or a later `develop` commit carrying no migration); on the
@@ -252,15 +292,12 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
   copies timestamps exactly), and `not_bcrypt = 0` (the copy aborts on any hash that is not
   bcrypt `$2a$`/`$2b$` of length 60: apps/auth would send it to scrypt and the user could not
   sign in).
-- Phases 10b (#304) and 10c (#306) are merged into `builder/spir-300`, so the cutover PR carries
-  the reset and delete-account pages (legacy web retires in step 13). #307 (the public
-  shared-thread page, so links already in the wild still open) is merged.
-- **#317 is merged before the window** (parent #305; the app's builder, with main reviewing the
-  `Dockerfile.web` hunk). It is the web image's build guard: `Dockerfile.web` requires both
-  `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_AUTH_URL` build args unconditionally, with no production
-  flag, and refuses a pair that names different hosts. It is negative-tested with the args unset,
-  set, and mixed. Without it, a web image built without the args falls back to the staging
-  defaults and signs production users in against staging.
+- **No web precondition.** `apps/frontend`'s pages (phases 10b #304 and 10c #306, and #307) and
+  its web image's build guard (#317, parent #305) were preconditions only while `apps/frontend`
+  replaced legacy web in this window. In the backend-only release (owner, 2026-11-21) they are
+  not. Production web stays legacy web, which has its own reset-password page
+  (`legacy/frontend-web/src/app/(public)/reset-password.tsx`) and delete-account page
+  (`legacy/frontend-web/src/app/(app)/delete-account.tsx`).
 - **Auto-deploy is ON for `backend`, the web service and `auth`, and stays on** (owner decision,
   2026-10-19). Their next deploy is step 10's, so **every variable the new code reads is set
   before step 3** (below), and nothing is pushed to the deploying branch between step 3 and step
@@ -284,22 +321,42 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
   `AUTH_JWT_AUDIENCE` and `AUTH_LAYER_ORIGIN=https://api.askansari.ai`, the last two equal to
   `auth`'s; and `MAINTENANCE_MODE=false` (step 3 sets it). `auth` has every variable
   `packages/auth/src/env.ts` requires, including `RESEND_API_KEY` and `FRONTEND_URL` (it now
-  sends the reset emails).
+  sends the reset emails). **`FRONTEND_URL` on `auth` is the web origin, which legacy web
+  serves.** Legacy web and the new web share one origin (owner's statement, 2026-11-21), so the
+  value needs no change. `auth`'s reset link is `${FRONTEND_URL}/reset-password?token=<token>`
+  (`packages/auth/src/reset-email.ts`), and it lands on legacy web's `(public)/reset-password`
+  page. That page reads `?token=` (`legacy/frontend-web/src/hooks/useTokenFromUrl.ts:5`,
+  `src/app/(public)/reset-password.tsx:29`) and posts it as `reset_token` to
+  `/api/v2/reset_password` (`src/services/UserService.ts:50,59`).
+- **`MCP_COMPLETE_KEY_MODE=log-only` on `backend` is confirmed before the window** (#416). It is
+  already set on the production `backend` service (owner's statement, 2026-11-21, not verified
+  from the repo). Confirm it in the dashboard on the day and record it. This is a precondition
+  to confirm, not a window step: setting it inside the window would redeploy `backend`. An absent
+  value means `enforce` (`apps/api/lib/config.ts`, `mcpCompleteKeyMode`). `mcp.ansari.chat` and
+  the agent skill send no key (#409), so without the variable, step 10's code answers every such
+  call with 401.
 - **`backend` keeps its legacy variables** `JWT_SECRET`, `ACCESS_TOKEN_EXPIRY_HOURS`,
   `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`, `RESEND_API_KEY` and `FRONTEND_URL` until the
   contract PR: the legacy code serves until step 10, and the rollback redeploys it. It does not
   boot without `JWT_SECRET`, and its admin access and reset emails need the others.
-- `CORS_ORIGIN` on `auth` lists the **real web origins** (the `apps/frontend` web domains). No CI
-  check can see this; if it is wrong, every web sign-in fails.
-- **The web service has both build variables set before step 10**, whose push rebuilds it (#317's
-  guard fails the build if either is missing), for production:
-  `EXPO_PUBLIC_API_URL=https://api.askansari.ai`, `EXPO_PUBLIC_AUTH_URL=https://auth.askansari.ai`.
+- `CORS_ORIGIN` on `auth` lists the **real web origins** (`packages/auth/src/env.ts` requires
+  it). No CI check can see this. In this release no production web client calls `auth`
+  directly: legacy web sends every request to its one base URL, `EXPO_PUBLIC_API_V2_URL`
+  (`legacy/frontend-web/src/services/ApiService.ts:35`, `ChatService.ts:19`,
+  `UserService.ts:11`), which is `apps/api`. A wrong value would fail a browser client that signs
+  in at `auth` itself (`apps/frontend`, on staging).
+- **The web service needs no change** (backend-only, owner 2026-11-21). The production web
+  service is legacy web. Its API base URL is baked in at build time
+  (`legacy/frontend-web/Dockerfile:7,18`), and its value lives in the Railway dashboard, not in the
+  repo. The `EXPO_PUBLIC_*` variables of `apps/frontend`'s web image are not set for this window.
 - **The DNS record for `auth.askansari.ai` exists before the window and is not attached** (spec
   H-5): `dig +short auth.askansari.ai` answers (the Railway target, or Cloudflare's proxy if it is
   orange-clouded), and the `auth` service lists no custom domain. Step 9 attaches it.
-- **The window's migrations are safe for the `apps/api` that is serving** while they apply (the
-  soaked pre-spec-300 release in production; the `develop` tip before the merge on staging): the
-  table in step 7.
+  (**Production, 2026-11-21:** already attached and serving, by the owner's decision; see
+  [`release-record.md`](release-record.md).)
+- **The window's migrations are safe for the `apps/api` that is serving** while they apply
+  (`origin/main`'s code in production, `27531c8f` when measured; the `develop` tip before the
+  merge on staging): the table in step 7.
 
 **Check:** each item ticked in the release record by name. **Abort:** postpone the window.
 
@@ -317,8 +374,9 @@ window would page on.
 
 The session of steps 3 to 10 starts here; record the time. Set `MAINTENANCE_MODE=true` on
 `backend` (Railway redeploys its current deployment with it: the same commit, still the legacy
-code). Detach the web domain from the web service (the legacy web service in production; the
-staging web service on staging). Then take **`cutover_at`** from the app database's own clock:
+code). Detach the web domain from the web service (the legacy web service in production, the only
+web service there; the staging web service on staging). Step 13 re-attaches it to the same
+service (owner, 2026-11-21). Then take **`cutover_at`** from the app database's own clock:
 
 ```bash
 export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
@@ -335,6 +393,27 @@ so no legacy write is expected between the copy and the new code. If one happens
 - a sign-up during the window has an app row and no auth account: the user signs up again at
   `apps/auth`, and the orphan-row procedure (below) clears the email conflict;
 - a password change or reset during the window is not in the auth database: the user resets again.
+
+**Why the web domain is detached (owner, 2026-11-21): legacy web does not honour maintenance
+mode, so only the detach stops web traffic.** Read from the tree:
+- `MAINTENANCE_MODE` changes only the `/api/v2/app-check` answer. Its only readers are
+  `apps/api/lib/config.ts`, which exposes it as `appVersion.maintenanceMode`, and
+  `apps/api/src/app/api/v2/app-check/route.ts:21` (answered at `:26` and `:66`). This holds on
+  `develop` and on `origin/main` (`git grep -n MAINTENANCE_MODE <ref> -- apps/api/lib apps/api/src`
+  and `git grep -n maintenanceMode <ref> -- apps/api/lib apps/api/src`). No route refuses because
+  of it: the api keeps serving every route.
+- `legacy/frontend-web` never asks. `git grep -n -i -E "maintenance|app-check|app_check" <ref> -- legacy/frontend-web`
+  prints nothing for `origin/develop` or `origin/main`. The same pattern on
+  `legacy/frontend-app` finds its maintenance screen (`src/app/_layout.tsx:124-125`), so the scan
+  can match. Legacy web has no handler for an api that is down or answers 5xx either. Its fetch
+  wrapper acts on 401 only (`src/services/ApiService.ts:157`). A failed session restore at
+  launch leaves the user signed out (`src/store/slices/authSlice.ts:160`), and a failed message
+  send is only logged to the console (`src/components/chat/ChatContainer.tsx:33-34`).
+
+So while the domain is attached, legacy web keeps signing users up and in, resetting passwords
+and chatting against whichever `apps/api` is serving: the legacy code until step 10, then the new
+code. The residual above would then hold for every web user in the window, not only for a client
+that ignores maintenance mode.
 
 `MAINTENANCE_MODE` takes effect only once that redeploy is healthy: until then the probe below
 prints `false`, which is not a failure; wait and re-run it.
@@ -404,18 +483,22 @@ prints `auth.users`.
 
 > **Production, 2026-11-21:** no `create-service` or `create-key` in production before this
 > step's `copy.sh: audit OK`: a service user is a row in `auth.users` and `auth.account`, and the
-> copy then refuses (`auth.users is not empty`). Issue the service keys after the copy and before
-> step 10's promotion ([`service-keys-runbook.md`](service-keys-runbook.md)); see
-> [`release-record.md`](release-record.md).
+> copy then refuses (`auth.users is not empty`). The service keys are step 8a, after the copy and
+> before step 10's promotion; see [`release-record.md`](release-record.md). The `auth` domain
+> serves until the window, so a sign-up there would also make the copy refuse. In production,
+> therefore, the second line below (the users-and-accounts count) runs **immediately before** the
+> copy and must print `0`. If it does not, empty the auth database (`DROP SCHEMA auth CASCADE`)
+> and re-run from step 5, running its `for` loop as printed, then reverse the apply record.
 
 Re-run the preflight first; it must show no collision, `no_password_hash = 0`, `not_bcrypt = 0` and no NULL timestamp. Then copy:
 
 ```bash
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/00-preflight-app.sql
+psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"
 apps/auth/scripts/cutover/copy.sh
 ```
 
-**Check:** `copy.sh` exits 0 and prints `copy.sh: audit OK`, with the same six lines for the app
+**Check:** the users-and-accounts count prints `0`; `copy.sh` exits 0 and prints `copy.sh: audit OK`, with the same six lines for the app
 and the auth side (`rows` equal to the preflight's `to_copy`). Record both blocks.
 **Abort:** do **not** run step 7. Empty the auth database (`DROP SCHEMA auth CASCADE`), and
 either re-run from step 5 or take step 3's abort (the legacy code is still serving).
@@ -432,15 +515,19 @@ psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f apps/api/
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f apps/api/drizzle/0011_better_auth_window.sql
 ```
 
-**Why the serving `apps/api` is unaffected** (main, M1). The serving code's schema
-(`apps/api/db/schema/` before spec 300: `users`, `tokens`, `threads`, `messages`, `feedback`,
-`shares`, `preferences`, `tool-call-orphans`) is the evidence:
+**Why the serving `apps/api` is unaffected** (main, M1; re-derived for #416). The evidence is
+the code `origin/main` serves, `27531c8f`, read with `git show origin/main:<path>` and
+`git grep <pattern> origin/main -- apps/api` on 2026-11-21. It is not `develop` minus spec 300.
+Its schema (`apps/api/db/schema/index.ts` on `origin/main`) exports exactly `users`, `tokens`,
+`threads`, `messages`, `feedback`, `shares`, `preferences` and `tool-call-orphans`. Its journal
+ends at `0008_model_provenance`. If the recorded `backend` commit (step 1) is not `origin/main`'s
+tip, re-run these reads against that commit.
 
-| File | What it does | The serving `apps/api` |
+| File | What it does | The serving `apps/api` (`origin/main`) |
 |---|---|---|
-| `0009_better_auth_scaffold_cleanup.sql` | Drops the #59 scaffold tables `public.user`, `session`, `account` and `verification`, and refuses if any holds rows | Has no schema for them and no query on them |
-| `0010_deleted_users.sql` | Creates `public.deleted_users` | Additive; never reads or writes it |
-| `0011_better_auth_window.sql` | Sets `users.email` to `lower(trim(email))`; drops `NOT NULL` from `users.password_hash` | No column is dropped or renamed, and dropping a `NOT NULL` cannot fail a write. Legacy login looks a user up by `eq(users.email, email.toLowerCase())`, so a mixed-case legacy row, which it could never match before, matches during the window; a typed address with surrounding spaces still fails, as before |
+| `0009_better_auth_scaffold_cleanup.sql` | Drops the #59 scaffold tables `public.user`, `session`, `account` and `verification`, and refuses if any holds rows | Has no schema for them (no `pgTable` of those names under `apps/api/db/schema/`), and none of its migrations `0000` to `0008` creates them |
+| `0010_deleted_users.sql` | Creates `public.deleted_users` | Additive. `git grep -E "deleted_users\|deletedUsers" origin/main -- apps/api` finds nothing: it never reads or writes it |
+| `0011_better_auth_window.sql` | Sets `users.email` to `lower(trim(email))`; drops `NOT NULL` from `users.password_hash` | No column is dropped or renamed. Every insert it makes writes a hash: register's hash (`src/app/api/v2/users/register/route.ts`), and `'nologin'` for system rows (`lib/db/users.ts:64`). So dropping a `NOT NULL` cannot fail a write. Its one email lookup, `findUserByEmail` (`lib/db/users.ts:16`), is `eq(users.email, email.toLowerCase())`. Login, the reset request and the `ADMIN_EMAILS` boot check (`lib/auth/startup-checks.ts:33`) use it, and `createUser` stores `email.toLowerCase()` (`lib/db/users.ts:106`). So a mixed-case legacy row, which it could never match before, matches during the window. Its login schema does not trim (`z.string().email(...)`), so a typed address with surrounding spaces still fails, as before |
 
 **Check:** `psql "$APP_DATABASE_URL" -X -At -c "select to_regclass('public.deleted_users') is not null"`
 prints `t` (`0010` landed: the tombstone table `DELETE me` and first use read), `psql "$APP_DATABASE_URL" -X -At -c "select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'password_hash'"`
@@ -474,6 +561,49 @@ truth; nothing at boot checks a list.
 **Abort:** `(cd apps/auth && DATABASE_URL="$AUTH_DATABASE_URL" pnpm exec tsx scripts/grant-admin.ts --revoke <email>)`
 for any extra; fix and re-check.
 
+## 8a. Service keys (production)
+
+After step 6's `copy.sh: audit OK` and before step 10's promotion (#416; the deviation in
+[`release-record.md`](release-record.md)): never before the copy, because a service user is a row
+in `auth.users` and `auth.account`, and the copy refuses a non-empty `auth.users`. This sub-step
+keeps the numbering, so every "step N" elsewhere still holds. Staging's keys follow
+[`service-keys-runbook.md`](service-keys-runbook.md)'s own staging order, not this step.
+
+The script, where it runs and its two-step `--confirm` are in
+[`service-keys-runbook.md`](service-keys-runbook.md), "The script". It runs in the production
+`auth` service's shell, from `apps/auth/`. **Not established:** which branch or commit that
+service deploys from today (#416, open questions). Before the first command, confirm that its
+`scripts/service-keys.ts` prints the usage the runbook documents. If it does not, stop: the
+window does not go on with a script the runbook does not describe.
+
+**The `ansari-mcp` service and the `mcp.ansari.chat` key** (the runbook's "The `ansari-mcp` key"
+section, Issuance and The handoff):
+
+```bash
+./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp
+./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp --confirm ansari-mcp
+./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id>
+./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id> --confirm <user id>
+./node_modules/.bin/tsx scripts/service-keys.ts list ansari-mcp
+```
+
+The owner sets `mcp.ansari.chat`'s upstream Authorization variable to the key, by the runbook's
+handoff rule. `MCP_COMPLETE_KEY_MODE=log-only` (step 1) keeps a call with no key, or with a key
+not yet set, served after step 10.
+
+**WhatsApp (#336): not established, and not decided here.** What serves production WhatsApp
+today, how it authenticates, and whether its key is issued in this window are open in #336.
+If the owner decides to issue it in this window, it is issued here, by the runbook's Issuance
+section, and not before step 6.
+
+**Check:** `list ansari-mcp` shows exactly the key just issued, enabled, with the limits above;
+its `ENVIRONMENT` line read `production` before `--confirm`; the key log has a row for each write
+([`service-keys-runbook.md`](service-keys-runbook.md), "Key log").
+**Abort:** a write the script refused wrote nothing: fix the cause and repeat. A raw key shown
+anywhere but its handoff target is revoked at once (`revoke ansari-mcp --key <key id>`) and
+issued again. An abort to step 3's abort (`DROP SCHEMA auth CASCADE`) removes the service and its
+keys with the rest of the auth database, so they are issued again on the next attempt.
+
 ## 9. Attach `auth.askansari.ai` (spec H-5)
 
 Now, after the copy (step 6) and the admin roles (step 8), and before step 10 deploys anything
@@ -505,7 +635,9 @@ abort. Nothing has deployed.
 The last step of the session, right after step 9. In production, the fast-forward of
 `RELEASE.md`'s standard checklist, pushed straight to `main`: `main`'s protection requires a PR
 but does not bind admins, so only an **admin** can run that push; on staging, the cutover PR's merge. Auto-deploy then builds
-and deploys `auth`, `backend` and the web service from this commit.
+and deploys `auth` and `backend` from this commit (on staging, the staging web service too). The
+production web service is legacy web, which this release does not change (`legacy/frontend-web`
+is identical on both sides of the push; see the top of this runbook).
 
 ```bash
 git fetch origin && [ "$(git rev-parse origin/develop)" = "$(git rev-parse HEAD)" ] && echo develop-unchanged   # production, before the push
@@ -517,15 +649,19 @@ git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   #
 `develop` tip that moved during the session is caught before anything deploys: do not push), and
 afterwards `git rev-parse origin/main` equals the checkout's `HEAD`; on both, the
 `diff-tree` line prints `same-tree` (the deployed tree is the one every script ran from), and a
-deployment of that commit has started on `auth`, `backend` and the web service. Record the commit
+deployment of that commit has started on `auth` and `backend` (staging: and the web service). Record the commit
 and the session's elapsed time from step 3.
 **Abort:** a rejected push deployed nothing: take step 9's abort. A tree that differs means the
 deploys run code the scripts did not run from: follow [`rollback.md`](rollback.md).
 
-## 11. The deploys: `auth`, `backend` and web
+## 11. The deploys: `auth` and `backend`
 
-Wait for the three deployments. In production this is the `auth` service's **first build and
-deploy**: the staging rehearsal is what proves the image builds. Until `auth` is healthy, the new
+Wait for the deployments: `auth` and `backend` (staging: and the staging web service). Read as
+written, this is the `auth` service's **first build and
+deploy**: the staging rehearsal is what proves the image builds. (**Production, 2026-11-21:**
+`auth` already has a live deployment, kept by the owner's decision
+([`release-record.md`](release-record.md)), so step 10's is its first deploy **from `main`**.
+Until step 10's deployment is healthy, the earlier one keeps serving the domain.) Until `auth` is healthy, the new
 `apps/api`'s sign-ins and first uses fail closed with `503` (never a grant), and maintenance mode
 covers it. If the `auth` build or deploy fails, the new `apps/api` stays up answering `503` under
 maintenance: that is [`rollback.md`](rollback.md) from step 1.
@@ -541,7 +677,7 @@ Then the edge properties on the auth domain's probe, as in step 12, on every pat
 Cloudflare if proxied, and direct with `--resolve`), over IPv4 and IPv6:
 `curl -s -H 'X-Real-IP: 192.0.2.66' -H 'X-Forwarded-For: 192.0.2.66' -H 'CF-Connecting-IP: 192.0.2.66' https://auth.askansari.ai/__diag/client-ip`.
 
-**Check:** all three deployments are healthy and their deployed commit is step 10's; `/health`
+**Check:** each deployment is healthy and its deployed commit is step 10's; `/health`
 returns 200 over https with a **valid certificate**; the JWKS prints `1` or more; `/internal/…`
 prints `404` (there is no internal route); `/api/account/me` with no token prints `401`; the probe
 shows your real address on every path, and a second network a different one. On each
@@ -571,23 +707,45 @@ per-session and global limits hold whatever the edge does. What fails is `apps/a
 limit on the layer's routes, which would then be keyed by a value a client can choose; the
 security architect decides whether the window goes on.
 
-## 13. Replace legacy web with `apps/frontend`
+## 13. The web domain back on legacy web
 
-Attach the web domain, detached in step 3, to the `apps/frontend` web service, which step 10
-rebuilt with both build variables (owner, 2026-10-16: legacy web retires at go-live).
+Re-attach the web domain, detached in step 3, to the **same** web service: in production the
+legacy web service, the only web service there (backend-only release, owner 2026-11-21; this
+replaces the earlier swap to `apps/frontend`, and the owner's 2026-10-16 "legacy web retires at
+go-live" does not apply to this window). On staging, the staging web service.
 
-**Check:** the web domain serves `apps/frontend` (its page title and the sign-in sheet), and a
-private window provisions a guest (one `sign-up/email` then one `token` at `auth.askansari.ai`).
+**Check:** the web domain serves legacy web again (production; staging: the staging web
+service), and that service's deployed commit is the one step 1 recorded for it, or step 10's if
+the push rebuilt it.
 **Abort:** detach the domain; follow [`rollback.md`](rollback.md).
 
 ## 14. Public smoke tests (scenario 31)
 
-On the production web app, in a private window: open the app (a guest is provisioned), sign up
-a throwaway account, sign out, sign in, ask one question. Request a password reset for it and
-complete the reset from the email. Delete the account at `/delete-account`.
+On **legacy web** (production's web app; #416), in a private window. Each flow and the
+`/api/v2` route it calls, read from `legacy/frontend-web/src` (base URL
+`EXPO_PUBLIC_API_V2_URL`, which includes `/api/v2`):
+
+| Flow | Route | Where |
+|---|---|---|
+| Continue as a guest | `POST /users/register`, then `POST /users/login` with `guest: true` | `store/actions/authActions.ts` (`guestLogin`) |
+| Sign up a throwaway account | `POST /users/register` | `services/ApiService.ts:47-48` |
+| Sign out | `POST /users/logout` | `services/ApiService.ts:183-184` |
+| Sign in (and the session restore at launch) | `POST /users/login`; `GET /users/me` | `services/ApiService.ts:64-65`; `store/slices/authSlice.ts` |
+| Ask one question | `POST /threads`, then `POST /threads/<id>` (streamed), then `GET /threads/<id>` | `services/ChatService.ts:46-48`, `:83-84`, `:100-102` |
+| Request a password reset | `POST /request_password_reset` | `services/UserService.ts:21-23` |
+| Complete it from the email | the link opens `/reset-password?token=…`, which posts `POST /reset_password` | `app/(public)/reset-password.tsx:29,57`; `services/UserService.ts:48-50` |
+| Delete the account at `/delete-account` | `DELETE /users/me` | `services/ApiService.ts:201-202` |
+
+Then sign in with the new password before the delete, and try to sign in again after it.
 
 **Check:** each succeeds; the reset email's link has the shape
-`https://<web domain>/reset-password?token=…` and opens the reset page.
+`https://<web domain>/reset-password?token=…` and opens legacy web's reset page; after the
+delete, a sign-in with that account **fails**. The page alone does not show the delete
+succeeded: legacy web's delete page goes to `/welcome` even when the `DELETE` failed (the thunk is
+dispatched without `.unwrap()`, `src/hooks/useDeleteAccount.ts:12`;
+`src/app/(app)/delete-account.tsx:34-35`). On staging, step 14 runs on the staging web service
+(`apps/frontend`). Legacy web against the new `apps/api` has not been run on staging (#416,
+evidence still blank).
 **Abort:** follow [`rollback.md`](rollback.md).
 
 ## 15. Maintenance mode off
@@ -656,9 +814,11 @@ R3") runs this cleanup against the refusal it clears.
   (owner-accepted residual, step 3): a sign-up has an app row and no auth account, so the user
   signs up again and the orphan-row procedure (above) clears the email conflict; a password change
   or reset is not in the auth database, so the user resets again. The maintenance notice says so.
-- **Users signed in to a real account before the cutover** open the new web app signed out, on
-  their device's guest. Their account is unchanged; they sign in with the same email and
-  password. Say this in the release note and the maintenance notice.
+- **Users signed in to a real account before the cutover** open legacy web signed out: their
+  stored legacy tokens are refused by the new `apps/api`, and a failed session restore at launch
+  leaves them signed out (`legacy/frontend-web/src/store/slices/authSlice.ts:160`). Their account
+  is unchanged; they sign in with the same email and password. Say this in the release note and
+  the maintenance notice.
 - **Key rotation is not revocation.** A rotated signing key does not invalidate existing JWTs
   until `apps/api`'s cached key set expires (10 minutes, plus a 15-minute grace while `apps/auth`
   is unreachable) or `apps/api` restarts. To cut a user off, ban them (`ban-user.ts`, which

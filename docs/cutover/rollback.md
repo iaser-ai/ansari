@@ -20,6 +20,11 @@ from the window runbook's operator environment (spec H-8): the owner's machine o
 route, a checkout of the deployed commit, and both URLs entered with `read -rs` for that
 session only.
 
+**A backend-only release (owner, 2026-11-21; #416).** Production web is legacy web throughout: the
+window detaches its domain and re-attaches it to the same service, and swaps nothing. So this
+rollback has no web swap to reverse. It detaches the web domain in step 1 and re-attaches it to
+the same web service in step 4, as the window does.
+
 **The mechanism (main, M2).** Auto-deploy is on for `backend`, the web service and `auth`
 (owner decision, 2026-10-19), so a rollback is **one step in the Railway dashboard**: turn
 auto-deploy OFF on all three and return each to the deployment the window's step 1 recorded,
@@ -30,7 +35,8 @@ code. Auto-deploy comes back only when the branch carries a revert PR or the for
 ## 1. Maintenance mode on, web off
 
 The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and the web domain detached from the
-web service.
+web service (production: the legacy web service). The detach is what stops web traffic: legacy web
+never asks `app-check`, so it ignores maintenance mode (the window's step 3 gives the evidence).
 
 **Check:** step 3's `app-check` probe prints `true` on both `apps/api` domains, and the web domain
 no longer serves the web app. **If it fails:** stop; nothing below is safe while new code serves
@@ -66,8 +72,9 @@ push in between:
    (`JWT_SECRET`, `ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`,
    `RESEND_API_KEY`, `FRONTEND_URL`):
    confirm they are set first.
-3. The web service: its recorded ID → **Redeploy** (on staging, the staging web service; in
-   production, the legacy web service's record is restored in step 4).
+3. The web service: its recorded ID → **Redeploy**, if it is not already the live deployment
+   (on staging, the staging web service; in production, the legacy web service, which the window
+   changes only if the push rebuilt it).
 4. `auth`: back to its recorded state, **no active deployment**: remove the one step 10 started.
    On staging the PIR #59 deployment is not restored either: nothing the legacy code runs calls
    `apps/auth`.
@@ -75,13 +82,20 @@ push in between:
 **Check:** auto-deploy shows off on all three; `backend` and the web service are healthy, each on
 the commit the release record holds for it; `auth` has no active deployment.
 
-## 4. Restore the previous legacy web deployment
+> **Production, 2026-11-21: not decided.** Before the window, production `auth` had a live
+> deployment and an attached domain, kept by the owner's decision
+> ([`release-record.md`](release-record.md)). So window step 1 records a deployment ID for it,
+> not `none`. Two things are not decided: whether item 4 above returns `auth` to that recorded
+> deployment or to no deployment, and whether step 5 detaches the domain. Neither changes what
+> the legacy `apps/api` serves, because it never calls `apps/auth`. Ask the owner before the
+> window (#416).
 
-Move the web domain back from the `apps/frontend` web service to the legacy web service (the
-reverse of the window's step 13). Then make sure the legacy web service runs the deployment
-whose **ID the release record holds** (window step 1), redeploying that ID if anything else is
-live. (On staging there is no legacy web; step 3 already restored the web service, and its domain
-is re-attached here.)
+## 4. The web domain back
+
+Re-attach the web domain, detached in step 1, to the **same** web service: in production the
+legacy web service, the only web service there; on staging the staging web service. There is no
+swap to reverse (backend-only release). Make sure that service runs the deployment whose **ID the
+release record holds** (window step 1), redeploying that ID if anything else is live.
 
 **Check:** the web domain serves legacy web (staging: the restored staging web service), and that
 service's deployed commit equals the commit the release record holds for it.

@@ -116,12 +116,16 @@ describe('the window runbook', () => {
       expect(stepOf(title), String(title)).toBeLessThan(promote);
     }
     expect(stepOf(/The copy and the audits/)).toBe(promote - 4);
-    expect(stepOf(/The deploys: `auth`, `backend` and web/)).toBe(promote + 1);
+    expect(stepOf(/The deploys: `auth` and `backend`/)).toBe(promote + 1);
     expect(doc).toMatch(/\*\*Auto-deploy is ON for `backend`, the web service and `auth`, and stays on\*\*/);
     expect(doc).not.toMatch(/Auto-deploy is OFF|auto-deploy OFF on staging|Turn auto-deploy OFF on staging/);
     expect(doc).toMatch(/Steps 3 to 10 are \*\*one continuous session\*\*/);
-    expect(doc).toMatch(/main` is current except for spec 300/);
-    expect(doc).toMatch(/\*\*The web service has both build variables set before step 10\*\*/);
+    // #416: main is NOT current except for spec 300; the promotion is measured, and the web is untouched.
+    expect(doc).toMatch(/\*\*What the promotion carries is measured and recorded\*\*/);
+    expect(doc).toMatch(/git rev-list --count origin\/main\.\.origin\/develop/);
+    expect(doc).not.toMatch(/\*\*`main` is current except for spec 300\.\*\*/);
+    expect(doc).toMatch(/\*\*The web service needs no change\*\*/);
+    expect(doc).not.toMatch(/\*\*The web service has both build variables set before step 10\*\*/);
   });
 
   it('step 10 checks the deployed tree is the checkout the scripts ran from (W5, M5)', () => {
@@ -132,7 +136,7 @@ describe('the window runbook', () => {
     const before = step10.indexOf('echo develop-unchanged');
     expect(before).toBeGreaterThan(0);
     expect(before).toBeLessThan(step10.indexOf('git push origin origin/develop:main'));
-    const step11 = steps[stepOf(/The deploys: `auth`, `backend` and web/) - 1] as string;
+    const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
     expect(step11).toMatch(/first build and\s+deploy/);
     expect(step11).toMatch(/that is \[`rollback\.md`\]\(rollback\.md\) from step 1/);
     expect(doc).toMatch(/cutover\s+PR is brought current with `develop`/);
@@ -157,8 +161,36 @@ describe('the window runbook', () => {
     expect(step7).toContain('eq(users.email, email.toLowerCase())');
   });
 
-  it('attaches the auth domain before the web swap (R4)', () => {
-    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/Replace legacy web/));
+  it('attaches the auth domain before the web domain comes back (R4); there is no web swap (#416)', () => {
+    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/The web domain back on legacy web/));
+    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/The web domain back on legacy web/));
+    expect(doc).not.toMatch(/Replace legacy web|legacy web retires in step 13|EXPO_PUBLIC_AUTH_URL=https/);
+  });
+
+  it('says why the web domain is detached: legacy web never asks app-check (owner, 2026-11-21)', () => {
+    const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
+    expect(step3).toMatch(/legacy web does not honour maintenance\s+mode, so only the detach stops web traffic/);
+    expect(step3).toContain('apps/api/src/app/api/v2/app-check/route.ts:21');
+  });
+
+  it('issues the service keys as step 8a: after the copy and the admin roles, before the promotion (#416)', () => {
+    const at = (heading: string) => doc.indexOf(heading);
+    const keys = at('## 8a. Service keys (production)');
+    expect(keys).toBeGreaterThan(at('## 8. Admin roles'));
+    expect(keys).toBeLessThan(at('## 9. Attach `auth.askansari.ai`'));
+    const section = doc.slice(keys, at('## 9. Attach'));
+    expect(section).toMatch(/\*\*Check:\*\*/);
+    expect(section).toMatch(/\*\*Abort/);
+    expect(section.indexOf('create-service ansari-mcp')).toBeLessThan(section.indexOf('create-key ansari-mcp'));
+    // Never before the copy: the only create-service lines in the runbook are in 8a.
+    expect(doc.split('create-service ansari-mcp').length - 1).toBe(section.split('create-service ansari-mcp').length - 1);
+  });
+
+  it('runs from a fresh checkout verified against the recorded commit, never the spir-300 worktree (#416)', () => {
+    expect(doc).toContain('[ "$(git rev-parse HEAD)" = "<recorded commit>" ] && echo checkout-at-recorded-commit');
+    expect(doc).toContain('ls apps/auth/scripts/cutover/auth-journal.mjs packages/auth/drizzle/0001_api_key.sql');
+    expect(doc).not.toMatch(/\*\*The checkout is the `builder-spir-300` worktree\*\*/);
+    expect(read(GUIDE)).not.toMatch(/# the builder-spir-300 worktree/);
   });
 
   it('auth has no active deployment until the promotion; admins are granted by id, with no list and no redeploy (H-7)', () => {
@@ -240,7 +272,7 @@ describe('the window runbook', () => {
     expect(hits).toEqual([]);
   });
 
-  it.each([/Edge probe on the `apps\/api` production domains/, /The deploys: `auth`, `backend` and web/])(
+  it.each([/Edge probe on the `apps\/api` production domains/, /The deploys: `auth` and `backend`/])(
     '%s checks both edge properties on both paths: all three client-IP headers forged, and two networks differ',
     (title) => {
       const step = steps[stepOf(title) - 1] as string;
