@@ -334,8 +334,11 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   - **`MAINTENANCE_MODE` is absent or `false` on it now**, and it is a **service variable of the
     legacy web service**, never a shared variable. A shared `MAINTENANCE_MODE` would couple web to
     `backend`, whose flag goes off at a different step (web at 13, `backend` at 15). Only the
-    owner can see this in the dashboard: record it. The step 3 bundle check, run now on the public
-    web domain, prints the OFF form (`(void 0)`, `("")` or `("false")`). Record its output.
+    owner can see this in the dashboard: record it. **No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is
+    left on the service** (it has no effect, step 3; an operator set one with a quoted value on
+    2026-11-21 and nothing happened): remove it if present. The step 3 bundle check, run now on the
+    public web domain, prints an OFF form (`(void 0)`, `("")` or `("false")`; production printed
+    `t("")` on 2026-11-21). Record its output.
   - **Its `EXPO_PUBLIC_API_V2_URL` is an absolute api origin** (`https://…/api/v2`), as
     `legacy/frontend-web/dotenv.example` shows. The value is in the dashboard only: the owner
     confirms it and records it. Step 3's residual rests on it.
@@ -538,7 +541,11 @@ code). Then take web offline, by environment:
   web domain stays attached. This supersedes the same day's earlier decision to detach the web
   domain here and re-attach it at step 13. The value is baked in at build time, so setting it
   rebuilds and redeploys the service, and web is offline only when that new deployment is live.
-  Step 13 sets it back to `false` on the same service.
+  Step 13 sets it back to `false` on the same service. The Railway variable is **`MAINTENANCE_MODE`**, with the value `true` typed **without quotes**.
+  An `EXPO_PUBLIC_MAINTENANCE_MODE` set on the service has **no effect**: only the build argument
+  `MAINTENANCE_MODE` reaches the build, and the Dockerfile's `ENV` line sets the `EXPO_PUBLIC_`
+  name from it, overwriting anything else (`legacy/frontend-web/Dockerfile:18,30`). A quoted value
+  (`"true"`) is not an on-value: the build shows the app.
 - **Staging: detach the web domain from the staging web service.** It serves `apps/frontend`, which
   has no such switch (#419). Step 13 re-attaches it to the same service.
 
@@ -627,20 +634,35 @@ re-run it.
 ```bash
 W=https://<web domain>
 JS="$(curl -fsS "$W/" | grep -oE '/_expo/static/js/web/entry-[0-9a-f]+\.js' | head -1)" && echo "$JS"
-curl -fsS "$W$JS" | grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)'
+curl -fsS "$W$JS" | grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)'
 ```
 
-ON prints the value as set, for example `MAINTENANCE_MODE:()=>E("true")`. OFF prints
-`(void 0)` (unset at build), `("")` (the Dockerfile's argument with no variable) or `("false")`.
-The function name (`E` when measured) is the minifier's; the argument is what counts. Measured on
-this tree: a local `expo export` printed `E("true")` with the flag on and `E(void 0)` without it,
-and the Docker image built with no `MAINTENANCE_MODE` printed `E("")`. If the first line prints
-nothing, the page is not legacy web's export: stop and look.
+**ON (the "ON form") is exactly one of three arguments:** `("true")`, `("True")` or `("1")`, for example
+`MAINTENANCE_MODE:()=>E("true")`. **Anything else means the flag is OFF, or the check cannot see
+it: stop, and do not proceed on it.** That includes:
+- `(void 0)` (unset at build);
+- `("")` (the Dockerfile's argument with no variable);
+- `("false")`;
+- a quoted value: `"true"` typed with its quotes prints `("\"true\"")` and is OFF;
+- **no output from the second line.**
+
+Where a step expects the **OFF form**, it is `(void 0)`, `("")` or `("false")` exactly: a quoted value
+or no output is not a pass there either.
+
+The function name is the minifier's, not part of the check: `E` in this tree's builds, `t` in
+production's. The argument is what counts. Measured:
+- on this tree, a local `expo export` printed `E("true")` with the flag on, `E(void 0)` without it,
+  and `E("\"true\"")` with the value `"true"` quoted;
+- the Docker image built with no `MAINTENANCE_MODE` printed `E("")`, and so did the image built
+  with `--build-arg EXPO_PUBLIC_MAINTENANCE_MODE=true` (the wrong name has no effect);
+- production, flag off, measured by main on 2026-11-21, printed `t("")`.
+
+If the first line prints nothing, the page is not legacy web's export: stop and look.
 
 **Check:**
 `curl -s https://api.askansari.ai/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform":"ios","native_application_version":"1.0.0","native_build_version":"1"}' | jq .maintenance_mode`
 prints `true`, and the same for `https://api-35.ansari.chat`. **Production:** the bundle check
-prints the ON form, and a fresh private window on the web domain shows "Ansari is currently under
+prints `("true")`, `("True")` or `("1")`, and a fresh private window on the web domain shows "Ansari is currently under
 maintenance." on `/` and on `/login`. **Staging:** the web domain no longer serves the web app.
 `cutover_at` and the session start are in the record.
 **Abort:** `MAINTENANCE_MODE=false` on `backend`; **production:** `MAINTENANCE_MODE=false` on the

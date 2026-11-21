@@ -195,7 +195,10 @@ psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tab
 Post the notice and silence alerts. In Railway, set `MAINTENANCE_MODE=true` on `backend`, then
 take web offline (the runbook's step 3):
 - **Production:** set `MAINTENANCE_MODE=true` on the **legacy web service**, as its own service
-  variable, never a shared one. The web domain stays attached. `backend`'s flag only changes the
+  variable, never a shared one. The name is `MAINTENANCE_MODE` and the value is `true` with **no
+  quotes**: an `EXPO_PUBLIC_MAINTENANCE_MODE` set on the service has no effect (only the
+  `MAINTENANCE_MODE` build argument reaches the build, `legacy/frontend-web/Dockerfile:18,30`), and
+  a quoted `"true"` is OFF. The web domain stays attached. `backend`'s flag only changes the
   `app-check` answer, and legacy web never asks for it; legacy web's own flag is baked in at build
   time, so setting it rebuilds the service, and web is offline only when that deployment is live.
   A tab loaded before then keeps working against the api until reloaded (owner-accepted; a detach
@@ -214,8 +217,9 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 `MAINTENANCE_MODE` takes effect only once Railway's redeploy of `backend` is healthy, so the probe
 prints `false` until then: wait and re-run it, that is not a failure. In production, also run the
 probe on `https://api-35.ansari.chat`, and the runbook step 3 bundle check on the web domain until
-it prints the ON form (`MAINTENANCE_MODE:()=>E("true")`, any function name); a fresh private window
-there shows "Ansari is currently under maintenance." Take a Railway snapshot of
+it prints `("true")`, `("True")` or `("1")` (for example `MAINTENANCE_MODE:()=>E("true")`; the
+function name varies). Any other output, a quoted value or no output means OFF or unseen: stop.
+A fresh private window there shows "Ansari is currently under maintenance." Take a Railway snapshot of
 both databases and record their ids.
 
 ## 3. Auth schema

@@ -149,7 +149,11 @@ migration runbook were both proven in real releases on 2026-08-02.
 > and redeploys the service and takes effect only when that deployment is live; a tab that
 > already loaded the app keeps its build until reloaded (`legacy/frontend-web/README.md`). Set it
 > as a **service variable** of the legacy web service, never a shared variable: `backend`'s
-> `MAINTENANCE_MODE` is a different switch, turned off at a different time.
+> `MAINTENANCE_MODE` is a different switch, turned off at a different time. **The Railway
+> variable is `MAINTENANCE_MODE`, and the value is `true` with no quotes.** An
+> `EXPO_PUBLIC_MAINTENANCE_MODE` set on the service has no effect: only the `MAINTENANCE_MODE`
+> build argument reaches the build, and the Dockerfile's `ENV` line sets the `EXPO_PUBLIC_` name
+> from it (`legacy/frontend-web/Dockerfile:18,30`). A quoted `"true"` is not an on-value.
 > The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
 > `expo start`/`expo export` only, never an image. The `apps/frontend` web app signs in at
 > `EXPO_PUBLIC_AUTH_URL` (spec 300).

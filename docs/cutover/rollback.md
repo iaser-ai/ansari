@@ -54,14 +54,17 @@ The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and web offline. `bac
 changes the `app-check` answer, and legacy web never asks it (the window's step 3 gives the
 evidence), so web needs its own action:
 - **Production:** `MAINTENANCE_MODE=true` on the legacy web service (its service variable; it is
-  already `true` if the rollback starts before window step 13). It is baked in at build time: web
+  already `true` if the rollback starts before window step 13). The name is `MAINTENANCE_MODE`,
+  the value `true` with no quotes: an `EXPO_PUBLIC_MAINTENANCE_MODE` on the service has no effect
+  (`legacy/frontend-web/Dockerfile:18,30`), and a quoted `"true"` is OFF. It is baked in at build time: web
   is offline only once that rebuild is live, and until then legacy web keeps serving the public on
   the new code. A tab loaded before then keeps working against the api until reloaded (the
   window's step 3 residual).
 - **Staging:** the web domain detached from the staging web service.
 
 **Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains.
-Production: the window's step 3 bundle check prints the ON form, and a fresh private window on the
+Production: the window's step 3 bundle check prints `("true")`, `("True")` or `("1")` (anything
+else, or no output, is not ON: stop), and a fresh private window on the
 web domain shows the maintenance screen. Staging: the web domain no longer serves the web app.
 **If it fails:** stop; nothing below is safe while new code serves users. A web rebuild that fails
 leaves the previous deployment serving: if that is the live app, tell the security architect at

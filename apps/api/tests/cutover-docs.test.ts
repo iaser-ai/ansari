@@ -196,12 +196,32 @@ describe('the window runbook', () => {
     expect(step3).toMatch(/reset links and\s+shared links opened on web land on the maintenance screen/);
     // The bundle check reads the flag the served bundle carries; its pattern matches the measured
     // forms (ON, and both OFF forms) and not an unrelated getEnv entry.
-    const check = /MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)/;
-    expect(step3).toContain(String.raw`grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)'`);
-    for (const measured of ['RE:()=>!1,MAINTENANCE_MODE:()=>E("true")}', 'MAINTENANCE_MODE:()=>E(void 0)}', 'MAINTENANCE_MODE:()=>E("")}']) {
-      expect(check.test(measured), measured).toBe(true);
+    const check = /MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)/;
+    expect(step3).toContain(String.raw`grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)'`);
+    // Measured forms (#421): local builds (E), production with the flag off (t), and a quoted value,
+    // which the check must SHOW (it is OFF), not swallow into no output.
+    const measured: Array<[string, string]> = [
+      ['RE:()=>!1,MAINTENANCE_MODE:()=>E("true")}', 'MAINTENANCE_MODE:()=>E("true")'],
+      ['MAINTENANCE_MODE:()=>E(void 0)}', 'MAINTENANCE_MODE:()=>E(void 0)'],
+      ['MAINTENANCE_MODE:()=>E("")}', 'MAINTENANCE_MODE:()=>E("")'],
+      ['MAINTENANCE_MODE:()=>t("")}', 'MAINTENANCE_MODE:()=>t("")'],
+      ['>!1,MAINTENANCE_MODE:()=>E("\\"true\\"")}', 'MAINTENANCE_MODE:()=>E("\\"true\\"")'],
+    ];
+    for (const [bundle, printed] of measured) {
+      expect(bundle.match(check)?.[0], bundle).toBe(printed);
     }
     expect(check.test("const O=(0,S.default)('MAINTENANCE_MODE')")).toBe(false);
+    // ON is exact; anything else, a quoted value, or no output means stop.
+    expect(step3).toContain('**ON (the "ON form") is exactly one of three arguments:** `("true")`, `("True")` or `("1")`');
+    expect(step3).toMatch(/\*\*Anything else means the flag is OFF, or the check cannot see\s+it: stop, and do not proceed on it\.\*\*/);
+    expect(step3).toContain('**no output from the second line.**');
+    expect(step3).toContain('production, flag off, measured by main on 2026-11-21, printed `t("")`');
+    // The variable's name and value (an operator set EXPO_PUBLIC_MAINTENANCE_MODE, quoted, 2026-11-21).
+    for (const rel of [RUNBOOK, GUIDE, ROLLBACK, 'RELEASE.md']) {
+      expect(read(rel), rel).toMatch(/EXPO_PUBLIC_MAINTENANCE_MODE`\s+(?:set\s+)?on the\s+service has \*\*no effect\*\*|EXPO_PUBLIC_MAINTENANCE_MODE`\s+(?:set\s+)?on the\s+service has no effect/);
+    }
+    expect(read('legacy/frontend-web/Dockerfile')).not.toMatch(/ARG EXPO_PUBLIC_MAINTENANCE_MODE/);
+    expect((steps[0] as string)).toContain('**No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is\n    left on the service**');
     expect(step3).toMatch(/\*\*production:\*\* `MAINTENANCE_MODE=false` on the\s+legacy web service too/);
     // The switch the runbook relies on exists in the tree.
     expect(read('legacy/frontend-web/Dockerfile')).toMatch(/ENV EXPO_PUBLIC_MAINTENANCE_MODE=\$MAINTENANCE_MODE/);
