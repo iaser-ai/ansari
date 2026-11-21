@@ -58,7 +58,13 @@ A clone would have shown two things that staging cannot:
   release (owner, 2026-11-21) keeps production web on legacy web, with no web swap. Staging web
   serves `apps/frontend`, so steps 13 and 14 on staging re-attach and smoke-test `apps/frontend`,
   not legacy web. Legacy web against the staging api (sign up, sign in, ask, reset password,
-  delete account) has never been run, and #416 lists it as evidence still blank.
+  delete account) has never been run, and #416 lists it as evidence still blank. In production,
+  step 12a is not available with legacy web's maintenance flag on (owner, 2026-11-21), so that
+  combination is first exercised at production steps 13 and 14, alongside real users.
+- **Legacy web's maintenance flag (production only; owner, 2026-11-21).** Production takes legacy
+  web offline with the legacy web service's own `MAINTENANCE_MODE` (PR #418) instead of detaching
+  its domain. Staging web is `apps/frontend`, which has no such switch (#419), so staging still
+  detaches and re-attaches its domain: the flag's steps 3 and 13 are not rehearsed.
 
 ## Owner-accepted residuals (not a rehearsal gap)
 
@@ -165,7 +171,7 @@ After the copy, sign each seeded user in against the staging auth service with
 | 10 Promote `develop` to `main` (staging: merge the cutover PR) | | no | | |
 | 11 The deploys: `auth` and `backend` | | no | | |
 | 12 Edge probe on the `apps/api` production domains | | no | | |
-| 13 The web domain back | | no | | |
+| 13 Web back | | no | | |
 | 14 Public smoke tests | | no | | |
 | 15 Maintenance mode off | | no | | |
 | 16 Re-enable alerting | | no | | |
