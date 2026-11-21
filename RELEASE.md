@@ -138,8 +138,9 @@ migration runbook were both proven in real releases on 2026-08-02.
 > production `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
 > `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai`; a pair
 > with one production host and not the other fails the build, showing both values.
-> The staging defaults in `lib/api/config.ts` serve local `expo start`/`expo export`
-> only, never an image. The web app signs in at `EXPO_PUBLIC_AUTH_URL` (spec 300).
+> The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
+> `expo start`/`expo export` only, never an image. The web app signs in at
+> `EXPO_PUBLIC_AUTH_URL` (spec 300).
 >
 > **`apps/*/railway.toml` are not read by Railway here.** This project configures
 > deployment through the dashboard with a Dockerfile path (confirmed by the operator,

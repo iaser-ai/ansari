@@ -16,3 +16,8 @@
   enforced. Not changed here.
 - Fixed in place: `codev/resources/arch.md` still said the app's env surface was `EXPO_PUBLIC_API_URL`
   alone, the only ARG (stale since spec 300 added `EXPO_PUBLIC_AUTH_URL`).
+- porch `tests` check: the shared config had lost the per-app-env command, so api tests ran env-less. Architect
+  chose option (b): the pir-400 command in an untracked worktree-only `.codev/config.local.json`.
+  With it, api showed ONE real failure, mine: `tests/release-doc.test.ts` extracts `/api/...` from RELEASE.md and
+  my new text `lib/api/config.ts` read as an endpoint `/api/config` (its lookbehind excludes only `apps/api`).
+  Reworded to name `DEFAULT_API_URL`/`DEFAULT_AUTH_URL`; that test went from failing to 16/16.
