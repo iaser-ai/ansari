@@ -62,7 +62,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-10-14T03:31:15.359Z'
-updated_at: '2026-11-21T12:23:31.893Z'
+updated_at: '2026-11-21T12:23:41.460Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-10-16T00:28:28.599Z'
@@ -117,4 +117,6 @@ pr_history:
     pr_number: 315
     branch: builder/spir-300
     created_at: '2026-10-17T02:08:25.476Z'
+    merged: true
+    merged_at: '2026-11-21T12:23:41.459Z'
 pr_ready_for_human: false
