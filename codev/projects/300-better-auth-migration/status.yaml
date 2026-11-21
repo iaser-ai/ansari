@@ -57,13 +57,14 @@ gates:
     requested_at: '2026-10-17T02:48:53.217Z'
     approved_at: '2026-11-21T12:23:27.742Z'
   verify-approval:
-    status: pending
+    status: approved
     requested_at: '2026-11-21T12:23:43.522Z'
+    approved_at: '2026-11-21T12:23:49.741Z'
 iteration: 1
 build_complete: true
 history: []
 started_at: '2026-10-14T03:31:15.359Z'
-updated_at: '2026-11-21T12:23:47.402Z'
+updated_at: '2026-11-21T12:23:49.741Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-10-16T00:28:28.599Z'
