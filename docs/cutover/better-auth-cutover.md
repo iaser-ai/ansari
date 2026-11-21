@@ -369,7 +369,9 @@ already holds data, staging; not this one.)
 > applies only a file the check reports missing (a journal file newer than the record), one at a
 > time, with `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`.
 > The `for` loop is **not** run in production: it would re-apply `0000_auth_schema` and stop on
-> its error. Record an `auth-journal-applied` line only for a file applied in the
+> its error. **Exception:** after a `DROP SCHEMA auth CASCADE` (an abort, or
+> [`rollback.md`](rollback.md)'s restart), every file is missing, so the loop **is** run as
+> printed. Record an `auth-journal-applied` line only for a file applied in the
 > window. The empty check is
 > `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"`,
 > which prints `0`.
@@ -480,7 +482,9 @@ guard would abort. `auth` has **no active deployment** yet (step 1), so the doma
 until step 10, while Railway issues its certificate.
 
 > **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
-> deviation in [`release-record.md`](release-record.md).
+> deviation in [`release-record.md`](release-record.md). Whether it stays live until the window is
+> an open owner decision recorded there; until that decision is recorded, the check below applies
+> as written.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health

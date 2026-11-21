@@ -41,7 +41,7 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | Variable | Value |
   |---|---|
   | `DATABASE_URL` | the auth database (Railway reference variable) |
-  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters |
+  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters. **Production, 2026-11-21:** already set and in use (the key pair in `auth.jwks` is encrypted under it); changing it requires emptying `auth.jwks`. See [`release-record.md`](release-record.md) |
   | `BETTER_AUTH_URL` | `https://auth.askansari.ai` |
   | `AUTH_JWT_ISSUER` | `https://auth.askansari.ai` |
   | `AUTH_JWT_AUDIENCE` | `ansari-api` |
@@ -133,7 +133,8 @@ both databases and record their ids.
 > **Production, 2026-11-21:** production's auth journal is already applied
 > ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
 > `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
-> error). Apply only a file the check reports missing (a journal file newer than the record), one
+> error), except after a `DROP SCHEMA auth CASCADE` (an abort or [`rollback.md`](rollback.md)'s
+> restart): then every file is missing and the loop is run as printed. Apply only a file the check reports missing (a journal file newer than the record), one
 > at a time, and record it:
 > `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
 

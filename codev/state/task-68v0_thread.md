@@ -45,3 +45,15 @@ that user. 02-import-auth.sql's first guards raise on any row in auth.users / au
 So a production create-service before copy.sh would make the copy refuse. Dated notes:
 release-record (deviation consequences), runbook step 6, deploy-guide step 4, both Issuance
 sections of service-keys-runbook.md. Keys go after the copy, before the promotion.
+
+## 2026-11-21: review round 3 (integration review), five fixes + three nits
+
+packages/auth/README (marker no longer null); after a DROP SCHEMA auth the step-5 loop IS run
+(step 5 note, deploy-guide step 3, two dated pointers in rollback.md); BETTER_AUTH_SECRET row in
+deploy-guide points at the jwks consequence (the runbook's step 1 does not name the secret);
+"Open owner decisions" entry in the record (auth service live or not: NOT decided; step 9's
+check applies as written until recorded; remedy for a non-zero pre-copy count); release-record.md
+added to cutover-docs DOCS + path checks (negative-tested: a planted missing path fails it).
+Nits: bare apply lines moved below the list, test title shortened, reversal sentence added.
+My first rollback.md edit split the "(the auth baseline)" phrase a test pins; I moved my note
+outside that phrase.

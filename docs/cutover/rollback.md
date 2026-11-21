@@ -124,7 +124,9 @@ step 3.
 
 The copy refuses a non-empty auth database. To try the window again: empty the auth database
 (`DROP SCHEMA auth CASCADE`), then follow the window runbook from **step 5** (the auth
-baseline), after its steps 1 to 4 (the preconditions, comms, maintenance and a new `cutover_at`,
+baseline) (**production, 2026-11-21:** after the drop every journal file is missing, so step 5's
+`for` loop is run as printed, despite its early-apply note; reverse the apply record in
+[`release-record.md`](release-record.md)), after its steps 1 to 4 (the preconditions, comms, maintenance and a new `cutover_at`,
 the snapshots). The app window migration (`0011`) is already applied and is not re-run; its check
 in step 7 still holds. **Step 10 of a second attempt** deploys the commit that carries the
 cutover: if the branch still carries it (no revert yet), redeploy that commit on `auth`,
@@ -142,3 +144,5 @@ psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'DROP SCHEMA auth CASCADE'
 
 **Check:** `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"`
 prints `0`. Record the date and who ran it. A later attempt starts from the window's step 5.
+**Production, 2026-11-21:** that attempt runs step 5's `for` loop as printed (the journal is gone
+with the schema), and the apply record in [`release-record.md`](release-record.md) is reversed.

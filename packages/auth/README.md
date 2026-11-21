@@ -66,10 +66,11 @@ when the plugin is removed, a 30-minute-old per-email row is pruned and the test
 - `tests/migration/auth-journal-parity.test.ts` builds a database from the journal alone and fails
   if the schema declares a column that the journal does not create, or the reverse.
 - `AUTH_DEPLOYED_THROUGH` in that test (owner: the main architect) names the last migration applied
-  to the production auth database. It is `null` until the cutover window, and the deployed-state
-  test is skipped, with a warning, until it is set. The window records the apply as a line
-  `auth-journal-applied: <tag>` in its release notes (`RELEASE.md` or a `docs/` page). From
-  then on, a `null` marker fails the suite.
+  to the production auth database. It is `'0001_api_key'` since 2026-11-21, when the owner applied
+  the journal ahead of the cutover window (`docs/cutover/release-record.md`), so the
+  deployed-state test runs; while it is `null` that test is skipped, with a warning. An apply is
+  recorded as a line `auth-journal-applied: <tag>` in the release notes (`RELEASE.md` or a
+  `docs/` page); while any such line exists, a `null` marker fails the suite.
 
 ## Local reset (if you ran the old `0000_better_auth_init`)
 

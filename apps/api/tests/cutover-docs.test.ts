@@ -17,7 +17,8 @@ const ROLLBACK = 'docs/cutover/rollback.md';
 const SCRIPTS_DIR = 'apps/auth/scripts/cutover';
 const SCRIPTS_README = `${SCRIPTS_DIR}/README.md`;
 const GUIDE = 'docs/cutover/deploy-guide.md';
-const DOCS = [RUNBOOK, ROLLBACK, GUIDE, 'docs/cutover/edge-check.md', 'docs/cutover/baselines.md', 'docs/cutover/rehearsal.md', SCRIPTS_README];
+const RECORD = 'docs/cutover/release-record.md';
+const DOCS = [RUNBOOK, ROLLBACK, GUIDE, RECORD, 'docs/cutover/edge-check.md', 'docs/cutover/baselines.md', 'docs/cutover/rehearsal.md', SCRIPTS_README];
 
 /** Repo-relative paths a doc names in backticks or as a command argument. */
 export function namedRepoPaths(doc: string): string[] {
@@ -37,6 +38,7 @@ describe('cutover docs: every named file exists', () => {
     [RUNBOOK, 8],
     [ROLLBACK, 1],
     ['docs/cutover/rehearsal.md', 2],
+    [RECORD, 4],
   ])('every repo path %s names exists', (rel, atLeast) => {
     const paths = namedRepoPaths(read(rel));
     expect(paths.length).toBeGreaterThanOrEqual(atLeast);

@@ -24,12 +24,19 @@ empty (no schema, no tables) at the time.
   0001_api_key|t
   ```
 
-auth-journal-applied: 0000_auth_schema
-auth-journal-applied: 0001_api_key
-
 - **Emptiness, after the apply (2026-11-21):** the owner ran
   `select (select count(*) from auth.users) + (select count(*) from auth.account)`
   against the production auth database; it printed `0`.
+
+The apply record (`packages/auth/tests/migration/auth-journal-parity.test.ts` reads these two lines
+and requires `AUTH_DEPLOYED_THROUGH` to name one of them):
+
+auth-journal-applied: 0000_auth_schema
+auth-journal-applied: 0001_api_key
+
+**Reversing it.** If the auth schema is later dropped (`DROP SCHEMA auth CASCADE`: a step 5 or 9
+abort, or [`rollback.md`](rollback.md)), add a dated "reverted" entry here, put the two lines above
+in backticks so they no longer match, and set `AUTH_DEPLOYED_THROUGH` back to `null` in that test.
 
 **Only the schema was applied.** No users were copied: `auth.users` and `auth.account` hold no
 rows. Everything else stays for the window, as the runbook orders it:
@@ -78,3 +85,18 @@ Consequences:
 
 Not established: whether the domain is reachable from outside the owner's network, and which
 branch the `auth` service deploys from.
+
+## 2026-11-21: open owner decisions
+
+**Does the production `auth` service stay live until the window?** Open; not decided here.
+
+- (a) Remove its active deployment or detach `auth.askansari.ai` now, restoring step 1's
+  precondition ("no domain yet", "no active deployment") and step 9's check as written; or
+- (b) leave it serving until the window, and record that step 9's `200` is then expected.
+
+Until a decision is recorded here, step 9's check applies **as written** (a `200` means stop).
+
+Whichever is chosen: if the users-and-accounts count re-run immediately before step 6 is not
+`0`, the runbook's own remedy applies: empty the auth database (`DROP SCHEMA auth CASCADE`) and
+re-run from step 5 (the `for` loop, as printed; see step 5's note), then reverse the apply record
+above.

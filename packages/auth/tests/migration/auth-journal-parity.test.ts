@@ -184,7 +184,7 @@ describe('better-auth on the deployed auth journal', () => {
   });
 
   it.skipIf(deployed === null)(
-    'signs up and in against the migrations deployed in production (skipped while AUTH_DEPLOYED_THROUGH is null)',
+    'signs up and in against the migrations deployed in production',
     async () => {
       const client = await migrate(deployed!);
       try {
