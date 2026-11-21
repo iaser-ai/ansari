@@ -57,3 +57,14 @@ added to cutover-docs DOCS + path checks (negative-tested: a planted missing pat
 Nits: bare apply lines moved below the list, test title shortened, reversal sentence added.
 My first rollback.md edit split the "(the auth baseline)" phrase a test pins; I moved my note
 outside that phrase.
+
+## 2026-11-21: owner decision: production auth stays serving until the window
+
+Recorded as decided in release-record.md (accepted risk, pre-copy count as mitigation, remedy).
+Runbook step 9 / deploy-guide step 7: in production the attach is skipped and /health 200 is
+expected; stop-on-200 still applies to staging. Step 1's Railway bullet says the two conditions
+do not hold in production, by this decision.
+
+Flaky (pre-existing, not touched here): apps/api `tests/auth/layer.test.ts` failed 26 of 35 in
+one of three full serial runs (apps/auth answered 404 to the layer: "Registration: apps/auth
+unavailable { status: 404 }"); it passed alone (35/35) and in the next full run (1424 passed).

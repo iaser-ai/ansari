@@ -270,8 +270,9 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 - Railway (main architect's runbook section): the `auth` service exists (in production it is
   created for this window, or found; in staging it already exists) with its variables set
   (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port,
-  `PORT=3100`; **no domain yet** and **no active deployment** (**production, 2026-11-21:** not so,
-  the domain is attached and serving; see the deviation in [`release-record.md`](release-record.md))
+  `PORT=3100`; **no domain yet** and **no active deployment** (**production, 2026-11-21:** these
+  do not hold, by the owner's decision: the domain stays attached and serving until the window;
+  see [`release-record.md`](release-record.md))
   (staging: the PIR #59 deployment is
   removed, its ID recorded above); its own Postgres with snapshots or PITR **on**. The auth
   database is **empty** (no schema yet; **production, 2026-11-21:** it already holds the applied
@@ -482,9 +483,11 @@ guard would abort. `auth` has **no active deployment** yet (step 1), so the doma
 until step 10, while Railway issues its certificate.
 
 > **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
-> deviation in [`release-record.md`](release-record.md). Whether it stays live until the window is
-> an open owner decision recorded there; until that decision is recorded, the check below applies
-> as written.
+> deviation in [`release-record.md`](release-record.md). By the owner's decision recorded there
+> (it stays serving until the window), **in production the attach is skipped**, and the check
+> before the promotion expects `/health` `200` from the deployment already there. The
+> stop-on-`200` below does not apply to production; it still applies to staging and to any
+> environment without that decision.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health

@@ -184,8 +184,9 @@ before you run `--confirm`.
 
 In Railway, attach the auth domain to the `auth` service on port 3100. Then:
 
-> **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
-> deviation in [`release-record.md`](release-record.md).
+> **Production, 2026-11-21:** the domain is already attached and serving, and by the owner's
+> decision it stays so ([`release-record.md`](release-record.md)). In production skip the attach;
+> the probe below prints `200` (never `000`). The 404-or-502 rule still applies to staging.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # 404 or 502; never 200, never 000

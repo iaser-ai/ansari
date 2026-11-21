@@ -86,17 +86,20 @@ Consequences:
 Not established: whether the domain is reachable from outside the owner's network, and which
 branch the `auth` service deploys from.
 
-## 2026-11-21: open owner decisions
+## 2026-11-21: owner decisions
 
-**Does the production `auth` service stay live until the window?** Open; not decided here.
+**The production `auth` service stays serving until the window** (owner, 2026-11-21, relayed by
+the architect). It keeps its live deployment and its attached `auth.askansari.ai` domain.
 
-- (a) Remove its active deployment or detach `auth.askansari.ai` now, restoring step 1's
-  precondition ("no domain yet", "no active deployment") and step 9's check as written; or
-- (b) leave it serving until the window, and record that step 9's `200` is then expected.
-
-Until a decision is recorded here, step 9's check applies **as written** (a `200` means stop).
-
-Whichever is chosen: if the users-and-accounts count re-run immediately before step 6 is not
-`0`, the runbook's own remedy applies: empty the auth database (`DROP SCHEMA auth CASCADE`) and
-re-run from step 5 (the `for` loop, as printed; see step 5's note), then reverse the apply record
-above.
+- **So:** step 1's "no domain yet" and "no active deployment" do not hold in production. At
+  step 9 (deploy guide step 7) the attach is skipped, and the probe before the promotion expects
+  `/health` `200` from the deployment already there. The stop-on-`200` still applies to staging
+  and to any environment without this decision.
+- **Accepted risk:** a sign-up on that domain before the copy makes `copy.sh` refuse
+  (`auth.users is not empty`).
+- **Mitigation:** the users-and-accounts count
+  (`select (select count(*) from auth.users) + (select count(*) from auth.account)`) is run
+  immediately before step 6 and must print `0`.
+- **Remedy if it does not:** the runbook's own. Empty the auth database
+  (`DROP SCHEMA auth CASCADE`) and re-run from step 5, where after a drop the `for` loop is run as
+  printed (step 5's note). Then reverse the apply record above.
