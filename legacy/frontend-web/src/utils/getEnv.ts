@@ -1,3 +1,12 @@
+/**
+ * Parses MAINTENANCE_MODE with the same on-values as apps/api/lib/config.ts: 'true', 'True' and '1'.
+ * Unset, empty, 'false', 'False', '0' and any other value are OFF, so an unset variable never
+ * shows the maintenance screen. This differs from the api for an unrecognised value: the api's
+ * z.enum refuses to boot on one, while this build treats it as OFF.
+ */
+export const parseMaintenanceMode = (value: string | undefined): boolean =>
+  value === 'true' || value === 'True' || value === '1'
+
 const envConfig = {
   API_URL: () => process.env.EXPO_PUBLIC_API_V2_URL!,
   SHARE_URL: () => process.env.EXPO_PUBLIC_SHARE_URL!,
@@ -10,6 +19,9 @@ const envConfig = {
   TERMS_URL: () => process.env.EXPO_PUBLIC_TERMS_URL!,
   SUBSCRIBE_URL: () => process.env.EXPO_PUBLIC_SUBSCRIBE_URL!,
   ENABLE_SHARE: () => process.env.EXPO_PUBLIC_ENABLE_SHARE === 'true',
+  // Inlined by Expo at BUILD time (the Dockerfile maps the MAINTENANCE_MODE build arg to it):
+  // changing it takes a rebuild, and an already-loaded tab keeps its value until it reloads.
+  MAINTENANCE_MODE: () => parseMaintenanceMode(process.env.EXPO_PUBLIC_MAINTENANCE_MODE),
 }
 
 const getEnv = <T extends keyof typeof envConfig>(key: T) => {
