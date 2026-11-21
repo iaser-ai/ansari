@@ -171,8 +171,18 @@ migration runbook were both proven in real releases on 2026-08-02.
   root directory = repo root, dockerfile build from `apps/api/Dockerfile`,
   healthcheck `/api/health` with a 300s timeout, restart `ON_FAILURE` up to 3 times.
   `apps/api/railway.toml` records those same values in git.
+  > **Superseded 2026-11-21 (marker; the full reconciliation is pending):** `backend` did **not**
+  > auto-deploy on the 2026-11-21 push to `main`; the owner deployed it by hand. The cause is
+  > open. See [`docs/cutover/release-record.md`](docs/cutover/release-record.md), "the production
+  > window, as run".
   The production `auth` service deploys from `develop` today (owner's statement, 2026-11-21),
   and from `main` after the cutover window's step 16 switches it.
+  > **Superseded 2026-11-21 (marker; the full reconciliation is pending):** as of 2026-11-21,
+  > production `auth`, `mcp` and `whatsapp` deploy from `main`: the owner's statement for `auth`;
+  > for `mcp` and `whatsapp` inferred from their deployments of the promoted commit at 11:22:47Z,
+  > not confirmed. When the sources changed is not established. See
+  > [`docs/cutover/release-record.md`](docs/cutover/release-record.md), "the production window,
+  > as run".
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.
@@ -197,6 +207,14 @@ migration runbook were both proven in real releases on 2026-08-02.
    force-push `main`.
 
 5. **Watch the Railway auto-deploy** until the new deployment is live.
+   > **Superseded 2026-11-21 (marker; the full reconciliation is pending):** after the
+   > fast-forward push to `main` on 2026-11-21, Railway posted no status for any service for
+   > about five minutes, and `backend` got no deployment at all until it was deployed by hand from
+   > the dashboard; what started the other services' deployments at 11:22:47Z is not established.
+   > After a push to `main`, if Railway posts nothing for `backend` within a minute, deploy it
+   > manually at the pushed commit and check the deployed commit. See
+   > [`docs/cutover/release-record.md`](docs/cutover/release-record.md), "the production window,
+   > as run".
    `/api/health` is a real deploy gate: it returns 200 only when the database
    answers `SELECT 1` (within 2s) and 503 otherwise, so a deploy with a broken
    `DATABASE_URL` fails its healthcheck instead of going live broken.
