@@ -142,7 +142,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > with one production host and not the other fails the build, showing both values.
 > **Production web stays on `legacy/frontend-web` for now (#416):** it builds from its
 > own `legacy/frontend-web/Dockerfile`, takes `EXPO_PUBLIC_API_V2_URL`, and has no such
-> guard; neither variable above is set on it.
+> guard; neither variable above is needed on it.
 > The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
 > `expo start`/`expo export` only, never an image. The web app signs in at
 > `EXPO_PUBLIC_AUTH_URL` (spec 300).

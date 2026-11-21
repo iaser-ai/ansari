@@ -248,6 +248,10 @@ is still on `develop`; the rehearsal does not revert it). Then:
 `develop` is frozen, so there is no re-run after a later merge: the merge commit below is what
 production receives.
 
+**2026-11-21, owner's statement (to the security architect):** the staging rehearsal has been
+run end to end. The result rows in this file are still blank; they await the owner's numbers. No
+result is recorded here until then.
+
 | Run | `develop` merge commit | Result |
 |---|---|---|
 | forward run (Parts A–D) | | |

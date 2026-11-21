@@ -75,20 +75,24 @@ push in between:
 3. The web service: its recorded ID → **Redeploy**, if it is not already the live deployment
    (on staging, the staging web service; in production, the legacy web service, which the window
    changes only if the push rebuilt it).
-4. `auth`: back to its recorded state, **no active deployment**: remove the one step 10 started.
-   On staging the PIR #59 deployment is not restored either: nothing the legacy code runs calls
-   `apps/auth`.
+4. `auth`, by environment:
+   - **Production: `auth` stays on the window's deployment** (step 10's commit), domain
+     attached (owner's decision, 2026-11-21). Do **not** remove it, and do **not** return it to
+     the pre-window deployment step 1 recorded. Its auto-deploy is off (item 1), so nothing later
+     moves it. The legacy `apps/api` that this step restores never calls `apps/auth`. A rollback
+     before step 10 deployed anything (an abort from steps 3 to 9) leaves `auth` on its
+     pre-window deployment, untouched.
+   - **Staging, and any environment without that decision:** `auth`: back to its recorded state, **no active deployment**:
+     remove the one step 10 started. On staging the PIR #59 deployment is not restored either:
+     nothing the legacy code runs calls `apps/auth`.
 
-**Check:** auto-deploy shows off on all three; `backend` and the web service are healthy, each on
-the commit the release record holds for it; `auth` has no active deployment.
-
-> **Production, 2026-11-21: `auth` stays online during a rollback** (owner's statement to the
-> builder, 2026-11-21). In production, item 4 above does **not** remove `auth`'s deployment, and
-> step 5 does **not** detach `auth.askansari.ai`. Before the window, production `auth` already
-> had a live deployment and an attached domain ([`release-record.md`](release-record.md)), so
-> window step 1 records a deployment ID for it, not `none`. **Not decided:** which deployment
-> `auth` stays on: step 10's, or the pre-window one step 1 recorded. Either way, the legacy
-> `apps/api` that the rollback restores never calls `apps/auth`.
+**Check (production):** auto-deploy shows off on all three; `backend` and the web service are
+healthy, each on the commit the release record holds for it; `auth`:
+`curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` prints `200`, its
+deployed commit is step 10's (the pre-window one if step 10 never deployed), and its auto-deploy
+shows off like the others.
+**Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
+healthy, each on the commit the release record holds for it; `auth` has no active deployment.
 
 ## 4. The web domain back
 
@@ -102,17 +106,18 @@ service's deployed commit equals the commit the release record holds for it.
 
 ## 5. Detach `auth.askansari.ai`
 
-> **Production, 2026-11-21:** skipped. `auth` stays online during a rollback (owner's
-> statement; step 3's note), so the domain stays attached and this step's check does not apply.
+**Production: skip this step.** `auth` stays on the window's deployment with its domain attached
+(owner's decision, 2026-11-21; step 3, item 4). **Check (production):** the domain is
+still listed on the `auth` service, and step 3's production check passed.
 
-Remove the public domain from the `auth` service. It was attached at window step 9 (spec H-5),
+**Staging, and any environment without that decision:** remove the public domain from the `auth` service. It was attached at window step 9 (spec H-5),
 before anything deployed, so a rollback from any step from 9 on detaches it here; step 3 has
 already put the previous `apps/api`, which never calls `apps/auth`, back in place. Leave the
 service and its database as they are: they are evidence, and a second attempt starts by emptying
 them. The auth database now holds every copied password hash: see "If no second attempt
 follows" below.
 
-**Check:** `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` no longer
+**Check (staging):** `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` no longer
 returns 200.
 
 ## 6. Maintenance off, and a legacy login
@@ -136,6 +141,9 @@ The branch still carries the cutover commit (`main` in production, `develop` on 
 auto-deploy stays off until it carries a **revert PR** or the forward fix: then turn auto-deploy
 back on for `backend`, the web service and `auth`. The revert is the follow-up; the rollback was
 step 3.
+
+**Service keys:** none. No `create-service` or `create-key` runs in the window (owner's decision,
+2026-11-21), so a rollback has no service user or key to deal with.
 
 ## A second attempt (restart procedure)
 

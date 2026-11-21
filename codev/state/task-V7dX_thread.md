@@ -45,3 +45,21 @@
 - `rollback.md` now records the owner's statement to me that `auth` stays online during a
   rollback: in production, step 3 item 4 does not remove its deployment and step 5 is skipped.
   Which deployment it stays on is marked not decided.
+
+## 2026-11-21: review round 1, plus three owner decisions
+
+- Where production differs, production and staging are now separate branches, each with its own
+  Check and Abort: runbook steps 1, 9 and 11; the comparison table; deploy guide step 7 (two
+  labelled probe commands); `edge-check.md`; rollback step 3 item 4 and step 5.
+- Owner: no service keys in the window. Steps 8a and 6a are replaced by a "no keys" paragraph.
+  `log-only` is now a do-not-start precondition, and WhatsApp is out of the window (#336). On
+  `origin/main`, `git grep -i whatsapp -- apps/api/src apps/api/lib` prints nothing; the same
+  pattern matches `legacy/*/ansari-3-announce.md`, so it can match.
+- Owner: in a production rollback, `auth` stays on step 10's deployment with its domain attached
+  and auto-deploy off. Every not-decided marker is gone.
+- `release-record.md` has a new dated owner-decision entry; the apply-record lines are untouched.
+  `rehearsal.md` records the owner's statement that the rehearsal ran; its result rows stay blank.
+- Tests: the new assertions fail 4 tests against the round-0 docs. The key-command scan has a
+  planted command and a prose near-miss as controls.
+- Flagged, not decided: `rollback.md`'s "If no second attempt follows within 7 days" drops the
+  auth schema while production `auth` is still serving.

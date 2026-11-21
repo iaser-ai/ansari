@@ -142,8 +142,10 @@ So the staging rehearsal runs on exactly what production receives. Before its me
 PR is brought current with `develop` and nothing else merges ahead of it: on staging the
 scripts run from the PR head, and step 10 checks that the merge commit's tree equals it.
 
-**Auto-deploy stays on (owner decision, 2026-10-19).** Railway deploys `backend`, the web
-service and `auth` from the branch on every push, and nothing turns that off. So the new code's
+**Auto-deploy stays on (owner decision, 2026-10-19).** Railway deploys `backend` and `auth` from
+the branch on every push, and nothing turns that off; the web service too where its watch paths
+match the push (dashboard configuration, not established from the repo; in production the web
+service is legacy web, whose sources the promotion does not change). So the new code's
 deploy **is** step 10: the promotion of `develop` to `main` (production), or the cutover PR's
 merge to `develop` (staging). Everything the new code needs comes before it: the database steps
 (3 to 8), the auth domain (9) and every variable it reads (step 1). The legacy `apps/api` keeps
@@ -174,13 +176,13 @@ promote `develop`. Each step is run as written, except for these differences:
 | The scripts run from the `develop` tip about to be promoted | The scripts run from the **cutover PR's head**, current with `develop` (the freeze); step 10 checks that the merge commit's tree equals it |
 | The operator environment, with production's URLs | The **same machine, forwarder setup and checkout path**, with staging's forwarder and URLs (the rehearsal proves this environment, not only the SQL); `CUTOVER_ENV=staging`, which the seed also requires |
 | `api.askansari.ai`, `api-35.ansari.chat`; `auth.askansari.ai`; the production web domain | `api-staging.askansari.ai`; `auth-staging.askansari.ai`; the staging web domain. Service names are on main's sheet |
-| The `auth` service is created for the window with no deployment, or found with none | Staging `auth` already exists and runs the PIR #59 code: **remove its active deployment before step 9** (record its ID), so the domain attached in step 9 serves nothing until the merge deploys the new code |
+| The `auth` service has a live deployment and its domain attached, and keeps both (owner, 2026-11-21; [`release-record.md`](release-record.md)) | Staging `auth` already exists and runs the PIR #59 code: **remove its active deployment before step 9** (record its ID), so the domain attached in step 9 serves nothing until the merge deploys the new code |
 | The auth database is created for the window, or found (C-4). **2026-11-21:** it exists and the auth journal is already applied ([`release-record.md`](release-record.md)); step 1 checks it holds no users and no accounts | It already exists, empty, on Postgres 18. Step 1's empty and version checks apply as written |
 | The app database is production's | The staging app database (Postgres 18) with its **existing staging users**, no production restore (R-1), plus the anomaly seed below |
 | Step 1 records the rollback targets: `backend`, the legacy web service and `auth` (deployment ID and commit, or none) | `backend`, the **staging web service** (it already serves `apps/frontend`) and `auth` (the PIR #59 deployment removed before step 9) |
 | Step 2: the public maintenance notice | The team only; no public notice |
 | Step 3 detaches the production web domain from the legacy web service; step 13 re-attaches it to the **same** legacy web service (no web swap: backend-only, owner 2026-11-21); [`rollback.md`](rollback.md) steps 1 and 4 detach and re-attach it the same way | Staging web **already serves `apps/frontend`**. Step 3 detaches its domain and step 13 re-attaches it, after the merge rebuilt it with `EXPO_PUBLIC_AUTH_URL`. Legacy web against the new `apps/api` is **not** part of this rehearsal ([`rehearsal.md`](rehearsal.md), residuals) |
-| Steps 9, 11 and 12: production domains | `auth-staging.askansari.ai` attaches at step 9, after the admin roles and before the merge; its DNS record exists, unattached, before the run, and staging `backend`'s `AUTH_URL` is that domain before the merge. The staging domains are probed on **both paths**: via Cloudflare once the owner orange-clouds `api-staging` and `auth-staging`, and direct with `--resolve` ([`edge-check.md`](edge-check.md)). The staging verdict is recorded only after both paths are measured |
+| Step 9 **skips the attach** (the domain is already attached and serving) and expects `/health` `200`; steps 11 and 12 probe the production domains | `auth-staging.askansari.ai` attaches at step 9, after the admin roles and before the merge; its DNS record exists, unattached, before the run, and staging `backend`'s `AUTH_URL` is that domain before the merge. The staging domains are probed on **both paths**: via Cloudflare once the owner orange-clouds `api-staging` and `auth-staging`, and direct with `--resolve` ([`edge-check.md`](edge-check.md)). The staging verdict is recorded only after both paths are measured |
 | Step 16 closes the window | Then the **rollback** is rehearsed ([`rollback.md`](rollback.md), all of it). Then the second forward run (rollback's restart procedure), so staging ends on `develop` with auto-deploy on |
 
 **`cutover_at` on staging** is the staging app database's clock at step 3, as in production. In
@@ -299,21 +301,23 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
   (`legacy/frontend-web/src/app/(public)/reset-password.tsx`) and delete-account page
   (`legacy/frontend-web/src/app/(app)/delete-account.tsx`).
 - **Auto-deploy is ON for `backend`, the web service and `auth`, and stays on** (owner decision,
-  2026-10-19). Their next deploy is step 10's, so **every variable the new code reads is set
-  before step 3** (below), and nothing is pushed to the deploying branch between step 3 and step
+  2026-10-19). The next deploy of `backend` and `auth` is step 10's; the web service's is too
+  only if its watch paths match the push (not established; legacy web's sources do not change).
+  So **every variable the new code reads is set before step 3** (below), and nothing is pushed to the deploying branch between step 3 and step
   10 except step 10 itself. Applying a variable change in Railway redeploys the service's current
   deployment, so the `backend` edits restart the legacy api: make them at a quiet hour the day
   before, and check its health afterwards.
-- Railway (main architect's runbook section): the `auth` service exists (in production it is
-  created for this window, or found; in staging it already exists) with its variables set
-  (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port,
-  `PORT=3100`; **no domain yet** and **no active deployment** (**production, 2026-11-21:** these
-  do not hold, by the owner's decision: the domain stays attached and serving until the window;
-  see [`release-record.md`](release-record.md))
-  (staging: the PIR #59 deployment is
-  removed, its ID recorded above); its own Postgres with snapshots or PITR **on**. The auth
-  database is **empty** (no schema yet; **production, 2026-11-21:** it already holds the applied
-  auth journal and no rows, see [`release-record.md`](release-record.md)). Neither `auth` nor `backend` carries
+- Railway (main architect's runbook section): the `auth` service exists with its variables set
+  (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port, `PORT=3100`;
+  its own Postgres with snapshots or PITR **on**. Then, by environment:
+  - **Production (owner's decision, 2026-11-21; [`release-record.md`](release-record.md)):**
+    `auth` **has** a live deployment and `auth.askansari.ai` **is attached**, and both stay so
+    through the window. Check: `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health`
+    prints `200`, and the deployment's ID and commit are in the release record (above). The auth
+    database holds the applied auth journal and no rows.
+  - **Staging, and any environment without that decision:** **no domain yet** and **no active deployment**
+    (staging: the PIR #59 deployment is removed, its ID recorded above). The auth database is
+    **empty** (no schema yet). Neither `auth` nor `backend` carries
   `AUTH_INTERNAL_SECRET`, `AUTH_INTERNAL_URL` or `INTERNAL_PORT` (spec H-1: there is no internal
   hop). `backend` has the four variables the new code requires in production (it does not boot
   without them), read from its first deploy in step 10: `AUTH_URL=https://auth.askansari.ai` (the
@@ -331,10 +335,16 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 - **`MCP_COMPLETE_KEY_MODE=log-only` on `backend` is confirmed before the window** (#416). It is
   already set on the production `backend` service (owner's statement, 2026-11-21, not verified
   from the repo). Confirm it in the dashboard on the day and record it. This is a precondition
-  to confirm, not a window step: setting it inside the window would redeploy `backend`. An absent
-  value means `enforce` (`apps/api/lib/config.ts`, `mcpCompleteKeyMode`). `mcp.ansari.chat` and
-  the agent skill send no key (#409), so without the variable, step 10's code answers every such
-  call with 401.
+  to confirm, not a window step: setting it inside the window would redeploy `backend`. **No
+  service key is issued in this window** (end of step 8), so after step 10 `log-only` is the only
+  thing that keeps `mcp.ansari.chat` and the agent skill served: both send no key (#409), and an
+  absent value means `enforce` (`apps/api/lib/config.ts`, `mcpCompleteKeyMode`), which answers
+  every such call with 401. **If the variable is absent, or `enforce`, do not start.**
+- **WhatsApp is out of this window** (owner's decision, 2026-11-21; #336 open). Not established:
+  what serves production WhatsApp today. `origin/main` has no `legacy/whatsapp` and no WhatsApp
+  reference under `apps/api/src` or `apps/api/lib` (`git grep -i whatsapp origin/main -- apps/api/src apps/api/lib`
+  prints nothing; the same pattern on `origin/main` matches the `ansari-3-announce.md` files under
+  `legacy/`, so it can match).
 - **`backend` keeps its legacy variables** `JWT_SECRET`, `ACCESS_TOKEN_EXPIRY_HOURS`,
   `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`, `RESEND_API_KEY` and `FRONTEND_URL` until the
   contract PR: the legacy code serves until step 10, and the rollback redeploys it. It does not
@@ -483,8 +493,8 @@ prints `auth.users`.
 
 > **Production, 2026-11-21:** no `create-service` or `create-key` in production before this
 > step's `copy.sh: audit OK`: a service user is a row in `auth.users` and `auth.account`, and the
-> copy then refuses (`auth.users is not empty`). The service keys are step 8a, after the copy and
-> before step 10's promotion; see [`release-record.md`](release-record.md). The `auth` domain
+> copy then refuses (`auth.users is not empty`). No service keys are issued in this window at all
+> (owner's decision, 2026-11-21; the end of step 8). The `auth` domain
 > serves until the window, so a sign-up there would also make the copy refuse. In production,
 > therefore, the second line below (the users-and-accounts count) runs **immediately before** the
 > copy and must print `0`. If it does not, empty the auth database (`DROP SCHEMA auth CASCADE`)
@@ -561,67 +571,43 @@ truth; nothing at boot checks a list.
 **Abort:** `(cd apps/auth && DATABASE_URL="$AUTH_DATABASE_URL" pnpm exec tsx scripts/grant-admin.ts --revoke <email>)`
 for any extra; fix and re-check.
 
-## 8a. Service keys (production)
-
-After step 6's `copy.sh: audit OK` and before step 10's promotion (#416; the deviation in
-[`release-record.md`](release-record.md)): never before the copy, because a service user is a row
-in `auth.users` and `auth.account`, and the copy refuses a non-empty `auth.users`. This sub-step
-keeps the numbering, so every "step N" elsewhere still holds. Staging's keys follow
-[`service-keys-runbook.md`](service-keys-runbook.md)'s own staging order, not this step.
-
-The script, where it runs and its two-step `--confirm` are in
-[`service-keys-runbook.md`](service-keys-runbook.md), "The script". It runs in the production
-`auth` service's shell, from `apps/auth/`. **Not established:** which branch or commit that
-service deploys from today (#416, open questions). Before the first command, confirm that its
-`scripts/service-keys.ts` prints the usage the runbook documents. If it does not, stop: the
-window does not go on with a script the runbook does not describe.
-
-**The `ansari-mcp` service and the `mcp.ansari.chat` key** (the runbook's "The `ansari-mcp` key"
-section, Issuance and The handoff):
-
-```bash
-./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp
-./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp --confirm ansari-mcp
-./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id>
-./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id> --confirm <user id>
-./node_modules/.bin/tsx scripts/service-keys.ts list ansari-mcp
-```
-
-The owner sets `mcp.ansari.chat`'s upstream Authorization variable to the key, by the runbook's
-handoff rule. `MCP_COMPLETE_KEY_MODE=log-only` (step 1) keeps a call with no key, or with a key
-not yet set, served after step 10.
-
-**WhatsApp (#336): not established, and not decided here.** What serves production WhatsApp
-today, how it authenticates, and whether its key is issued in this window are open in #336.
-If the owner decides to issue it in this window, it is issued here, by the runbook's Issuance
-section, and not before step 6.
-
-**Check:** `list ansari-mcp` shows exactly the key just issued, enabled, with the limits above;
-its `ENVIRONMENT` line read `production` before `--confirm`; the key log has a row for each write
-([`service-keys-runbook.md`](service-keys-runbook.md), "Key log").
-**Abort:** a write the script refused wrote nothing: fix the cause and repeat. A raw key shown
-anywhere but its handoff target is revoked at once (`revoke ansari-mcp --key <key id>`) and
-issued again. An abort to step 3's abort (`DROP SCHEMA auth CASCADE`) removes the service and its
-keys with the rest of the auth database, so they are issued again on the next attempt.
+**No service keys in this window** (owner's decision, 2026-11-21). There is no `create-service`
+and no `create-key` anywhere in the window. The `ansari-mcp` and WhatsApp keys are issued
+**after the window closes**, by [`service-keys-runbook.md`](service-keys-runbook.md), and never
+before step 6's `copy.sh: audit OK` (a service user is a row in `auth.users` and `auth.account`,
+and the copy refuses a non-empty `auth.users`). Until then `mcp.ansari.chat` and the agent skill
+are served only because `MCP_COMPLETE_KEY_MODE=log-only` (step 1).
 
 ## 9. Attach `auth.askansari.ai` (spec H-5)
 
-Now, after the copy (step 6) and the admin roles (step 8), and before step 10 deploys anything
-(main, M3): attach the domain to the `auth` service, targeting **`PORT` (3100)**. Never before the
-copy: a reachable `apps/auth` would accept sign-ups into `auth.users`, and the copy's empty-target
-guard would abort. `auth` has **no active deployment** yet (step 1), so the domain serves nothing
-until step 10, while Railway issues its certificate.
-
-> **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
-> deviation in [`release-record.md`](release-record.md). By the owner's decision recorded there
-> (it stays serving until the window), **in production the attach is skipped**, and the check
-> before the promotion expects `/health` `200` from the deployment already there. The
-> stop-on-`200` below does not apply to production; it still applies to staging and to any
-> environment without that decision.
+After the copy (step 6) and the admin roles (step 8), and before step 10 deploys anything
+(main, M3). The same probe in both branches; what it must print differs:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health
 ```
+
+### Production: skip the attach (owner's decision, 2026-11-21)
+
+The domain is already attached to `auth` and served by its existing deployment, which stays
+([`release-record.md`](release-record.md), deviation and owner decisions). **Do not attach,
+detach or remove anything.** Run the probe.
+
+**Check (production):** the domain is listed on the `auth` service; the probe prints `200` over
+https with a valid certificate (plain `curl`, never `-k`; `000` is a certificate or network
+failure, not a pass); and the `auth` deployment live in the dashboard is the one step 1 recorded
+(no new deployment has appeared).
+**Abort (production):** do **not** detach the domain or remove the deployment. Empty the auth
+database (`psql "$AUTH_DATABASE_URL" -X -c 'DROP SCHEMA auth CASCADE'`), reverse the apply record
+in [`release-record.md`](release-record.md) (its "Reversing it" paragraph), then step 3's abort.
+Nothing new has deployed.
+
+### Staging, and any environment without that decision: attach
+
+Attach the domain to the `auth` service, targeting **`PORT` (3100)**. Never before the
+copy: a reachable `apps/auth` would accept sign-ups into `auth.users`, and the copy's empty-target
+guard would abort. `auth` has **no active deployment** yet (step 1), so the domain serves nothing
+until step 10, while Railway issues its certificate.
 
 **Check:** the domain is listed on the `auth` service, and the probe prints `404` or `502` over
 https with a **valid certificate** (plain `curl`, never `-k`: a certificate error prints `000`,
@@ -656,12 +642,18 @@ deploys run code the scripts did not run from: follow [`rollback.md`](rollback.m
 
 ## 11. The deploys: `auth` and `backend`
 
-Wait for the deployments: `auth` and `backend` (staging: and the staging web service). Read as
-written, this is the `auth` service's **first build and
-deploy**: the staging rehearsal is what proves the image builds. (**Production, 2026-11-21:**
-`auth` already has a live deployment, kept by the owner's decision
-([`release-record.md`](release-record.md)), so step 10's is its first deploy **from `main`**.
-Until step 10's deployment is healthy, the earlier one keeps serving the domain.) Until `auth` is healthy, the new
+Wait for the deployments of step 10's commit on `auth` and `backend` (and on the web service
+only if it rebuilt: staging's always does; production's legacy web only if its watch paths
+matched).
+
+- **Production:** `auth` already has a live deployment (owner's decision, 2026-11-21;
+  [`release-record.md`](release-record.md)), so step 10's is its first deploy **from `main`**,
+  replacing that one. Until the new one passes its healthcheck, Railway keeps the previous one
+  serving (`RELEASE.md`: a deploy that fails its healthcheck leaves the previous deployment).
+- **Staging, and any environment without that decision:** this is the `auth` service's **first build and
+  deploy**.
+
+The staging rehearsal is what proves the image builds. Until `auth` is healthy, the new
 `apps/api`'s sign-ins and first uses fail closed with `503` (never a grant), and maintenance mode
 covers it. If the `auth` build or deploy fails, the new `apps/api` stays up answering `503` under
 maintenance: that is [`rollback.md`](rollback.md) from step 1.
@@ -677,7 +669,8 @@ Then the edge properties on the auth domain's probe, as in step 12, on every pat
 Cloudflare if proxied, and direct with `--resolve`), over IPv4 and IPv6:
 `curl -s -H 'X-Real-IP: 192.0.2.66' -H 'X-Forwarded-For: 192.0.2.66' -H 'CF-Connecting-IP: 192.0.2.66' https://auth.askansari.ai/__diag/client-ip`.
 
-**Check:** each deployment is healthy and its deployed commit is step 10's; `/health`
+**Check:** `auth` and `backend` are healthy and their deployed commit is step 10's (production:
+the `auth` deployment ID differs from the one step 1 recorded); `/health`
 returns 200 over https with a **valid certificate**; the JWKS prints `1` or more; `/internal/…`
 prints `404` (there is no internal route); `/api/account/me` with no token prints `401`; the probe
 shows your real address on every path, and a second network a different one. On each

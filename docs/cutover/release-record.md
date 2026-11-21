@@ -103,3 +103,19 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
 - **Remedy if it does not:** the runbook's own. Empty the auth database
   (`DROP SCHEMA auth CASCADE`) and re-run from step 5, where after a drop the `for` loop is run as
   printed (step 5's note). Then reverse the apply record above.
+
+## 2026-11-21: owner decisions (backend-only release; relayed by the security architect)
+
+- **No service keys in the window.** No `create-service` and no `create-key` runs in the window.
+  The `ansari-mcp` and WhatsApp keys are issued **after the window closes**, by
+  [`service-keys-runbook.md`](service-keys-runbook.md), and never before step 6's
+  `copy.sh: audit OK`. This replaces this record's earlier line saying the WhatsApp and
+  `ansari-mcp` keys are issued after the copy and before step 10's promotion. That line stands as
+  written then.
+- **WhatsApp is out of this window** (#336 open).
+- **`MCP_COMPLETE_KEY_MODE=log-only` on `backend`** is already set (owner's statement, not
+  verified from the repo). With no key issued, it is the only thing keeping `mcp.ansari.chat` and
+  the agent skill served after step 10, so the runbook's step 1 refuses to start without it.
+- **On a production rollback, `auth` stays on the window's deployment** (step 10's commit), with
+  `auth.askansari.ai` attached. It does not return to the pre-window deployment
+  ([`rollback.md`](rollback.md), step 3 item 4 and step 5).

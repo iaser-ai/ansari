@@ -39,8 +39,11 @@ before, and check that `backend` is healthy afterwards. Production values are sh
 
   Also on `backend`: `MAINTENANCE_MODE=false`, and **confirm `MCP_COMPLETE_KEY_MODE=log-only`**.
   It is already set in production (owner's statement, 2026-11-21, not verified from the repo).
-  Confirm it on the day and record it. Do not set it in the window. An absent value means
-  `enforce`, and `mcp.ansari.chat` and the agent skill send no key (#409). **Keep** `JWT_SECRET`,
+  Confirm it on the day and record it. Do not set it in the window. No service key is issued in
+  the window, so after the promotion `log-only` is the only thing keeping `mcp.ansari.chat` and
+  the agent skill served (they send no key, #409; absent means `enforce`, which refuses them with
+  401). **If it is absent or `enforce`, do not start.** WhatsApp is out of this window (owner's
+  decision, 2026-11-21; #336). **Keep** `JWT_SECRET`,
   `ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`, `RESEND_API_KEY` and
   `FRONTEND_URL`. The new code ignores them, but the legacy code that serves until step 8 and
   that a rollback redeploys needs them. They are removed in the contract PR, not now.
@@ -62,11 +65,15 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | `PORT` | `3100` |
 
   Optional on `auth`: `SENTRY_DSN`, and `MARKETMAKER_URL` (copy `backend`'s value if it has
-  one). Do **not** set `ADMIN_EMAILS` on it. The service has **no domain and no active deployment** (staging: remove the PIR #59 deployment; production, 2026-11-21: it has both, by the owner's decision, see [`release-record.md`](release-record.md)).
+  one). Do **not** set `ADMIN_EMAILS` on it.
+  - **Production:** the service **has** a live deployment and `auth.askansari.ai` attached, and
+    keeps both (owner's decision, 2026-11-21; [`release-record.md`](release-record.md)).
+    Its health probe prints `200` (runbook step 1, the production line).
+  - **Staging:** the service has **no domain and no active deployment** (remove the PIR #59 deployment).
 - **The web service: no change.** In production it is legacy web, and nothing is set on it for
   this window (no `EXPO_PUBLIC_*` variables: `apps/frontend` is not released).
-- The auth domain's DNS record exists and is not attached to any service (production: attached,
-  as above).
+- **Staging:** the auth domain's DNS record exists and is not attached to any service.
+  (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
   `auth` (`none` if it has no deployment). These are the rollback targets.
@@ -164,8 +171,8 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 
 > **Production, 2026-11-21:** no `create-service` or `create-key` in production before
 > `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue the
-> service keys in step 6a, after the copy and before the promotion (step 8); see
-> [`release-record.md`](release-record.md). The users-and-accounts count runs immediately before
+> service keys at all in the window (owner's decision, 2026-11-21): they are issued after it
+> closes; see [`release-record.md`](release-record.md). The users-and-accounts count runs immediately before
 > `copy.sh` and must print `0` (the `auth` domain serves until the window).
 
 ```bash
@@ -198,34 +205,27 @@ psql "$AUTH_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/
 If the first command prints a warning (a recent or unverified account), confirm with the person
 before you run `--confirm`.
 
-## 6a. Service keys (production)
-
-After `copy.sh: audit OK`, before step 8. In the production `auth` service's shell, from
-`apps/auth/` ([`service-keys-runbook.md`](service-keys-runbook.md), "The script"). Not
-established: which commit that service runs, so first check that the script prints the usage
-the runbook documents. The `ansari-mcp` service and the `mcp.ansari.chat` key:
-
-```bash
-./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp
-./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp --confirm ansari-mcp
-./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id>
-./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 120 --rate-window 60 --daily 5000 --name <deployment and date> --client-id <its id> --confirm <user id>
-./node_modules/.bin/tsx scripts/service-keys.ts list ansari-mcp   # exactly that key, enabled
-```
-
-Hand the key off as the runbook says (the owner's upstream variable), and record each write in
-its key log. WhatsApp (#336) is not established: issue its key here only if the owner decides to.
+**No service keys in the window** (owner's decision, 2026-11-21): no `create-service` and no
+`create-key` at all. The keys are issued after the window closes, by
+[`service-keys-runbook.md`](service-keys-runbook.md), and never before `copy.sh: audit OK`.
 
 ## 7. Attach the auth domain
 
-In Railway, attach the auth domain to the `auth` service on port 3100. Then:
-
-> **Production, 2026-11-21:** the domain is already attached and serving, and by the owner's
-> decision it stays so ([`release-record.md`](release-record.md)). In production skip the attach;
-> the probe below prints `200` (never `000`). The 404-or-502 rule still applies to staging.
+**Production:** do **not** attach, detach or remove anything: the domain is already attached and
+served by `auth`'s existing deployment, which stays (owner's decision, 2026-11-21;
+[`release-record.md`](release-record.md)). Run:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # 404 or 502; never 200, never 000
+curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # PRODUCTION: 200; never 000
+```
+
+If it does not print `200`: do not detach anything; empty the auth database, reverse the apply
+record, then step 2's offline actions in reverse (the runbook's step 9, production abort).
+
+**Staging:** in Railway, attach the auth domain to the `auth` service on port 3100. Then:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # STAGING: 404 or 502; never 200, never 000
 ```
 
 ## 8. Deploy: merge
@@ -240,7 +240,8 @@ git fetch origin && git push origin origin/develop:main          # production
 git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   # origin/develop on staging
 ```
 
-Auto-deploy builds `auth` and `backend` (staging: and the web service). Wait until each is healthy.
+Auto-deploy builds `auth` and `backend`, and the web service only if its watch paths match the
+push (staging's does; production's legacy web sources do not change). Wait until each is healthy.
 
 ## 9. Verify
 

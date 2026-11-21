@@ -173,17 +173,47 @@ describe('the window runbook', () => {
     expect(step3).toContain('apps/api/src/app/api/v2/app-check/route.ts:21');
   });
 
-  it('issues the service keys as step 8a: after the copy and the admin roles, before the promotion (#416)', () => {
-    const at = (heading: string) => doc.indexOf(heading);
-    const keys = at('## 8a. Service keys (production)');
-    expect(keys).toBeGreaterThan(at('## 8. Admin roles'));
-    expect(keys).toBeLessThan(at('## 9. Attach `auth.askansari.ai`'));
-    const section = doc.slice(keys, at('## 9. Attach'));
-    expect(section).toMatch(/\*\*Check:\*\*/);
-    expect(section).toMatch(/\*\*Abort/);
-    expect(section.indexOf('create-service ansari-mcp')).toBeLessThan(section.indexOf('create-key ansari-mcp'));
-    // Never before the copy: the only create-service lines in the runbook are in 8a.
-    expect(doc.split('create-service ansari-mcp').length - 1).toBe(section.split('create-service ansari-mcp').length - 1);
+  // A service-key command: the script's create-service / create-key subcommand, in any form.
+  const KEY_COMMAND = /service-keys\.ts\s+create-(?:service|key)\b/;
+
+  it('the key-command scan matches a planted command and ignores the prose near-miss', () => {
+    expect(KEY_COMMAND.test('./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp')).toBe(true);
+    expect(KEY_COMMAND.test('tsx scripts/service-keys.ts  create-key ansari-mcp --rate-max 1')).toBe(true);
+    expect(KEY_COMMAND.test('There is no `create-service`\nand no `create-key` anywhere in the window.')).toBe(false);
+  });
+
+  it('issues no service keys in the window: no create-service or create-key command in the runbook or the guide (owner, 2026-11-21)', () => {
+    const guide = read(GUIDE);
+    const hits = [doc, guide].flatMap((text) => text.split('\n').filter((line) => KEY_COMMAND.test(line)));
+    console.info(`[cutover-docs] service-key commands in the window docs: ${hits.length}`);
+    expect(hits).toEqual([]);
+    expect(doc).toContain('**No service keys in this window**');
+    expect(guide).toContain('**No service keys in the window**');
+    expect(doc).not.toMatch(/^## 8a\./m);
+    expect(guide).not.toMatch(/^## 6a\./m);
+  });
+
+  it('MCP_COMPLETE_KEY_MODE=log-only is a hard precondition (no key is issued in the window)', () => {
+    const step1 = steps[0] as string;
+    expect(step1).toContain('**`MCP_COMPLETE_KEY_MODE=log-only` on `backend` is confirmed before the window**');
+    expect(step1).toContain('**If the variable is absent, or `enforce`, do not start.**');
+  });
+
+  it('production branches: auth is already deployed and attached; step 9 skips the attach and expects 200 (owner, 2026-11-21)', () => {
+    const step1 = steps[0] as string;
+    expect(step1).toMatch(/\*\*Production \(owner's decision, 2026-11-21;[^\n]*\n\s+`auth` \*\*has\*\* a live deployment and `auth\.askansari\.ai` \*\*is attached\*\*/);
+    const step9 = steps[stepOf(/Attach `auth\.askansari\.ai`/) - 1] as string;
+    const prod = step9.slice(step9.indexOf('### Production: skip the attach'), step9.indexOf('### Staging'));
+    expect(prod.length).toBeGreaterThan(100);
+    expect(prod).toMatch(/\*\*Check \(production\):\*\*[\s\S]*prints `200`/);
+    expect(prod).toMatch(/\*\*Abort \(production\):\*\* do \*\*not\*\* detach the domain or remove the deployment/);
+    expect(prod).not.toMatch(/`404` or `502`/);
+    expect(step9.indexOf('### Production: skip the attach')).toBeLessThan(step9.indexOf('### Staging'));
+    const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
+    expect(step11).toMatch(/\*\*Production:\*\* `auth` already has a live deployment/);
+    const guide = read(GUIDE);
+    expect(guide).toContain("curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # PRODUCTION: 200; never 000");
+    expect(guide).toContain("curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # STAGING: 404 or 502; never 200, never 000");
   });
 
   it('runs from a fresh checkout verified against the recorded commit, never the spir-300 worktree (#416)', () => {
@@ -378,6 +408,17 @@ describe('the rollback runbook', () => {
     expect(step3).toMatch(/`auth`: back to its recorded state, \*\*no active deployment\*\*/);
     expect(doc).toMatch(/the revert PR is the follow-up, never the mechanism/);
     expect(doc).not.toMatch(/revert the promotion on `develop` and promote that before\s+re-enabling auto-deploy/);
+  });
+
+  it('production rollback: auth stays on the window deployment, domain attached, auto-deploy off (owner, 2026-11-21)', () => {
+    const step3 = doc.slice(doc.indexOf('## 3. Auto-deploy off'), doc.indexOf('## 4.'));
+    expect(step3).toMatch(/\*\*Production: `auth` stays on the window's deployment\*\* \(step 10's commit\)/);
+    expect(step3).toMatch(/\*\*Check \(production\):\*\*[\s\S]*prints `200`[\s\S]*deployed commit is step 10's[\s\S]*auto-deploy\s+shows off/);
+    expect(step3).toMatch(/\*\*Check \(staging\):\*\*[\s\S]*`auth` has no active deployment/);
+    const step5 = doc.slice(doc.indexOf('## 5. Detach'), doc.indexOf('## 6.'));
+    expect(step5).toMatch(/^\*\*Production: skip this step\.\*\*/m);
+    expect(step5.indexOf('**Production: skip this step.**')).toBeLessThan(step5.indexOf('**Staging'));
+    expect(doc).not.toMatch(/not decided|OPEN OWNER DECISION/i);
   });
 
   it('empties the auth database if no second attempt follows within 7 days (R6)', () => {
