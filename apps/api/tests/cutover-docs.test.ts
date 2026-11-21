@@ -25,7 +25,9 @@ export function namedRepoPaths(doc: string): string[] {
   const found = new Set<string>();
   // A `<ref>:<path>` citation (e.g. `origin/main:apps/api/...`) names a file at that ref, not in this
   // checkout, so the `:` before the path excludes it (#416: step 7 cites origin/main's code).
-  for (const m of doc.matchAll(/(?<![\w./:-])((?:apps|packages|docs)\/[A-Za-z0-9_.\/-]+\.(?:sql|sh|ts|md|json|toml))/g)) {
+  // legacy/ is scanned too (#416: the runbook cites legacy/frontend-web), with .tsx and the route
+  // groups' parentheses, e.g. legacy/frontend-web/src/app/(public)/reset-password.tsx.
+  for (const m of doc.matchAll(/(?<![\w./:-])((?:apps|packages|docs|legacy)\/[A-Za-z0-9_.\/()-]+\.(?:sql|sh|tsx|ts|md|json|toml))/g)) {
     found.add(m[1] as string);
   }
   return [...found];
@@ -53,6 +55,10 @@ describe('cutover docs: every named file exists', () => {
     const planted = 'run `apps/auth/scripts/cutover/99-missing.sql` then see https://example.com/apps/x.sql';
     expect(namedRepoPaths(planted)).toEqual(['apps/auth/scripts/cutover/99-missing.sql']);
     expect(namedRepoPaths('see `origin/main:apps/api/lib/auth/jwt.ts:47` and `apps/x/y.ts`')).toEqual(['apps/x/y.ts']);
+    expect(namedRepoPaths('page (`legacy/frontend-web/src/app/(public)/gone.tsx`) and (legacy/x.ts)')).toEqual([
+      'legacy/frontend-web/src/app/(public)/gone.tsx',
+      'legacy/x.ts',
+    ]);
     expect(existsSync(resolve(repoRoot, 'apps/auth/scripts/cutover/99-missing.sql'))).toBe(false);
   });
 
@@ -96,7 +102,8 @@ describe('the window runbook', () => {
     // + the named production procedure's loop (drop and re-apply, owner 2026-11-21).
     expect(applies.length).toBe(6);
     for (const line of applies) {
-      expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /);
+      // `-f <file>`, or (the production procedure) the drop and every journal file piped into ONE psql.
+      expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction( -f |$)/);
     }
   });
 
@@ -267,16 +274,28 @@ describe('the window runbook', () => {
     // again before the first repo script (runbook step 5, guide step 3).
     const clean = '[ -z "$(git status --porcelain)" ] && echo clean-tree';
     const guide = read(GUIDE);
-    for (const [name, text, first, script] of [
-      ['runbook', doc, doc.indexOf('**The operator environment'), doc.indexOf('## 5. The auth baseline')],
-      ['guide', guide, guide.indexOf('## 1. Open the operator session'), guide.indexOf('## 3. Auth schema')],
+    const between = (text: string, from: string, to: string) => {
+      const a = text.indexOf(from);
+      const b = text.indexOf(to, a + 1);
+      expect(a, from).toBeGreaterThanOrEqual(0);
+      expect(b, to).toBeGreaterThan(a);
+      return text.slice(a, b);
+    };
+    for (const [name, opening, script] of [
+      ['runbook', between(doc, '**The operator environment', '**A dry run before the window'), between(doc, '## 5. The auth baseline', '## 6. ')],
+      ['guide', between(guide, '## 1. Open the operator session', '## 2. '), between(guide, '## 3. Auth schema', '## 4. ')],
     ] as const) {
-      expect(text.indexOf(clean, first), `${name}: clean-tree in the opening block`).toBeGreaterThan(first);
-      expect(text.indexOf(clean, script), `${name}: clean-tree before the first script`).toBeGreaterThan(script);
-      expect(text, name).toMatch(/git clone <repo URL> <new empty directory>/);
+      expect(opening, `${name}: clean-tree in the opening block`).toContain(clean);
+      expect(opening, name).toMatch(/git clone <repo URL> <new empty directory>/);
+      expect(script, `${name}: clean-tree before the first script`).toContain(clean);
     }
     expect(doc).not.toMatch(/\*\*The checkout is the `builder-spir-300` worktree\*\*/);
     expect(read(GUIDE)).not.toMatch(/# the builder-spir-300 worktree/);
+    for (const text of [doc, read(GUIDE)]) expect(text).not.toMatch(/builder-spir-300|6ed22431/);
+    // #416 round 3: nothing deploys production auth in the window.
+    for (const text of [doc, read(GUIDE)]) {
+      expect(text).not.toMatch(/stays on\s+step 10's deployment|stays on the deployment serving after the deploys/);
+    }
   });
 
   it('step 1 gives auth\'s state per environment: production deployed and attached, staging none; admins are granted by id (H-7)', () => {
@@ -491,17 +510,34 @@ describe('the rollback runbook', () => {
     const PROC = '[Empty the production auth database: drop and re-apply]';
     const runbook = read(RUNBOOK);
     const proc = runbook.slice(runbook.indexOf('## Empty the production auth database: drop and re-apply'), runbook.indexOf('## 1. Preconditions'));
-    const drop = proc.indexOf("-c 'DROP SCHEMA auth CASCADE'");
-    const loop = proc.indexOf('for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done');
-    expect(drop).toBeGreaterThanOrEqual(0);
-    expect(loop).toBeGreaterThan(drop);
+    // ONE transaction: the drop and every journal file, in order, piped into a single psql.
+    // The journal list is captured first and must be non-empty: an empty list would make `cat` read
+    // the terminal, and the drop could commit without the journal.
+    // The journal check runs inside the same transaction, so a missing object rolls the drop back.
+    const oneTxn = `F="$(node apps/auth/scripts/cutover/auth-journal.mjs files)" && C="$(node apps/auth/scripts/cutover/auth-journal.mjs check)" && [ -n "$F" ] && [ -n "$C" ] && { echo "set lock_timeout = '5s';"; echo 'DROP SCHEMA auth CASCADE;'; cat $(printf '%s\\n' "$F"); printf '%s\\n' "$C"; } | psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction`;
+    expect(proc).toContain(oneTxn);
+    expect(proc).not.toMatch(/^psql .*-c 'DROP SCHEMA/m);
+    expect(proc).toContain('git diff --quiet <auth running commit> HEAD -- packages/auth/drizzle && echo journal-matches');
     expect(proc).toContain("curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks");
     expect(proc).toMatch(/\*\*Check:\*\*[\s\S]*`<tag>\|t`[\s\S]*prints `0`[\s\S]*JWKS probe prints `200`\. Not\s+`\/health`/);
     expect(proc).toMatch(/\*\*stays true\*\*/);
-    // Every production drop in the runbook goes through the procedure: no bare production DROP.
-    for (const line of runbook.split('\n').filter((l) => /\*\*Abort \(production\):\*\*/.test(l))) {
-      expect(line).not.toMatch(/DROP SCHEMA/);
-    }
+    // Every DROP SCHEMA line in the runbook, the guide and the rollback is inside the procedure,
+    // under a `### Staging` heading, or on a line labelled staging (#416 round 3).
+    const bare = (text: string, procedure = '') =>
+      text.split('\n').flatMap((line, i, lines) => {
+        if (!/DROP SCHEMA/.test(line) || (procedure && procedure.includes(line)) || /staging/i.test(line)) return [];
+        for (let j = i; j >= 0; j--) {
+          const heading = /^#{2,3} (.*)$/.exec(lines[j] ?? '');
+          if (heading) return /^Staging/.test(heading[1] ?? '') ? [] : [line];
+        }
+        return [line];
+      });
+    expect(bare('## 9. X\n**Abort (production):** `DROP SCHEMA auth CASCADE`')).toHaveLength(1);
+    expect(bare('### Staging, and so on\nrun `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
+    expect(bare('## 5. X\n**Abort (staging):** `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
+    const hits = [bare(runbook, proc), bare(read(GUIDE)), bare(doc)].flat();
+    console.info(`[cutover-docs] DROP SCHEMA lines outside the procedure or a staging branch: ${hits.length}`);
+    expect(hits).toEqual([]);
     const section = doc.slice(doc.indexOf('## If no second attempt follows within 7 days'));
     expect(section).toMatch(/within 7 days/);
     const prodAt = section.indexOf('### Production: drop, then re-apply');

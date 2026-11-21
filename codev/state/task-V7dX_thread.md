@@ -85,3 +85,29 @@
   as superseded, and the key scans cover every operator doc.
 - Test path scan: a `<ref>:<path>` citation is skipped (step 7 cites `origin/main`-only files).
 - Negative test: against the round-1 docs (c86a6694), 8 tests fail.
+
+## 2026-11-21: review round 3, one push
+
+- The drop-and-re-apply procedure is now ONE transaction: the drop, every journal file, then the
+  journal check SQL, piped into a single `psql --single-transaction` with `lock_timeout = '5s'`.
+  - A fresh proofread found that an empty file list makes `cat` read the terminal. The list and
+    the check SQL are now captured first and must be non-empty.
+  - zsh does not split a bare `$F`, so the command uses `cat $(printf '%s\n' "$F")`. Verified in
+    bash and zsh.
+  - The in-transaction check makes a partial journal roll back. Measured on PGlite 0.5.4 from the
+    applied state with one user: missing `0001` rolls back with the user kept; no journal rolls
+    back; the full journal commits with 0 users.
+- Step 16 switch: set the branch, save, trigger a deploy of `main`, wait until Active, record the
+  ID. Rollback step 7 leaves production `auth`'s auto-deploy off until the security architect
+  decides, and states its disposition before and after step 16.
+- Optional step 12a: legacy web on its Railway domain before the public domain returns. The api's
+  CORS is a static `*` (`apps/api/next.config.ts:24`), and the api never reads the browser Origin.
+  Whether the service has a Railway domain is not established.
+- `release-record.md`: Remedy, the expectation lines and the branch line are struck through as
+  superseded; "Reversing it" is scoped. `RELEASE.md` has two lines (window step 1 check; auth's
+  branch).
+- Tests: clean-tree searches are bounded; the DROP SCHEMA scan covers every line of the runbook,
+  guide and rollback; the path scan now covers `legacy/` and `.tsx`. Each was negative-tested alone
+  against a planted defect (1 failure each).
+- A second whole-file proofread found 13 defects; all are fixed (cross-references in rollback now
+  say "window step N", plus aborts and the Staging/Both labels).

@@ -1,8 +1,10 @@
 # Cutover deployment guide (spec 300)
 
 The commands only, in order. The full runbook, [`better-auth-cutover.md`](better-auth-cutover.md),
-is the authority: it has the reason, the check and the abort for every step. If any check fails
-after step 2, stop and follow [`rollback.md`](rollback.md) (valid until `CUTOVER_AT` + 24 hours).
+is the authority: it has the reason, the check and the abort for every step. If a check fails in
+steps 3 to 7, take that step's abort in the runbook (in production, the auth database is emptied
+only by its drop-and-re-apply procedure). From step 8 on, follow [`rollback.md`](rollback.md)
+(valid until `CUTOVER_AT` + 24 hours).
 
 Auto-deploy stays **on** throughout. The merge in step 8 is the deploy.
 
@@ -77,8 +79,9 @@ before, and check that `backend` is healthy afterwards. Production values are sh
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
   `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` and
-  the web service to these; `auth`'s is recorded for the record and for an abort before step 8,
-  and after step 8 production `auth` stays on the deployment serving after the deploys (owner,
+  the web service to these. `auth`'s is recorded for the record: nothing in the window deploys
+  production `auth` (it deploys from `develop`), so it stays on this same deployment, or on the one
+  step 7 had the owner redeploy (its ID then recorded), and a rollback leaves it there (owner,
   2026-11-21). On staging, all three are rollback targets.
 - In the release record, from the dashboard, for `backend`, `auth` and the web service: the branch
   each deploys from, its auto-deploy setting, its Dockerfile path, and the commit it runs now.
@@ -109,9 +112,8 @@ export API=https://api.askansari.ai AUTH=https://auth.askansari.ai   # staging: 
 
 `<recorded commit>` is the commit being promoted, in full, from the release record. The checks
 print `checkout-at-recorded-commit` and `clean-tree` (run again at step 3), and `ls` lists both
-files. If either fails, stop. Do not use
-the `builder-spir-300` worktree: it is at `6ed22431` and has neither file. Make no edits in the
-checkout until the window ends.
+files. If either fails, stop. The clone is in a new empty directory, never an existing checkout
+or a builder worktree. Make no edits in the checkout until the window ends.
 
 **Both database URLs must go through the Tailscale forwarder, or the scripts reject them.**
 Railway's own URLs will not work. The scripts refuse `DATABASE_URL` (`*.railway.internal`, which
@@ -180,7 +182,7 @@ both databases and record their ids.
 > **Production, 2026-11-21:** production's auth journal is already applied
 > ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
 > `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
-> error). In production a drop is always followed at once by the re-apply ([Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)), so this step stays check only. Apply only a file the check reports missing (a journal file newer than the record), one
+> error). In production a drop always runs in one transaction with the re-apply ([Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)), so this step stays check only. Apply only a file the check reports missing (a journal file newer than the record), one
 > at a time, and record it:
 > `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
 
@@ -197,7 +199,7 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 > `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue no
 > service keys at all in the window (owner's decision, 2026-11-21): they are issued after it
 > closes; see [`release-record.md`](release-record.md). The users-and-accounts count runs immediately before
-> `copy.sh` and must print `0` (the `auth` domain serves until the window).
+> `copy.sh` and must print `0` (the `auth` domain serves throughout).
 
 ```bash
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/00-preflight-app.sql   # no collision, not_bcrypt = 0
@@ -247,6 +249,7 @@ Also, production: `auth` runs the promoted commit's code on its build paths
 (`<auth running commit>` is the commit the dashboard shows for it):
 
 ```bash
+git cat-file -e <auth running commit>^{commit} && echo commit-present
 git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches
 ```
 
@@ -305,11 +308,13 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 ```
 
 - Relaunch a released mobile build and sign in.
-- **Production:** the owner switches the `auth` service's source branch to `main` in the
-  dashboard, before the freeze lifts (the runbook's step 16). Until then, every merge to `develop`
-  that touches `auth`'s build paths deploys to production `auth`. Check: its deployed commit is
-  `origin/main`'s tip, `$AUTH/health` and `$AUTH/api/auth/jwks` both answer `200`, and a sign-in on
-  legacy web still works.
+- **Production: switch `auth` to `main`**, before the freeze lifts (the runbook's step 16). Until
+  then, every merge to `develop` that touches `auth`'s build paths deploys to production `auth`.
+  In the dashboard: set `auth`'s source branch to `main` and save; trigger a deploy of `main`'s
+  latest commit; wait until it is **Active**; record its deployment ID. A failed build leaves the
+  previous deployment serving: the freeze holds; retry, or tell the security architect. Check:
+  its deployed commit equals `git rev-parse origin/main`, `$AUTH/api/auth/jwks` and `$AUTH/health`
+  both answer `200`, and a sign-in on legacy web works.
 - Un-silence the alerts and close the release record.
 - Remove the Tailscale forwarder and revoke its key.
 - `exit` the shell.

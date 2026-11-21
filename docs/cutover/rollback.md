@@ -39,7 +39,7 @@ the same web service in step 4, as the window does.
 **The mechanism (main, M2).** Auto-deploy is on for `backend`, the web service and `auth`
 (owner decision, 2026-10-19), so a rollback is **one step in the Railway dashboard**: turn
 auto-deploy OFF on all three and return `backend` and the web service to the deployments the
-window's step 1 recorded, together (step 3). **Production `auth` is not a rollback target**: step
+window's step 1 recorded, together (step 3). **Production `auth` is not a rollback target**: window step
 10 never deployed it (it deploys from `develop`; owner's statement, 2026-11-21), so it stays on
 the deployment it had all along, with auto-deploy off for the rollback's duration. Its recorded
 ID is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
@@ -52,7 +52,7 @@ The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and the web domain de
 web service (production: the legacy web service). The detach is what stops web traffic: legacy web
 never asks `app-check`, so it ignores maintenance mode (the window's step 3 gives the evidence).
 
-**Check:** step 3's `app-check` probe prints `true` on both `apps/api` domains, and the web domain
+**Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains, and the web domain
 no longer serves the web app. **If it fails:** stop; nothing below is safe while new code serves
 users.
 
@@ -91,26 +91,26 @@ push in between:
    (on staging, the staging web service; in production, the legacy web service, which the window
    changes only if the push rebuilt it).
 4. `auth`, by environment:
-   - **Production: `auth` is untouched.** Step 10 starts no `auth` deployment (it deploys from
+   - **Production: `auth` is untouched.** Window step 10 starts no `auth` deployment (it deploys from
      `develop`; owner's statement, 2026-11-21), so `auth` stays on the deployment it had all
-     along: the one window step 9 checked (step 1's, unless step 9 had it redeployed at the
+     along: the one window step 9 checked (window step 1's, unless window step 9 had it redeployed at the
      promoted commit), with its domain attached (owner's decision). Do **not** remove or redeploy
      it. Its auto-deploy is off for the rollback's duration (item 1), so a push to `develop` cannot
      move it. The legacy `apps/api` that this step restores never calls `apps/auth`.
-     **After window step 16's switch to `main`:** `auth` then runs `main`'s tip, which is the
-     promoted commit. With its auto-deploy off it stays there, and a later push to `main` (a
-     revert, say) does not reach it. `origin/main` before the promotion has no
+     **After window step 16's switch to `main`:** `auth` runs the deployment window step 16 recorded
+     (its check: the deployed commit equalled `origin/main` at that time). With its auto-deploy off
+     it stays there, and a later push to `main` (a revert, say) does not reach it. `origin/main` before the promotion has no
      `apps/auth/Dockerfile`, so do not turn `auth`'s auto-deploy back on for a revert of the
      promotion: tell the security architect.
    - **Staging, and any environment without that decision:** `auth`: back to its recorded state, **no active deployment**:
-     remove the one step 10 started. On staging the PIR #59 deployment is not restored either:
+     remove the one window step 10 started. On staging the PIR #59 deployment is not restored either:
      nothing the legacy code runs calls `apps/auth`.
 
 **Check (production):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth`:
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` and
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` print `200`, its
-deployment is the one window step 9 checked (or, after step 16, `main`'s tip), and its
+deployment is the one window step 9 checked (or, after window step 16, the deployment window step 16 recorded), and its
 auto-deploy shows off like the others.
 **Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth` has no active deployment.
@@ -160,8 +160,17 @@ refresh, and signs in again with the legacy password.
 In the release record: the time, the dry-run count, who decided, and why. Un-silence alerts.
 The branch still carries the cutover commit (`main` in production, `develop` on staging), and
 auto-deploy stays off until it carries a **revert PR** or the forward fix: then turn auto-deploy
-back on for `backend`, the web service and `auth`. The revert is the follow-up; the rollback was
-step 3.
+back on for `backend` and the web service (staging: and `auth`). The revert is the follow-up; the
+rollback was step 3.
+
+**Production `auth` after a rollback: its auto-deploy stays off until the security architect says
+otherwise.** A reverted `main` has no `apps/auth/Dockerfile`. Any other new code would be code the
+window never ran, deployed onto an auth database that holds every migrated hash. Its disposition:
+- **Rollback before window step 16:** `auth` is still on its `develop` deployment, the one window
+  step 9 checked. Its auto-deploy stays off until the security architect says otherwise, so
+  `develop` need not stay frozen for it.
+- **Rollback after window step 16:** `auth` is on the `main` deployment window step 16 recorded, with
+  auto-deploy off.
 
 **Service keys:** none. No `create-service` or `create-key` runs in the window (owner's decision,
 2026-11-21), so a rollback has no service user or key to deal with.
@@ -175,23 +184,24 @@ runbook from **step 5** (the auth
 baseline), after its steps 1 to 4 (the preconditions, comms, maintenance and a new `cutover_at`,
 the snapshots). The app window migration (`0011`) is already applied and is not re-run; its check
 in step 7 still holds. **Step 10 of a second attempt** deploys the commit that carries the
-cutover: if the branch still carries it (no revert yet), redeploy that commit on `backend` (and
-`auth` on staging; production `auth` is checked by step 9, and the staging web service on staging)
-from the dashboard and turn auto-deploy back on; if a revert
-landed, revert the revert through a PR and promote (or merge) as step 10 says.
+cutover: if the branch still carries it (no revert yet), redeploy that commit on `backend` (on
+staging also `auth` and the staging web service; production `auth` is not redeployed, window step 9
+checks it) from the dashboard, and turn auto-deploy back on for `backend` and the web service
+(staging: and `auth`; production `auth`'s stays off until the security architect says otherwise); if a revert
+landed, revert the revert through a PR and promote (or merge) as window step 10 says.
 
 ## If no second attempt follows within 7 days
 
 The auth database holds a copy of every user's password hash. If no second attempt starts within
 7 days of the rollback, empty it, from the operator environment (the window runbook's: the owner's
-machine, the Tailscale forwarder, which window step 16 removed and is set up again for this, and a
+machine, the Tailscale forwarder, which window step 16 removes (set it up again if it was removed), and a
 checkout of the promoted commit, whose code window step 9 checked `auth` runs).
 
 ### Production: drop, then re-apply the auth journal (owner's decision, 2026-11-21)
 
 `auth` stays online after a production rollback (step 3, item 4), so run the window runbook's
-[Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply): the drop, then
-at once the whole auth journal. `auth` then returns to its state of 2026-11-21: the schema
+[Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply): the drop and
+the whole auth journal, in one transaction. `auth` then returns to its state of 2026-11-21: the schema
 applied, zero users, serving.
 
 **Check (production):** the procedure's own check: the journal check prints `<tag>|t` for every

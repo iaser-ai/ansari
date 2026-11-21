@@ -34,12 +34,12 @@ and requires `AUTH_DEPLOYED_THROUGH` to name one of them):
 auth-journal-applied: 0000_auth_schema
 auth-journal-applied: 0001_api_key
 
-**Reversing it.** If the auth schema is later dropped (`DROP SCHEMA auth CASCADE`: a step 5 or 9
-abort, or [`rollback.md`](rollback.md)), add a dated "reverted" entry here, put the two lines above
-in backticks so they no longer match, and set `AUTH_DEPLOYED_THROUGH` back to `null` in that test.
-[Narrowed 2026-11-21, see the owner decisions below: in production every drop is followed at once
-by the re-apply of the whole journal, so the record stays true and gets a dated entry instead.
-Reverse it only after a drop that is not re-applied.]
+**Reversing it.** Only if the auth schema is dropped **and not re-applied** (a drop not followed by
+the runbook's "Empty the production auth database: drop and re-apply", i.e. by an explicit owner
+decision): add a dated "reverted" entry here, put the two lines above in backticks so they no
+longer match, and set `AUTH_DEPLOYED_THROUGH` back to `null` in that test. A production abort or
+rollback drops and re-applies in one transaction: the record then stays true and gets a dated
+entry. (Scoped 2026-11-21; this paragraph first said any drop, a step 5 or 9 abort included.)
 
 **Only the schema was applied.** No users were copied: `auth.users` and `auth.account` hold no
 rows. Everything else stays for the window, as the runbook orders it:
@@ -65,9 +65,10 @@ Measured by the architect from the owner's machine, after the journal apply:
 | `https://auth.askansari.ai/api/account/me` | 500 | 401 |
 
 So in production the auth domain is **attached** and the `auth` service has a **live
-deployment**. The runbook does not expect this: step 1's Railway bullet expects "no domain yet"
+deployment**. ~~The runbook does not expect this: step 1's Railway bullet expects "no domain yet"
 and "no active deployment", and step 9's check expects `404` or `502` (deploy guide step 7: never
-`200`).
+`200`).~~ [Superseded 2026-11-21: the runbook now has a production branch for each (step 1: a live
+deployment and the domain attached; step 9: skip the attach, expect `200`).]
 
 Consequences:
 
@@ -87,8 +88,9 @@ Consequences:
   and before step 10's promotion ([`service-keys-runbook.md`](service-keys-runbook.md)).~~
   [Superseded 2026-11-21, see the owner decisions below: no keys in the window.]
 
-Not established: whether the domain is reachable from outside the owner's network, and which
-branch the `auth` service deploys from.
+Not established: whether the domain is reachable from outside the owner's network~~, and which
+branch the `auth` service deploys from~~. [Superseded 2026-11-21: it deploys from `develop`, with
+auto-deploy on (owner's statement); see the owner decisions below.]
 
 ## 2026-11-21: owner decisions
 
@@ -104,11 +106,11 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
 - **Mitigation:** the users-and-accounts count
   (`select (select count(*) from auth.users) + (select count(*) from auth.account)`) is run
   immediately before step 6 and must print `0`.
-- **Remedy if it does not:** the runbook's own. Empty the auth database
+- **Remedy if it does not:** ~~the runbook's own. Empty the auth database
   (`DROP SCHEMA auth CASCADE`) and re-run from step 5, where after a drop the `for` loop is run as
-  printed (step 5's note). Then reverse the apply record above. [Superseded 2026-11-21, see the
-  owner decisions below: in production, the runbook's "Empty the production auth database: drop
-  and re-apply". The record stays true, and step 5 runs check only.]
+  printed (step 5's note). Then reverse the apply record above.~~ [Superseded 2026-11-21.] The
+  runbook's "Empty the production auth database: drop and re-apply", then step 5 as check only.
+  The apply record stays true.
 
 ## 2026-11-21: owner decisions (backend-only release; relayed by the security architect)
 
@@ -129,6 +131,6 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
 - **On a production rollback, `auth` is untouched.** It stays on the deployment it had all along,
   with `auth.askansari.ai` attached and auto-deploy off for the rollback's duration
   ([`rollback.md`](rollback.md), step 3 item 4 and step 5).
-- **The production auth database is never left without its schema.** Every drop is followed at
-  once by the re-apply of the whole journal (the runbook's "Empty the production auth database:
+- **The production auth database is never left without its schema.** Every drop runs in one
+  transaction with the re-apply of the whole journal (the runbook's "Empty the production auth database:
   drop and re-apply"), so the apply record above stays true. Staging drops only.

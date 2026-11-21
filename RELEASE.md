@@ -107,7 +107,8 @@ migration runbook were both proven in real releases on 2026-08-02.
 > client: no private-network hop, no shared secret (spec amendment H-1).
 > It has its OWN Railway Postgres, the auth database, with snapshots or PITR
 > enabled before its first real row, on Postgres 18 (C-4: the owner's service; in staging it
-> already exists, empty; in production it is created or found, and checked empty in window step 1).
+> already exists, empty; in production its schema is already applied, and window step 1 checks it
+> holds no users and no accounts).
 > Its image is the service only: no Postgres client
 > and no migration SQL. The cutover runs from the owner's machine over the Tailscale route
 > (spec amendment H-8; the runbook's "operator environment"). The two operator scripts run from
@@ -160,6 +161,8 @@ migration runbook were both proven in real releases on 2026-08-02.
   root directory = repo root, dockerfile build from `apps/api/Dockerfile`,
   healthcheck `/api/health` with a 300s timeout, restart `ON_FAILURE` up to 3 times.
   `apps/api/railway.toml` records those same values in git.
+  The production `auth` service deploys from `develop` today (owner's statement, 2026-11-21),
+  and from `main` after the cutover window's step 16 switches it.
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.
