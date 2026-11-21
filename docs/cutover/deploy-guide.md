@@ -41,7 +41,7 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | Variable | Value |
   |---|---|
   | `DATABASE_URL` | the auth database (Railway reference variable) |
-  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters |
+  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters. **Production, 2026-11-21:** already set and in use (the key pair in `auth.jwks` is encrypted under it); changing it requires emptying `auth.jwks`. See [`release-record.md`](release-record.md) |
   | `BETTER_AUTH_URL` | `https://auth.askansari.ai` |
   | `AUTH_JWT_ISSUER` | `https://auth.askansari.ai` |
   | `AUTH_JWT_AUDIENCE` | `ansari-api` |
@@ -99,6 +99,11 @@ postgresql://postgres:<auth PGPASSWORD>@<project>-<environment>-tailscale-forwar
 
 Both databases are on Postgres 18, and they are two different clusters. The auth database is empty:
 
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)), so its table count below is not `0`. In production
+> the auth emptiness check is
+> `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0`.
+
 ```bash
 psql "$APP_DATABASE_URL" -X -At -c "select version()"     # PostgreSQL 18
 psql "$AUTH_DATABASE_URL" -X -At -c "select version()"    # PostgreSQL 18
@@ -125,6 +130,14 @@ both databases and record their ids.
 
 ## 3. Auth schema
 
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
+> `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
+> error), except after a `DROP SCHEMA auth CASCADE` (an abort or [`rollback.md`](rollback.md)'s
+> restart): then every file is missing and the loop is run as printed. Apply only a file the check reports missing (a journal file newer than the record), one
+> at a time, and record it:
+> `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
+
 ```bash
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
 set -o pipefail
@@ -132,6 +145,11 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 ```
 
 ## 4. Copy the users
+
+> **Production, 2026-11-21:** no `create-service` or `create-key` in production before
+> `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue the
+> service keys after the copy and before the promotion (step 8)
+> ([`service-keys-runbook.md`](service-keys-runbook.md)); see [`release-record.md`](release-record.md).
 
 ```bash
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/00-preflight-app.sql   # no collision, not_bcrypt = 0
@@ -165,6 +183,10 @@ before you run `--confirm`.
 ## 7. Attach the auth domain
 
 In Railway, attach the auth domain to the `auth` service on port 3100. Then:
+
+> **Production, 2026-11-21:** the domain is already attached and serving, and by the owner's
+> decision it stays so ([`release-record.md`](release-record.md)). In production skip the attach;
+> the probe below prints `200` (never `000`). The 404-or-502 rule still applies to staging.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # 404 or 502; never 200, never 000

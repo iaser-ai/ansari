@@ -17,7 +17,8 @@ const ROLLBACK = 'docs/cutover/rollback.md';
 const SCRIPTS_DIR = 'apps/auth/scripts/cutover';
 const SCRIPTS_README = `${SCRIPTS_DIR}/README.md`;
 const GUIDE = 'docs/cutover/deploy-guide.md';
-const DOCS = [RUNBOOK, ROLLBACK, GUIDE, 'docs/cutover/edge-check.md', 'docs/cutover/baselines.md', 'docs/cutover/rehearsal.md', SCRIPTS_README];
+const RECORD = 'docs/cutover/release-record.md';
+const DOCS = [RUNBOOK, ROLLBACK, GUIDE, RECORD, 'docs/cutover/edge-check.md', 'docs/cutover/baselines.md', 'docs/cutover/rehearsal.md', SCRIPTS_README];
 
 /** Repo-relative paths a doc names in backticks or as a command argument. */
 export function namedRepoPaths(doc: string): string[] {
@@ -37,6 +38,7 @@ describe('cutover docs: every named file exists', () => {
     [RUNBOOK, 8],
     [ROLLBACK, 1],
     ['docs/cutover/rehearsal.md', 2],
+    [RECORD, 4],
   ])('every repo path %s names exists', (rel, atLeast) => {
     const paths = namedRepoPaths(read(rel));
     expect(paths.length).toBeGreaterThanOrEqual(atLeast);
@@ -85,9 +87,10 @@ describe('the window runbook', () => {
   });
 
   it('applies every migration with both psql flags, naming the database', () => {
-    // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329).
+    // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329);
+    // and step 5's production single-file form for a journal file newer than the early apply (2026-11-21).
     const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l) || /auth-journal\.mjs files/.test(l));
-    expect(applies.length).toBe(4);
+    expect(applies.length).toBe(5);
     for (const line of applies) {
       expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /);
     }

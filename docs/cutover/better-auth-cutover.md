@@ -86,6 +86,10 @@ is never run casually: only under the full operator checks and step 1's hygiene 
 same session discipline as the real copy. Its timing previews step 6's. It is not a step of the window: in the window,
 step 6 runs `copy.sh` without the flag.
 
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)), so there the dry run finds the schema and adds no
+> baseline; it still leaves zero users and accounts behind, which `copy.sh` checks.
+
 **`psql`.** Every `psql` that applies a migration is `psql -X -v ON_ERROR_STOP=1 --single-transaction -f <file>`:
 with both flags, a failed statement stops the run **and** rolls back everything before it. The
 cutover scripts are the exception named in their README: they open their own transaction and
@@ -94,6 +98,9 @@ run without `--single-transaction`.
 **Release record.** Keep one record for the window, in the release notes. It gets the promoted
 commit, every SQL file with the commit it was applied from, `cutover_at`, every check's output
 (counts and checksums only) and every decision taken.
+
+> **Production, 2026-11-21:** the production record is [`release-record.md`](release-record.md);
+> it already holds the early apply of the auth journal.
 
 **Freeze.** From the merge of the cutover PR to the end of the production window, **nothing**
 merges to `develop` except the staging rehearsal's docs-only evidence PR (owner amendment R-2).
@@ -134,7 +141,7 @@ promote `develop`. Each step is run as written, except for these differences:
 | The operator environment, with production's URLs | The **same machine, forwarder setup and checkout path**, with staging's forwarder and URLs (the rehearsal proves this environment, not only the SQL); `CUTOVER_ENV=staging`, which the seed also requires |
 | `api.askansari.ai`, `api-35.ansari.chat`; `auth.askansari.ai`; the production web domain | `api-staging.askansari.ai`; `auth-staging.askansari.ai`; the staging web domain. Service names are on main's sheet |
 | The `auth` service is created for the window with no deployment, or found with none | Staging `auth` already exists and runs the PIR #59 code: **remove its active deployment before step 9** (record its ID), so the domain attached in step 9 serves nothing until the merge deploys the new code |
-| The auth database is created for the window, or found (C-4) | It already exists, empty, on Postgres 18. Step 1's empty and version checks apply as written |
+| The auth database is created for the window, or found (C-4). **2026-11-21:** it exists and the auth journal is already applied ([`release-record.md`](release-record.md)); step 1 checks it holds no users and no accounts | It already exists, empty, on Postgres 18. Step 1's empty and version checks apply as written |
 | The app database is production's | The staging app database (Postgres 18) with its **existing staging users**, no production restore (R-1), plus the anomaly seed below |
 | Step 1 records the rollback targets: `backend`, the legacy web service and `auth` (deployment ID and commit, or none) | `backend`, the **staging web service** (it already serves `apps/frontend`) and `auth` (the PIR #59 deployment removed before step 9) |
 | Step 2: the public maintenance notice | The team only; no public notice |
@@ -206,6 +213,9 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
       prints `0`;
     - `psql "$APP_DATABASE_URL" -X -At -c "select system_identifier from pg_control_system()"` and
       the same for `$AUTH_DATABASE_URL` print two **different** numbers;
+    - **Production, 2026-11-21:** production's auth journal is already applied
+      ([`release-record.md`](release-record.md)), so there the `auth` schema count prints `1`, not
+      `0`; the auth database's emptiness is step 1's users-and-accounts count below.
   - TLS on that path is probed and recorded (the operator environment section): `sslmode=require`
     with `pg_stat_ssl` printing `t`, or the recorded reason for going without it;
   - the URLs are entered with `read -rs` only: never typed as a command, never in a file, a note
@@ -232,6 +242,11 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
   created for this window (production) or already existed (staging):
   `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')"`
   prints `0`. Step 5 then applies the whole auth journal as written.
+  > **Production, 2026-11-21:** production's auth journal is already applied
+  > ([`release-record.md`](release-record.md)), so the table count above is not `0` there. In
+  > production the emptiness check is
+  > `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"`,
+  > which prints `0`, and step 5 runs only the journal check.
 - Every **collision** the preflight lists is decided and resolved (the copy and `0011` abort on
   any), the preflight shows no NULL `created_at`/`updated_at` (the copy aborts on any: it
   copies timestamps exactly), and `not_bcrypt = 0` (the copy aborts on any hash that is not
@@ -255,9 +270,13 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 - Railway (main architect's runbook section): the `auth` service exists (in production it is
   created for this window, or found; in staging it already exists) with its variables set
   (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port,
-  `PORT=3100`; **no domain yet** and **no active deployment** (staging: the PIR #59 deployment is
+  `PORT=3100`; **no domain yet** and **no active deployment** (**production, 2026-11-21:** these
+  do not hold, by the owner's decision: the domain stays attached and serving until the window;
+  see [`release-record.md`](release-record.md))
+  (staging: the PIR #59 deployment is
   removed, its ID recorded above); its own Postgres with snapshots or PITR **on**. The auth
-  database is **empty** (no schema yet). Neither `auth` nor `backend` carries
+  database is **empty** (no schema yet; **production, 2026-11-21:** it already holds the applied
+  auth journal and no rows, see [`release-record.md`](release-record.md)). Neither `auth` nor `backend` carries
   `AUTH_INTERNAL_SECRET`, `AUTH_INTERNAL_URL` or `INTERNAL_PORT` (spec H-1: there is no internal
   hop). `backend` has the four variables the new code requires in production (it does not boot
   without them), read from its first deploy in step 10: `AUTH_URL=https://auth.askansari.ai` (the
@@ -329,7 +348,8 @@ web app; `cutover_at` and the session start are in the record.
 ## 4. Snapshots
 
 Take a Railway snapshot (or note the PITR mark) of the **app database**, and of the (empty)
-**auth database**.
+**auth database** (production, 2026-11-21: schema applied, no rows; see
+[`release-record.md`](release-record.md)).
 
 **Check:** both snapshot ids or PITR timestamps are in the record.
 **Abort:** step 3's abort.
@@ -343,6 +363,19 @@ runs **before** the copy (step 6): the auth database is empty here, so no constr
 apply, and the copy then runs against the final schema in its one transaction, where a duplicate
 aborts cleanly. (The duplicate pre-check in the service-keys runbook is for a database that
 already holds data, staging; not this one.)
+
+> **Production, 2026-11-21:** production's auth journal (`0000_auth_schema`, `0001_api_key`) is
+> already applied, ahead of the window ([`release-record.md`](release-record.md)). In production
+> this step runs **only the journal check** below (the `set -o pipefail` and `check` lines), and
+> applies only a file the check reports missing (a journal file newer than the record), one at a
+> time, with `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`.
+> The `for` loop is **not** run in production: it would re-apply `0000_auth_schema` and stop on
+> its error. **Exception:** after a `DROP SCHEMA auth CASCADE` (an abort, or
+> [`rollback.md`](rollback.md)'s restart), every file is missing, so the loop **is** run as
+> printed. Record an `auth-journal-applied` line only for a file applied in the
+> window. The empty check is
+> `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"`,
+> which prints `0`.
 
 ```bash
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
@@ -368,6 +401,12 @@ prints `auth.users`.
 **Abort:** `psql "$AUTH_DATABASE_URL" -X -c 'DROP SCHEMA auth CASCADE'`, then step 3's abort.
 
 ## 6. The copy and the audits
+
+> **Production, 2026-11-21:** no `create-service` or `create-key` in production before this
+> step's `copy.sh: audit OK`: a service user is a row in `auth.users` and `auth.account`, and the
+> copy then refuses (`auth.users is not empty`). Issue the service keys after the copy and before
+> step 10's promotion ([`service-keys-runbook.md`](service-keys-runbook.md)); see
+> [`release-record.md`](release-record.md).
 
 Re-run the preflight first; it must show no collision, `no_password_hash = 0`, `not_bcrypt = 0` and no NULL timestamp. Then copy:
 
@@ -442,6 +481,13 @@ Now, after the copy (step 6) and the admin roles (step 8), and before step 10 de
 copy: a reachable `apps/auth` would accept sign-ups into `auth.users`, and the copy's empty-target
 guard would abort. `auth` has **no active deployment** yet (step 1), so the domain serves nothing
 until step 10, while Railway issues its certificate.
+
+> **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
+> deviation in [`release-record.md`](release-record.md). By the owner's decision recorded there
+> (it stays serving until the window), **in production the attach is skipped**, and the check
+> before the promotion expects `/health` `200` from the deployment already there. The
+> stop-on-`200` below does not apply to production; it still applies to staging and to any
+> environment without that decision.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health
