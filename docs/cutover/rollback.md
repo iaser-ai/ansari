@@ -57,7 +57,8 @@ The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and web offline. `bac
 changes the `app-check` answer, and legacy web never asks it (the window's step 3 gives the
 evidence), so web needs its own action:
 - **Production:** `MAINTENANCE_MODE=true` on the legacy web service (its service variable; it is
-  already `true` if the rollback starts before window step 13). The name is `MAINTENANCE_MODE`,
+  already `true` if the rollback starts before window step 13). Each change is a full image
+  rebuild, so steps 1 and 4 add two builds. The name is `MAINTENANCE_MODE`,
   the value `true` with no quotes: an `EXPO_PUBLIC_MAINTENANCE_MODE` on the service has no effect
   (`legacy/frontend-web/Dockerfile:18,30`), and a quoted `"true"` is OFF. It is baked in at build time: web
   is offline only once that rebuild is live, and until then legacy web keeps serving the public on
@@ -67,11 +68,15 @@ evidence), so web needs its own action:
 
 **Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains.
 Production: the window's step 3 ON check (define the three functions there in this session)
-prints `web-flag-ON` (nothing printed is not ON: stop), and a fresh private window on the
-web domain shows the maintenance screen. Staging: the web domain no longer serves the web app.
-**If it fails:** stop; nothing below is safe while new code serves users. A web rebuild that fails
-leaves the previous deployment serving: if that is the live app, tell the security architect at
-once.
+prints `web-flag-ON`. **The rebuild takes minutes.** Until it is live the ON check prints nothing,
+and web keeps serving the public on the new code: wait and re-run it, that is not a failure. Only a
+failed build or a `web-flag-ON` that never prints is the failure, and then the fallback below
+applies. Once it prints, a fresh private window on the web domain shows the maintenance screen. Staging: the web domain no longer serves the web app.
+**If it fails:** stop; nothing below is safe while new code serves users. **Fallback only (production)**,
+if the web rebuild fails or hangs, or `web-flag-ON` never prints: detach the web domain from the
+legacy web service (the window's step 3 fallback: it stops new loads and reloads at once, with the
+same open-tab residual) and tell the security architect. Step 4 re-attaches it. A failed build
+leaves the previous deployment serving (dashboard behaviour, not established from the repo).
 
 ## 2. Remove the post-cutover users
 
@@ -163,7 +168,8 @@ There is no swap to reverse (backend-only release).
     needed.
 
   The failure mode of all three is web staying on the maintenance build, which is safe: the screen
-  makes no api request. The public sees legacy web, now on the legacy `apps/api`, once a deployment
+  makes no api request. If step 1 took the detach fallback, re-attach the web domain to the same
+  legacy web service once the OFF check passes on its Railway domain. The public sees legacy web, now on the legacy `apps/api`, once a deployment
   that passes the OFF check is live.
 - **Staging:** re-attach the web domain, detached in step 1, to the **same** staging web service.
   Make sure that service runs the deployment whose **ID the release record holds** (window step

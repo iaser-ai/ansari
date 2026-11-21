@@ -246,7 +246,7 @@ describe('the window runbook', () => {
       ['a,MAINTENANCE_MODE:()=>E("true")}', 'on'],
       ['a,MAINTENANCE_MODE:()=>E("True")}', 'on'],
       ['a,MAINTENANCE_MODE:()=>t("1")}', 'on'],
-      ['a,MAINTENANCE_MODE:()=>E(void 0)}', 'off'],
+      ['a,MAINTENANCE_MODE:()=>E(void 0)}', 'neither'], // not built through the Dockerfile: the flag does nothing (#421 1b)
       ['a,MAINTENANCE_MODE:()=>E("")}', 'off'],
       ['a,MAINTENANCE_MODE:()=>t("")}', 'off'], // production, flag off (main, 2026-11-21)
       ['a,MAINTENANCE_MODE:()=>E("false")}', 'off'],
@@ -275,6 +275,29 @@ describe('the window runbook', () => {
     expect(rb4).toMatch(/OFF check prints `web-flag-OFF`/);
     for (const option of ['**(a)**', '**(b)**', '**(c)**']) expect(rb4, option).toContain(option);
     expect(rb4).toMatch(/The failure mode of all three is web staying on the maintenance build, which is safe/);
+    // Round 1b: the order in step 3 and guide step 2 (probe and ON check, THEN cutover_at).
+    const order = (text: string) => [text.indexOf('web_flag_on https://<web domain>                   # production: web-flag-ON'), text.indexOf('export CUTOVER_AT=')];
+    for (const text of [step3, read(GUIDE)]) {
+      const [on, at] = order(text);
+      expect(on, 'the ON check is in the block').toBeGreaterThan(0);
+      expect(on).toBeLessThan(at);
+    }
+    expect(step3).toMatch(/\*\*Empty output is\s+inconclusive, never OFF\.\*\*/);
+    expect(step3).toContain('curl -fsSL "$1/"');
+    expect(step3).toMatch(/\*\*`\(void 0\)` passes neither, on purpose\.\*\*/);
+    expect(steps[0]).toMatch(/`\(void 0\)` there means the deployed image was not built through the\s+Dockerfile's `ARG`-to-`ENV` mapping/);
+    // The detach is the fallback only, in step 3, step 13's abort and rollback step 1.
+    expect(step3).toMatch(/\*\*Fallback only, if the maintenance build cannot be produced \(production\):\*\*/);
+    expect(step(/\d+\. Web back$/)).toMatch(/\*\*Fallback only\*\*, if that rebuild fails or hangs/);
+    expect(rollback.slice(rollback.indexOf('## 1.'), rollback.indexOf('## 2.'))).toMatch(/\*\*Fallback only \(production\)\*\*/);
+    expect(rollback.slice(rollback.indexOf('## 1.'), rollback.indexOf('## 2.'))).toMatch(/wait and re-run it, that is not a failure/);
+    // web-sources-match: a step 1 precondition and step 13's check (not a bare commit comparison).
+    expect(steps[0]).toContain('git diff --quiet <recorded web commit> origin/<web deploy branch> -- legacy/frontend-web && echo web-sources-match');
+    expect(step(/\d+\. Web back$/)).toContain('git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match');
+    expect(step(/\d+\. Web back$/)).not.toMatch(/serving \(`RELEASE\.md`\)|or\s+step 10's if the push rebuilt it/);
+    expect(step3).toMatch(/step 6 copies them, and a rollback keeps them/);
+    expect(step3).toMatch(/each add a build to the window, and a rollback's steps 1 and 4 two more/);
+    expect(step3).toMatch(/The Caddyfile's `no-cache` is the origin's header/);
     // Production returns only backend; the web's recorded ID is kept, not redeployed in step 3.
     expect(rollback).toMatch(/\*\*In production only `backend` returns:\*\*/);
     expect(doc).toMatch(/In production, rollback step 3 returns only `backend` to its\s+recorded deployment/);

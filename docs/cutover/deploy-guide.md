@@ -96,8 +96,11 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   (`git cat-file -e <web commit>:legacy/frontend-web/src/components/MaintenanceScreen.tsx && echo web-has-switch`),
   `MAINTENANCE_MODE` is absent or `false` on it and is a **service variable** of the legacy web
   service, never a shared one (web's flag goes off in step 9, `backend`'s in step 10), and its
-  `EXPO_PUBLIC_API_V2_URL` is an absolute api origin. Record each, with the runbook step 3 bundle
-  check's OFF output.
+  `EXPO_PUBLIC_API_V2_URL` is an absolute api origin. No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is
+  left on it. `git diff --quiet <recorded web commit> origin/<web deploy branch> -- legacy/frontend-web && echo web-sources-match`
+  prints `web-sources-match`. The runbook step 3 OFF check (`web_flag_off https://<web domain>`)
+  prints `web-flag-OFF`; `(void 0)` from `web_flag` means the image was not built through the
+  Dockerfile and the flag would do nothing: do not start. Record each.
 - **Staging:** the auth domain's DNS record exists and is not attached to any service.
   (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
@@ -208,21 +211,29 @@ take web offline (the runbook's step 3):
 - **Staging:** detach the web domain from the staging web service (`apps/frontend` has no switch,
   #419).
 
-Wait until both are live, then:
+Each web flag change is a full image rebuild (minutes). Define the runbook step 3 web flag checks
+in this shell, then wait until both are live, **before** taking `CUTOVER_AT`:
 
 ```bash
-export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
-echo "$CUTOVER_AT"                                 # into the release record
 curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform":"ios","native_application_version":"1.0.0","native_build_version":"1"}' | jq .maintenance_mode   # true
+web_flag_on https://<web domain>                   # production: web-flag-ON
 ```
 
 `MAINTENANCE_MODE` takes effect only once Railway's redeploy of `backend` is healthy, so the probe
 prints `false` until then: wait and re-run it, that is not a failure. In production, also run the
-probe on `https://api-35.ansari.chat`, and, after defining the runbook step 3 web flag checks
-in this shell, `web_flag_on https://<web domain>` until it prints `web-flag-ON`. It prints that only
-for `true`, `True` or `1`; nothing printed means OFF or unseen: do not go on.
-A fresh private window there shows "Ansari is currently under maintenance." Take a Railway snapshot of
-both databases and record their ids.
+probe on `https://api-35.ansari.chat`. `web_flag_on` prints `web-flag-ON` only for `true`, `True`
+or `1`; until the rebuild is live it prints nothing: wait and re-run. A fresh private window on the
+web domain then shows "Ansari is currently under maintenance." **Fallback only**, if the web
+rebuild fails or hangs or `web-flag-ON` never prints: detach the web domain from the legacy web
+service, tell the security architect, and re-attach it in step 9 (the runbook's step 3 fallback).
+Then:
+
+```bash
+export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
+echo "$CUTOVER_AT"                                 # into the release record
+```
+
+Take a Railway snapshot of both databases and record their ids.
 
 ## 3. Auth schema
 
@@ -344,7 +355,9 @@ curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                     
   service's Railway domain shows the maintenance screen too. Staging: as the runbook says.
 - Web back (runbook step 13). **Production:** set `MAINTENANCE_MODE=false` on the legacy web
   service; it rebuilds, and the public sees legacy web only when that deployment is live. Check:
-  `web_flag_off https://<web domain>` prints `web-flag-OFF`, and a fresh private window shows the app. If the rebuild
+  `web_flag_off https://<web domain>` prints `web-flag-OFF`, a fresh private window shows the app, and
+  `git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match`
+  prints `web-sources-match`. If the rebuild
   fails or hangs, the maintenance build keeps serving: retry once, then set the variable back to
   `true` and tell the security architect. **Staging:** re-attach the web domain to the same web
   service it was detached from in step 2. There is no web swap. If legacy web fails against the
