@@ -176,6 +176,33 @@
     "FACILITATOR_SYNTHESIS_RESERVE_MS",
     "EXPO_PUBLIC_*",
     "EXPO_NO_TELEMETRY",
+    // apps/whatsapp (issue #358): every variable its Zod schema (src/config.ts)
+    // reads. It reads nothing else except GITHUB_ACTIONS, which only src/index.ts
+    // (the running service, never a task) looks at. Undeclared, CI's
+    // `grep -v '^#' apps/whatsapp/.env.ci >> $GITHUB_ENV` would be invisible to
+    // its tasks AND absent from the cache key. SENTRY_DSN and PORT are above.
+    // tests/envTemplates.test.ts fails if a key is added to the schema and not
+    // to .env.example; add it here too (derivation step 1 above).
+    "BACKEND_SERVER_URL",
+    "AUTH_SERVER_URL",
+    "AUTH_WHATSAPP_API_KEY",
+    "META_API_VERSION",
+    "META_BUSINESS_PHONE_NUMBER_ID",
+    "META_ACCESS_TOKEN_FROM_SYS_USER",
+    "META_WEBHOOK_VERIFY_TOKEN",
+    "META_ANSARI_APP_SECRET",
+    "META_REPLY_BY_PHONE",
+    "ENVIRONMENT",
+    "ALWAYS_RETURN_OK_TO_META",
+    "ORIGINS",
+    "WA_MAINTENANCE_MODE",
+    "WHATSAPP_CHAT_RETENTION_HOURS",
+    "WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS",
+    "LOGGING_LEVEL",
+    "MOCK_ANSARI_CLIENT",
+    "MOCK_AUTH_CLIENT",
+    "MOCK_AUTH_TOKEN",
+    "MOCK_META_API",
     "PORT"
   ],
 

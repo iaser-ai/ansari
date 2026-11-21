@@ -1,0 +1,28 @@
+NOTE: This is an agent self-review written by the implementing agent. It is NOT the output of a `consult` run; no external model was consulted (owner instruction: "don't consult; just self review").
+
+Phase 3 (service clients): apps/auth token exchange, Meta Graph API sender, apps/api chat client.
+
+VERIFIED (by running it)
+- `pnpm --filter ansari-whatsapp typecheck` exit 0, `lint` exit 0, `test` exit 0: 559 tests pass (536 before the stream-reader tests were added).
+- Mutation controls, one rule broken at a time, tests run, file restored and compared to the original:
+  - Run 1: 23 mutations. 21 caught, 1 not caught, 1 skipped because my search pattern did not match.
+    - Not caught: a `\r` at the end of a stream chunk being treated as a whole line end. Fixed by adding tests/http.test.ts (line reader, idle timer, error describer, slash trimming).
+    - Skipped: "redirects followed" for the apps/auth client. Re-run with a corrected pattern.
+  - Run 2: 8 mutations (redirect following in all three clients, the `\r` case, a held final `\r`, a dropped last line, no reader cancel on early exit, an idle timer that ignores reset). All 8 caught.
+  - After each run the final test count was unchanged and `git status` showed only intended files.
+- `pythonRepr` was compared with real Python `repr` through the oracle (REPR_CASES).
+
+DIFFERENCES FROM PYTHON (deliberate or unavoidable)
+- fetch vs httpx: fetch has no per-phase timeouts, so each call has one overall deadline (5 s auth, 20 s Meta); chat streams use an idle timer that restarts on every chunk (60 s).
+- fetch follows redirects unless told otherwise, so every call sets `redirect: 'manual'`; a redirect counts as a failure, as httpx's default does.
+- One `MetaApiError` (with optional `status`) replaces httpx's two exception types.
+- The mock apps/api client has no random latency or injected errors; the mock token is sha256-based, not a UUID.
+- `readLines` splits only on \n, \r\n and \r (the SSE rule). Python's `splitlines` also splits on U+2028 and similar; this is intentional and tested.
+- The "401 -> forget token, re-exchange once, retry once" flow is not in these clients. They raise `ApiUnauthorizedError`; the conversation manager (phase 4) does the retry.
+- Errors are sent to Sentry through an injected `ErrorReporter`; the real Sentry sender is wired in phase 5. Until then the default is a no-op.
+
+NOT VERIFIED
+- No real network call was made. The real apps/auth, apps/api and Meta contracts are checked only through fakes written from the Python code and the Meta docs.
+- Behaviour of the real fetch implementation on a mid-stream connection reset (only simulated).
+
+VERDICT: COMMENT

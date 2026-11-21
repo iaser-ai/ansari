@@ -251,6 +251,16 @@ See `codev/reviews/329-apps-auth-service-api-keys-bet.md` for the full context.
 - **(spec 314) Pin a remote verdict's refusal shape on both sides.** apps/auth asserts a byte-identical `{"valid":false}`. apps/api accepts only that shape and treats anything else as an outage (503). Adding a field on one side turns every bad key into a 503, so both sides must change together.
 - **(spec 314) Scope a compatibility window to what it protects.** A legacy-prefix window meant for one live WhatsApp key was first applied to every service, which left the brand-new MCP route accepting a cross-environment prefix class that protected no key. Make the window's state a parameter of pure builders and test both states, so closing it is a one-line change that the tests already cover.
 
+## TypeScript WhatsApp service (issue #358)
+
+See `codev/reviews/358-whatsapp-typescript.md` for the full context.
+
+- **Meta's `/app/subscriptions` API refuses a `verify_token` over 64 characters.** The error is `(#100) Param verify_token must be at most 64 characters long`; the Graph docs state no limit and the dashboard field may accept more (not verified). A 65-character legacy token therefore cannot be re-registered by API. Check the length before re-registering a callback.
+- **`dotenv` never overrides a variable already in the environment.** A shell that loaded `META_*` (for a read-only Graph call, say) silently beats `.env`, so the service used the old token and Meta's handshake got a 403. Start the service from a shell with `META_*` removed.
+- **A dev service on `localhost` can bind IPv6 only (Node 22).** A tunnel aimed at `127.0.0.1` then returns 502. Check with `curl` on both addresses and point the tunnel at `[::1]`, or bind `127.0.0.1`.
+- **A fake signed webhook tests the whole chain except delivery.** Sign the exact bytes with the app secret and post it with an HTTP client (`curl` treats `[` and `{` in a body as globs). The reply to a BSUID fails on a test number (`131030`), so only a real message from a phone proves delivery.
+- **Breaking one rule at a time found a real gap in almost every phase.** A mutation run on the operator script found an untested missing-id case and showed that a Ctrl+C handler I had added was redundant (without a `SIGINT` listener readline closes itself; a do-nothing listener swallows Ctrl+C). Run the controls, then fix every one that is not caught or is skipped.
+
 ## Thread history limits (issue #400)
 
 See `codev/reviews/400-thread-history-is-unbounded-lo.md` for the full context.

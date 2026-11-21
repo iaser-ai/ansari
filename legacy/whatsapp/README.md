@@ -124,6 +124,12 @@ Only the facts below come from this repo. The dashboard settings themselves are 
 
 The Docker image has not been built or run by the author of this change. Do that first when preparing a deploy.
 
+### Rolling back from `apps/whatsapp`
+
+The TypeScript port (`apps/whatsapp`, issue #358) is meant to replace this service. This image and Dockerfile are unchanged, so
+rolling back is a settings change only: point the Railway service back at `legacy/whatsapp/Dockerfile` and set Meta's callback
+URL back to `https://<domain>/whatsapp/v2` (the port serves `/whatsapp/v3`).
+
 ### Staging smoke test
 
 Steps 3 to 8 start with `!s `, because staging ignores messages without it.

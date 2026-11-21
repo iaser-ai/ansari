@@ -1,0 +1,35 @@
+NOTE: This is an agent self-review written by the implementing agent. It is NOT the output of a `consult` run; no external model was consulted (owner instruction: "don't consult; just self review").
+
+Phase 4 (conversation manager): src/conversationManager.ts, src/utils/pythonText.ts, tests/conversationManager.test.ts, tests/pythonText.test.ts, and new Python-oracle tables.
+
+VERIFIED (by running it)
+- `pnpm --filter ansari-whatsapp typecheck` exit 0, `lint` exit 0, `test` exit 0: 708 tests in 16 files (559 before this phase).
+- The full suite was run 5 times and the manager tests 3 more times under 4 busy CPU loops: no failure, so the timing-based typing-indicator tests are not flaky on this machine.
+- Mutation controls, one rule broken at a time, whole suite run, file restored and compared to the original: 37 mutations, 37 caught, 0 not caught, 0 skipped, 0 restore mismatches. They cover: maintenance mode, the staging "!d " filter (every-environment, no-space prefix), message age and threshold, type triage, reply addressing (phone ignored, no-recipient guard), Meta failure containment, each sign-in notice, rounding of the rate-limit minutes, the unsupported-type wording, each operator report tag and what travels with it, the 401 retry (forget, third attempt, 429 wording, second-401 report), thread expiry (boundary, retention setting), thread title (word count, whitespace set), timestamps without a time zone, a failed delete still creating a thread, whitespace-only answers, markdown conversion, and the typing indicator (stop, failed answer, maximum duration, a failed indicator, start before sign-in).
+- Python's real answers, taken by running the legacy code (generate_python_oracle.py, new tables): the rate-limit notice for 15 waits, the unsupported-type notice for 19 message types, the thread title for 17 messages, and the full list of 29 code points `str.isspace()` accepts (checked against all 1,114,112 code points by tests/pythonText.test.ts).
+
+PORTED FROM PYTHON
+- `WhatsAppConversationManager` and the checks in the webhook route of `main.py` (maintenance mode 503, "!d " filter 202, too old 422, unsupported 415, text 200). Notice texts are copied word for word, including the ".." in the thread-deletion notice.
+- Python scenarios from test_thread_lifecycle.py, test_auth_statuses.py (last half), test_environment_behaviour.py (maintenance, "!d ", unsupported in staging), test_bsuid_auth_flow.py (reply addressing, no phone to apps/auth or apps/api, no identifiers in logs).
+
+DIFFERENCES FROM PYTHON (deliberate)
+- One `ConversationManager` serves every message; per-message state (token, typing indicator) is a `Turn` object. Python built a manager per webhook.
+- `triage()` returns what should happen and the HTTP layer (phase 5) maps it to status codes, then calls `dispatch()`. Python mixed both in the route.
+- Settings, clients and the clock are passed in, not read from globals.
+- A whitespace-only answer splits into nothing (phase 2 fix); the user gets "Sorry, we couldn't process your message. Please try again later." as for an empty answer. This is the phase-2 requirement, now implemented and tested.
+- Two Python branches are not ported because they cannot be reached here: a thread-creation reply without an id (the apps/api client already refuses it) and an answer that formats to empty text (the formatter never empties non-empty text).
+- Python's `isoformat` read of `last_message_time` refused a timestamp with no time zone; JavaScript would read it as server-local time. A regular expression requires `Z` or an offset and anything else is treated as an unexpected fault (user gets the "unexpected error" notice).
+- Python's `str.split()` and JavaScript's `\s` differ (BOM, U+001C-U+001F, U+0085); a hand-written `pythonSplitWords` is used for the thread title and checked against Python's full list.
+- The typing indicator is an `AbortController`-driven loop instead of an asyncio task. Python's "cancel" ends the sleep at once; so does `abort()` here.
+- Python caught `Exception` in `handle_text_message`; here an unexpected fault is caught by the same outer handler, logged with its error, and gets the "unexpected" notice. The typing indicator is now stopped in a `finally`, so every exit ends it (Python cancelled it only on some exits).
+
+KNOWN LIMITS
+- `dispatch()` is awaited by its caller. The un-awaited call with a catch-all (so a failure is never lost) is phase 5's job, as the plan says. Nothing here throws in normal use, but I did not prove that for every possible fault, only for the ones in the tests (including a RangeError from apps/api).
+- Mock-only: the in-memory clients do not behave like the real services when a token changes (the mock gives each token its own threads), so the retry tests replace the thread calls to isolate the retry rule.
+- The "Sentry" reporter is a function passed in; the real Sentry sender is wired in phase 5.
+
+NOT VERIFIED
+- No real network call, no real apps/auth, apps/api or Meta behaviour (all fakes).
+- The corner case in the thread-expiry comment (two quick messages after expiry giving two threads) was kept as a documented decision from spec 321; no test exercises it.
+
+VERDICT: COMMENT

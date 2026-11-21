@@ -1,0 +1,71 @@
+id: '358'
+title: whatsapp-typescript
+protocol: spir
+phase: review
+plan_phases:
+  - id: phase_1
+    title: Scaffold apps/whatsapp, config, masked logging
+    status: complete
+  - id: phase_2
+    title: 'Pure logic: formatter, splitter, webhook parser, language and time helpers'
+    status: complete
+  - id: phase_3
+    title: 'Service clients: apps/auth exchange, apps/api streaming, Meta API'
+    status: complete
+  - id: phase_4
+    title: Conversation manager
+    status: complete
+  - id: phase_5
+    title: 'HTTP app: webhook verification, signature check, immediate 200'
+    status: complete
+  - id: phase_6
+    title: Docker, Railway config, CI, turbo and documentation
+    status: complete
+  - id: phase_7
+    title: Staging redeploy, smoke test and legacy rollback note
+    status: complete
+current_plan_phase: null
+gates:
+  spec-approval:
+    status: approved
+    approved_at: '2026-11-10T13:37:12.921Z'
+  plan-approval:
+    status: approved
+    approved_at: '2026-11-10T14:06:42.538Z'
+  pr:
+    status: pending
+  verify-approval:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-10T12:39:08.669Z'
+updated_at: '2026-11-11T06:42:52.694Z'
+context_refreshes:
+  - boundary: enter:plan
+    at: '2026-11-10T13:37:26.336Z'
+    acknowledged_at: '2026-11-10T13:37:36.557Z'
+  - boundary: enter:implement
+    at: '2026-11-10T14:06:46.783Z'
+    acknowledged_at: '2026-11-10T14:07:00.688Z'
+  - boundary: plan-phase:phase_2
+    at: '2026-11-10T17:47:59.160Z'
+    acknowledged_at: '2026-11-10T17:48:30.123Z'
+  - boundary: plan-phase:phase_3
+    at: '2026-11-10T18:32:16.131Z'
+    acknowledged_at: '2026-11-10T20:02:57.123Z'
+  - boundary: plan-phase:phase_4
+    at: '2026-11-10T20:03:04.356Z'
+    acknowledged_at: '2026-11-10T20:09:01.441Z'
+  - boundary: plan-phase:phase_5
+    at: '2026-11-10T20:48:04.354Z'
+    acknowledged_at: '2026-11-11T03:07:41.500Z'
+  - boundary: plan-phase:phase_6
+    at: '2026-11-11T03:56:18.757Z'
+    acknowledged_at: '2026-11-11T05:19:03.557Z'
+  - boundary: plan-phase:phase_7
+    at: '2026-11-11T05:19:06.565Z'
+    acknowledged_at: '2026-11-11T06:00:56.255Z'
+  - boundary: enter:review
+    at: '2026-11-11T06:42:43.146Z'
+    acknowledged_at: '2026-11-11T06:42:52.693Z'
