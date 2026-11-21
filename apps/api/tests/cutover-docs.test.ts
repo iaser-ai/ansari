@@ -173,17 +173,73 @@ describe('the window runbook', () => {
   });
 
   it('attaches the auth domain before the web domain comes back (R4); there is no web swap (#416)', () => {
-    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/The web domain back/));
-    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/The web domain back/));
+    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/^\d+\. Web back$/));
+    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/^\d+\. Web back$/));
     expect(doc).not.toMatch(/Replace legacy web|legacy web retires in step 13|EXPO_PUBLIC_AUTH_URL=https/);
   });
 
-  it('says why the web domain is detached: legacy web never asks app-check (owner, 2026-11-21)', () => {
+  it('production web goes offline by legacy web\'s own flag, staging by the detach; the open-tab residual is stated (owner, 2026-11-21; #416)', () => {
     const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
-    expect(step3).toMatch(/legacy web does not honour maintenance\s+mode, so only the detach stops web traffic/);
-    // The route is cited by path (its line numbers move); it must be the one that reads the flag.
+    // backend's flag still does nothing for web: legacy web never asks app-check.
     expect(step3).toContain('apps/api/src/app/api/v2/app-check/route.ts');
     expect(read('apps/api/src/app/api/v2/app-check/route.ts')).toMatch(/maintenanceMode/);
+    // Production: the legacy web service's own MAINTENANCE_MODE, service-scoped; staging keeps the detach.
+    expect(step3).toMatch(/\*\*Production: `MAINTENANCE_MODE=true` on the legacy web service\*\*/);
+    expect(step3).toMatch(/\*\*service variable of that service\*\*, never as a shared variable/);
+    expect(step3).toMatch(/\*\*Staging: detach the web domain from the staging web service\.\*\*/);
+    expect(step3).toMatch(/Wait until \*\*both\*\* are live/);
+    expect(step3.indexOf('Wait until **both** are live')).toBeLessThan(step3.indexOf('select now()'));
+    // The detach's old claim is gone; the residual is the same under both mechanisms.
+    expect(doc).not.toMatch(/only the detach stops web traffic|does not honour maintenance/);
+    expect(step3).toMatch(/\*\*Residual: a tab loaded before the maintenance build went live \(owner-accepted, 2026-11-21\)\.\*\*/);
+    expect(step3).toMatch(/\*\*The detach had the same residual\.\*\*/);
+    expect(step3).toMatch(/reset links and\s+shared links opened on web land on the maintenance screen/);
+    // The bundle check reads the flag the served bundle carries; its pattern matches the measured
+    // forms (ON, and both OFF forms) and not an unrelated getEnv entry.
+    const check = /MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)/;
+    expect(step3).toContain(String.raw`grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)'`);
+    for (const measured of ['RE:()=>!1,MAINTENANCE_MODE:()=>E("true")}', 'MAINTENANCE_MODE:()=>E(void 0)}', 'MAINTENANCE_MODE:()=>E("")}']) {
+      expect(check.test(measured), measured).toBe(true);
+    }
+    expect(check.test("const O=(0,S.default)('MAINTENANCE_MODE')")).toBe(false);
+    expect(step3).toMatch(/\*\*production:\*\* `MAINTENANCE_MODE=false` on the\s+legacy web service too/);
+    // The switch the runbook relies on exists in the tree.
+    expect(read('legacy/frontend-web/Dockerfile')).toMatch(/ENV EXPO_PUBLIC_MAINTENANCE_MODE=\$MAINTENANCE_MODE/);
+    expect(read('legacy/frontend-web/src/app/_layout.tsx')).toMatch(/if \(maintenanceMode\) \{\s*return fontsLoaded \? <MaintenanceScreen \/>/);
+    // Step 1: the switch is ready, service-scoped, and the api origin is confirmed.
+    const step1 = steps[0] as string;
+    expect(step1).toContain('**Production: legacy web\'s maintenance switch is ready**');
+    expect(step1).toContain('legacy/frontend-web/src/components/MaintenanceScreen.tsx && echo web-has-switch');
+    expect(step1).toMatch(/\*\*Its `EXPO_PUBLIC_API_V2_URL` is an absolute api origin\*\*/);
+  });
+
+  it('step 13 turns legacy web\'s flag off in production, with a failed-rebuild case; 12a is skipped in production (owner, 2026-11-21)', () => {
+    const step13 = steps[stepOf(/^\d+\. Web back$/) - 1] as string;
+    expect(step13).toMatch(/\*\*Production: `MAINTENANCE_MODE=false` on the legacy web service\*\*/);
+    expect(step13).toMatch(/\*\*Staging:\*\* re-attach the web domain/);
+    expect(step13).toMatch(/\*\*If the rebuild fails or hangs \(production\):\*\*/);
+    expect(step13).toMatch(/\*\*Abort\*\*[\s\S]*production: `MAINTENANCE_MODE=true` on the legacy web service/);
+    const step12a = doc.slice(doc.indexOf('## 12a.'), doc.indexOf('## 13.'));
+    expect(step12a).toContain('### Production: skipped (owner\'s decision, 2026-11-21)');
+    expect(step12a).toMatch(/first exercised at steps 13 and 14, alongside real users/);
+    expect(step12a).toContain('### Staging, and any environment whose web goes offline by a detach: unchanged');
+    // Web's flag goes off at 13, backend's at 15; step 15 says it does not touch web.
+    expect(stepOf(/^\d+\. Web back$/)).toBeLessThan(stepOf(/Maintenance mode off/));
+    expect(steps[stepOf(/Maintenance mode off/) - 1]).toMatch(/its own flag went off at step 13/);
+    // The rollback, the guide, the record and RELEASE.md say the same.
+    const rollback = read(ROLLBACK);
+    expect(rollback).toMatch(/\*\*Production:\*\* `MAINTENANCE_MODE=true` on the legacy web service/);
+    expect(rollback).toMatch(/\*\*Production: do not redeploy the recorded ID\.\*\*/);
+    expect(rollback).toMatch(/\*\*Production:\*\* `MAINTENANCE_MODE=false` on the legacy web service/);
+    const guide = read(GUIDE);
+    expect(guide).toMatch(/\*\*Production:\*\* set `MAINTENANCE_MODE=true` on the \*\*legacy web service\*\*/);
+    expect(guide).toMatch(/\*\*Production:\*\* set `MAINTENANCE_MODE=false` on the legacy web\s+service/);
+    expect(read(RECORD)).toContain('## 2026-11-21: owner decision: legacy web goes offline by its maintenance flag');
+    expect(read('RELEASE.md')).toMatch(/It also takes `MAINTENANCE_MODE` \(PR #418\)/);
+    // No operator doc still detaches the production web domain.
+    for (const rel of [RUNBOOK, ROLLBACK, GUIDE]) {
+      expect(read(rel), rel).not.toMatch(/detach the web domain from the web service \(production|Detach the web domain from the web service \(the legacy web service in production/);
+    }
   });
 
   // A service-key command as an operator would run it: tsx invoking the script's create-service /
@@ -227,7 +283,7 @@ describe('the window runbook', () => {
     const bullet = step1.slice(step1.indexOf('- **Production only:'), step1.indexOf('- **The operator machine'));
     expect(bullet).toContain('**Production only: the rehearsal precondition is waived for this window** (owner, 2026-11-21)');
     expect(bullet).toMatch(/edge properties are first measured live at steps 11 and 12/);
-    expect(bullet).toMatch(/step 12a is the first chance/);
+    expect(bullet).toMatch(/step 12a is not available in production: steps 13 and 14 are the first time/);
     expect(bullet).toContain('On the staging run itself, this item reads:');
     expect(read(GUIDE)).toMatch(/rehearsal precondition is \*\*waived for this window\*\*/);
     expect(read(GUIDE)).not.toMatch(/the staging rehearsal has passed and its evidence is merged/);

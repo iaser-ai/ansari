@@ -189,7 +189,7 @@ only"). Each step is run as written, except for these differences:
 | The app database is production's | The staging app database (Postgres 18) with its **existing staging users**, no production restore (R-1), plus the anomaly seed below |
 | Step 1 records the rollback targets: `backend`, the legacy web service and `auth` (deployment ID and commit, or none) | `backend`, the **staging web service** (it already serves `apps/frontend`) and `auth` (the PIR #59 deployment removed before step 9) |
 | Step 2: the public maintenance notice | The team only; no public notice |
-| Step 3 detaches the production web domain from the legacy web service; step 13 re-attaches it to the **same** legacy web service (no web swap: backend-only, owner 2026-11-21); [`rollback.md`](rollback.md) steps 1 and 4 detach and re-attach it the same way | Staging web **already serves `apps/frontend`**. Step 3 detaches its domain and step 13 re-attaches it, after the merge rebuilt it with `EXPO_PUBLIC_AUTH_URL`. Legacy web against the new `apps/api` is **not** part of this rehearsal ([`rehearsal.md`](rehearsal.md), residuals) |
+| Step 3 sets `MAINTENANCE_MODE=true` on the legacy web service, which then serves its maintenance build; step 13 sets it back to `false` on the same service. The web domain stays attached throughout, and there is no web swap (backend-only; owner 2026-11-21, #416, superseding the same day's detach). [`rollback.md`](rollback.md) steps 1 and 4 set and clear the flag the same way | Staging web **already serves `apps/frontend`**. Step 3 detaches its domain and step 13 re-attaches it, after the merge rebuilt it with `EXPO_PUBLIC_AUTH_URL`. Legacy web against the new `apps/api` is **not** part of this rehearsal ([`rehearsal.md`](rehearsal.md), residuals) |
 | Step 9 **skips the attach** (the domain is already attached and serving) and expects `/health` `200`; steps 11 and 12 probe the production domains | `auth-staging.askansari.ai` attaches at step 9, after the admin roles and before the merge; its DNS record exists, unattached, before the run, and staging `backend`'s `AUTH_URL` is that domain before the merge. The staging domains are probed on **both paths**: via Cloudflare once the owner orange-clouds `api-staging` and `auth-staging`, and direct with `--resolve` ([`edge-check.md`](edge-check.md)). The staging verdict is recorded only after both paths are measured |
 | Step 16 closes the window | Then the **rollback** is rehearsed ([`rollback.md`](rollback.md), all of it). Then the second forward run (rollback's restart procedure), so staging ends on `develop` with auto-deploy on |
 
@@ -324,6 +324,21 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   (owner, 2026-11-21; [`rollback.md`](rollback.md) step 3). On staging, rollback step 3 returns
   all three to exactly these. Rollback always uses these recorded IDs, never one picked by eye from
   a list that by then has new entries.
+- **Production: legacy web's maintenance switch is ready** (owner, 2026-11-21; #416, PR #418). The
+  legacy web service takes itself offline at step 3 with its own build-time `MAINTENANCE_MODE`
+  (`legacy/frontend-web/Dockerfile:18,30`, read by `src/utils/getEnv.ts`), so:
+  - **Its live deployment carries the switch:** for the web commit recorded above,
+    `git cat-file -e <web commit>:legacy/frontend-web/src/components/MaintenanceScreen.tsx && echo web-has-switch`
+    prints `web-has-switch`. The switch reaches the service when #418's merge to `main` deploys
+    it. If it does not print, do not start.
+  - **`MAINTENANCE_MODE` is absent or `false` on it now**, and it is a **service variable of the
+    legacy web service**, never a shared variable. A shared `MAINTENANCE_MODE` would couple web to
+    `backend`, whose flag goes off at a different step (web at 13, `backend` at 15). Only the
+    owner can see this in the dashboard: record it. The step 3 bundle check, run now on the public
+    web domain, prints the OFF form (`(void 0)`, `("")` or `("false")`). Record its output.
+  - **Its `EXPO_PUBLIC_API_V2_URL` is an absolute api origin** (`https://…/api/v2`), as
+    `legacy/frontend-web/dotenv.example` shows. The value is in the dashboard only: the owner
+    confirms it and records it. Step 3's residual rests on it.
 - **Each service's deploy source is recorded from the dashboard** (#416), for `backend`, `auth`
   and the web service: the branch it deploys from, its auto-deploy setting, its Dockerfile path,
   and the commit it runs now (`<auth running commit>` below, in full). **Production `auth`
@@ -349,7 +364,8 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   [`rehearsal.md`](rehearsal.md)'s result rows are blank and the staging edge verdict was never
   recorded. So the edge properties are first measured live at steps 11 and 12, where the security
   architect decides whether the window goes on. Legacy web against the new `apps/api` has not been
-  run either; step 12a is the first chance. On the staging run itself, this item reads:
+  run either, and step 12a is not available in production: steps 13 and 14 are the first time,
+  alongside real users (owner, 2026-11-21). On the staging run itself, this item reads:
   the cutover PR is approved, current with `develop`, and not yet merged.
 - **The operator machine (spec H-8), checked before anything changes:**
   - full-disk encryption is on;
@@ -427,7 +443,12 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   So **every variable the new code reads is set before step 3** (below), and nothing is pushed to the deploying branch between step 3 and step
   10 except step 10 itself. Applying a variable change in Railway redeploys the service's current
   deployment, so the `backend` edits restart the legacy api: make them at a quiet hour the day
-  before, and check its health afterwards.
+  before, and check its health afterwards. In production the legacy web service also rebuilds at
+  steps 3 and 13, when its `MAINTENANCE_MODE` changes: the value is baked in at build time, so a
+  change rebuilds and redeploys the service and takes effect only when the new deployment is live
+  (`legacy/frontend-web/README.md`, "Maintenance mode"). Which commit that rebuild uses is not
+  established (dashboard behaviour). `legacy/frontend-web` is identical on `main` and `develop`, so
+  either way it builds the same sources.
 - Railway (main architect's runbook section): the `auth` service exists with its variables set
   (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port, `PORT=3100`;
   its own Postgres with snapshots or PITR **on**. Then, by environment:
@@ -476,14 +497,16 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   directly: legacy web sends its requests to one base URL, `EXPO_PUBLIC_API_V2_URL`, which is
   `apps/api`. Its readers include `legacy/frontend-web/src/services/ApiService.ts:35`,
   `ChatService.ts:19`, `UserService.ts:11`, `store/slices/authSlice.ts:134` and
-  `utils/getEnv.ts:2` (`git grep -n EXPO_PUBLIC_API origin/develop -- legacy/frontend-web/src`
+  `utils/getEnv.ts:11` (`git grep -n EXPO_PUBLIC_API origin/develop -- legacy/frontend-web/src`
   lists every reader; `src/env/index.ts:2` reads `EXPO_PUBLIC_API_URL` instead, and no import of
   that module was found). A wrong value would fail a browser client that signs
   in at `auth` itself (`apps/frontend`, on staging).
-- **The web service needs no change** (backend-only, owner 2026-11-21). The production web
+- **The web service needs no change** before the window (backend-only, owner 2026-11-21). The production web
   service is legacy web. Its API base URL is baked in at build time
-  (`legacy/frontend-web/Dockerfile:7,18`), and its value lives in the Railway dashboard, not in the
+  (`legacy/frontend-web/Dockerfile:7,21`), and its value lives in the Railway dashboard, not in the
   repo. The `EXPO_PUBLIC_*` variables of `apps/frontend`'s web image are not set for this window.
+  Its only change in the window is its own `MAINTENANCE_MODE`: `true` at step 3, `false` at step 13
+  (production; see the switch's precondition above).
 - **The auth domain's DNS record exists before the window.** Production (owner's decision,
   2026-11-21): `auth.askansari.ai` is attached and serving, and stays so; step 9 skips the attach.
   Staging and any environment without that decision: the **DNS record for `auth.askansari.ai` exists before the window and is not attached** (spec
@@ -509,9 +532,19 @@ window would page on.
 
 The session of steps 3 to 10 starts here; record the time. Set `MAINTENANCE_MODE=true` on
 `backend` (Railway redeploys its current deployment with it: the same commit, still the legacy
-code). Detach the web domain from the web service (the legacy web service in production, the only
-web service there; the staging web service on staging). Step 13 re-attaches it to the same
-service (owner, 2026-11-21). Then take **`cutover_at`** from the app database's own clock:
+code). Then take web offline, by environment:
+- **Production: `MAINTENANCE_MODE=true` on the legacy web service** (owner, 2026-11-21; #416, PR
+  #418), set as a **service variable of that service**, never as a shared variable (step 1). The
+  web domain stays attached. This supersedes the same day's earlier decision to detach the web
+  domain here and re-attach it at step 13. The value is baked in at build time, so setting it
+  rebuilds and redeploys the service, and web is offline only when that new deployment is live.
+  Step 13 sets it back to `false` on the same service.
+- **Staging: detach the web domain from the staging web service.** It serves `apps/frontend`, which
+  has no such switch (#419). Step 13 re-attaches it to the same service.
+
+Wait until **both** are live: `backend`'s flag (the `app-check` probe below) and, in production,
+the web service's maintenance build (the bundle check below). Then take **`cutover_at`** from the
+app database's own clock:
 
 ```bash
 export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
@@ -529,35 +562,90 @@ so no legacy write is expected between the copy and the new code. If one happens
   `apps/auth`, and the orphan-row procedure (below) clears the email conflict;
 - a password change or reset during the window is not in the auth database: the user resets again.
 
-**Why the web domain is detached (owner, 2026-11-21): legacy web does not honour maintenance
-mode, so only the detach stops web traffic.** Read from the tree:
-- `MAINTENANCE_MODE` changes only the `/api/v2/app-check` answer. Its only readers are
+**What takes web offline, and what does not (owner, 2026-11-21).** Read from the tree:
+- `backend`'s `MAINTENANCE_MODE` changes only the `/api/v2/app-check` answer. Its only readers are
   `apps/api/lib/config.ts`, which exposes it as `appVersion.maintenanceMode`, and
   `apps/api/src/app/api/v2/app-check/route.ts:21` (answered at `:26` and `:66`). This holds on
   `develop` and on `origin/main` (`git grep -n MAINTENANCE_MODE <ref> -- apps/api/lib apps/api/src`
   and `git grep -n maintenanceMode <ref> -- apps/api/lib apps/api/src`). No route refuses because
   of it: the api keeps serving every route.
-- `legacy/frontend-web` never asks. `git grep -n -i -E "maintenance|app-check|app_check" <ref> -- legacy/frontend-web`
-  prints nothing for `origin/develop` or `origin/main`. The same pattern on
-  `legacy/frontend-app` finds its maintenance screen (`src/app/_layout.tsx:124-125`), so the scan
-  can match. Legacy web has no handler for an api that is down or answers 5xx either. Its fetch
-  wrapper acts on 401 only (`src/services/ApiService.ts:157`). A failed session restore at
-  launch leaves the user signed out (`src/store/slices/authSlice.ts:160`), and a failed message
-  send is only logged to the console (`src/components/chat/ChatContainer.tsx:33-34`).
+- `legacy/frontend-web` never asks `app-check`:
+  `git grep -n -i -E "app-check|app_check" <ref> -- legacy/frontend-web` prints nothing for
+  `origin/develop` or `origin/main`. The same pattern on `legacy/frontend-app` finds its call
+  (`src/services/ApiService.ts:181`), so the scan can match. `backend`'s flag therefore does
+  nothing for web.
+- **Legacy web's own flag (production).** The legacy web service's `MAINTENANCE_MODE` reaches the
+  build as `EXPO_PUBLIC_MAINTENANCE_MODE` (`legacy/frontend-web/Dockerfile:18,30`) and is on for
+  `true`, `True` or `1` only (`src/utils/getEnv.ts`, `parseMaintenanceMode`). When it is on, the
+  root layout, which wraps every route, renders the maintenance screen in place of the whole app
+  and never builds the store, whose start fetches `/users/me` (`src/app/_layout.tsx:78-91`). So
+  **every route shows the screen and makes no api request**, `/reset-password` and
+  `/share/<id>` included. Measured on a local build of this tree, flag on: `/`, `/login`,
+  `/reset-password?token=…`, `/share/<id>` and `/chat/<id>` each showed "Ansari is currently under
+  maintenance." with zero requests to the api (#416's PR). So **during the window, reset links and
+  shared links opened on web land on the maintenance screen.**
+- **It acts on page loads.** A load or reload after the maintenance build is live gets it:
+  `index.html` is served `Cache-Control: no-cache` (`legacy/frontend-web/Caddyfile`).
 
-So while the domain is attached, legacy web keeps signing users up and in, resetting passwords
-and chatting against whichever `apps/api` is serving: the legacy code until step 10, then the new
-code. The residual above would then hold for every web user in the window, not only for a client
-that ignores maintenance mode.
+**Residual: a tab loaded before the maintenance build went live (owner-accepted, 2026-11-21).**
+Such a tab, not reloaded, keeps running the build it loaded, with the flag off, and calls the api
+directly. Its base URL is the absolute `EXPO_PUBLIC_API_V2_URL`
+(`legacy/frontend-web/src/services/ApiService.ts:35`; step 1 confirms the production value), a
+different origin from the web domain, and the api answers every origin
+(`apps/api/next.config.ts:24`). Legacy web has no handler for an api that is down or answers 5xx.
+Its fetch wrapper acts on 401 only (`src/services/ApiService.ts:157`), and a failed message send
+is only logged to the console (`src/components/chat/ChatContainer.tsx:33-34`). What the tab can do:
+- **Steps 3 to 9 (the legacy `apps/api` serving):** everything, as before the window: sign up,
+  sign in, reset a password, chat. A sign-up or a password change or reset is the residual above
+  (sign up again and the orphan-row procedure; reset again), and the rollback removes every user
+  created at or after `cutover_at`. Chat writes are the serving api's writes, which step 7's table
+  covers.
+- **From step 10 (the new `apps/api`):** its stored access token is a legacy HS256 token, which the
+  new api refuses (`apps/api/lib/auth/verify-jwt.ts:33` pins EdDSA), so its next call gets a 401.
+  Legacy web then posts its legacy refresh token to `/users/refresh_token`
+  (`src/services/ApiService.ts:94`), which the new api cannot exchange
+  (`apps/api/src/app/api/v2/users/refresh_token/route.ts:32` answers 401). Legacy web removes its
+  tokens (`src/services/ApiService.ts:103`) and resets its signed-in state (`:143`): the user is
+  signed out, as every user signed in before the cutover is ("What users and operators will
+  notice"). From then on the tab is the same legacy web code the public gets at step 13, on the
+  new stack, only before steps 11 to 14 have checked it: its sign-ins, sign-ups and resets go
+  through the compatibility layer to `apps/auth`. A rollback handles those users as it handles
+  step 13's: it removes the app rows of users created at or after `cutover_at`, and in production
+  their auth rows stay ([`rollback.md`](rollback.md), step 2).
 
-`MAINTENANCE_MODE` takes effect only once that redeploy is healthy: until then the probe below
-prints `false`, which is not a failure; wait and re-run it.
+**The detach had the same residual.** Detaching the web domain stops new loads and reloads, not an
+already-loaded tab's calls to the api's own origin. Neither mechanism stops such a tab, so this
+decision leaves that residual unchanged.
+
+`backend`'s `MAINTENANCE_MODE` takes effect only once its redeploy is healthy: until then the
+probe below prints `false`, which is not a failure; wait and re-run it. The web service's flag takes
+effect only once its rebuild is live: until then the bundle check prints the OFF form; wait and
+re-run it.
+
+**The bundle check (production web).** It reads the flag from the bundle the web domain serves:
+
+```bash
+W=https://<web domain>
+JS="$(curl -fsS "$W/" | grep -oE '/_expo/static/js/web/entry-[0-9a-f]+\.js' | head -1)" && echo "$JS"
+curl -fsS "$W$JS" | grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("[^"]*"|void 0)\)'
+```
+
+ON prints the value as set, for example `MAINTENANCE_MODE:()=>E("true")`. OFF prints
+`(void 0)` (unset at build), `("")` (the Dockerfile's argument with no variable) or `("false")`.
+The function name (`E` when measured) is the minifier's; the argument is what counts. Measured on
+this tree: a local `expo export` printed `E("true")` with the flag on and `E(void 0)` without it,
+and the Docker image built with no `MAINTENANCE_MODE` printed `E("")`. If the first line prints
+nothing, the page is not legacy web's export: stop and look.
 
 **Check:**
 `curl -s https://api.askansari.ai/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform":"ios","native_application_version":"1.0.0","native_build_version":"1"}' | jq .maintenance_mode`
-prints `true`, and the same for `https://api-35.ansari.chat`; the web domain no longer serves the
-web app; `cutover_at` and the session start are in the record.
-**Abort:** `MAINTENANCE_MODE=false`, re-attach the web domain. Nothing else has changed.
+prints `true`, and the same for `https://api-35.ansari.chat`. **Production:** the bundle check
+prints the ON form, and a fresh private window on the web domain shows "Ansari is currently under
+maintenance." on `/` and on `/login`. **Staging:** the web domain no longer serves the web app.
+`cutover_at` and the session start are in the record.
+**Abort:** `MAINTENANCE_MODE=false` on `backend`; **production:** `MAINTENANCE_MODE=false` on the
+legacy web service too (it rebuilds; wait until the bundle check prints the OFF form);
+**staging:** re-attach the web domain. Nothing else has changed.
 
 ## 4. Snapshots
 
@@ -791,7 +879,8 @@ deploys run code the scripts did not run from: follow [`rollback.md`](rollback.m
 
 Wait for the deployments of step 10's commit on `backend` (staging: and on `auth`), and on the web
 service only if it rebuilt (staging's always does; production's legacy web only if its watch paths
-matched).
+matched). A production legacy web rebuild here still has `MAINTENANCE_MODE=true` set (step 3), so it
+is again a maintenance build: run step 3's bundle check after it, which must print the ON form.
 
 - **Production:** step 10's push to `main` starts **no** `auth` deployment (`auth` deploys from
   `develop`, owner's statement; step 1). The deployment step 9 checked keeps serving, with code
@@ -848,14 +937,27 @@ per-session and global limits hold whatever the edge does. What fails is `apps/a
 limit on the layer's routes, which would then be keyed by a value a client can choose; the
 security architect decides whether the window goes on.
 
-## 12a. Legacy web on its Railway domain, before the public sees it (recommended; the owner may skip it)
+## 12a. Legacy web on its Railway domain, before the public sees it (production: not available; owner, 2026-11-21)
 
-A sub-step of 12, so no step number moves. Run step 14's legacy web flows on the
+A sub-step of 12, so no step number moves.
+
+### Production: skipped (owner's decision, 2026-11-21)
+
+**Not available with the flag.** From step 3 the legacy web service has `MAINTENANCE_MODE=true`,
+and its Railway-provided domain serves the same build as the public one: the maintenance screen.
+The owner has decided not to replace this step for this window. So **legacy web against the new
+`apps/api` is first exercised at steps 13 and 14, alongside real users**, a combination never run
+before, on staging or anywhere ([`rehearsal.md`](rehearsal.md), residuals). The owner accepts
+this (2026-11-21). Step 13's abort is the response if it fails.
+
+### Staging, and any environment whose web goes offline by a detach: unchanged
+
+Run step 14's legacy web flows on the
 legacy web service's Railway-provided domain (`*.up.railway.app`) **before** step 13 re-attaches
 the public domain. Then legacy web against the new `apps/api` is exercised before the public sees
 it; [`rehearsal.md`](rehearsal.md) records that combination as never run. Read from the code:
 - **It can reach the api.** Legacy web's api base URL is baked in at build time
-  (`legacy/frontend-web/Dockerfile:7,18`), so the Railway domain calls the same `apps/api`. The api
+  (`legacy/frontend-web/Dockerfile:7,21`), so the Railway domain calls the same `apps/api`. The api
   answers every `/api/*` route with `Access-Control-Allow-Origin: *` and no credentials
   (`apps/api/next.config.ts:24`), and it never reads the browser's `Origin`. So a request from
   the Railway origin is allowed exactly as one from the public domain. No variable changes.
@@ -871,21 +973,38 @@ it; [`rehearsal.md`](rehearsal.md) records that combination as never run. Read f
 not replace it.
 **Abort:** do not run step 13 (the public domain stays detached); follow [`rollback.md`](rollback.md).
 
-## 13. The web domain back
+## 13. Web back
 
-Re-attach the web domain, detached in step 3, to the **same** web service: in production the
-legacy web service, the only web service there (backend-only release, owner 2026-11-21; this
-replaces the earlier swap to `apps/frontend`, and the owner's 2026-10-16 "legacy web retires at
-go-live" does not apply to this window). On staging, the staging web service.
+**Production: `MAINTENANCE_MODE=false` on the legacy web service** (the service variable step 3
+set; owner, 2026-11-21). It rebuilds and redeploys the service. The public sees legacy web again
+only when that new deployment is live: until then the maintenance build keeps serving. There is no
+web swap and no domain change (backend-only release, owner 2026-11-21; this replaces the earlier
+swap to `apps/frontend`, and the owner's 2026-10-16 "legacy web retires at go-live" does not apply
+to this window). **Staging:** re-attach the web domain, detached in step 3, to the same staging web
+service.
 
 **From this moment legacy web is fully live to the public again, on the new stack**, while
-`MAINTENANCE_MODE` is still `true` (until step 15) and the alerts are still silenced (until step
-16). Step 14's smoke test runs alongside real users.
+`backend`'s `MAINTENANCE_MODE` is still `true` (until step 15; it changes only the `app-check`
+answer, step 3) and the alerts are still silenced (until step 16). Step 14's smoke test runs
+alongside real users.
 
-**Check:** the web domain serves legacy web again (production; staging: the staging web
-service), and that service's deployed commit is the one step 1 recorded for it, or step 10's if
-the push rebuilt it.
-**Abort:** detach the domain; follow [`rollback.md`](rollback.md).
+**Check:** production: step 3's bundle check prints the OFF form, and a fresh private window on
+the web domain shows legacy web's app, not the maintenance screen; staging: the web domain serves
+the staging web service. That service's deployed commit is the one step 1 recorded for it, or
+step 10's if the push rebuilt it; for production, record the new deployment's ID.
+
+**If the rebuild fails or hangs (production):** a failed build leaves the previous deployment
+serving (`RELEASE.md`), here the maintenance build, so web stays offline. That is safe: the screen
+makes no api request, and the bundle check still prints the ON form. A build that hangs leaves the
+same deployment serving until it ends; cancel it in the dashboard (dashboard behaviour, not
+established from the repo). Read the build log and retry the deploy once. If it fails again, set
+`MAINTENANCE_MODE=true` on the legacy web service again, so the variable matches what is serving
+and any later build is a maintenance build, and tell the security architect, who decides between
+a fix forward and [`rollback.md`](rollback.md). Do not run step 14 until web is back.
+**Abort** (this step's check, or legacy web failing against the new `apps/api` here or in step
+14): production: `MAINTENANCE_MODE=true` on the legacy web service. It takes effect only when that
+rebuild is live, and until then legacy web stays live to the public: wait until the bundle check
+prints the ON form. Staging: detach the domain. Then follow [`rollback.md`](rollback.md).
 
 ## 14. Public smoke tests (scenario 31)
 
@@ -919,7 +1038,8 @@ evidence still blank).
 ## 15. Maintenance mode off
 
 Set `MAINTENANCE_MODE=false` on `backend` (Railway redeploys the current deployment with it).
-Apps that showed the maintenance screen show it until they are relaunched.
+Apps that showed the maintenance screen show it until they are relaunched. Web is not affected:
+legacy web never asks `app-check` (step 3), and its own flag went off at step 13.
 
 **Check:** step 3's `app-check` probe prints `false` on both domains, and a released mobile
 build, relaunched, signs in through `/v2/users/login` (the compatibility layer) and loads its
@@ -1024,6 +1144,11 @@ R3") runs this cleanup against the refusal it clears.
   until `apps/api`'s cached key set expires (10 minutes, plus a 15-minute grace while `apps/auth`
   is unreachable) or `apps/api` restarts. To cut a user off, ban them (`ban-user.ts`, which
   deletes their sessions); their JWT still verifies until it expires (15 minutes).
+- **Reset links and shared links on web land on the maintenance screen during the window**
+  (production, from step 3's maintenance build to step 13's rebuild; step 3). The screen makes no
+  request, so a reset token is not used: open the link again after the window, or request a new one
+  if it has expired (an hour). A tab opened before step 3 and not reloaded keeps working against
+  the api (step 3's residual).
 - **Reset links in access logs.** `GET /reset-password?token=…` is logged by the web host on every
   click. The token is single-use and expires after an hour. Changing the link shape is with the
   owner.

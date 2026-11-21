@@ -126,8 +126,9 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
   architect's verdicts and the same-commit requirement. Consequence: `rehearsal.md`'s result rows
   are blank and the staging edge verdict was never recorded, so the edge properties are first
   measured live at runbook steps 11 and 12, where the security architect decides whether the
-  window goes on. Legacy web against the new `apps/api` has not been run; runbook step 12a is the
-  first chance.
+  window goes on. Legacy web against the new `apps/api` has not been run; runbook step 12a is
+  not available in production (owner, 2026-11-21, below), so steps 13 and 14 are the first time,
+  alongside real users.
 - **`MCP_COMPLETE_KEY_MODE=log-only` on `backend`** is already set (owner's statement, not
   verified from the repo). With no key issued, it is the only thing keeping `mcp.ansari.chat` and
   the agent skill served after step 10, so the runbook's step 1 refuses to start without it.
@@ -141,3 +142,27 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
 - **The production auth database is never left without its schema.** Every drop runs in one
   transaction with the re-apply of the whole journal (the runbook's "Empty the production auth database:
   drop and re-apply"), so the apply record above stays true. Staging drops only.
+
+## 2026-11-21: owner decision: legacy web goes offline by its maintenance flag (relayed by the security architect)
+
+- **In production, legacy web is taken offline with the build-time `MAINTENANCE_MODE` variable on
+  the legacy web service** (PR #418), **instead of detaching the web domain.** This reverses the
+  owner's earlier decision of the same day: "web domain detached at step 3, re-attached at 13".
+  Runbook step 3 sets it `true`, step 13 sets it `false`; [`rollback.md`](rollback.md) steps 1 and
+  4 do the same. The web domain stays attached. It is a service variable of the legacy web
+  service, never a shared variable: `backend`'s flag goes off at step 15, web's at step 13.
+- **Staging is unchanged:** its web service is `apps/frontend`, which has no switch (#419), so it
+  still detaches and re-attaches its domain.
+- **Accepted residual:** a tab loaded before step 3's maintenance build went live, and not
+  reloaded, keeps running the build it loaded against whichever `apps/api` is serving (runbook
+  step 3, residual). The detach had the same residual: it stops new loads and reloads, not an
+  open tab's calls to the api's own origin.
+- **During the window, reset links and shared links on web land on the maintenance screen** (every
+  route shows it and makes no api request).
+- **Step 12a is skipped in production:** with the flag on, the legacy web service's Railway domain
+  serves the maintenance build too. Legacy web against the new `apps/api` is first exercised at
+  steps 13 and 14, alongside real users, a combination never run before (owner-accepted).
+- **To record before the window (runbook step 1):** the legacy web service's current deployment ID
+  and commit; that the commit carries PR #418's switch; that `MAINTENANCE_MODE` is absent or
+  `false` there, as a service variable; that its `EXPO_PUBLIC_API_V2_URL` is an absolute api
+  origin; and the step 3 bundle check's OFF output.

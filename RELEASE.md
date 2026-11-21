@@ -143,7 +143,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 > with one production host and not the other fails the build, showing both values.
 > **Production web stays on `legacy/frontend-web` for now (#416):** it builds from its
 > own `legacy/frontend-web/Dockerfile`, takes `EXPO_PUBLIC_API_V2_URL`, and has no such
-> guard; neither variable above is needed on it.
+> guard; neither variable above is needed on it. It also takes `MAINTENANCE_MODE` (PR #418): on
+> for `true`, `True` or `1`, anything else or unset is off. When on, every route shows the
+> maintenance screen and makes no api request. It is baked in at build time, so a change rebuilds
+> and redeploys the service and takes effect only when that deployment is live; a tab that
+> already loaded the app keeps its build until reloaded (`legacy/frontend-web/README.md`). Set it
+> as a **service variable** of the legacy web service, never a shared variable: `backend`'s
+> `MAINTENANCE_MODE` is a different switch, turned off at a different time.
 > The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
 > `expo start`/`expo export` only, never an image. The `apps/frontend` web app signs in at
 > `EXPO_PUBLIC_AUTH_URL` (spec 300).
