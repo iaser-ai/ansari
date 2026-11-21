@@ -11,3 +11,9 @@ EXPO_PUBLIC_COMPREHENSIVE_GUIDE_URL=https://docs.ansari.chat/capabilities/
 EXPO_PUBLIC_PRIVACY_URL=https://docs.ansari.chat/privacy/
 EXPO_PUBLIC_TERMS_URL=https://docs.ansari.chat/terms/
 EXPO_PUBLIC_ENABLE_SHARE=false
+
+# Maintenance screen in place of the whole app. On: true, True or 1. Anything else, or unset: off.
+# On Railway, set MAINTENANCE_MODE instead (the Dockerfile maps it to this name).
+# Inlined at BUILD time: changing it takes a rebuild and redeploy, and a tab that already loaded
+# the app keeps the old value until it reloads.
+EXPO_PUBLIC_MAINTENANCE_MODE=false
