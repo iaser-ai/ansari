@@ -67,6 +67,14 @@ Consequences:
   (`auth.users is not empty`). So the users-and-accounts count
   (`select (select count(*) from auth.users) + (select count(*) from auth.account)` = `0`) is
   re-run **immediately before step 6**.
+- **No `create-service` or `create-key` in production before step 6's `copy.sh: audit OK`.**
+  `apps/auth/scripts/service-keys.ts create-service` (through `createServiceUser` in
+  `packages/auth/src/service-users.ts`) inserts one row into `auth.users` and one into
+  `auth.account`, and `create-key` needs that service user. The first guards of
+  `apps/auth/scripts/cutover/02-import-auth.sql` refuse a non-empty `auth.users`
+  (`auth.users is not empty`) or `auth.account`. Before today the script could not run in
+  production (no schema); now it can. The WhatsApp and `ansari-mcp` keys are issued after the copy
+  and before step 10's promotion ([`service-keys-runbook.md`](service-keys-runbook.md)).
 
 Not established: whether the domain is reachable from outside the owner's network, and which
 branch the `auth` service deploys from.

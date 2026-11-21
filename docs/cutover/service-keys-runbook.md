@@ -57,6 +57,12 @@ lines and exits 3: record the action in the [key log](#key-log) at once.
 
 ## Issuance
 
+**Production, 2026-11-21:** not before the cutover copy's `copy.sh: audit OK`
+([`better-auth-cutover.md`](better-auth-cutover.md) step 6): `create-service` writes a row to
+`auth.users` and `auth.account`, and the copy then refuses (`auth.users is not empty`). Issue
+production's WhatsApp key after the copy and before step 10's promotion; see
+[`release-record.md`](release-record.md).
+
 1. The migration is applied (see [Applying `0001`](#applying-0001-staging-before-the-merge)) and the
    auth service is deployed with it.
 2. `create-service whatsapp`, then `create-service whatsapp --confirm whatsapp`.
@@ -348,6 +354,12 @@ revoked alone and its traffic is attributed to it:
 apps/api whose `AUTH_URL` points at staging auth (a dashboard mistake) verifies staging-labelled keys
 with every check passing, and nothing refuses or alerts. Check `AUTH_URL` against `ENVIRONMENT`
 on each apps/api deploy; a boot assertion pairing the two is a possible follow-up.
+
+**Production, 2026-11-21:** not before the cutover copy's `copy.sh: audit OK`
+([`better-auth-cutover.md`](better-auth-cutover.md) step 6): `create-service` writes a row to
+`auth.users` and `auth.account`, and the copy then refuses (`auth.users is not empty`). Issue
+production's `ansari-mcp` service and key (`mcp.ansari.chat`, `ansari-mcp-production`) after the copy and before step 10's promotion; see
+[`release-record.md`](release-record.md).
 
 1. apps/auth is deployed with the verify route (it ships with this change; there is no new
    migration: `auth.apikey` is spec 329's `0001`).

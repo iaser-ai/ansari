@@ -145,6 +145,11 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 
 ## 4. Copy the users
 
+> **Production, 2026-11-21:** no `create-service` or `create-key` in production before
+> `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue the
+> service keys after the copy and before the promotion (step 8)
+> ([`service-keys-runbook.md`](service-keys-runbook.md)); see [`release-record.md`](release-record.md).
+
 ```bash
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/00-preflight-app.sql   # no collision, not_bcrypt = 0
 apps/auth/scripts/cutover/copy.sh                  # copy.sh: audit OK

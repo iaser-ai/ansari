@@ -399,6 +399,12 @@ prints `auth.users`.
 
 ## 6. The copy and the audits
 
+> **Production, 2026-11-21:** no `create-service` or `create-key` in production before this
+> step's `copy.sh: audit OK`: a service user is a row in `auth.users` and `auth.account`, and the
+> copy then refuses (`auth.users is not empty`). Issue the service keys after the copy and before
+> step 10's promotion ([`service-keys-runbook.md`](service-keys-runbook.md)); see
+> [`release-record.md`](release-record.md).
+
 Re-run the preflight first; it must show no collision, `no_password_hash = 0`, `not_bcrypt = 0` and no NULL timestamp. Then copy:
 
 ```bash

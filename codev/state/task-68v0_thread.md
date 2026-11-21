@@ -36,3 +36,12 @@ Done:
 3. Step 5 / deploy-guide step 3 now print the single-file psql command and say the loop is
    not run in production. `cutover-docs.test.ts` counted 4 apply lines in the runbook; it now
    expects 5 (the new line carries both flags and names the auth database, as the test requires).
+
+## 2026-11-21: review round 2: service keys before the copy
+
+I checked the code before writing anything. `createServiceUser` (packages/auth/src/service-users.ts) inserts
+one auth.users row and one auth.account row in one transaction; `create-key` refuses without
+that user. 02-import-auth.sql's first guards raise on any row in auth.users / auth.account.
+So a production create-service before copy.sh would make the copy refuse. Dated notes:
+release-record (deviation consequences), runbook step 6, deploy-guide step 4, both Issuance
+sections of service-keys-runbook.md. Keys go after the copy, before the promotion.
