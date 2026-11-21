@@ -2,7 +2,7 @@
  * Test helpers for the operator script: a keyboard that types scripted answers, a screen that keeps what was printed, and a
  * Meta stand-in that answers from a list and records every call.
  *
- * Python counterpart: replacing `builtins.input` and `requests` by hand, as the oracle generator does.
+ * Python counterpart: none (the legacy script had no tests). It stands in for `builtins.input` and `requests`.
  */
 import type { Io } from '../../scripts/terminalIo';
 

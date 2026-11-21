@@ -83,6 +83,11 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `!d `. The Meta side is separate: the staging and test apps must be subscribed to the production WhatsApp account, and
 > each instance's phone number id and token must point at the production number.
 >
+> **Production:** `ENVIRONMENT=production` is the only value that answers messages with no prefix, so the production service
+> must be deployed with it. **Order of the Meta steps:** subscribe the production WhatsApp account to the staging (or
+> development) app only once the prefix code is running there. In the other order, staging answers every real user's plain
+> message on the production number, and users get two answers.
+>
 > **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000): set `PORT=3000` as a
 > service variable so Railway does not assign its own, and make the public domain's target port match. Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
 > the workspace file and `packages/` and runs the root `mcp` script. Health check `/health`. Hosts connect at

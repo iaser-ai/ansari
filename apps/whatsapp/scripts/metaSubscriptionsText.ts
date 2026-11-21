@@ -3,12 +3,10 @@
  * that appears in the subscribed-apps list.
  *
  * Python counterpart: `show_prerequisite_knowledge` and `show_miscellaneous_info` in
- * `legacy/whatsapp/scripts/check_meta_subscriptions.py`. The lines are Python's own output, one array entry per printed line
- * (an empty entry is a blank line), so the two screens read exactly as before. The one change: the example callback URLs end in
- * `/whatsapp/v3`, the path this service answers on (the Python service answered `/whatsapp/v2`).
- *
- * `tests/metaSubscriptions.test.ts` compares both arrays with what the Python script printed (recorded by
- * `tests/fixtures/generate_meta_script_oracle.py`), so an accidental edit here fails a test.
+ * `legacy/whatsapp/scripts/check_meta_subscriptions.py`. The lines were copied from the Python script's printed output, one array
+ * entry per printed line (an empty entry is a blank line). The one change: the example callback URLs end in `/whatsapp/v3`, the
+ * path this service answers on (the Python service answered `/whatsapp/v2`). No test compares these arrays with the Python
+ * output any more.
  */
 
 /** Menu option 0. Python's last prompt for it: `\nPress Enter to return to menu...`. */
@@ -70,25 +68,28 @@ export const PREREQUISITE_KNOWLEDGE_LINES: readonly string[] = [
   "      - Required for webhooks to be delivered",
   "      - One WABA can subscribe to multiple apps",
   "",
-  "4. COMMON SETUP (3 ENVIRONMENTS):",
+  "4. COMMON SETUP (ONE NUMBER, THREE ENVIRONMENTS):",
   "   --------------------------------------------------------",
-  "   • Test/Local Environment:",
-  "      - Developer App: 'Ansari - Test'",
-  "      - WABA: 'Test WhatsApp Business Account'",
-  "      - Phone Number: Test number (90-day expiry)",
-  "      - Webhook: zrok tunnel (e.g., https://xxx.share.zrok.io)",
-  "",
-  "   • Staging Environment:",
-  "      - Developer App: 'Ansari - Staging'",
-  "      - WABA: Also 'Test WhatsApp Business Account'",
-  "      - Phone Number: Same Test number (nuisance though, as sending a msg to it hits both apps)",
-  "      - Webhook: Staging server URL",
-  "",
   "   • Production Environment:",
   "      - Developer App: 'Ansari' (production)",
   "      - WABA: Production WABA",
   "      - Phone Number: Official business phone",
   "      - Webhook: Production server URL",
+  "      - Answers messages with no prefix",
+  "",
+  "   • Staging Environment:",
+  "      - Developer App: 'Ansari - Staging'",
+  "      - WABA: Production WABA (subscribed to this app)",
+  "      - Phone Number: Same production number",
+  "      - Webhook: Staging server URL",
+  "      - Answers messages starting with '!s '",
+  "",
+  "   • Development Environment:",
+  "      - Developer App: 'Ansari - Test'",
+  "      - WABA: Production WABA (subscribed to this app)",
+  "      - Phone Number: Same production number",
+  "      - Webhook: zrok tunnel (e.g., https://xxx.share.zrok.io)",
+  "      - Answers messages starting with '!d '",
   "",
   "5. WHY THIS MATTERS:",
   "   --------------------------------------------------------",

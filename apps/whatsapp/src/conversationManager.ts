@@ -125,12 +125,17 @@ export function routeByPrefix(
   const body = message.messageBody;
   const text = typeof body === 'object' && body !== null ? (body as { body?: unknown }).body : undefined;
   const textMessage = message.messageType === 'text' && typeof text === 'string' ? text : undefined;
-  const isDev = textMessage?.startsWith(DEV_PREFIX) === true;
-  const isStaging = textMessage?.startsWith(STAGING_PREFIX) === true;
 
-  if (environment === 'production') return { answer: !isDev && !isStaging, prefixLength: 0 };
-  const mine = environment === 'staging' ? isStaging : isDev;
-  return { answer: mine, prefixLength: mine ? DEV_PREFIX.length : 0 };
+  if (environment === 'production') {
+    const isOtherEnvironments = textMessage?.startsWith(DEV_PREFIX) === true || textMessage?.startsWith(STAGING_PREFIX) === true;
+    return { answer: !isOtherEnvironments, prefixLength: 0 };
+  }
+
+  const ownPrefix = environment === 'staging' ? STAGING_PREFIX : DEV_PREFIX;
+  if (textMessage?.startsWith(ownPrefix) !== true) return { answer: false, prefixLength: 0 };
+  // A bare prefix is not a question, and apps/api refuses an empty message
+  if (textMessage.slice(ownPrefix.length).trim() === '') return { answer: false, prefixLength: 0 };
+  return { answer: true, prefixLength: ownPrefix.length };
 }
 
 /** Wait `ms`, or until `signal` aborts. Resolves `true` after the full wait and `false` if it was cut short. */
@@ -248,7 +253,7 @@ export class ConversationManager {
 
     // Other environments' messages are ignored here, so nothing about them may be logged: no phone, BSUID or text
     if (!routeByPrefix(config.ENVIRONMENT, message).answer) {
-      logger.debug('Incoming message is meant for another environment, so will not process it here');
+      logger.info(`Ignoring a message meant for another environment (ENVIRONMENT=${config.ENVIRONMENT})`);
       return 'dev_filter';
     }
 

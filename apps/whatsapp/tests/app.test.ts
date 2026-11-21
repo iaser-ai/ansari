@@ -690,8 +690,11 @@ describe('a message with no one to answer', () => {
     expect(t.log.text()).not.toContain(PHONE);
   });
 
-  it('missing a key but with the sender in the contacts list: the user is told the format was unexpected', async () => {
-    const t = await started();
+  // One number feeds three environments, so only production tells the user (Python PR #390)
+  it('missing a key but with the sender in the contacts list: production tells the user the format was unexpected', async () => {
+    const t = await started({
+      env: { ENVIRONMENT: 'production', MOCK_ANSARI_CLIENT: 'false', MOCK_AUTH_CLIENT: 'false', MOCK_META_API: 'false' },
+    });
     const body = webhookPayload({}, { contacts: [{ profile: { name: 'Test User' }, user_id: BSUID }] });
     delete messageOf(body).from_user_id;
     const response = await t.post(body);
@@ -700,6 +703,21 @@ describe('a message with no one to answer', () => {
     expect(t.recipients()).toEqual([BSUID]);
     expect(t.replies().join('')).toContain('unexpected format');
   });
+
+  it.each(['development', 'staging'])(
+    'missing a key in %s, with the sender in the contacts list: reported, but the user is not told',
+    async (environment) => {
+      const t = await started({ env: { ENVIRONMENT: environment } });
+      const body = webhookPayload({}, { contacts: [{ profile: { name: 'Test User' }, user_id: BSUID }] });
+      delete messageOf(body).from_user_id;
+      const response = await t.post(body);
+      await t.settle();
+      expect(response.json.error_code).toBe('UNEXPECTED_PAYLOAD_FORMAT');
+      expect(t.reports.map((r) => r.report.errorType)).toEqual(['unexpected_meta_payload']);
+      expect(t.recipients()).toEqual([]);
+      expect(t.replies()).toEqual([]);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -223,10 +223,11 @@ export function buildApp({
       if (error instanceof UnexpectedMetaPayloadError) {
         logger.error(`Unexpected Meta payload format: ${error.message}`);
         report(error, 'unexpected_meta_payload');
+        // One number feeds three environments, and an unreadable message has no prefix to route by, so only production notifies
         const { replyTo } = error;
-        if (replyTo) {
+        if (config.ENVIRONMENT === 'production' && replyTo) {
           background.run(() => manager.notify(replyTo, UNEXPECTED_FORMAT_NOTICE));
-        } else {
+        } else if (!replyTo) {
           logger.error('No phone number or BSUID in the payload, so the user could not be notified');
         }
         answerMeta(res, {

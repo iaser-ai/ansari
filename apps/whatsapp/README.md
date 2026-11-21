@@ -56,7 +56,7 @@ message reaches all three. The first characters of a text message decide which e
 | `staging` | text starting with `!s ` | everything else |
 | `development` | text starting with `!d ` | everything else |
 
-Prefixes are exact (lowercase, with the space). The answering environment cuts the prefix off before the question goes to
+Prefixes are exact (lowercase, with the space). A bare prefix with nothing after it is ignored, as apps/api refuses an empty message. The answering environment cuts the prefix off before the question goes to
 apps/api. A message that is not text (image, audio...) has no prefix, so only production answers it. **On staging, testers
 must start every message with `!s `.** The Meta side is separate and is not done by this code: the staging and test apps
 subscribed to the production WhatsApp account, and each instance's `META_BUSINESS_PHONE_NUMBER_ID` and token pointing at
@@ -64,6 +64,20 @@ the production number.
 
 **Upgrading a local `.env`:** `DEPLOYMENT_TYPE` is no longer read and `local` is no longer a value. Replace
 `DEPLOYMENT_TYPE="local"` with `ENVIRONMENT="development"`, or the service refuses to start.
+
+**Order of the Meta steps.** Subscribe the production WhatsApp account to the staging (or development) Meta app only once
+the prefix code is running there. In the other order, staging answers every real user's plain message on the production
+number, and users get two answers.
+
+### Staging smoke test
+
+Steps 3 to 5 start with `!s `, because staging ignores messages without it.
+
+1. `GET /` returns 200.
+2. Meta's webhook verification succeeds for the staging callback URL (`https://<domain>/whatsapp/v3`).
+3. A message starting with `!s ` gets an answer, and a message with no prefix or with `!d ` gets no reply from staging.
+4. A message that is only `!s ` (nothing after the prefix) gets no reply.
+5. A second message within the retention window continues the same conversation.
 
 ## Routes
 

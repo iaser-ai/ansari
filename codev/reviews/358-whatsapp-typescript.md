@@ -13,7 +13,7 @@ The Python WhatsApp service (`legacy/whatsapp`) is ported to `apps/whatsapp` (No
 - [x] Duplicate and status webhook behaviour unchanged (Phase 5).
 - [x] Logging policy: no BSUID, phone, token or message text outside `development` (Phases 1, 3, 5; tests show each can fail). The operator script never prints the token (Phase 7).
 - [x] `META_REPLY_BY_PHONE` off by default and refused in production (Phase 1).
-- [x] The Meta subscription script runs from `apps/whatsapp` with the same menu, texts and confirmations (Phase 7, compared against output recorded from the Python script). Its read-only options were **not** run against staging.
+- [x] The Meta subscription script runs from `apps/whatsapp` with the same menu, texts and confirmations (Phase 7; the texts were copied from the Python script). Its behaviour is tested, not compared with Python's recorded output (see Deviations). Its read-only options were **not** run against staging.
 - [x] True/False settings accept only `true false True False 1 0` (Phase 1).
 - [ ] Railway staging redeployed with the TypeScript service. **Not done**: it is the owner's step (Part B).
 - [ ] Staging smoke tests (visible-phone, hidden-phone, long answers, error paths). **Not done**; see Follow-up Items.
@@ -27,6 +27,7 @@ The Python WhatsApp service (`legacy/whatsapp`) is ported to `apps/whatsapp` (No
 - **Phase 7:** the operator script is Part A of that phase; Part B (staging) is the owner's. The script's unsubscribe safety check matches the token's app by **ID** where Python matched by **name**, and the token is never printed (Python printed a slice of it).
 - **Added after phase 7 (issue #363):** prefix routing in `triage` (production answers unprefixed text, staging only `!s `, development only `!d `, prefix stripped, ignored messages not logged), and a separate last commit renaming `DEPLOYMENT_TYPE` to `ENVIRONMENT` with `development | staging | production` (`local` removed, no alias). A plan addendum records this. The Python side is done separately (PIR #363) and must match.
 - The route is `/whatsapp/v3`, not `/whatsapp/v2`, by owner decision: Meta's callback URL must be changed at cutover.
+- **Removed 2026-11-21 (owner decision):** the Meta script's screen comparison with output recorded from the Python script. `tests/fixtures/generate_meta_script_oracle.py` and `tests/fixtures/metaScriptOracle.ts` were deleted, and the tests that read them were removed. The script's behavioural tests (safety checks, token never shown, whole sessions) remain.
 
 ## Consultation Feedback
 

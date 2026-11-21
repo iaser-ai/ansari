@@ -14,6 +14,12 @@
 # (legacy/whatsapp/railway.toml). Repointing it at this file's Dockerfile is the
 # staging redeploy step of the plan, done with the owner's go-ahead.
 #
+# Production: this service must run with ENVIRONMENT=production, which is the only
+# environment that answers messages with no prefix. Order of the Meta steps: subscribe
+# the production WhatsApp account to the staging (or development) Meta app only once
+# this prefix code is running there. In the other order, staging answers every real
+# user's plain message on the production number, and users get two answers.
+#
 # One listener on PORT. Railway sets PORT itself: do not set it as a service
 # variable. The public domain's target port is whatever Railway assigns.
 #

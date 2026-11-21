@@ -201,6 +201,32 @@ describe('triage: what happens to a message', () => {
       },
     );
 
+    // A bare prefix (nothing but spaces after it) is not a question, and apps/api refuses an empty message, so it is ignored
+    it.each([
+      ['staging', '!s '],
+      ['staging', '!s    '],
+      ['development', '!d '],
+    ] as const)('%s ignores a bare prefix "%s"', (environment, text) => {
+      expect(setup({ config: { ENVIRONMENT: environment } }).manager.triage(textMessage({}, text))).toBe('dev_filter');
+    });
+
+    // An ignored message is logged at info, with the environment's name, and never with its text or phone number
+    it.each([
+      ['staging', '!d hi'],
+      ['development', '!s hi'],
+    ] as const)('logs an ignored %s message at info, without its text or phone', (environment, text) => {
+      const t = setup({ config: { ENVIRONMENT: environment } });
+      t.manager.triage(textMessage({ senderPhone: PHONE }, text));
+      expect(t.log.lines()).toContainEqual(
+        expect.objectContaining({
+          level: expect.stringMatching(/^info$/i),
+          message: `Ignoring a message meant for another environment (ENVIRONMENT=${environment})`,
+        }),
+      );
+      expect(t.log.text()).not.toContain(PHONE);
+      expect(t.log.text()).not.toContain(text);
+    });
+
     // An image caption arrives as `{ body: ... }` too, but only a message of type text carries a prefix
     it('a non-text message has no prefix even when its body looks like one', () => {
       const image = textMessage({ messageType: 'image', messageBody: { body: '!d caption' } });
