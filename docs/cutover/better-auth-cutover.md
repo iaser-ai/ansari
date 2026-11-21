@@ -270,7 +270,9 @@ forward run, `rehearsal-anomalies.ts remove | psql …` deletes the seeded rows.
 - Railway (main architect's runbook section): the `auth` service exists (in production it is
   created for this window, or found; in staging it already exists) with its variables set
   (see `docs/self-hosting.md`; `auth` has no `ADMIN_EMAILS`: spec H-7); one port,
-  `PORT=3100`; **no domain yet** and **no active deployment** (staging: the PIR #59 deployment is
+  `PORT=3100`; **no domain yet** and **no active deployment** (**production, 2026-11-21:** not so,
+  the domain is attached and serving; see the deviation in [`release-record.md`](release-record.md))
+  (staging: the PIR #59 deployment is
   removed, its ID recorded above); its own Postgres with snapshots or PITR **on**. The auth
   database is **empty** (no schema yet; **production, 2026-11-21:** it already holds the applied
   auth journal and no rows, see [`release-record.md`](release-record.md)). Neither `auth` nor `backend` carries
@@ -364,8 +366,10 @@ already holds data, staging; not this one.)
 > **Production, 2026-11-21:** production's auth journal (`0000_auth_schema`, `0001_api_key`) is
 > already applied, ahead of the window ([`release-record.md`](release-record.md)). In production
 > this step runs **only the journal check** below (the `set -o pipefail` and `check` lines), and
-> applies, by the same loop's `psql` line, only a file the check reports missing (a journal file
-> newer than the record). Record an `auth-journal-applied` line only for a file applied in the
+> applies only a file the check reports missing (a journal file newer than the record), one at a
+> time, with `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`.
+> The `for` loop is **not** run in production: it would re-apply `0000_auth_schema` and stop on
+> its error. Record an `auth-journal-applied` line only for a file applied in the
 > window. The empty check is
 > `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"`,
 > which prints `0`.
@@ -468,6 +472,9 @@ Now, after the copy (step 6) and the admin roles (step 8), and before step 10 de
 copy: a reachable `apps/auth` would accept sign-ups into `auth.users`, and the copy's empty-target
 guard would abort. `auth` has **no active deployment** yet (step 1), so the domain serves nothing
 until step 10, while Railway issues its certificate.
+
+> **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
+> deviation in [`release-record.md`](release-record.md).
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health

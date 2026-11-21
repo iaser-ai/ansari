@@ -132,8 +132,10 @@ both databases and record their ids.
 
 > **Production, 2026-11-21:** production's auth journal is already applied
 > ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
-> `check` lines; apply only a file the check reports missing (a journal file newer than the
-> record), and record it.
+> `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
+> error). Apply only a file the check reports missing (a journal file newer than the record), one
+> at a time, and record it:
+> `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
 
 ```bash
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
@@ -175,6 +177,9 @@ before you run `--confirm`.
 ## 7. Attach the auth domain
 
 In Railway, attach the auth domain to the `auth` service on port 3100. Then:
+
+> **Production, 2026-11-21:** the domain is already attached and serving (`/health` 200); see the
+> deviation in [`release-record.md`](release-record.md).
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # 404 or 502; never 200, never 000

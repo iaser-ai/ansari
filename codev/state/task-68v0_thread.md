@@ -24,3 +24,15 @@ Done:
   reports every file missing and they are applied.
 - Tests via a worktree-only `.codev/config.local.json` (untracked); `.codev/config.json` is a
   symlink to main and was not touched.
+
+## 2026-11-21: architect review on PR #414, three changes
+
+1. release-record "From": the commit is the architect's assumption, 3951c806 or its first parent
+   2f11877e. `git diff --quiet 47b4dfc0 <c> -- packages/auth/drizzle` exits 0 for both.
+2. Deviation entry: the production auth domain is attached and serving (health 200, jwks 200,
+   account/me 401; all 500 before the apply). Dated pointers at runbook step 1's Railway bullet,
+   step 9, deploy-guide step 7. Consequences recorded: jwks is bound to the current
+   BETTER_AUTH_SECRET; re-run the users+accounts count right before step 6.
+3. Step 5 / deploy-guide step 3 now print the single-file psql command and say the loop is
+   not run in production. `cutover-docs.test.ts` counted 4 apply lines in the runbook; it now
+   expects 5 (the new line carries both flags and names the auth database, as the test requires).

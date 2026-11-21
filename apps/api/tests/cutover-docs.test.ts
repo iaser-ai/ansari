@@ -85,9 +85,10 @@ describe('the window runbook', () => {
   });
 
   it('applies every migration with both psql flags, naming the database', () => {
-    // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329).
+    // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329);
+    // and step 5's production single-file form for a journal file newer than the early apply (2026-11-21).
     const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l) || /auth-journal\.mjs files/.test(l));
-    expect(applies.length).toBe(4);
+    expect(applies.length).toBe(5);
     for (const line of applies) {
       expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /);
     }

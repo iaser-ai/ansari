@@ -12,8 +12,10 @@ empty (no schema, no tables) at the time.
 - **What:** the whole auth journal, `packages/auth/drizzle/meta/_journal.json` in order, one file
   per `psql -X -v ON_ERROR_STOP=1 --single-transaction -f <file>`:
   `0000_auth_schema.sql`, then `0001_api_key.sql`.
-- **From:** the `develop` checkout at `3951c8068e82c735219d987497f8b7013ecd3536` (`3951c806`).
-  `packages/auth/drizzle` is unchanged there since `47b4dfc0`.
+- **From:** a `develop` checkout at `3951c806` or its first parent `2f11877e` (the architect's
+  assumption; the owner has not confirmed which). `packages/auth/drizzle` is byte-identical in
+  both and unchanged since `47b4dfc0` (`git diff --quiet 47b4dfc0 <commit> -- packages/auth/drizzle`
+  exits `0` for each).
 - **Check:** `node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1`
   printed exactly:
 
@@ -41,3 +43,30 @@ rows. Everything else stays for the window, as the runbook orders it:
 - and every later step (the auth domain, the promotion, the deploys).
 
 The snapshot of the auth database (step 4) is now of a database that holds the schema and no rows.
+
+## 2026-11-21: deviation: the production auth domain is attached and serving
+
+Measured by the architect from the owner's machine, after the journal apply:
+
+| Probe | Before the apply | After the apply |
+|---|---|---|
+| `https://auth.askansari.ai/health` | 500 | 200 |
+| `https://auth.askansari.ai/api/auth/jwks` | 500 | 200 |
+| `https://auth.askansari.ai/api/account/me` | 500 | 401 |
+
+So in production the auth domain is **attached** and the `auth` service has a **live
+deployment**. The runbook does not expect this: step 1's Railway bullet expects "no domain yet"
+and "no active deployment", and step 9's check expects `404` or `502` (deploy guide step 7: never
+`200`).
+
+Consequences:
+
+- `auth.jwks` now holds a key pair encrypted under the `BETTER_AUTH_SECRET` set at that moment.
+  Changing that secret later requires emptying `auth.jwks`.
+- A sign-up on that domain before the window would make `copy.sh` refuse
+  (`auth.users is not empty`). So the users-and-accounts count
+  (`select (select count(*) from auth.users) + (select count(*) from auth.account)` = `0`) is
+  re-run **immediately before step 6**.
+
+Not established: whether the domain is reachable from outside the owner's network, and which
+branch the `auth` service deploys from.
