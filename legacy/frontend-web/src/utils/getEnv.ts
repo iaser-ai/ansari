@@ -1,7 +1,8 @@
 /**
- * Parses MAINTENANCE_MODE exactly as apps/api/lib/config.ts does: 'true', 'True' and '1' are on.
+ * Parses MAINTENANCE_MODE with the same on-values as apps/api/lib/config.ts: 'true', 'True' and '1'.
  * Unset, empty, 'false', 'False', '0' and any other value are OFF, so an unset variable never
- * shows the maintenance screen.
+ * shows the maintenance screen. This differs from the api for an unrecognised value: the api's
+ * z.enum refuses to boot on one, while this build treats it as OFF.
  */
 export const parseMaintenanceMode = (value: string | undefined): boolean =>
   value === 'true' || value === 'True' || value === '1'
