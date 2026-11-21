@@ -175,6 +175,10 @@ deploys, owned by [`better-auth-cutover.md`](better-auth-cutover.md). The auth d
 when the journal is applied there, so the constraint cannot fail at apply; the copy then runs
 against the final schema in its single transaction, where a duplicate aborts cleanly.
 
+> **Production, 2026-11-21:** the journal (`0000`, `0001`) was applied to the empty production
+> auth database ahead of the window ([`release-record.md`](release-record.md)); the window runs
+> only the journal check and applies any newer file it reports missing.
+
 Verify (both must be `t`):
 
 ```sql

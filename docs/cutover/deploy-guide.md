@@ -99,6 +99,11 @@ postgresql://postgres:<auth PGPASSWORD>@<project>-<environment>-tailscale-forwar
 
 Both databases are on Postgres 18, and they are two different clusters. The auth database is empty:
 
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)), so its table count below is not `0`. In production
+> the auth emptiness check is
+> `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0`.
+
 ```bash
 psql "$APP_DATABASE_URL" -X -At -c "select version()"     # PostgreSQL 18
 psql "$AUTH_DATABASE_URL" -X -At -c "select version()"    # PostgreSQL 18
@@ -124,6 +129,11 @@ probe on `https://api-35.ansari.chat`. Take a Railway snapshot of
 both databases and record their ids.
 
 ## 3. Auth schema
+
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
+> `check` lines; apply only a file the check reports missing (a journal file newer than the
+> record), and record it.
 
 ```bash
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
