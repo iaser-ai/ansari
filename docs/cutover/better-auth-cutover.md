@@ -26,9 +26,12 @@ among them. Re-measure both counts on the day, against the commit being promoted
 The app journal of `origin/main` ends at `0008_model_provenance` and `develop`'s at
 `0011_better_auth_window`, so step 7's three files are the whole app-schema difference.
 `legacy/frontend-web` is identical on both (`git diff --stat origin/main origin/develop -- legacy/frontend-web`
-prints nothing). On the push, `backend` and production `auth` rebuild, once CI on `main` is green
-(steps 10 and 11; measured in the 2026-11-21 window). Not established: whether the legacy web
-service rebuilds (watch paths are dashboard configuration); if it does, it builds the same sources.
+prints nothing). What the push deploys is **not established**: on 2026-11-21 Railway posted
+nothing for any service for about five minutes after it, and production `backend` was then
+deployed by hand (step 10, "What happened after the push"). Step 11 waits for, and if needed
+deploys, `backend` and `auth` at the promoted commit. Not established either: whether the legacy
+web service rebuilds (watch paths are dashboard configuration); if it does, it builds the same
+sources.
 
 > **2026-11-21, after the window:** the counts above are the pre-window measurement. The window
 > promoted `c314fa59` over `b1b6ddf0` (1,484 commits, 0 `main`-only, measured before the push), so
@@ -155,9 +158,11 @@ PR is brought current with `develop` and nothing else merges ahead of it: on sta
 scripts run from the PR head, and step 10 checks that the merge commit's tree equals it.
 
 **Auto-deploy stays on (owner decision, 2026-10-19).** Railway deploys each service from its
-branch on every push, and nothing turns that off: `backend` and production `auth` from `main` in
-production (measured in the 2026-11-21 window, step 1), so step 10's push deploys both, once CI on
-`main` is green; the web service too where its watch paths
+branch on every push, and nothing turns that off: `backend` from `main` in production;
+production `auth` from the branch step 1 records (`main` after the 2026-11-21 window, owner's
+statement; when and how it became `main` is not established, step 1). What step 10's push itself
+started on 2026-11-21 is not established (step 10, "What happened after the push"); the web
+service too where its watch paths
 match the push (dashboard configuration, not established from the repo; in production the web
 service is legacy web, whose sources the promotion does not change). So the new code's
 deploy **is** step 10: the promotion of `develop` to `main` (production), or the cutover PR's
@@ -187,7 +192,7 @@ only"). Each step is run as written, except for these differences:
 
 | Production | Staging rehearsal |
 |---|---|
-| Step 10 promotes `develop` to `main`; Railway auto-deploys `backend` and `auth` from `main` once CI on `main` is green (measured 2026-11-21; step 9 checks beforehand that `auth`'s serving code is the promoted commit's); production web is legacy web, which this release does not change | Step 10 **merges the cutover PR** to `develop`; Railway auto-deploys the staging services from `develop` |
+| Step 10 promotes `develop` to `main`; `backend` and `auth` must end on deployments of the promoted commit: step 11 waits for them and deploys by hand what does not appear (2026-11-21: `backend` by hand; what started `auth`'s deployment is not established; step 9 checks beforehand that `auth`'s serving code is the promoted commit's); production web is legacy web, which this release does not change | Step 10 **merges the cutover PR** to `develop`; Railway auto-deploys the staging services from `develop` |
 | The scripts run from the `develop` tip about to be promoted | The scripts run from the **cutover PR's head**, current with `develop` (the freeze); step 10 checks that the merge commit's tree equals it |
 | The operator environment, with production's URLs | The **same machine, forwarder setup and checkout path**, with staging's forwarder and URLs (the rehearsal proves this environment, not only the SQL); `CUTOVER_ENV=staging`, which the seed also requires |
 | `api.askansari.ai`, `api-35.ansari.chat`; `auth.askansari.ai`; the production web domain | `api-staging.askansari.ai`; `auth-staging.askansari.ai`; the staging web domain. Service names are on main's sheet |
@@ -329,7 +334,8 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   again with the flag off. The recorded web deployment ID is kept as the record of the pre-window
   build, and as rollback step 4's last option (c). Production `auth`'s ID is recorded for the record. It serves
   on this same deployment (or on the one step 9 had the owner redeploy, whose ID is then recorded)
-  until step 10's push deploys it from `main` (below); from step 11 on it is on that new deployment.
+  until a deployment of the promoted commit replaces it (step 11; on 2026-11-21 one went live at
+  11:23:18Z, what started it is not established); from then on it is on that deployment.
   Rollback leaves it where it is (owner, 2026-11-21; [`rollback.md`](rollback.md) step 3). On staging, rollback step 3 returns
   all three to exactly these. Rollback always uses these recorded IDs, never one picked by eye from
   a list that by then has new entries.
@@ -360,24 +366,29 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
     confirms it and records it. Step 3's residual rests on it.
 - **Each service's deploy source is recorded from the dashboard** (#416), for `backend`, `auth`
   and the web service: the branch it deploys from, its auto-deploy setting, its Dockerfile path,
-  and the commit it runs now (`<auth running commit>` below, in full). **Production `auth`
-  deploys from `main`, with auto-deploy on** (measured in the 2026-11-21 window, then confirmed
-  by the owner in the dashboard). Before the window the owner's statement was that it deploys
-  from `develop`, and this line said so, with "step 10's push to `main` starts no `auth`
-  deployment". In the window, Railway's commit status "ansari-backend - auth-prod" on the
-  promoted commit `c314fa59` went pending at 11:22:47Z and success at 11:23:18Z
-  ("auth.askansari.ai"), started when CI on `main` finished
-  ([`release-record.md`](release-record.md)). So **step 10's push to `main` deploys production
-  `auth` too**, from the promoted commit, the same code step 9 checked. Step 11 waits for it and
-  checks it, and step 16 only confirms the source branch and records the deployment. Not
-  established: how `auth`'s pre-window deployment came to run code `origin/main` then lacked
-  (`git cat-file -e 27531c8f:apps/auth/Dockerfile` fails); only the dashboard history shows it.
+  and the commit it runs now (`<auth running commit>` below, in full). **Production `auth`'s
+  source branch is `main` after the 2026-11-21 window** (owner's statement). Before the window the
+  owner's statement was that it deploys from `develop`, and this line said so, with "step 10's
+  push to `main` starts no `auth` deployment". What is measured (Railway's commit statuses on the
+  promoted commit `c314fa59`, [`release-record.md`](release-record.md)): after the push Railway
+  posted nothing for any service for about five minutes; at 11:22:47Z "ansari-backend - auth-prod"
+  went pending, in the same second as `mcp` and `whatsapp`, and at 11:23:18Z success
+  ("auth.askansari.ai"). **Not established:** whether that deployment was started by the push or
+  by a dashboard action (for example a source-branch change), and when the source became `main`.
+  On the `develop` push of the same commit (11:07:26Z), `auth-prod` posted "No deployment needed
+  - watched paths not modified", and production `mcp` deployed (`mcp.askansari.ai`, 11:07:43Z):
+  both services were then evaluating `develop` pushes. So the runbook does not
+  assume the push deploys `auth`: step 11 waits for a deployment of the promoted commit and
+  deploys it by hand if none appears, and step 16 confirms the source branch and records the
+  deployment. Not established either: how `auth`'s pre-window deployment came to run code
+  `origin/main` then lacked (`git cat-file -e 27531c8f:apps/auth/Dockerfile` fails); only the
+  dashboard history shows it.
   This line describes the **first attempt**. A second attempt after a rollback starts from the
   state the rollback left (auto-deploy off): see [`rollback.md`](rollback.md), "A second
   attempt", production overrides.
 - **`develop` is frozen for the window** (the freeze above), so that step 10 promotes exactly what
-  steps 3 to 9 ran from. Production `auth` deploys from `main`, so a push to `develop` does not
-  move it; the freeze is still the rule.
+  steps 3 to 9 ran from. If step 1 records `auth`'s source as `develop`, a push to `develop`
+  during the window would also redeploy production `auth`.
 - **The commit being deployed is recorded:** in production, the `develop` tip about to be
   promoted (the cutover PR's merge, or a later `develop` commit carrying no migration); on the
   staging run, the cutover PR's head, current with `develop`. Steps 3 to 9 run from a checkout of
@@ -463,8 +474,8 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   (`legacy/frontend-web/src/app/(public)/reset-password.tsx`) and delete-account page
   (`legacy/frontend-web/src/app/(app)/delete-account.tsx`).
 - **Auto-deploy is ON for `backend`, the web service and `auth`, and stays on** (owner decision,
-  2026-10-19). The next deploy of `backend` and `auth` is step 10's (production `auth` deploys from
-  `main`, measured 2026-11-21, so the push deploys it too); the web service's is too
+  2026-10-19). The next deploy of `backend` and `auth` is at step 10 or 11 (step 11 deploys by hand
+  what the push does not start; on 2026-11-21 that was `backend`); the web service's is too
   only if its watch paths match the push (not established; legacy web's sources do not change).
   So **every variable the new code reads is set before step 3** (below), and nothing is pushed to the deploying branch between step 3 and step
   10 except step 10 itself. Applying a variable change in Railway redeploys the service's current
@@ -914,9 +925,9 @@ detach or remove anything.** Run the probe.
 https with a valid certificate (plain `curl`, never `-k`; `000` is a certificate or network
 failure, not a pass); the `auth` deployment live in the dashboard is the one step 1 recorded
 (no new deployment has appeared); and **the code `auth` runs is the promoted commit's, for
-everything in its image**. Step 10's push deploys `auth` again from the promoted commit (it
-deploys from `main`; step 1, measured 2026-11-21), so this check makes the code `auth` serves the
-same before and after the push. It is checked here, before anything deploys:
+everything in its image**. `auth` may be deployed again at the promoted commit at step 10 or
+11 (step 1), so this check makes the code `auth` serves the same before and after. It is checked
+here, before anything deploys:
 
 ```bash
 git cat-file -e <auth running commit>^{commit} && echo commit-present
@@ -953,19 +964,27 @@ abort. Nothing has deployed.
 
 The last step of the session, right after step 9. In production, the fast-forward of
 `RELEASE.md`'s standard checklist, pushed straight to `main`: `main`'s protection requires a PR
-but does not bind admins, so only an **admin** can run that push; on staging, the cutover PR's merge. Auto-deploy then builds
-and deploys `backend` and `auth` from this commit (on staging the staging web service too).
-Production `auth` deploys from `main` (step 1, measured 2026-11-21), so the push deploys it from
-the promoted commit, the code step 9 checked. The
+but does not bind admins, so only an **admin** can run that push; on staging, the cutover PR's merge, after which
+auto-deploy builds and deploys `auth`, `backend` and the staging web service from this commit. In
+production, `backend` and `auth` must end on deployments of this commit; step 11 waits for them
+and deploys by hand what does not appear. The
 production web service is legacy web, which this release does not change (`legacy/frontend-web`
 is identical on both sides of the push; see the top of this runbook).
 
-**Production: nothing deploys until CI on `main` is green.** Railway waits for the CI run the
-push starts, about five minutes; that wait is not a failure. Measured twice on 2026-11-21: PR
-#418's `b1b6ddf0`, CI finished 10:31:19Z and the web deployment status followed at 10:31:28Z;
-`c314fa59`, pushed at about 11:17Z, its CI run created 11:17:58Z, the production deployments
-started at 11:22:47Z, as that run was finishing (its last job completed 11:22:53Z)
-([`release-record.md`](release-record.md)).
+**What happened after the push on 2026-11-21 (measured; the causes are open).** From Railway's
+commit statuses on `c314fa59` ([`release-record.md`](release-record.md)):
+- the push at about 11:17Z; CI on `main` created 11:17:58Z, its last job completed 11:22:53Z;
+- from the push to 11:22:47Z Railway posted **nothing** for any service, not even the
+  "No deployment needed" line it posts within seconds when it evaluates a push (on `b1b6ddf0`,
+  pushed 10:28Z, `api` got one at 10:28:25Z);
+- at 11:22:47Z `auth-prod`, `mcp` and `whatsapp` went pending in the same second, about 6 s
+  before CI finished;
+- production `backend` (`api`) got nothing until the owner deployed it by hand (11:25:39Z).
+
+**Not established:** whether Railway waits for CI on `main`, and whether the push started any
+deployment at all (the 11:22:47Z deployments may have been a dashboard action). So after the push,
+do not treat a quiet dashboard as a failure or as a deploy: step 11 waits for deployments of this
+commit and deploys by hand what does not appear.
 
 **The push's output.** An admin push prints
 `remote: Bypassed rule violations … - Changes must be made through a pull request.` That is
@@ -982,10 +1001,9 @@ git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   #
 **Check:** in production, the first line prints `develop-unchanged` **before** the push (a
 `develop` tip that moved during the session is caught before anything deploys: do not push), and
 afterwards `git rev-parse origin/main` equals the checkout's `HEAD`; on both, the
-`diff-tree` line prints `same-tree` (the deployed tree is the one every script ran from), and,
-once CI on `main` is green (production), deployments of that commit have started on `backend` and
-`auth` (staging: and on the web service; production `backend`: see step 11). Record the commit
-and the session's elapsed time from step 3.
+`diff-tree` line prints `same-tree` (the deployed tree is the one every script ran from). On
+staging, deployments of that commit have started on `backend`, `auth` and the web service; in
+production, step 11 waits for them. Record the commit and the session's elapsed time from step 3.
 **Abort:** a rejected push deployed nothing: take step 9's abort. A tree that differs means the
 deploys run code the scripts did not run from: follow [`rollback.md`](rollback.md).
 
@@ -996,18 +1014,19 @@ service only if it rebuilt (staging's always does; production's legacy web only 
 matched). A production legacy web rebuild here still has `MAINTENANCE_MODE=true` set (step 3), so it
 is again a maintenance build: run step 3's ON check after it, which must print `web-flag-ON`.
 
-- **Production:** nothing starts until CI on `main` is green (step 10; about five minutes), and
-  that wait is not a failure. Then step 10's push deploys **`auth` too** (it deploys from `main`;
-  step 1, measured 2026-11-21), from the promoted commit, the code step 9 checked. Record the new
-  `auth` deployment's ID: from here on `auth` is in [`rollback.md`](rollback.md)'s state (b).
-  Until it is live, the deployment step 9 checked serves the same code.
-- **Production: if no `backend` deployment appears.** On 2026-11-21, once CI was green, `auth`,
-  `mcp` and `whatsapp` deployed (11:22:47Z), but production `backend` got no deployment until the
-  owner ran **Deploy latest commit** on it by hand (pending 11:25:39Z, success 11:27:11Z). The
+- **Production: `auth`.** Wait for a deployment of step 10's commit on `auth`. If none appears
+  (check CI on `main` has finished first), deploy the latest commit of `main` on `auth` by hand,
+  and confirm the deployment's commit is step 10's. Record its ID and what started it (the push,
+  or the dashboard): from here on `auth` is in [`rollback.md`](rollback.md)'s state (b). Until it
+  is live, the deployment step 9 checked serves the same code. On 2026-11-21 a deployment of the
+  promoted commit went live at 11:23:18Z; what started it is not established (step 10).
+- **Production: if no `backend` deployment appears.** On 2026-11-21 production `backend` got no
+  deployment until the owner ran **Deploy latest commit** on it by hand (pending 11:25:39Z,
+  success 11:27:11Z), while `auth`, `mcp` and `whatsapp` had deployments from 11:22:47Z. The
   cause is **not established** (the main architect is investigating, from the dashboard). So:
-  once CI is green and the other services have started, if no `backend` deployment has appeared,
-  deploy the latest commit of `main` on `backend` by hand, and confirm the deployment's commit is
-  step 10's before going on.
+  once CI on `main` has finished, if no `backend` deployment has appeared, deploy the latest
+  commit of `main` on `backend` by hand, and confirm the deployment's commit is step 10's before
+  going on.
 - **Staging, and any environment without that decision:** this is the `auth` service's **first build and
   deploy**.
 
@@ -1038,7 +1057,7 @@ curl -4 -s -H 'X-Real-IP: 192.0.2.66' -H 'X-Forwarded-For: 192.0.2.66' -H 'CF-Co
 ```
 
 **Check:** `backend` is healthy and its deployed commit is step 10's; `auth` is healthy and its
-deployed commit is step 10's too (production: the deployment step 10's push started, recorded
+deployed commit is step 10's too (production: the deployment of step 10's commit, recorded
 above; or, if that build failed, still the deployment step 9 checked, whose
 `git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches`
 still prints `auth-tree-matches`). Both environments: `/health`
@@ -1204,9 +1223,11 @@ threads.
 
 **First, production: confirm `auth`'s source branch is `main`, and record its deployment**
 (owner, 2026-11-21). Until the window this step switched the source from `develop` to `main`, on
-the owner's statement that production `auth` deployed from `develop`. Measured in the window, it
-deploys from `main`, and step 10's push already deployed it (step 1, step 11), so there is nothing
-to switch. This is done before the freeze lifts:
+the owner's statement that production `auth` deployed from `develop`. After the 2026-11-21 window
+the source is `main` (owner's statement) and `auth` runs a deployment of the promoted commit
+(step 11); when the source changed, and what started that deployment, are not established (step
+1). So this step confirms and records; it switches nothing. This is done before the freeze
+lifts:
 1. Confirm `main` has not moved since step 10:
 
    ```bash
@@ -1216,17 +1237,17 @@ to switch. This is done before the freeze lifts:
    If it does not print `main-is-promoted-commit`, **stop** and tell the security architect.
 2. In the dashboard, confirm the `auth` service's source branch is `main`. If it is anything else,
    **stop** and tell the security architect: change nothing.
-3. Record in the release record the ID of the `auth` deployment that is **Active**: the one step
-   10's push started (step 11). No new deployment is triggered here.
+3. Record in the release record the ID of the `auth` deployment that is **Active**: the
+   deployment of the promoted commit (step 11). No new deployment is triggered here.
 
-**Three states can hold; the release record names which one.** They are anchored to step 10's
-deployment of `auth`:
-- **(a) Before step 10's deployment:** `auth` is on the deployment step 9 checked (a rollback
-  before step 10's `auth` deployment is Active).
-- **(b) Step 10's deployment Active:** `auth` is on the deployment step 10's push started,
+**Three states can hold; the release record names which one.** They are anchored to `auth`'s
+deployment of the promoted commit (step 11), whatever started it:
+- **(a) Before the promoted commit's deployment:** `auth` is on the deployment step 9 checked (a
+  rollback before `auth`'s deployment of the promoted commit is Active).
+- **(b) Promoted commit's deployment Active:** `auth` is on the deployment of the promoted commit,
   recorded at step 11 and here, with source `main`. This is the state from step 11 on, and the
   state of the 2026-11-21 window.
-- **(c) Step 10's build failed:** a failed build leaves the previous deployment serving
+- **(c) Promoted commit's build failed:** a failed build leaves the previous deployment serving
   (`RELEASE.md`). `auth` is still on the step 9 deployment, with source `main`. Retry, or tell the
   security architect.
 

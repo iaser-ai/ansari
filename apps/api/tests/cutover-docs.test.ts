@@ -410,13 +410,19 @@ describe('the window runbook', () => {
     expect(guide).toMatch(/\$AUTH\/health\s+# STAGING: 404 or 502; never 200, never 000/);
   });
 
-  it('production auth deploys from main (measured in the 2026-11-21 window): step 9 checks its build-path tree before the push, step 10 deploys it, step 11 waits for it, step 16 confirms the source (#416 close-out)', () => {
+  it('production auth: source main after the 2026-11-21 window, what deployed it open; step 9 checks its tree, step 11 waits for or hand-deploys the promoted commit, step 16 confirms the source (#416 close-out)', () => {
     const tree = 'git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches';
     const step1 = steps[0] as string;
-    expect(step1).toMatch(/\*\*Production `auth`\s+deploys from `main`, with auto-deploy on\*\*/);
-    expect(step1).toMatch(/\*\*step 10's push to `main` deploys production\s+`auth` too\*\*/);
+    expect(step1).toMatch(/\*\*Production `auth`'s\s+source branch is `main` after the 2026-11-21 window\*\* \(owner's statement\)/);
+    // The cause is open (security, 12:27Z): no doc states that the push deployed auth or that Railway waits for CI.
+    expect(step1).toMatch(/\*\*Not established:\*\* whether that deployment was started by the push or\s+by a dashboard action/);
+    for (const rel of [RUNBOOK, ROLLBACK, GUIDE, RECORD, 'docs/cutover/edge-check.md']) {
+      const text = read(rel);
+      expect(text, rel).not.toMatch(/push (?:to `main` )?deploys production\s+`auth`|push deploys \*\*`auth` too|push(?: already)? deployed (?:it|`auth`)|push redeployed `auth`|`auth` deploys from `main`/);
+      expect(text, rel).not.toMatch(/nothing deploys until CI on `main` is green|Railway waits for the CI run|once CI on `main` is green/);
+    }
     // The history stays honest: the earlier statement is named as the owner's, before the window.
-    expect(step1).toMatch(/Before the window the owner's statement was that it deploys\s+from `develop`/);
+    expect(step1).toMatch(/Before the window the\s+owner's statement was that it deploys\s+from `develop`/);
     // The old claims are gone as live statements, everywhere (the struck-through history excepted).
     for (const rel of [RUNBOOK, ROLLBACK, GUIDE, 'docs/cutover/edge-check.md']) {
       const text = read(rel);
@@ -435,17 +441,18 @@ describe('the window runbook', () => {
       expect(toml, path).toContain(`"${path}`);
     }
     const step10 = steps[stepOf(/Promote `develop` to `main`/) - 1] as string;
-    // B2: Railway waits for CI on main; B4: the admin push's bypass notice is not a rejection.
-    expect(step10).toMatch(/\*\*Production: nothing deploys until CI on `main` is green\.\*\*/);
-    expect(step10).toMatch(/that wait is not a failure/);
+    // The measured timeline, causes open; B4: the admin push's bypass notice is not a rejection.
+    expect(step10).toMatch(/\*\*What happened after the push on 2026-11-21 \(measured; the causes are open\)\.\*\*/);
+    expect(step10).toMatch(/\*\*Not established:\*\* whether Railway waits for CI on `main`, and whether the push started any\s+deployment at all/);
     expect(step10).toContain('remote: Bypassed rule violations');
     expect(step10).toMatch(/\*\*not a rejection\*\*/);
     const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
     expect(step11).toMatch(/Wait for the deployments of step 10's commit on `backend` and on `auth`/);
-    expect(step11).toMatch(/step 10's push deploys \*\*`auth` too\*\*/);
+    expect(step11).toMatch(/\*\*Production: `auth`\.\*\* Wait for a deployment of step 10's commit on `auth`\. If none appears/);
+    expect(step11).toMatch(/deploy the latest commit of `main` on `auth` by hand,\s+and confirm the deployment's commit is step 10's/);
     // B3: backend did not auto-deploy on 2026-11-21; the manual deploy, its commit check, the cause open.
     expect(step11).toMatch(/\*\*Production: if no `backend` deployment appears\.\*\*/);
-    expect(step11).toMatch(/deploy the latest commit of `main` on `backend` by hand, and confirm the deployment's commit is\s+step 10's/);
+    expect(step11).toMatch(/deploy the latest\s+commit of `main` on `backend` by hand, and confirm the deployment's commit is\s+step 10's/);
     expect(step11).toMatch(/cause is \*\*not established\*\*/);
     const step16 = doc.slice(doc.indexOf('## 16.'), doc.indexOf('## Orphan app rows'));
     expect(step16).toMatch(/\*\*First, production: confirm `auth`'s source branch is `main`, and record its deployment\*\*/);
@@ -458,7 +465,7 @@ describe('the window runbook', () => {
     expect(read(GUIDE)).toContain(promoted);
     expect(step16).toMatch(/deployed commit equals `<recorded commit>`/);
     expect(step16).not.toMatch(/equals `git rev-parse origin\/main`/);
-    for (const state of ["**(a) Before step 10's deployment:**", "**(b) Step 10's deployment Active:**", "**(c) Step 10's build failed:**"]) {
+    for (const state of ["**(a) Before the promoted commit's deployment:**", "**(b) Promoted commit's deployment Active:**", "**(c) Promoted commit's build failed:**"]) {
       expect(step16, state).toContain(state);
     }
     expect(step16).toMatch(/This is the state from step 11 on/);
@@ -755,10 +762,10 @@ describe('the rollback runbook', () => {
     const check = step3.slice(step3.indexOf('**Check (production):**'), step3.indexOf('**Check (staging):**'));
     expect(check).toMatch(/\*\*\(a\) or \(c\):\*\*[\s\S]*auth-tree-matches/);
     expect(check).toMatch(/\*\*\(b\):\*\*[\s\S]*window step 16 recorded/);
-    for (const state of ["(a) Before step 10's deployment", "(b) Step 10's deployment Active", "(c) Step 10's build failed"]) {
+    for (const state of ["(a) Before the promoted commit's deployment", "(b) Promoted commit's deployment Active", "(c) Promoted commit's build failed"]) {
       expect(step3, state).toContain(state);
     }
-    expect(step3).toMatch(/from window step 11 on; the 2026-11-21 window/);
+    expect(step3).toMatch(/from window step 11 on; the 2026-11-21\s+window/);
     expect(step3).toMatch(/\*\*Check \(staging\):\*\*[\s\S]*`auth` has no active deployment/);
     expect(step3.indexOf('**Check (production):**')).toBeLessThan(step3.indexOf('**Check (staging):**'));
     const step5 = doc.slice(doc.indexOf('## 5. Detach'), doc.indexOf('## 6.'));

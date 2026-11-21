@@ -90,9 +90,9 @@ Consequences:
 
 Not established: whether the domain is reachable from outside the owner's network~~, and which
 branch the `auth` service deploys from~~. [Superseded 2026-11-21: ~~it deploys from `develop`, with
-auto-deploy on (owner's statement); see the owner decisions below.~~] [Corrected in the window,
-2026-11-21: it deploys from **`main`**, with auto-deploy on (measured, then confirmed by the owner
-in the dashboard); see "the production window, as run" below.]
+auto-deploy on (owner's statement); see the owner decisions below.~~] [Superseded after the window,
+2026-11-21: its source is now **`main`** (owner's statement); when it changed is not established;
+see "the production window, as run" below.]
 
 ## 2026-11-21: owner decisions
 
@@ -135,17 +135,19 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
   verified from the repo). With no key issued, it is the only thing keeping `mcp.ansari.chat` and
   the agent skill served after step 10, so the runbook's step 1 refuses to start without it.
 - ~~**Production `auth` deploys from `develop`, with auto-deploy on** (owner's statement). The
-  promotion to `main` starts no `auth` deployment.~~ [Corrected in the window, 2026-11-21: the
-  owner's statement before the window; measured in it, production `auth` deploys from **`main`**,
-  and step 10's push deployed it (Railway's "ansari-backend - auth-prod" status on `c314fa59`,
-  pending 11:22:47Z, success 11:23:18Z), which the owner then confirmed in the dashboard.] The
-  window checks, before the promotion, that `auth`'s code equals the promoted commit's on its
-  build paths (runbook step 9), so the push deploys the code step 9 checked. ~~Step 16 switches
-  `auth`'s source branch to `main`.~~ [Corrected: step 16 confirms the source is `main` and
-  records the deployment.]
+  promotion to `main` starts no `auth` deployment.~~ [Superseded 2026-11-21, after the window:
+  this was the owner's statement before it. After the window production `auth`'s source is
+  **`main`** (owner's statement) and it runs a deployment of `c314fa59` (Railway's
+  "ansari-backend - auth-prod" status: pending 11:22:47Z, success 11:23:18Z). **Not
+  established:** when the source became `main`, and whether that deployment was started by the
+  push or by a dashboard action ("the production window, as run", step 11).] The window checks,
+  before the promotion, that `auth`'s code equals the promoted commit's on its build paths
+  (runbook step 9), so any later deployment of the promoted commit serves the code step 9
+  checked. ~~Step 16 switches `auth`'s source branch to `main`.~~ [Superseded: step 16 confirms
+  the source is `main` and records the deployment.]
 - **On a production rollback, `auth` stays where it is** (~~untouched. It stays on the deployment
-  it had all along~~ [corrected 2026-11-21: from step 11 on that is the deployment step 10's push
-  started, rollback state (b)]), with `auth.askansari.ai` attached and auto-deploy off for the
+  it had all along~~ [superseded 2026-11-21: from step 11 on that is its deployment of the
+  promoted commit, rollback state (b)]), with `auth.askansari.ai` attached and auto-deploy off for the
   rollback's duration ([`rollback.md`](rollback.md), step 3 item 4 and step 5).
 - **The production auth database is never left without its schema.** Every drop runs in one
   transaction with the re-apply of the whole journal (the runbook's "Empty the production auth database:
@@ -205,9 +207,12 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
   allowed only the rehearsal's evidence PR. Nothing it changed is on a script path (Commits, above).
 - The operator worked in the existing `develop` checkout, not a fresh clone detached at the
   recorded commit, as the runbook's operator environment says (owner's statement).
-- Production `auth` deployed on the push to `main` (step 10). The runbook expected no `auth`
-  deployment, on the owner's statement before the window that it deploys from `develop`.
-  Corrected in the runbook (step 1, 10, 11, 16), the deploy guide and the rollback.
+- Production `auth` got a deployment of the promoted commit at 11:22:47Z (step 11). The runbook
+  expected none, on the owner's statement before the window that it deploys from `develop`. After
+  the window its source is `main` (owner's statement). **Not established:** what started that
+  deployment (the push, or a dashboard action such as a source-branch change) and when the source
+  became `main`. The runbook (steps 1, 10, 11, 16), the deploy guide and the rollback now state
+  the measured timeline and leave the cause open.
 - Production `backend` did not auto-deploy after the push. The owner deployed it by hand (step 11).
 
 ### Step by step
@@ -230,7 +235,7 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
 | 10 | Pushed at about 11:17Z (the CI run on `main` was created 11:17:58Z). `origin/main` == `c314fa59` | GitHub; security architect |
 | 10 | The push printed `remote: Bypassed rule violations … - Changes must be made through a pull request.`: GitHub's notice of the admin bypass, read at the time as a rejection. It was not one (`origin/main` moved) | security architect |
 | 10 | Session duration, steps 3 to 10: **owner to fill** | owner |
-| 11 | Railway commit statuses on `c314fa59` (`gh api repos/iaser-ai/ansari/commits/c314fa59…/statuses`): CI on `main` ran 11:17:58Z to 11:22:54Z (its last job, `auth`, completed 11:22:53Z). At 11:22:47Z `auth-prod`, `mcp` and `whatsapp` went pending; `mcp` success 11:22:59Z, `whatsapp` 11:23:10Z, **`auth-prod` success 11:23:18Z ("auth.askansari.ai")**. **`api` (production `backend`) got no status** until the owner ran **Deploy latest commit** on it: pending 11:25:39Z, success 11:27:11Z ("api-35.ansari.chat"). Why `backend` did not auto-deploy is **not established** (the main architect is investigating) | GitHub |
+| 11 | Railway commit statuses on `c314fa59` (`gh api repos/iaser-ai/ansari/commits/c314fa59…/statuses`): CI on `main` ran 11:17:58Z to 11:22:54Z (its last job, `auth`, completed 11:22:53Z). From the push to 11:22:47Z Railway posted **nothing** for any service, not even a "No deployment needed" line (control: on `b1b6ddf0`, pushed 10:28Z, `api` got one at 10:28:25Z). At 11:22:47Z `auth-prod`, `mcp` and `whatsapp` went pending in the same second, about 6 s before CI finished; **what started them is not established** (the push, or a dashboard action); `mcp` success 11:22:59Z, `whatsapp` 11:23:10Z, **`auth-prod` success 11:23:18Z ("auth.askansari.ai")**. **`api` (production `backend`) got no status** until the owner ran **Deploy latest commit** on it: pending 11:25:39Z, success 11:27:11Z ("api-35.ansari.chat"). Why `backend` did not auto-deploy is **not established** (the main architect is investigating). Before the window, on the `develop` push of the same commit (11:07:26Z), `auth-prod` posted "No deployment needed - watched paths not modified" and production `mcp` deployed (`mcp.askansari.ai`, 11:07:43Z) | GitHub |
 | 11 | After the `auth` deploy (11:23Z): `/health` `200`, JWKS `1` key, `/internal/…` `404`, `/api/account/me` `401` | security architect |
 | 11 | The new `apps/api` serving: `/api/v2/_diag/client-ip` `200` on both api domains from 11:27Z | security architect |
 | 11 | New `backend` deployment ID: **owner to fill** | owner |
@@ -242,7 +247,7 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
 | 14 | Smoke test passed (owner's statement) | owner |
 | 15 | Maintenance off: the `backend` redeploy ran 11:33:17Z to 11:33:51Z (GitHub status `api`); measured 11:36:26Z: `app-check` `maintenance_mode` `false` on both api domains | GitHub; security architect |
 | 15 | Released mobile build relaunched and signed in: **owner to fill** | owner |
-| 16 | Production `auth`'s source branch is `main` (owner's statement). `auth` is in rollback state (b): on the deployment step 10's push started (pending 11:22:47Z, success 11:23:18Z). Its deployment ID: **owner to fill** | owner; GitHub |
+| 16 | Production `auth`'s source branch is `main` (owner's statement). `auth` is in rollback state (b): on its deployment of the promoted commit (pending 11:22:47Z, success 11:23:18Z; what started it is not established). Its deployment ID: **owner to fill** | owner; GitHub |
 | 16 | Alerts un-silenced; the hotspot distinctness probe; the Tailscale forwarder removed and its key revoked: **owner to fill** | owner |
 | 16 | **Rollback deadline** (`cutover_at` + 24 hours): **owner to fill** | owner |
 
@@ -260,7 +265,9 @@ network. "Git" and "GitHub" are read from the repository and its API by the clos
 
 - Distinctness on every edge path, IPv6, and `auth.askansari.ai` direct to the Railway edge
   ([`edge-check.md`](edge-check.md)).
-- Why production `backend` did not auto-deploy on the push (main architect).
+- What the push to `main` started, if anything: why production `backend` did not auto-deploy,
+  what started the 11:22:47Z deployments of `auth`, `mcp` and `whatsapp`, and when `auth`'s
+  source became `main` (main architect; the owner).
 - Every **owner to fill** row above.
 - `RELEASE.md`'s sentences on `auth`'s source branch and on the auto-deploy after a promotion (the
   main architect's to reconcile).
