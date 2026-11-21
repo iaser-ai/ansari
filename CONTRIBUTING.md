@@ -148,7 +148,9 @@ You can still target one package directly — `pnpm api lint`, `pnpm frontend we
   `frontend (lint, typecheck)`, `whatsapp (lint, format, test)`, and
   `gitleaks (secret scan)`. `eval (lint, typecheck, test)` (the model evaluation
   harness, `apps/eval/`) also runs on every pull request and is not a required
-  check. The
+  check. `whatsapp service (lint, typecheck, test, build)` (the TypeScript
+  service, `apps/whatsapp`) runs the same way and is not required until the
+  branch protection rule names it. The
   [Checks](#checks) above are the same tasks, so passing them locally is a good
   predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
 - Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`

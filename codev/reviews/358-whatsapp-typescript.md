@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Python WhatsApp service (`legacy/whatsapp`) is ported to `apps/whatsapp` (Node 22, Express 5, Zod 4, Vitest, tsdown) in seven plan phases, plus two extra commits for issue #363 (prefix routing, then the `ENVIRONMENT` rename). The service is at 1117 tests in 26 files, and the cold-cache `lint typecheck test build` run for the app and its dependencies passes. It has run locally against the real Meta test number, a real `apps/auth` and a real `apps/api`. It has **not** been deployed to staging or smoke-tested there.
+The Python WhatsApp service (`legacy/whatsapp`) is ported to `apps/whatsapp` (Node 22, Express 5, Zod 4, Vitest, tsdown) in seven plan phases, plus two extra commits for issue #363 (prefix routing, then the `ENVIRONMENT` rename). The service is at 1084 tests in 26 files, and `lint typecheck test build` for the app and its dependencies passes. It has run locally against the production WhatsApp number through a zrok tunnel, with a real `apps/auth` and a real `apps/api` (2026-11-21). The staging `whatsapp` service still runs the Python build: it was given the production phone number ID and reply-by-phone turned off on 2026-11-21, and it answers `!s ` messages. The TypeScript service has **not** been deployed to staging.
 
 ## Spec Compliance
 
@@ -15,8 +15,8 @@ The Python WhatsApp service (`legacy/whatsapp`) is ported to `apps/whatsapp` (No
 - [x] `META_REPLY_BY_PHONE` off by default and refused in production (Phase 1).
 - [x] The Meta subscription script runs from `apps/whatsapp` with the same menu, texts and confirmations (Phase 7; the texts were copied from the Python script). Its behaviour is tested, not compared with Python's recorded output (see Deviations). Its read-only options were **not** run against staging.
 - [x] True/False settings accept only `true false True False 1 0` (Phase 1).
-- [ ] Railway staging redeployed with the TypeScript service. **Not done**: it is the owner's step (Part B).
-- [ ] Staging smoke tests (visible-phone, hidden-phone, long answers, error paths). **Not done**; see Follow-up Items.
+- [ ] Railway staging redeployed with the TypeScript service. **Not done**: staging still runs the Python build (its `whatsapp` deploys are skipped). Its variables were changed on 2026-11-21 (production phone number ID, reply-by-phone off), which is the Python service's configuration.
+- [ ] Staging smoke tests (visible-phone, hidden-phone, long answers, error paths). **Not done for the TypeScript service.** The local zrok run covers the TypeScript service; see Follow-up Items.
 - [x] Rollback note in `legacy/whatsapp/README.md` (Phase 7).
 - [x] TypeScript concepts and Python differences documented in file headers and the README.
 - [x] Comments and TSDoc carried over, with Meta reference URLs; `.env.example` and `src/config.ts` document every setting.
@@ -81,7 +81,10 @@ No pre-existing tests were skipped. Two flakes were found in this project's own 
 ## Follow-up Items
 
 - **Staging cutover (owner):** compare staging variables with `.env.example`; booleans only `true false True False 1 0`; point staging at `apps/whatsapp/Dockerfile`; change the staging Meta app's callback to `/whatsapp/v3`; smoke test (visible-phone, hidden-phone, long answer, maintenance mode, `apps/auth` refusal); update `RELEASE.md` and the CI job name at the same time.
-- **Issue #363 Meta side (owner):** subscribe the staging and test apps to the production WhatsApp account, and point each instance's phone number id and token at the production number. On staging, testers must start every message with `!s `.
+- **Issue #363 Meta side (done 2026-11-21):** the staging app (651201967282263) is now subscribed to the production WhatsApp account, alongside the test and production apps. Staging's `META_BUSINESS_PHONE_NUMBER_ID` was set to the production number ID, and its `META_REPLY_BY_PHONE` to `False`. The staging app's callback URL was not checked (the Graph API call for it returned 400). Testers must start every staging message with `!s `.
+- **Local `apps/api` answers can fail on slow Gemini calls** (2026-11-21): the facilitator's 120 s request budget (`FACILITATOR_REQUEST_BUDGET_MS`, `apps/api/lib/facilitator/agent.ts`) and the 60 s Gemini chunk timeout (`CHUNK_TIMEOUT_MS`, `apps/api/lib/ai/gemini-client.ts`) return "This is taking longer than expected" or "No response from Gemini". The service reports these to the user as an error notice. Not changed in this PR; raising the budget is an env override.
+- **Typing indicator:** every reply sends a typing indicator on arrival (logged as sent). A follow-up indicator is sent only after 26 seconds, so a fast answer shows one briefly. Not confirmed on a phone screen.
+- **Failed turns keep their user message:** after an `apps/api` failure, the user message stays in the thread with no assistant reply. The next message's history includes it. Not checked against the model's behaviour.
 - **Docker image never built** (the daemon was not running); the new CI job has not run on GitHub.
 - A BSUID reply to a **hidden-phone** user is untested end to end.
 - `legacy/whatsapp` has a modified `config.py` and the Python side of #363 on `builder/pir-363`; both are outside this PR.
