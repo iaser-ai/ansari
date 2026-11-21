@@ -11,7 +11,10 @@
 # same PR. See the "Railway service configuration" block in RELEASE.md.
 #
 # Service variables (dashboard; baked into the bundle at build time by
-# Dockerfile.web, so a change needs a redeploy), one environment per pair:
+# Dockerfile.web, so a change needs a redeploy), one environment per pair.
+# BOTH ARE MANDATORY on EVERY web service, staging included: Dockerfile.web's
+# guard (scripts/check-web-env.mjs, #317) fails the build when either is unset
+# or empty, and when one names production and the other does not.
 #   EXPO_PUBLIC_API_URL   https://api.askansari.ai   (staging: https://api-staging.askansari.ai)
 #   EXPO_PUBLIC_AUTH_URL  https://auth.askansari.ai  (staging: https://auth-staging.askansari.ai)
 
