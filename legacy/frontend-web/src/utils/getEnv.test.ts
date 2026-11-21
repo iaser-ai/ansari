@@ -1,6 +1,6 @@
 import { parseMaintenanceMode } from './getEnv'
 
-describe('parseMaintenanceMode (same values as apps/api/lib/config.ts MAINTENANCE_MODE)', () => {
+describe('parseMaintenanceMode (same on-values as apps/api/lib/config.ts MAINTENANCE_MODE; an unrecognised value is OFF here, while the api refuses to boot)', () => {
   it.each(['true', 'True', '1'])('%p is on', (value) => {
     expect(parseMaintenanceMode(value)).toBe(true)
   })

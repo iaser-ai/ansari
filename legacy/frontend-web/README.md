@@ -18,9 +18,10 @@ user) is never built.
 - **Name.** On Railway, set `MAINTENANCE_MODE`, the same name as on the api service. The
   Dockerfile maps the build arg to `EXPO_PUBLIC_MAINTENANCE_MODE`, which is the name the app
   reads (through `src/utils/getEnv.ts`) and the one to use in a local `.env`.
-- **Values.** Parsed as the api parses its `MAINTENANCE_MODE`: `true`, `True` or `1` turn it on.
+- **Values.** The same on-values as the api's `MAINTENANCE_MODE`: `true`, `True` or `1` turn it on.
   Unset, empty, `false`, `False`, `0` and any other value leave it OFF, so an unset variable never
-  shows the screen.
+  shows the screen. This differs from the api for an unrecognised value: the api's `z.enum`
+  refuses to boot on one, while this build treats it as OFF.
 - **Baked in at build time.** Turning it on or off takes a rebuild and redeploy of the web
   service. On Railway, changing the variable triggers that redeploy; the switch takes effect
   when the new deployment is live, not when the variable is saved.
