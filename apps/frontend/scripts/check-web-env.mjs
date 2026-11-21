@@ -11,8 +11,10 @@
  *
  *   - Both are required in EVERY environment (no production flag: a flag is a
  *     check that passes by never being set). Staging sets its staging values.
- *   - Each must parse as a URL.
- *   - The production api host and the production auth host only come as a
+ *   - Each must be an http(s) URL with a host. (`new URL` alone is not
+ *     enough: `api.askansari.ai:443` parses, as scheme `api.askansari.ai:`
+ *     with an empty host, and would slip past the pair check.)
+ *   - A production api host and the production auth host only come as a
  *     pair: one without the other fails, showing both values.
  *
  * Plain Node, no dependencies: the image installs with
@@ -20,17 +22,22 @@
  */
 import { fileURLToPath } from 'node:url';
 
-export const PRODUCTION_API_HOST = 'api.askansari.ai';
+/** Both domains of the production `backend` service (docs/cutover/deploy-guide.md). */
+export const PRODUCTION_API_HOSTS = ['api.askansari.ai', 'api-35.ansari.chat'];
 export const PRODUCTION_AUTH_HOST = 'auth.askansari.ai';
 
 const REQUIRED = ['EXPO_PUBLIC_API_URL', 'EXPO_PUBLIC_AUTH_URL'];
 
+/** The URL's hostname, or null unless it is an http(s) URL with a host. */
 function hostOf(value) {
+  let url;
   try {
-    return new URL(value).hostname;
+    url = new URL(value);
   } catch {
     return null;
   }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  return url.hostname || null;
 }
 
 /**
@@ -51,7 +58,7 @@ export function checkWebEnv(env) {
           `(it is baked into the bundle; the staging default is never used in an image).`,
       );
     } else if (hostOf(value) === null) {
-      errors.push(`${name} is not a URL: ${JSON.stringify(value)}`);
+      errors.push(`${name} is not an http(s) URL with a host: ${JSON.stringify(value)}`);
     } else {
       values[name] = value;
     }
@@ -60,12 +67,13 @@ export function checkWebEnv(env) {
 
   const api = values.EXPO_PUBLIC_API_URL;
   const auth = values.EXPO_PUBLIC_AUTH_URL;
-  const apiIsProd = hostOf(api) === PRODUCTION_API_HOST;
+  const apiIsProd = PRODUCTION_API_HOSTS.includes(hostOf(api));
   const authIsProd = hostOf(auth) === PRODUCTION_AUTH_HOST;
   if (apiIsProd !== authIsProd) {
     errors.push(
       `EXPO_PUBLIC_API_URL and EXPO_PUBLIC_AUTH_URL name different environments: ` +
-        `${PRODUCTION_API_HOST} and ${PRODUCTION_AUTH_HOST} must be set together.\n` +
+        `a production api host (${PRODUCTION_API_HOSTS.join(', ')}) and ${PRODUCTION_AUTH_HOST} ` +
+        `must be set together.\n` +
         `  EXPO_PUBLIC_API_URL=${api}\n` +
         `  EXPO_PUBLIC_AUTH_URL=${auth}`,
     );

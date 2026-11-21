@@ -65,7 +65,51 @@ describe('checkWebEnv', () => {
 
   it('fails a value that is not a URL', () => {
     const errors = checkWebEnv({ ...PRODUCTION, EXPO_PUBLIC_API_URL: 'api.askansari.ai' });
-    expect(errors).toEqual(['EXPO_PUBLIC_API_URL is not a URL: "api.askansari.ai"']);
+    expect(errors).toEqual([
+      'EXPO_PUBLIC_API_URL is not an http(s) URL with a host: "api.askansari.ai"',
+    ]);
+  });
+
+  // `new URL('api.askansari.ai:443')` parses: scheme `api.askansari.ai:`, empty host.
+  it('fails a scheme-less host:port that would read as a non-production URL', () => {
+    const errors = checkWebEnv({
+      EXPO_PUBLIC_API_URL: 'api.askansari.ai:443',
+      EXPO_PUBLIC_AUTH_URL: STAGING.EXPO_PUBLIC_AUTH_URL,
+    });
+    expect(errors).toEqual([
+      'EXPO_PUBLIC_API_URL is not an http(s) URL with a host: "api.askansari.ai:443"',
+    ]);
+  });
+
+  it('fails a pair of scheme-less host:port values, naming both', () => {
+    const errors = checkWebEnv({
+      EXPO_PUBLIC_API_URL: 'api.askansari.ai:443',
+      EXPO_PUBLIC_AUTH_URL: 'auth.askansari.ai:443',
+    });
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toMatch(/^EXPO_PUBLIC_API_URL is not an http\(s\) URL/);
+    expect(errors[1]).toMatch(/^EXPO_PUBLIC_AUTH_URL is not an http\(s\) URL/);
+  });
+
+  it.each(['ftp://api.askansari.ai', 'file:///etc/hosts', 'mailto:a@b.c'])(
+    'fails a non-http(s) URL (%s)',
+    (value) => {
+      const errors = checkWebEnv({ ...STAGING, EXPO_PUBLIC_API_URL: value });
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/^EXPO_PUBLIC_API_URL is not an http\(s\) URL/);
+    },
+  );
+
+  it('treats api-35.ansari.chat as a production api host', () => {
+    expect(
+      checkWebEnv({ ...PRODUCTION, EXPO_PUBLIC_API_URL: 'https://api-35.ansari.chat' }),
+    ).toEqual([]);
+    const errors = checkWebEnv({
+      EXPO_PUBLIC_API_URL: 'https://api-35.ansari.chat',
+      EXPO_PUBLIC_AUTH_URL: STAGING.EXPO_PUBLIC_AUTH_URL,
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('name different environments');
   });
 
   it('fails production api with staging auth, showing both values', () => {

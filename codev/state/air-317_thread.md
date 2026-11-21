@@ -22,3 +22,5 @@
   my new text `lib/api/config.ts` read as an endpoint `/api/config` (its lookbehind excludes only `apps/api`).
   Reworded to name `DEFAULT_API_URL`/`DEFAULT_AUTH_URL`; that test went from failing to 16/16.
 - porch tests check passed through the override (api 1422/3 skipped, auth 635, eval 145, frontend 803; 213 s). PR #413 opened against develop. CMAP skipped (small change; main reviews the Dockerfile hunk). Waiting at the pr gate.
+- Architect review (PR #413): blocking — `new URL('api.askansari.ai:443')` parses (scheme `api.askansari.ai:`, empty host), so it passed and defeated the pair check (old guard exit 0 on both rows; reproduced). Fix: http(s) protocol + non-empty host required. Tests for both rows + non-http schemes; Docker run of row 1 fails at the guard. The empty-host clause is an equivalent mutant (WHATWG gives http(s) a host always); kept as asked.
+- Took the non-blocking suggestion: `api-35.ansari.chat` (second domain of the production backend, deploy-guide) is now a production api host for the pair check.
