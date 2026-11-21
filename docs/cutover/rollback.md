@@ -15,6 +15,17 @@ their threads. **Every client that signed in during the window is signed out onc
 its refresh is refused), so the released mobile app clears its tokens and the user signs in again
 with the legacy password. Step 6 checks one such client.
 
+**Production `auth` stays online, so step 2 cleans the app database only.** Step 2 deletes the
+post-cutover users' `public.users` rows (and their threads) from the **app** database. Their
+`auth.users` rows, sessions and credentials stay in the **auth** database until it is emptied (a
+second attempt, or "If no second attempt follows" below, both by
+[Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)). Until then such an account can still sign in
+at `auth.askansari.ai` directly and get a JWT. The restored legacy `apps/api` rejects that JWT: it
+verifies only HS256 tokens signed with `JWT_SECRET`
+(`origin/main:apps/api/lib/auth/jwt.ts:47-48`, called from
+`origin/main:apps/api/lib/auth/middleware.ts`'s `authenticateRequest`), and `apps/auth` signs
+EdDSA. So it reaches no thread and no answer.
+
 Each step: what to run, the mechanical **check**, and what to do if it fails. Database steps run
 from the window runbook's operator environment (spec H-8): the owner's machine over the Tailscale
 route, a checkout of the deployed commit, and both URLs entered with `read -rs` for that
@@ -27,8 +38,11 @@ the same web service in step 4, as the window does.
 
 **The mechanism (main, M2).** Auto-deploy is on for `backend`, the web service and `auth`
 (owner decision, 2026-10-19), so a rollback is **one step in the Railway dashboard**: turn
-auto-deploy OFF on all three and return each to the deployment the window's step 1 recorded,
-together (step 3). Off first, or the next push to the branch silently redeploys the rolled-back
+auto-deploy OFF on all three and return `backend` and the web service to the deployments the
+window's step 1 recorded, together (step 3). **Production `auth` is not a rollback target**: step
+10 never deployed it (it deploys from `develop`; owner's statement, 2026-11-21), so it stays on
+the deployment it had all along, with auto-deploy off for the rollback's duration. Its recorded
+ID is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
 code. Auto-deploy comes back only when the branch carries a revert PR or the forward fix (step
 7): the revert PR is the follow-up, never the mechanism.
 
@@ -44,7 +58,8 @@ users.
 
 ## 2. Remove the post-cutover users
 
-Their accounts have no legacy password, so the legacy code cannot sign them in. Dry run first,
+Their accounts have no legacy password, so the legacy code cannot sign them in. This removes
+their **app** rows only; in production their auth rows stay (see the start of this page). Dry run first,
 with `cutover_at` from the release record:
 
 ```bash
@@ -76,21 +91,27 @@ push in between:
    (on staging, the staging web service; in production, the legacy web service, which the window
    changes only if the push rebuilt it).
 4. `auth`, by environment:
-   - **Production: `auth` stays on the window's deployment** (step 10's commit), domain
-     attached (owner's decision, 2026-11-21). Do **not** remove it, and do **not** return it to
-     the pre-window deployment step 1 recorded. Its auto-deploy is off (item 1), so nothing later
-     moves it. The legacy `apps/api` that this step restores never calls `apps/auth`. A rollback
-     before step 10 deployed anything (an abort from steps 3 to 9) leaves `auth` on its
-     pre-window deployment, untouched.
+   - **Production: `auth` is untouched.** Step 10 starts no `auth` deployment (it deploys from
+     `develop`; owner's statement, 2026-11-21), so `auth` stays on the deployment it had all
+     along: the one window step 9 checked (step 1's, unless step 9 had it redeployed at the
+     promoted commit), with its domain attached (owner's decision). Do **not** remove or redeploy
+     it. Its auto-deploy is off for the rollback's duration (item 1), so a push to `develop` cannot
+     move it. The legacy `apps/api` that this step restores never calls `apps/auth`.
+     **After window step 16's switch to `main`:** `auth` then runs `main`'s tip, which is the
+     promoted commit. With its auto-deploy off it stays there, and a later push to `main` (a
+     revert, say) does not reach it. `origin/main` before the promotion has no
+     `apps/auth/Dockerfile`, so do not turn `auth`'s auto-deploy back on for a revert of the
+     promotion: tell the security architect.
    - **Staging, and any environment without that decision:** `auth`: back to its recorded state, **no active deployment**:
      remove the one step 10 started. On staging the PIR #59 deployment is not restored either:
      nothing the legacy code runs calls `apps/auth`.
 
 **Check (production):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth`:
-`curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` prints `200`, its
-deployed commit is step 10's (the pre-window one if step 10 never deployed), and its auto-deploy
-shows off like the others.
+`curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` and
+`curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` print `200`, its
+deployment is the one window step 9 checked (or, after step 16, `main`'s tip), and its
+auto-deploy shows off like the others.
 **Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth` has no active deployment.
 
@@ -104,9 +125,9 @@ release record holds** (window step 1), redeploying that ID if anything else is 
 **Check:** the web domain serves legacy web (staging: the restored staging web service), and that
 service's deployed commit equals the commit the release record holds for it.
 
-## 5. Detach `auth.askansari.ai`
+## 5. Detach the auth domain (staging)
 
-**Production: skip this step.** `auth` stays on the window's deployment with its domain attached
+**Production: skip this step.** `auth` is untouched and keeps its domain attached
 (owner's decision, 2026-11-21; step 3, item 4). **Check (production):** the domain is
 still listed on the `auth` service, and step 3's production check passed.
 
@@ -117,7 +138,7 @@ service and its database as they are: they are evidence, and a second attempt st
 them. The auth database now holds every copied password hash: see "If no second attempt
 follows" below.
 
-**Check (staging):** `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` no longer
+**Check (staging):** `curl -s -o /dev/null -w '%{http_code}' https://auth-staging.askansari.ai/health` no longer
 returns 200.
 
 ## 6. Maintenance off, and a legacy login
@@ -148,20 +169,39 @@ step 3.
 ## A second attempt (restart procedure)
 
 The copy refuses a non-empty auth database. To try the window again: empty the auth database
-(`DROP SCHEMA auth CASCADE`), then follow the window runbook from **step 5** (the auth
-baseline) (**production, 2026-11-21:** after the drop every journal file is missing, so step 5's
-`for` loop is run as printed, despite its early-apply note; reverse the apply record in
-[`release-record.md`](release-record.md)), after its steps 1 to 4 (the preconditions, comms, maintenance and a new `cutover_at`,
+(**production:** [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply); the apply record stays true, and step 5
+then runs as **check only**. **Staging:** `DROP SCHEMA auth CASCADE`), then follow the window
+runbook from **step 5** (the auth
+baseline), after its steps 1 to 4 (the preconditions, comms, maintenance and a new `cutover_at`,
 the snapshots). The app window migration (`0011`) is already applied and is not re-run; its check
 in step 7 still holds. **Step 10 of a second attempt** deploys the commit that carries the
-cutover: if the branch still carries it (no revert yet), redeploy that commit on `auth`,
-`backend` and the web service from the dashboard and turn auto-deploy back on; if a revert
+cutover: if the branch still carries it (no revert yet), redeploy that commit on `backend` (and
+`auth` on staging; production `auth` is checked by step 9, and the staging web service on staging)
+from the dashboard and turn auto-deploy back on; if a revert
 landed, revert the revert through a PR and promote (or merge) as step 10 says.
 
 ## If no second attempt follows within 7 days
 
 The auth database holds a copy of every user's password hash. If no second attempt starts within
-7 days of the rollback, empty it, from the operator environment:
+7 days of the rollback, empty it, from the operator environment (the window runbook's: the owner's
+machine, the Tailscale forwarder, which window step 16 removed and is set up again for this, and a
+checkout of the promoted commit, whose code window step 9 checked `auth` runs).
+
+### Production: drop, then re-apply the auth journal (owner's decision, 2026-11-21)
+
+`auth` stays online after a production rollback (step 3, item 4), so run the window runbook's
+[Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply): the drop, then
+at once the whole auth journal. `auth` then returns to its state of 2026-11-21: the schema
+applied, zero users, serving.
+
+**Check (production):** the procedure's own check: the journal check prints `<tag>|t` for every
+file `files` lists, in order; the users-and-accounts count prints `0`; the JWKS probe prints
+`200` (not `/health`: it answers `200` with no schema). The apply record in
+[`release-record.md`](release-record.md) **stays true**, because the schema is applied again: do
+not reverse it. Add a dated entry: the drop, the re-apply, the commit and the check's output.
+Record the date and who ran it.
+
+### Staging, and any environment without that decision: drop only
 
 ```bash
 psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'DROP SCHEMA auth CASCADE'
@@ -169,5 +209,3 @@ psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'DROP SCHEMA auth CASCADE'
 
 **Check:** `psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"`
 prints `0`. Record the date and who ran it. A later attempt starts from the window's step 5.
-**Production, 2026-11-21:** that attempt runs step 5's `for` loop as printed (the journal is gone
-with the schema), and the apply record in [`release-record.md`](release-record.md) is reversed.

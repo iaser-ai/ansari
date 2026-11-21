@@ -144,7 +144,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > own `legacy/frontend-web/Dockerfile`, takes `EXPO_PUBLIC_API_V2_URL`, and has no such
 > guard; neither variable above is needed on it.
 > The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
-> `expo start`/`expo export` only, never an image. The web app signs in at
+> `expo start`/`expo export` only, never an image. The `apps/frontend` web app signs in at
 > `EXPO_PUBLIC_AUTH_URL` (spec 300).
 >
 > **`apps/*/railway.toml` are not read by Railway here.** This project configures

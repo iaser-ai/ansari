@@ -164,7 +164,7 @@ After the copy, sign each seeded user in against the staging auth service with
 | 10 Promote `develop` to `main` (staging: merge the cutover PR) | | no | | |
 | 11 The deploys: `auth` and `backend` | | no | | |
 | 12 Edge probe on the `apps/api` production domains | | no | | |
-| 13 The web domain back on legacy web | | no | | |
+| 13 The web domain back | | no | | |
 | 14 Public smoke tests | | no | | |
 | 15 Maintenance mode off | | no | | |
 | 16 Re-enable alerting | | no | | |

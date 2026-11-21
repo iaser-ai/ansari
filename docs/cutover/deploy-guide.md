@@ -76,17 +76,28 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
-  `auth` (`none` if it has no deployment). These are the rollback targets.
+  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` and
+  the web service to these; `auth`'s is recorded for the record and for an abort before step 8,
+  and after step 8 production `auth` stays on the deployment serving after the deploys (owner,
+  2026-11-21). On staging, all three are rollback targets.
+- In the release record, from the dashboard, for `backend`, `auth` and the web service: the branch
+  each deploys from, its auto-deploy setting, its Dockerfile path, and the commit it runs now.
+  Production `auth` deploys from `develop` with auto-deploy on (owner's statement, 2026-11-21),
+  so the promotion in step 8 starts no `auth` deployment; step 7 checks its code, and step 10
+  switches it to `main`. `develop` is frozen for the window: a push to it would redeploy
+  production `auth`.
 - The admin list is approved. On staging, the cutover PR is approved and current with `develop`.
+  In production, the staging rehearsal has passed and its evidence is merged (runbook step 1).
   (#307, #317 and #305 are no longer window preconditions: they belong to `apps/frontend`.)
 
 ## 1. Open the operator session
 
 ```bash
 tailscale status                                   # the forwarder is listed
-cd <repo>                                          # a fresh clone, never a builder worktree
-git fetch origin && git checkout --detach <recorded commit>
+git clone <repo URL> <new empty directory> && cd <new empty directory>   # a NEW empty directory, never a builder worktree
+git checkout --detach <recorded commit>
 [ "$(git rev-parse HEAD)" = "<recorded commit>" ] && echo checkout-at-recorded-commit
+[ -z "$(git status --porcelain)" ] && echo clean-tree
 ls apps/auth/scripts/cutover/auth-journal.mjs packages/auth/drizzle/0001_api_key.sql
 pnpm install --frozen-lockfile
 set +o history
@@ -96,8 +107,9 @@ read -rs AUTH_DATABASE_URL && export AUTH_DATABASE_URL
 export API=https://api.askansari.ai AUTH=https://auth.askansari.ai   # staging: api-staging / auth-staging
 ```
 
-`<recorded commit>` is the commit being promoted, in full, from the release record. The check
-prints `checkout-at-recorded-commit`, and `ls` lists both files. If either fails, stop. Do not use
+`<recorded commit>` is the commit being promoted, in full, from the release record. The checks
+print `checkout-at-recorded-commit` and `clean-tree` (run again at step 3), and `ls` lists both
+files. If either fails, stop. Do not use
 the `builder-spir-300` worktree: it is at `6ed22431` and has neither file. Make no edits in the
 checkout until the window ends.
 
@@ -118,18 +130,30 @@ postgresql://postgres:<auth PGPASSWORD>@<project>-<environment>-tailscale-forwar
 - If Postgres refuses TLS on this path, drop `?sslmode=require`. The scripts then print a warning,
   which is expected.
 
-Both databases are on Postgres 18, and they are two different clusters. The auth database is empty:
-
-> **Production, 2026-11-21:** production's auth journal is already applied
-> ([`release-record.md`](release-record.md)), so its table count below is not `0`. In production
-> the auth emptiness check is
-> `psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0`.
+Both databases are on Postgres 18, and they are two different clusters:
 
 ```bash
 psql "$APP_DATABASE_URL" -X -At -c "select version()"     # PostgreSQL 18
 psql "$AUTH_DATABASE_URL" -X -At -c "select version()"    # PostgreSQL 18
 psql "$APP_DATABASE_URL" -X -At -c "select system_identifier from pg_control_system()"
 psql "$AUTH_DATABASE_URL" -X -At -c "select system_identifier from pg_control_system()"   # a different number
+psql "$AUTH_DATABASE_URL" -X -At -c "select to_regclass('public.users')"   # an empty line (NULL)
+```
+
+**Production** (the auth journal was applied ahead of the window): the auth schema is there, with
+both files, and no users:
+
+```bash
+psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"   # PRODUCTION: 1
+set -o pipefail
+node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1   # 0000_auth_schema|t and 0001_api_key|t
+psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0
+```
+
+**Staging:** the auth database is empty:
+
+```bash
+psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"   # STAGING: 0
 psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')"   # 0
 ```
 
@@ -156,12 +180,12 @@ both databases and record their ids.
 > **Production, 2026-11-21:** production's auth journal is already applied
 > ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
 > `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
-> error), except after a `DROP SCHEMA auth CASCADE` (an abort or [`rollback.md`](rollback.md)'s
-> restart): then every file is missing and the loop is run as printed. Apply only a file the check reports missing (a journal file newer than the record), one
+> error). In production a drop is always followed at once by the re-apply ([Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)), so this step stays check only. Apply only a file the check reports missing (a journal file newer than the record), one
 > at a time, and record it:
 > `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
 
 ```bash
+[ -z "$(git status --porcelain)" ] && echo clean-tree
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
 set -o pipefail
 node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1   # one <tag>|t per file, in order; no output at all is a failure
@@ -170,7 +194,7 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 ## 4. Copy the users
 
 > **Production, 2026-11-21:** no `create-service` or `create-key` in production before
-> `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue the
+> `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue no
 > service keys at all in the window (owner's decision, 2026-11-21): they are issued after it
 > closes; see [`release-record.md`](release-record.md). The users-and-accounts count runs immediately before
 > `copy.sh` and must print `0` (the `auth` domain serves until the window).
@@ -219,8 +243,19 @@ served by `auth`'s existing deployment, which stays (owner's decision, 2026-11-2
 curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # PRODUCTION: 200; never 000
 ```
 
-If it does not print `200`: do not detach anything; empty the auth database, reverse the apply
-record, then step 2's offline actions in reverse (the runbook's step 9, production abort).
+Also, production: `auth` runs the promoted commit's code on its build paths
+(`<auth running commit>` is the commit the dashboard shows for it):
+
+```bash
+git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches
+```
+
+If it does not print `auth-tree-matches`, **stop before step 8**: the owner redeploys `auth` at the
+promoted commit from the dashboard, records the new ID, and you re-run the line (the runbook's
+step 9).
+
+If the probe does not print `200`: do not detach anything; run [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply), then step 2's offline
+actions in reverse (the runbook's step 9, production abort). The apply record stays true.
 
 **Staging:** in Railway, attach the auth domain to the `auth` service on port 3100. Then:
 
@@ -240,8 +275,9 @@ git fetch origin && git push origin origin/develop:main          # production
 git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   # origin/develop on staging
 ```
 
-Auto-deploy builds `auth` and `backend`, and the web service only if its watch paths match the
-push (staging's does; production's legacy web sources do not change). Wait until each is healthy.
+Auto-deploy builds `backend`. Production `auth` deploys from `develop`, so it keeps the deployment
+step 7 checked (staging: the merge deploys `auth` too). The web service builds only if its watch
+paths matched the push (staging's always does). Wait until each is healthy.
 
 ## 9. Verify
 
@@ -254,10 +290,11 @@ curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                     
 - Run the edge probes in [`edge-check.md`](edge-check.md).
 - Re-attach the web domain to the **same** web service it was detached from in step 2 (production:
   the legacy web service). There is no web swap.
-- On legacy web, in a private window, run the smoke test (runbook step 14 lists each flow's
-  `/api/v2` route): guest, sign up, sign out, sign in, ask a question, reset the password from the
-  email, and delete the account. After the delete, check that signing in with it fails: legacy
-  web's delete page goes to `/welcome` even when the delete failed.
+- Smoke test, in a private window: **production** on legacy web (runbook step 14 lists each
+  flow's `/api/v2` route); **staging** on the staging web service (`apps/frontend`). Guest, sign
+  up, sign out, sign in, ask a question, reset the password from the email, and delete the
+  account. After the delete, check that signing in with it fails: legacy web's delete page goes to
+  `/welcome` even when the delete failed. Once the domain is back, real users are on it too.
 
 ## 10. Back online
 
@@ -268,6 +305,11 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 ```
 
 - Relaunch a released mobile build and sign in.
+- **Production:** the owner switches the `auth` service's source branch to `main` in the
+  dashboard, before the freeze lifts (the runbook's step 16). Until then, every merge to `develop`
+  that touches `auth`'s build paths deploys to production `auth`. Check: its deployed commit is
+  `origin/main`'s tip, `$AUTH/health` and `$AUTH/api/auth/jwks` both answer `200`, and a sign-in on
+  legacy web still works.
 - Un-silence the alerts and close the release record.
 - Remove the Tailscale forwarder and revoke its key.
 - `exit` the shell.

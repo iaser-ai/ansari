@@ -63,3 +63,25 @@
   planted command and a prose near-miss as controls.
 - Flagged, not decided: `rollback.md`'s "If no second attempt follows within 7 days" drops the
   auth schema while production `auth` is still serving.
+
+## 2026-11-21: review round 2 (parts 1 to 3, plus the owner's answer on auth's branch), one push
+
+- Named procedure "Empty the production auth database: drop and re-apply", placed before step 1.
+  Every production abort, the second attempt and the 7-day case use it by name; staging drops
+  only. Its check is the journal check, the users-and-accounts count and JWKS 200, not /health.
+  Read from the code:
+  - /health runs `select 1` only;
+  - boot.ts exits when `auth.apikey` is missing;
+  - better-auth 1.7.7 reads the signing key from the DB on every sign and creates a key pair when
+    `auth.jwks` is empty;
+  - our code has no `.prepare(`, so no restart is needed after the re-apply. Redeploying once is
+    the fallback.
+- Owner: production `auth` deploys from `develop`, so step 10's push starts no `auth` deployment.
+  Step 9 checks `git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json
+  pnpm-lock.yaml pnpm-workspace.yaml` (the toml's watch patterns, which are the Dockerfile's COPY
+  sources). Step 16 switches `auth` to `main` first. In a rollback, `auth` is untouched.
+- Fresh clone into a new empty directory; `clean-tree` runs in the opening block and again before
+  step 5. Step 1 DB checks put production first. The release-record's key line is struck through
+  as superseded, and the key scans cover every operator doc.
+- Test path scan: a `<ref>:<path>` citation is skipped (step 7 cites `origin/main`-only files).
+- Negative test: against the round-1 docs (c86a6694), 8 tests fail.
