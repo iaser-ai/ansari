@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { limits, serviceUsers } from '../../../packages/auth/src';
@@ -173,17 +174,167 @@ describe('the window runbook', () => {
   });
 
   it('attaches the auth domain before the web domain comes back (R4); there is no web swap (#416)', () => {
-    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/The web domain back/));
-    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/The web domain back/));
+    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/^\d+\. Web back$/));
+    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/^\d+\. Web back$/));
     expect(doc).not.toMatch(/Replace legacy web|legacy web retires in step 13|EXPO_PUBLIC_AUTH_URL=https/);
   });
 
-  it('says why the web domain is detached: legacy web never asks app-check (owner, 2026-11-21)', () => {
+  it('production web goes offline by legacy web\'s own flag, staging by the detach; the open-tab residual is stated (owner, 2026-11-21; #416)', () => {
     const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
-    expect(step3).toMatch(/legacy web does not honour maintenance\s+mode, so only the detach stops web traffic/);
-    // The route is cited by path (its line numbers move); it must be the one that reads the flag.
+    // backend's flag still does nothing for web: legacy web never asks app-check.
     expect(step3).toContain('apps/api/src/app/api/v2/app-check/route.ts');
     expect(read('apps/api/src/app/api/v2/app-check/route.ts')).toMatch(/maintenanceMode/);
+    // Production: the legacy web service's own MAINTENANCE_MODE, service-scoped; staging keeps the detach.
+    expect(step3).toMatch(/\*\*Production: `MAINTENANCE_MODE=true` on the legacy web service\*\*/);
+    expect(step3).toMatch(/\*\*service variable of that service\*\*, never as a shared variable/);
+    expect(step3).toMatch(/\*\*Staging: detach the web domain from the staging web service\.\*\*/);
+    expect(step3).toMatch(/Wait until \*\*both\*\* are live/);
+    expect(step3.indexOf('Wait until **both** are live')).toBeLessThan(step3.indexOf('select now()'));
+    // The detach's old claim is gone; the residual is the same under both mechanisms.
+    expect(doc).not.toMatch(/only the detach stops web traffic|does not honour maintenance/);
+    expect(step3).toMatch(/\*\*Residual: a tab loaded before the maintenance build went live \(owner-accepted, 2026-11-21\)\.\*\*/);
+    expect(step3).toMatch(/\*\*The detach had the same residual\.\*\*/);
+    expect(step3).toMatch(/reset links and\s+shared links opened on web land on the maintenance screen/);
+    // The bundle check reads the flag the served bundle carries; its pattern matches the measured
+    // forms (ON, and both OFF forms) and not an unrelated getEnv entry.
+    const check = /MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)/;
+    expect(step3).toContain(String.raw`grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)'`);
+    // Measured forms (#421): local builds (E), production with the flag off (t), and a quoted value,
+    // which the check must SHOW (it is OFF), not swallow into no output.
+    const measured: Array<[string, string]> = [
+      ['RE:()=>!1,MAINTENANCE_MODE:()=>E("true")}', 'MAINTENANCE_MODE:()=>E("true")'],
+      ['MAINTENANCE_MODE:()=>E(void 0)}', 'MAINTENANCE_MODE:()=>E(void 0)'],
+      ['MAINTENANCE_MODE:()=>E("")}', 'MAINTENANCE_MODE:()=>E("")'],
+      ['MAINTENANCE_MODE:()=>t("")}', 'MAINTENANCE_MODE:()=>t("")'],
+      ['>!1,MAINTENANCE_MODE:()=>E("\\"true\\"")}', 'MAINTENANCE_MODE:()=>E("\\"true\\"")'],
+    ];
+    for (const [bundle, printed] of measured) {
+      expect(bundle.match(check)?.[0], bundle).toBe(printed);
+    }
+    expect(check.test("const O=(0,S.default)('MAINTENANCE_MODE')")).toBe(false);
+    // ON and OFF are predicates that print a fixed token; neither printing means stop.
+    expect(step3).toMatch(/\*\*Neither printing means stop\*\*/);
+    expect(step3).toContain('production, flag off, measured by main on 2026-11-21, showed `t("")`');
+    // The variable's name and value (an operator set EXPO_PUBLIC_MAINTENANCE_MODE, quoted, 2026-11-21).
+    for (const rel of [RUNBOOK, GUIDE, ROLLBACK, 'RELEASE.md']) {
+      expect(read(rel), rel).toMatch(/EXPO_PUBLIC_MAINTENANCE_MODE`\s+(?:set\s+)?on the\s+service has \*\*no effect\*\*|EXPO_PUBLIC_MAINTENANCE_MODE`\s+(?:set\s+)?on the\s+service has no effect/);
+    }
+    expect(read('legacy/frontend-web/Dockerfile')).not.toMatch(/ARG EXPO_PUBLIC_MAINTENANCE_MODE/);
+    expect((steps[0] as string)).toContain('**No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is\n    left on the service**');
+    expect(step3).toMatch(/\*\*production:\*\* `MAINTENANCE_MODE=false` on the\s+legacy web service too/);
+    // The switch the runbook relies on exists in the tree.
+    expect(read('legacy/frontend-web/Dockerfile')).toMatch(/ENV EXPO_PUBLIC_MAINTENANCE_MODE=\$MAINTENANCE_MODE/);
+    expect(read('legacy/frontend-web/src/app/_layout.tsx')).toMatch(/if \(maintenanceMode\) \{\s*return fontsLoaded \? <MaintenanceScreen \/>/);
+    // Step 1: the switch is ready, service-scoped, and the api origin is confirmed.
+    const step1 = steps[0] as string;
+    expect(step1).toContain('**Production: legacy web\'s maintenance switch is ready**');
+    expect(step1).toContain('legacy/frontend-web/src/components/MaintenanceScreen.tsx && echo web-has-switch');
+    expect(step1).toMatch(/\*\*Its `EXPO_PUBLIC_API_V2_URL` is an absolute api origin\*\*/);
+  });
+
+  it('the web flag ON and OFF checks discriminate every measured form, run as written in bash (#421 review)', () => {
+    const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
+    const block = step3.match(/```bash\n(web_flag\(\) \{[\s\S]*?)```/)?.[1];
+    expect(block, 'the web_flag functions are in step 3').toBeDefined();
+    // A stub curl stands in for the web domain: "/" serves an index naming one bundle, which holds BUNDLE.
+    const run = (bundle: string, fn: 'web_flag_on' | 'web_flag_off') =>
+      spawnSync('bash', ['-c', `curl() { case "$2" in */) echo '<script src="/_expo/static/js/web/entry-0a1b.js">' ;; *) printf '%s' "$BUNDLE" ;; esac; }\n${block}\n${fn} https://web.example`], {
+        env: { PATH: process.env.PATH ?? '', BUNDLE: bundle },
+        encoding: 'utf8',
+      });
+    const forms: Array<[string, 'on' | 'off' | 'neither']> = [
+      ['a,MAINTENANCE_MODE:()=>E("true")}', 'on'],
+      ['a,MAINTENANCE_MODE:()=>E("True")}', 'on'],
+      ['a,MAINTENANCE_MODE:()=>t("1")}', 'on'],
+      ['a,MAINTENANCE_MODE:()=>E(void 0)}', 'neither'], // not built through the Dockerfile: the flag does nothing (#421 1b)
+      ['a,MAINTENANCE_MODE:()=>E("")}', 'off'],
+      ['a,MAINTENANCE_MODE:()=>t("")}', 'off'], // production, flag off (main, 2026-11-21)
+      ['a,MAINTENANCE_MODE:()=>E("false")}', 'off'],
+      ['a,MAINTENANCE_MODE:()=>E("\\"true\\"")}', 'neither'], // a quoted value: OFF in the app, passes neither
+      ['a,MAINTENANCE_MODE:()=>E("TRUE")}', 'neither'],
+      ['a,MAINTENANCE_MODE:()=>E("true"),b,MAINTENANCE_MODE:()=>E("")}', 'neither'], // two lines
+      ["const O=(0,S.default)('MAINTENANCE_MODE')", 'neither'], // no flag line
+    ];
+    for (const [bundle, want] of forms) {
+      const on = run(bundle, 'web_flag_on');
+      const off = run(bundle, 'web_flag_off');
+      expect([on.status === 0, on.stdout.trim()], `ON check on ${bundle}`).toEqual(want === 'on' ? [true, 'web-flag-ON'] : [false, '']);
+      expect([off.status === 0, off.stdout.trim()], `OFF check on ${bundle}`).toEqual(want === 'off' ? [true, 'web-flag-OFF'] : [false, '']);
+    }
+    // Each step names the check it expects.
+    const step = (re: RegExp) => steps[stepOf(re) - 1] as string;
+    expect(step3).toMatch(/\*\*Production:\*\* the ON check\s+\(`web_flag_on https:\/\/<web domain>`\) prints `web-flag-ON`/);
+    expect(step3).toMatch(/wait until the OFF check prints `web-flag-OFF`/);
+    expect(steps[0]).toMatch(/Step 3's \*\*OFF check\*\*, run now on the\s+public web domain, prints `web-flag-OFF`/);
+    expect(step(/The deploys: `auth` and `backend`/)).toMatch(/run step 3's ON check after it, which must print `web-flag-ON`/);
+    expect(step(/\d+\. Web back$/)).toMatch(/step 3's OFF check prints `web-flag-OFF`/);
+    const rollback = read(ROLLBACK);
+    expect(rollback.slice(rollback.indexOf('## 1.'), rollback.indexOf('## 2.'))).toMatch(/prints `web-flag-ON`/);
+    expect(rollback.slice(rollback.indexOf('## 3.'), rollback.indexOf('## 4.'))).toMatch(/ON check prints `web-flag-ON`/);
+    const rb4 = rollback.slice(rollback.indexOf('## 4.'), rollback.indexOf('## 5.'));
+    expect(rb4).toMatch(/OFF check prints `web-flag-OFF`/);
+    for (const option of ['**(a)**', '**(b)**', '**(c)**']) expect(rb4, option).toContain(option);
+    expect(rb4).toMatch(/The failure mode of all three is web staying on the maintenance build, which is safe/);
+    // Round 1b: the order in step 3 and guide step 2 (probe and ON check, THEN cutover_at).
+    const order = (text: string) => [text.indexOf('web_flag_on https://<web domain>                   # production: web-flag-ON'), text.indexOf('export CUTOVER_AT=')];
+    for (const text of [step3, read(GUIDE)]) {
+      const [on, at] = order(text);
+      expect(on, 'the ON check is in the block').toBeGreaterThan(0);
+      expect(on).toBeLessThan(at);
+    }
+    expect(step3).toMatch(/\*\*Empty output is\s+inconclusive, never OFF\.\*\*/);
+    expect(step3).toContain('curl -fsSL "$1/"');
+    expect(step3).toMatch(/\*\*`\(void 0\)` passes neither, on purpose\.\*\*/);
+    expect(steps[0]).toMatch(/`\(void 0\)` there means the deployed image was not built through the\s+Dockerfile's `ARG`-to-`ENV` mapping/);
+    // The detach is the fallback only, in step 3, step 13's abort and rollback step 1.
+    expect(step3).toMatch(/\*\*Fallback only, if the maintenance build cannot be produced \(production\):\*\*/);
+    expect(step(/\d+\. Web back$/)).toMatch(/\*\*Fallback only\*\*, if that rebuild fails or hangs/);
+    expect(rollback.slice(rollback.indexOf('## 1.'), rollback.indexOf('## 2.'))).toMatch(/\*\*Fallback only \(production\)\*\*/);
+    expect(rollback.slice(rollback.indexOf('## 1.'), rollback.indexOf('## 2.'))).toMatch(/wait and re-run it, that is not a failure/);
+    // web-sources-match: a step 1 precondition and step 13's check (not a bare commit comparison).
+    expect(steps[0]).toContain('git diff --quiet <recorded web commit> origin/<web deploy branch> -- legacy/frontend-web && echo web-sources-match');
+    expect(step(/\d+\. Web back$/)).toContain('git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match');
+    expect(step(/\d+\. Web back$/)).not.toMatch(/serving \(`RELEASE\.md`\)|or\s+step 10's if the push rebuilt it/);
+    expect(step3).toMatch(/step 6 copies them, and a rollback keeps them/);
+    expect(step3).toMatch(/each add a build to the window, and a rollback's steps 1 and 4 two more/);
+    expect(step3).toMatch(/The Caddyfile's `no-cache` is the origin's header/);
+    // Production returns only backend; the web's recorded ID is kept, not redeployed in step 3.
+    expect(rollback).toMatch(/\*\*In production only `backend` returns:\*\*/);
+    expect(doc).toMatch(/In production, rollback step 3 returns only `backend` to its\s+recorded deployment/);
+    expect(read(GUIDE)).toMatch(/In production, the rollback returns only `backend` to its\s+recorded deployment/);
+    for (const rel of [RUNBOOK, ROLLBACK, GUIDE]) {
+      expect(read(rel), rel).not.toMatch(/returns? only `backend` and(?:\s+the)?\s+web(?:\s+service)?|return `backend` and the web service to the deployments/);
+    }
+  });
+
+  it('step 13 turns legacy web\'s flag off in production, with a failed-rebuild case; 12a is skipped in production (owner, 2026-11-21)', () => {
+    const step13 = steps[stepOf(/^\d+\. Web back$/) - 1] as string;
+    expect(step13).toMatch(/\*\*Production: `MAINTENANCE_MODE=false` on the legacy web service\*\*/);
+    expect(step13).toMatch(/\*\*Staging:\*\* re-attach the web domain/);
+    expect(step13).toMatch(/\*\*If the rebuild fails or hangs \(production\):\*\*/);
+    expect(step13).toMatch(/\*\*Abort\*\*[\s\S]*production: `MAINTENANCE_MODE=true` on the legacy web service/);
+    const step12a = doc.slice(doc.indexOf('## 12a.'), doc.indexOf('## 13.'));
+    expect(step12a).toContain('### Production: skipped (owner\'s decision, 2026-11-21)');
+    expect(step12a).toMatch(/first exercised at steps 13 and 14, alongside real users/);
+    expect(step12a).toContain('### An environment that serves legacy web and takes it offline by a detach: unchanged');
+    expect(step12a).toContain('**Staging skips 12a:** it has no legacy web service');
+    // Web's flag goes off at 13, backend's at 15; step 15 says it does not touch web.
+    expect(stepOf(/^\d+\. Web back$/)).toBeLessThan(stepOf(/Maintenance mode off/));
+    expect(steps[stepOf(/Maintenance mode off/) - 1]).toMatch(/its own flag went off at step 13/);
+    // The rollback, the guide, the record and RELEASE.md say the same.
+    const rollback = read(ROLLBACK);
+    expect(rollback).toMatch(/\*\*Production:\*\* `MAINTENANCE_MODE=true` on the legacy web service/);
+    expect(rollback).toMatch(/\*\*Production: do not redeploy the recorded ID\.\*\*/);
+    expect(rollback).toMatch(/\*\*Production:\*\* `MAINTENANCE_MODE=false` on the legacy web service/);
+    const guide = read(GUIDE);
+    expect(guide).toMatch(/\*\*Production:\*\* set `MAINTENANCE_MODE=true` on the \*\*legacy web service\*\*/);
+    expect(guide).toMatch(/\*\*Production:\*\* set `MAINTENANCE_MODE=false` on the legacy web\s+service/);
+    expect(read(RECORD)).toContain('## 2026-11-21: owner decision: legacy web goes offline by its maintenance flag');
+    expect(read('RELEASE.md')).toMatch(/It also takes `MAINTENANCE_MODE` \(PR #418\)/);
+    // No operator doc still detaches the production web domain.
+    for (const rel of [RUNBOOK, ROLLBACK, GUIDE]) {
+      expect(read(rel), rel).not.toMatch(/detach the web domain from the web service \(production|Detach the web domain from the web service \(the legacy web service in production/);
+    }
   });
 
   // A service-key command as an operator would run it: tsx invoking the script's create-service /
@@ -227,7 +378,7 @@ describe('the window runbook', () => {
     const bullet = step1.slice(step1.indexOf('- **Production only:'), step1.indexOf('- **The operator machine'));
     expect(bullet).toContain('**Production only: the rehearsal precondition is waived for this window** (owner, 2026-11-21)');
     expect(bullet).toMatch(/edge properties are first measured live at steps 11 and 12/);
-    expect(bullet).toMatch(/step 12a is the first chance/);
+    expect(bullet).toMatch(/step 12a is not available in production: steps 13 and 14 are the first time/);
     expect(bullet).toContain('On the staging run itself, this item reads:');
     expect(read(GUIDE)).toMatch(/rehearsal precondition is \*\*waived for this window\*\*/);
     expect(read(GUIDE)).not.toMatch(/the staging rehearsal has passed and its evidence is merged/);

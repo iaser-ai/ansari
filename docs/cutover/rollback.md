@@ -32,14 +32,19 @@ route, a checkout of the deployed commit, and both URLs entered with `read -rs` 
 session only.
 
 **A backend-only release (owner, 2026-11-21; #416).** Production web is legacy web throughout: the
-window detaches its domain and re-attaches it to the same service, and swaps nothing. So this
-rollback has no web swap to reverse. It detaches the web domain in step 1 and re-attaches it to
-the same web service in step 4, as the window does.
+window takes it offline with the legacy web service's own `MAINTENANCE_MODE` (PR #418) and brings
+it back on the same service, and swaps nothing. So this rollback has no web swap to reverse. In
+production it sets that flag `true` in step 1 and `false` in step 4, as the window does; the web
+domain stays attached. On staging (`apps/frontend`, no switch, #419) it detaches the web domain in
+step 1 and re-attaches it to the same web service in step 4.
 
 **The mechanism (main, M2).** Auto-deploy is on for `backend`, the web service and `auth`
 (owner decision, 2026-10-19), so a rollback is **one step in the Railway dashboard**: turn
-auto-deploy OFF on all three and return `backend` and the web service to the deployments the
-window's step 1 recorded, together (step 3). **Production `auth` is not a rollback target**: window step
+auto-deploy OFF on all three and return `backend` to the deployment the window's step 1
+recorded (step 3). **In production only `backend` returns:** legacy web stays on the maintenance
+build until step 4 builds it again with the flag off, and its recorded deployment ID is kept as the
+record of the pre-window build, and as step 4's last option (c). On staging, `backend` and the web
+service return to their recorded deployments together (step 3). **Production `auth` is not a rollback target**: window step
 10 never deployed it (it deploys from `develop`; owner's statement, 2026-11-21), so it stays on
 the deployment it had all along, with auto-deploy off for the rollback's duration. Its recorded
 ID is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
@@ -48,13 +53,30 @@ code. Auto-deploy comes back only when the branch carries a revert PR or the for
 
 ## 1. Maintenance mode on, web off
 
-The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and the web domain detached from the
-web service (production: the legacy web service). The detach is what stops web traffic: legacy web
-never asks `app-check`, so it ignores maintenance mode (the window's step 3 gives the evidence).
+The window's step 3: `MAINTENANCE_MODE=true` on `backend`, and web offline. `backend`'s flag only
+changes the `app-check` answer, and legacy web never asks it (the window's step 3 gives the
+evidence), so web needs its own action:
+- **Production:** `MAINTENANCE_MODE=true` on the legacy web service (its service variable; it is
+  already `true` if the rollback starts before window step 13). Each change is a full image
+  rebuild, so steps 1 and 4 add two builds. The name is `MAINTENANCE_MODE`,
+  the value `true` with no quotes: an `EXPO_PUBLIC_MAINTENANCE_MODE` on the service has no effect
+  (`legacy/frontend-web/Dockerfile:18,30`), and a quoted `"true"` is OFF. It is baked in at build time: web
+  is offline only once that rebuild is live, and until then legacy web keeps serving the public on
+  the new code. A tab loaded before then keeps working against the api until reloaded (the
+  window's step 3 residual).
+- **Staging:** the web domain detached from the staging web service.
 
-**Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains, and the web domain
-no longer serves the web app. **If it fails:** stop; nothing below is safe while new code serves
-users.
+**Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains.
+Production: the window's step 3 ON check (define the three functions there in this session)
+prints `web-flag-ON`. **The rebuild takes minutes.** Until it is live the ON check prints nothing,
+and web keeps serving the public on the new code: wait and re-run it, that is not a failure. Only a
+failed build or a `web-flag-ON` that never prints is the failure, and then the fallback below
+applies. Once it prints, a fresh private window on the web domain shows the maintenance screen. Staging: the web domain no longer serves the web app.
+**If it fails:** stop; nothing below is safe while new code serves users. **Fallback only (production)**,
+if the web rebuild fails or hangs, or `web-flag-ON` never prints: detach the web domain from the
+legacy web service (the window's step 3 fallback: it stops new loads and reloads at once, with the
+same open-tab residual) and tell the security architect. Step 4 re-attaches it. A failed build
+leaves the previous deployment serving (dashboard behaviour, not established from the repo).
 
 ## 2. Remove the post-cutover users
 
@@ -87,9 +109,14 @@ push in between:
    (`JWT_SECRET`, `ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`,
    `RESEND_API_KEY`, `FRONTEND_URL`):
    confirm they are set first.
-3. The web service: its recorded ID → **Redeploy**, if it is not already the live deployment
-   (on staging, the staging web service; in production, the legacy web service, which the window
-   changes only if the push rebuilt it).
+3. The web service, by environment:
+   - **Production: do not redeploy the recorded ID.** It was built with the flag off (window step
+     1), so redeploying it would put legacy web back in front of the public, on whatever api is
+     serving, before step 4. Leave the maintenance build of step 1 serving; step 4 turns the flag
+     off. Its sources are the recorded ones: `legacy/frontend-web` is identical on both sides of
+     the promotion.
+   - **Staging:** the staging web service's recorded ID → **Redeploy**, if it is not already the
+     live deployment.
 4. `auth`, by environment:
    - **Production: `auth` is untouched.** Window step 10 starts no `auth` deployment (it deploys from
      `develop`; owner's statement, 2026-11-21), so `auth` stays on the deployment it had all
@@ -110,8 +137,10 @@ push in between:
      remove the one window step 10 started. On staging the PIR #59 deployment is not restored either:
      nothing the legacy code runs calls `apps/auth`.
 
-**Check (production):** auto-deploy shows off on all three; `backend` and the web service are
-healthy, each on the commit the release record holds for it; `auth`:
+**Check (production):** auto-deploy shows off on all three; `backend` is healthy, on the commit
+the release record holds for it; the legacy web service is healthy and still serves the
+maintenance build (the window's step 3 ON check prints `web-flag-ON`), on the commit the release record holds
+for it or step 10's; `auth`:
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` and
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` print `200`, its
 auto-deploy shows off like the others, and by the state the release record names:
@@ -123,15 +152,35 @@ auto-deploy shows off like the others, and by the state the release record names
 **Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth` has no active deployment.
 
-## 4. The web domain back
+## 4. Web back
 
-Re-attach the web domain, detached in step 1, to the **same** web service: in production the
-legacy web service, the only web service there; on staging the staging web service. There is no
-swap to reverse (backend-only release). Make sure that service runs the deployment whose **ID the
-release record holds** (window step 1), redeploying that ID if anything else is live.
+There is no swap to reverse (backend-only release).
+- **Production:** `MAINTENANCE_MODE=false` on the legacy web service, the only web service there.
+  Whether a variable change starts a deployment while auto-deploy is off is not established
+  (dashboard behaviour). So bring web back by the first of these that works, in order. The proof
+  for each is the window's step 3 **OFF check**, `web_flag_off https://<web domain>`, printing
+  `web-flag-OFF`:
+  - **(a)** the deployment the variable change starts itself;
+  - **(b)** if no deployment starts, the dashboard's deploy of the service's latest commit;
+  - **(c)** if that fails, or the check still does not print `web-flag-OFF`, the recorded
+    pre-window web deployment (window step 1's ID) → **Redeploy**. It was built with the flag off.
+    Then make sure the variable is `false`, so it matches. Tell the security architect when (c) is
+    needed.
 
-**Check:** the web domain serves legacy web (staging: the restored staging web service), and that
-service's deployed commit equals the commit the release record holds for it.
+  The failure mode of all three is web staying on the maintenance build, which is safe: the screen
+  makes no api request. If step 1 took the detach fallback, re-attach the web domain to the same
+  legacy web service once the OFF check passes on its Railway domain. The public sees legacy web, now on the legacy `apps/api`, once a deployment
+  that passes the OFF check is live.
+- **Staging:** re-attach the web domain, detached in step 1, to the **same** staging web service.
+  Make sure that service runs the deployment whose **ID the release record holds** (window step
+  1), redeploying that ID if anything else is live.
+
+**Check:** production: the window's step 3 OFF check prints `web-flag-OFF`, a fresh private
+window on the web domain shows legacy web's app, and the deployed commit is the one the release
+record holds for the service or step 10's (`git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match`
+prints `web-sources-match`); record the new deployment's ID. Staging: the web domain serves the
+restored staging web service, and its deployed commit equals the commit the release record holds
+for it.
 
 ## 5. Detach the auth domain (staging)
 

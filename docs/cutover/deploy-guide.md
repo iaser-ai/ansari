@@ -37,7 +37,7 @@ The Railway services, by their dashboard names:
 |---|---|---|
 | `backend` | the api (`apps/api`) | `api.askansari.ai`, `api-35.ansari.chat` |
 | `auth` | the auth service (`apps/auth`) | `auth.askansari.ai` (attached in step 7; production, 2026-11-21: already attached and serving, see [`release-record.md`](release-record.md)) |
-| the web service | production: legacy web (`legacy/frontend-web`), not changed by this release; staging: `apps/frontend` | the web domain (detached in step 2, re-attached in step 9) |
+| the web service | production: legacy web (`legacy/frontend-web`), not changed by this release; staging: `apps/frontend` | the web domain. Production: stays attached; legacy web's own `MAINTENANCE_MODE` is set `true` in step 2 and `false` in step 9. Staging: detached in step 2, re-attached in step 9 |
 
 ## Before the day (Railway dashboard)
 
@@ -90,14 +90,25 @@ before, and check that `backend` is healthy afterwards. Production values are sh
     keeps both (owner's decision, 2026-11-21; [`release-record.md`](release-record.md)).
     Its health probe prints `200` (runbook step 1, the production line).
   - **Staging:** the service has **no domain and no active deployment** (remove the PIR #59 deployment).
-- **The web service: no change.** In production it is legacy web, and nothing is set on it for
-  this window (no `EXPO_PUBLIC_*` variables: `apps/frontend` is not released).
+- **The web service: no change.** In production it is legacy web, and nothing new is set on it for
+  this window (no `EXPO_PUBLIC_*` variables: `apps/frontend` is not released). Its maintenance
+  switch must be ready (runbook step 1, production): its live deployment carries PR #418
+  (`git cat-file -e <web commit>:legacy/frontend-web/src/components/MaintenanceScreen.tsx && echo web-has-switch`),
+  `MAINTENANCE_MODE` is absent or `false` on it and is a **service variable** of the legacy web
+  service, never a shared one (web's flag goes off in step 9, `backend`'s in step 10), and its
+  `EXPO_PUBLIC_API_V2_URL` is an absolute api origin. No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is
+  left on it. `git diff --quiet <recorded web commit> origin/<web deploy branch> -- legacy/frontend-web && echo web-sources-match`
+  prints `web-sources-match`. The runbook step 3 OFF check (`web_flag_off https://<web domain>`)
+  prints `web-flag-OFF`; `(void 0)` from `web_flag` means the image was not built through the
+  Dockerfile and the flag would do nothing: do not start. Record each.
 - **Staging:** the auth domain's DNS record exists and is not attached to any service.
   (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
-  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` and
-  the web service to these. `auth`'s is recorded for the record: nothing in the window deploys
+  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` to its
+  recorded deployment. Legacy web stays on the maintenance build until rollback step 4 builds it
+  again with the flag off; its recorded ID is kept as the record of the pre-window build, and as
+  rollback step 4's last option (c). On staging, `backend` and the web service return to these. `auth`'s is recorded for the record: nothing in the window deploys
   production `auth` (it deploys from `develop`), so it stays on this same deployment, or on the one
   step 7 had the owner redeploy (its ID then recorded), and a rollback leaves it there (owner,
   2026-11-21). On staging, all three are rollback targets.
@@ -114,7 +125,8 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   consequence: the rehearsal's result rows are blank and the staging edge verdict was never
   recorded, so the edge properties are first measured live at runbook steps 11 and 12, where the
   security architect decides whether the window goes on. Legacy web against the new `apps/api`
-  has not been run either; runbook step 12a is the first chance.
+  has not been run either, and runbook step 12a is not available in production (owner,
+  2026-11-21): step 9's web flag off and smoke test are the first time, alongside real users.
   (#307, #317 and #305 are no longer window preconditions: they belong to `apps/frontend`.)
 
 ## 1. Open the operator session
@@ -185,21 +197,43 @@ psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tab
 
 ## 2. Go offline
 
-Post the notice and silence alerts. In Railway, set `MAINTENANCE_MODE=true` on `backend` and
-detach the web domain from the web service (production: the legacy web service). The detach is
-what stops web traffic: `MAINTENANCE_MODE` only changes the `app-check` answer, and legacy web never
-asks for it (the runbook's step 3). Then:
+Post the notice and silence alerts. In Railway, set `MAINTENANCE_MODE=true` on `backend`, then
+take web offline (the runbook's step 3):
+- **Production:** set `MAINTENANCE_MODE=true` on the **legacy web service**, as its own service
+  variable, never a shared one. The name is `MAINTENANCE_MODE` and the value is `true` with **no
+  quotes**: an `EXPO_PUBLIC_MAINTENANCE_MODE` set on the service has no effect (only the
+  `MAINTENANCE_MODE` build argument reaches the build, `legacy/frontend-web/Dockerfile:18,30`), and
+  a quoted `"true"` is OFF. The web domain stays attached. `backend`'s flag only changes the
+  `app-check` answer, and legacy web never asks for it; legacy web's own flag is baked in at build
+  time, so setting it rebuilds the service, and web is offline only when that deployment is live.
+  A tab loaded before then keeps working against the api until reloaded (owner-accepted; a detach
+  would not stop it either).
+- **Staging:** detach the web domain from the staging web service (`apps/frontend` has no switch,
+  #419).
+
+Each web flag change is a full image rebuild (minutes). Define the runbook step 3 web flag checks
+in this shell, then wait until both are live, **before** taking `CUTOVER_AT`:
 
 ```bash
-export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
-echo "$CUTOVER_AT"                                 # into the release record
 curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform":"ios","native_application_version":"1.0.0","native_build_version":"1"}' | jq .maintenance_mode   # true
+web_flag_on https://<web domain>                   # production: web-flag-ON
 ```
 
 `MAINTENANCE_MODE` takes effect only once Railway's redeploy of `backend` is healthy, so the probe
 prints `false` until then: wait and re-run it, that is not a failure. In production, also run the
-probe on `https://api-35.ansari.chat`. Take a Railway snapshot of
-both databases and record their ids.
+probe on `https://api-35.ansari.chat`. `web_flag_on` prints `web-flag-ON` only for `true`, `True`
+or `1`; until the rebuild is live it prints nothing: wait and re-run. A fresh private window on the
+web domain then shows "Ansari is currently under maintenance." **Fallback only**, if the web
+rebuild fails or hangs or `web-flag-ON` never prints: detach the web domain from the legacy web
+service, tell the security architect, and re-attach it in step 9 (the runbook's step 3 fallback).
+Then:
+
+```bash
+export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
+echo "$CUTOVER_AT"                                 # into the release record
+```
+
+Take a Railway snapshot of both databases and record their ids.
 
 ## 3. Auth schema
 
@@ -304,7 +338,9 @@ git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   #
 
 Auto-deploy builds `backend`. Production `auth` deploys from `develop`, so it keeps the deployment
 step 7 checked (staging: the merge deploys `auth` too). The web service builds only if its watch
-paths matched the push (staging's always does). Wait until each is healthy.
+paths matched the push (staging's always does); in production such a rebuild still has
+`MAINTENANCE_MODE=true` set, and `web_flag_on` must still print `web-flag-ON`. Wait until each is
+healthy.
 
 ## 9. Verify
 
@@ -315,13 +351,23 @@ curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                     
 ```
 
 - Run the edge probes in [`edge-check.md`](edge-check.md).
-- Re-attach the web domain to the **same** web service it was detached from in step 2 (production:
-  the legacy web service). There is no web swap.
+- Runbook step 12a: **production: skipped** (owner, 2026-11-21): with the flag on, the legacy web
+  service's Railway domain shows the maintenance screen too. Staging: as the runbook says.
+- Web back (runbook step 13). **Production:** set `MAINTENANCE_MODE=false` on the legacy web
+  service; it rebuilds, and the public sees legacy web only when that deployment is live. Check:
+  `web_flag_off https://<web domain>` prints `web-flag-OFF`, a fresh private window shows the app, and
+  `git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match`
+  prints `web-sources-match`. If the rebuild
+  fails or hangs, the maintenance build keeps serving: retry once, then set the variable back to
+  `true` and tell the security architect. **Staging:** re-attach the web domain to the same web
+  service it was detached from in step 2. There is no web swap. If legacy web fails against the
+  new `apps/api`, production: `MAINTENANCE_MODE=true` on the legacy web service (offline only once
+  that rebuild is live), then [`rollback.md`](rollback.md).
 - Smoke test, in a private window: **production** on legacy web (runbook step 14 lists each
   flow's `/api/v2` route); **staging** on the staging web service (`apps/frontend`). Guest, sign
   up, sign out, sign in, ask a question, reset the password from the email, and delete the
   account. After the delete, check that signing in with it fails: legacy web's delete page goes to
-  `/welcome` even when the delete failed. Once the domain is back, real users are on it too.
+  `/welcome` even when the delete failed. Once web is back, real users are on it too.
 
 ## 10. Back online
 
