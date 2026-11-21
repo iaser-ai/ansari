@@ -1,7 +1,7 @@
 id: '300'
 title: better-auth-migration
 protocol: spir
-phase: verify
+phase: verified
 plan_phases:
   - id: phase_1
     title: Legacy contract tests pinned against today's implementation
@@ -64,7 +64,7 @@ iteration: 1
 build_complete: true
 history: []
 started_at: '2026-10-14T03:31:15.359Z'
-updated_at: '2026-11-21T12:23:49.741Z'
+updated_at: '2026-11-21T12:23:51.833Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-10-16T00:28:28.599Z'
