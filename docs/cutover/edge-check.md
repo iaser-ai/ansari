@@ -73,8 +73,10 @@ read. The staging verdict is recorded only after **both** paths are measured.
 and the `curl -sI` headers, which show whether Cloudflare is in front.
 
 The **in-window production probe** (G-2, window steps 11 and 12: the auth domain's in step 11,
-once `auth` is deployed on the domain step 9 attached) runs the same two paths on the production domains and stays the
-final word.
+after step 10) runs the same two paths on the production domains and stays the
+final word. In production the auth domain is not attached at step 9: it is already attached and
+served by `auth`'s existing deployment, which stays (owner's decision, 2026-11-21;
+[`release-record.md`](release-record.md)). On staging, step 9 attaches it.
 
 ## Observations (phase 13 and the window)
 
@@ -87,7 +89,7 @@ final word.
 | staging `*.up.railway.app` (backend, auth) | phase 13 | | | | |
 | `api.askansari.ai` | window step 12 | | | | passive check before the merge (2026-10-17): no CNAME to Railway; A 104.21.29.181, 172.67.149.151, AAAA 2606:4700:3033::6815:1db5, 2606:4700:3031::ac43:9597 (Cloudflare); `curl -sI`: `server: cloudflare`, `cf-ray`, then `x-railway-edge: sin1`. **Cloudflare proxies in front of Railway's edge (measured).** What `X-Real-IP` carries on this path is not yet measured: see the finding below |
 | `api-35.ansari.chat` | window step 12 | | | | passive check before the merge (2026-10-17): CNAME `vyex12qb.up.railway.app.` → 69.46.46.35; `curl -sI`: `server: railway-hikari`, `x-railway-edge: sjc1`, no proxy headers; same edge as staging |
-| `auth.askansari.ai` | window step 11 | | | | passive check before the merge (2026-10-17): no DNS record yet. The record must exist, unattached, before the window (runbook step 1, spec H-5); it is attached in window step 9 and probed in step 11, once `auth` is deployed |
+| `auth.askansari.ai` | window step 11 | | | | passive check before the merge (2026-10-17): no DNS record yet. **2026-11-21:** attached and serving (`/health` 200, measured by the architect; [`release-record.md`](release-record.md)), and it stays so by the owner's decision: window step 9 skips the attach in production. It is probed in step 11 (production `auth` deploys from `develop`, so step 10 does not redeploy it; runbook step 9 checks its code) |
 
 **Verdict (the per-IP keys rest on it; no mode is selected):** _(recorded by phase 13)_
 

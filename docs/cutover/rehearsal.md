@@ -5,7 +5,8 @@ never deployed to staging ahead of its merge. The whole window runbook
 ([`better-auth-cutover.md`](better-auth-cutover.md), its "Staging rehearsal" section gives the
 differences) runs on staging, with the cutover PR's merge to `develop` as its step 10, and then
 the rollback ([`rollback.md`](rollback.md)). `develop` is frozen from that merge on. This file holds the procedure and, filled in by the docs-only evidence PR, the results.
-`develop` is not promoted until that PR merges.
+`develop` is not promoted until that PR merges (waived for the 2026-11-21 window by the owner;
+see the owner's statement under Part F).
 
 Who does what:
 - the owner operates Railway and runs every database step from the operator environment, the
@@ -53,11 +54,11 @@ A clone would have shown two things that staging cannot:
 
 ## Un-rehearsed residuals
 
-- **The production web swap (window step 13).** Staging web already serves `apps/frontend`
-  (title Ansari, built against `api-staging`). So on staging, step 13 rehearses only the rebuild
-  the merge triggers, with `EXPO_PUBLIC_AUTH_URL`, and re-attaching the domain step 3 detached. Production's change of the web service's
-  Dockerfile path, from legacy web to `apps/frontend`, is not rehearsed. Its rollback,
-  [`rollback.md`](rollback.md) step 4 (restore the previous legacy web deployment), is unchanged.
+- **Legacy web against the new `apps/api` (window steps 13 and 14; #416).** The backend-only
+  release (owner, 2026-11-21) keeps production web on legacy web, with no web swap. Staging web
+  serves `apps/frontend`, so steps 13 and 14 on staging re-attach and smoke-test `apps/frontend`,
+  not legacy web. Legacy web against the staging api (sign up, sign in, ask, reset password,
+  delete account) has never been run, and #416 lists it as evidence still blank.
 
 ## Owner-accepted residuals (not a rehearsal gap)
 
@@ -162,9 +163,9 @@ After the copy, sign each seeded user in against the staging auth service with
 | 8 Admin roles | | no | | |
 | 9 Attach `auth.askansari.ai` | | no | | |
 | 10 Promote `develop` to `main` (staging: merge the cutover PR) | | no | | |
-| 11 The deploys: `auth`, `backend` and web | | no | | |
+| 11 The deploys: `auth` and `backend` | | no | | |
 | 12 Edge probe on the `apps/api` production domains | | no | | |
-| 13 Replace legacy web | | no | | |
+| 13 The web domain back | | no | | |
 | 14 Public smoke tests | | no | | |
 | 15 Maintenance mode off | | no | | |
 | 16 Re-enable alerting | | no | | |
@@ -203,7 +204,8 @@ The audits, both sides (`copy.sh` output):
 | Released mobile build (or the same build pointed at staging) | | | | | |
 | Admin analytics login | | n/a | n/a | n/a | n/a |
 
-`legacy/frontend-web` is retired at go-live and is not run.
+`legacy/frontend-web` is not retired in this release: it stays production's web app (backend-only,
+owner 2026-11-21). Its run against the staging api is the residual above.
 
 ## Part D: stored-guest sign-in (G-5)
 
@@ -246,6 +248,12 @@ is still on `develop`; the rehearsal does not revert it). Then:
 
 `develop` is frozen, so there is no re-run after a later merge: the merge commit below is what
 production receives.
+
+**2026-11-21, owner's statement (to the security architect):** the staging rehearsal has been
+run end to end. The result rows in this file are still blank; they await the owner's numbers. No
+result is recorded here until then. **The owner waives, for this production window, the written
+evidence, the security architect's verdicts and the same-commit requirement** (2026-11-21;
+runbook step 1, "Production only"). The rows stay blank.
 
 | Run | `develop` merge commit | Result |
 |---|---|---|

@@ -23,7 +23,11 @@ const DOCS = [RUNBOOK, ROLLBACK, GUIDE, RECORD, 'docs/cutover/edge-check.md', 'd
 /** Repo-relative paths a doc names in backticks or as a command argument. */
 export function namedRepoPaths(doc: string): string[] {
   const found = new Set<string>();
-  for (const m of doc.matchAll(/(?<![\w./-])((?:apps|packages|docs)\/[A-Za-z0-9_.\/-]+\.(?:sql|sh|ts|md|json|toml))/g)) {
+  // A `<ref>:<path>` citation (e.g. `origin/main:apps/api/...`) names a file at that ref, not in this
+  // checkout, so the `:` before the path excludes it (#416: step 7 cites origin/main's code).
+  // legacy/ is scanned too (#416: the runbook cites legacy/frontend-web), with .tsx and the route
+  // groups' parentheses, e.g. legacy/frontend-web/src/app/(public)/reset-password.tsx.
+  for (const m of doc.matchAll(/(?<![\w./:-])((?:apps|packages|docs|legacy)\/[A-Za-z0-9_.\/()-]+\.(?:sql|sh|tsx|ts|md|json|toml))/g)) {
     found.add(m[1] as string);
   }
   return [...found];
@@ -50,6 +54,11 @@ describe('cutover docs: every named file exists', () => {
   it('the path scan finds a planted missing file and ignores a near-miss', () => {
     const planted = 'run `apps/auth/scripts/cutover/99-missing.sql` then see https://example.com/apps/x.sql';
     expect(namedRepoPaths(planted)).toEqual(['apps/auth/scripts/cutover/99-missing.sql']);
+    expect(namedRepoPaths('see `origin/main:apps/api/lib/auth/jwt.ts:47` and `apps/x/y.ts`')).toEqual(['apps/x/y.ts']);
+    expect(namedRepoPaths('page (`legacy/frontend-web/src/app/(public)/gone.tsx`) and (legacy/x.ts)')).toEqual([
+      'legacy/frontend-web/src/app/(public)/gone.tsx',
+      'legacy/x.ts',
+    ]);
     expect(existsSync(resolve(repoRoot, 'apps/auth/scripts/cutover/99-missing.sql'))).toBe(false);
   });
 
@@ -90,9 +99,11 @@ describe('the window runbook', () => {
     // The app window migrations by file; the auth journal by its loop, one file at a time (spec 329);
     // and step 5's production single-file form for a journal file newer than the early apply (2026-11-21).
     const applies = doc.split('\n').filter((l) => /psql .*-f \S*drizzle\/\S+\.sql/.test(l) || /auth-journal\.mjs files/.test(l));
-    expect(applies.length).toBe(5);
+    // + the named production procedure's loop (drop and re-apply, owner 2026-11-21).
+    expect(applies.length).toBe(6);
     for (const line of applies) {
-      expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /);
+      // `-f <file>`, or (the production procedure) the drop and every journal file piped into ONE psql.
+      expect(line).toMatch(/psql "\$(APP|AUTH)_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction( -f |$)/);
     }
   });
 
@@ -116,12 +127,16 @@ describe('the window runbook', () => {
       expect(stepOf(title), String(title)).toBeLessThan(promote);
     }
     expect(stepOf(/The copy and the audits/)).toBe(promote - 4);
-    expect(stepOf(/The deploys: `auth`, `backend` and web/)).toBe(promote + 1);
+    expect(stepOf(/The deploys: `auth` and `backend`/)).toBe(promote + 1);
     expect(doc).toMatch(/\*\*Auto-deploy is ON for `backend`, the web service and `auth`, and stays on\*\*/);
     expect(doc).not.toMatch(/Auto-deploy is OFF|auto-deploy OFF on staging|Turn auto-deploy OFF on staging/);
     expect(doc).toMatch(/Steps 3 to 10 are \*\*one continuous session\*\*/);
-    expect(doc).toMatch(/main` is current except for spec 300/);
-    expect(doc).toMatch(/\*\*The web service has both build variables set before step 10\*\*/);
+    // #416: main is NOT current except for spec 300; the promotion is measured, and the web is untouched.
+    expect(doc).toMatch(/\*\*What the promotion carries is measured and recorded\*\*/);
+    expect(doc).toMatch(/git rev-list --count origin\/main\.\.origin\/develop/);
+    expect(doc).not.toMatch(/\*\*`main` is current except for spec 300\.\*\*/);
+    expect(doc).toMatch(/\*\*The web service needs no change\*\*/);
+    expect(doc).not.toMatch(/\*\*The web service has both build variables set before step 10\*\*/);
   });
 
   it('step 10 checks the deployed tree is the checkout the scripts ran from (W5, M5)', () => {
@@ -132,7 +147,7 @@ describe('the window runbook', () => {
     const before = step10.indexOf('echo develop-unchanged');
     expect(before).toBeGreaterThan(0);
     expect(before).toBeLessThan(step10.indexOf('git push origin origin/develop:main'));
-    const step11 = steps[stepOf(/The deploys: `auth`, `backend` and web/) - 1] as string;
+    const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
     expect(step11).toMatch(/first build and\s+deploy/);
     expect(step11).toMatch(/that is \[`rollback\.md`\]\(rollback\.md\) from step 1/);
     expect(doc).toMatch(/cutover\s+PR is brought current with `develop`/);
@@ -157,12 +172,171 @@ describe('the window runbook', () => {
     expect(step7).toContain('eq(users.email, email.toLowerCase())');
   });
 
-  it('attaches the auth domain before the web swap (R4)', () => {
-    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/Replace legacy web/));
+  it('attaches the auth domain before the web domain comes back (R4); there is no web swap (#416)', () => {
+    expect(stepOf(/Attach `auth\.askansari\.ai`/)).toBeLessThan(stepOf(/The web domain back/));
+    expect(stepOf(/Maintenance mode on, web off/)).toBeLessThan(stepOf(/The web domain back/));
+    expect(doc).not.toMatch(/Replace legacy web|legacy web retires in step 13|EXPO_PUBLIC_AUTH_URL=https/);
   });
 
-  it('auth has no active deployment until the promotion; admins are granted by id, with no list and no redeploy (H-7)', () => {
-    expect(doc).toMatch(/\*\*no domain yet\*\* and \*\*no active deployment\*\*/);
+  it('says why the web domain is detached: legacy web never asks app-check (owner, 2026-11-21)', () => {
+    const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
+    expect(step3).toMatch(/legacy web does not honour maintenance\s+mode, so only the detach stops web traffic/);
+    // The route is cited by path (its line numbers move); it must be the one that reads the flag.
+    expect(step3).toContain('apps/api/src/app/api/v2/app-check/route.ts');
+    expect(read('apps/api/src/app/api/v2/app-check/route.ts')).toMatch(/maintenanceMode/);
+  });
+
+  // A service-key command as an operator would run it: tsx invoking the script's create-service /
+  // create-key subcommand. A prose mention of the script (release-record.md) is not a command.
+  const KEY_COMMAND = /tsx\s+\S*service-keys\.ts\s+create-(?:service|key)\b/;
+  // The superseded instruction to issue the keys between the copy and the promotion (2026-11-21).
+  const KEYS_BEFORE_PROMOTION = /issued after the copy\s+and before step 10's promotion/;
+  const unstruck = (text: string) => text.replace(/~~[^~]*~~/g, '');
+  // Every docs/cutover page an operator reads during the window. service-keys-runbook.md is the
+  // keys' own runbook, used after the window, and legitimately holds the commands.
+  const OPERATOR_DOCS = readdirSync(resolve(repoRoot, 'docs/cutover'))
+    .filter((f) => f.endsWith('.md') && f !== 'service-keys-runbook.md')
+    .map((f) => `docs/cutover/${f}`);
+
+  it('the key scans match planted lines and ignore their near-misses', () => {
+    expect(KEY_COMMAND.test('./node_modules/.bin/tsx scripts/service-keys.ts create-service ansari-mcp')).toBe(true);
+    expect(KEY_COMMAND.test('./node_modules/.bin/tsx scripts/service-keys.ts create-key ansari-mcp --rate-max 1')).toBe(true);
+    expect(KEY_COMMAND.test('`apps/auth/scripts/service-keys.ts create-service` (through `createServiceUser`)')).toBe(false);
+    expect(KEY_COMMAND.test('There is no `create-service`\nand no `create-key` anywhere in the window.')).toBe(false);
+    const planted = 'The keys are issued after the copy\n  and before step 10\'s promotion.';
+    expect(KEYS_BEFORE_PROMOTION.test(unstruck(planted))).toBe(true);
+    expect(KEYS_BEFORE_PROMOTION.test(unstruck(`~~${planted}~~ [superseded]`))).toBe(false);
+  });
+
+  it('issues no service keys in the window: no key command, and no unstruck key issuance before the promotion, in any operator doc (owner, 2026-11-21)', () => {
+    expect(OPERATOR_DOCS).toContain(RECORD);
+    expect(OPERATOR_DOCS.length).toBeGreaterThanOrEqual(6);
+    const commands = OPERATOR_DOCS.flatMap((rel) => read(rel).split('\n').filter((l) => KEY_COMMAND.test(l)).map((l) => `${rel}: ${l}`));
+    const issuance = OPERATOR_DOCS.filter((rel) => KEYS_BEFORE_PROMOTION.test(unstruck(read(rel))));
+    console.info(`[cutover-docs] key commands: ${commands.length}; unstruck pre-promotion issuance: ${issuance.length} (in ${OPERATOR_DOCS.length} docs)`);
+    expect(commands).toEqual([]);
+    expect(issuance).toEqual([]);
+    // The struck line is still there, as history.
+    expect(read(RECORD)).toMatch(/~~[^~]*issued after the copy\s+and before step 10's promotion[^~]*~~\s*\[Superseded 2026-11-21/);
+    expect(doc).toContain('**No service keys in this window**');
+    expect(read(GUIDE)).toContain('**No service keys in the window**');
+  });
+
+  it('the rehearsal precondition is waived for production, with its consequence stated, everywhere it was a precondition (owner, 2026-11-21)', () => {
+    const step1 = steps[0] as string;
+    const bullet = step1.slice(step1.indexOf('- **Production only:'), step1.indexOf('- **The operator machine'));
+    expect(bullet).toContain('**Production only: the rehearsal precondition is waived for this window** (owner, 2026-11-21)');
+    expect(bullet).toMatch(/edge properties are first measured live at steps 11 and 12/);
+    expect(bullet).toMatch(/step 12a is the first chance/);
+    expect(bullet).toContain('On the staging run itself, this item reads:');
+    expect(read(GUIDE)).toMatch(/rehearsal precondition is \*\*waived for this window\*\*/);
+    expect(read(GUIDE)).not.toMatch(/the staging rehearsal has passed and its evidence is merged/);
+    expect(read(RECORD)).toMatch(/\*\*The rehearsal precondition is waived for this window\*\*/);
+    expect(read('docs/cutover/rehearsal.md')).toMatch(/The owner waives, for this production window/);
+  });
+
+  it('MCP_COMPLETE_KEY_MODE=log-only is a hard precondition (no key is issued in the window)', () => {
+    const step1 = steps[0] as string;
+    expect(step1).toContain('**`MCP_COMPLETE_KEY_MODE=log-only` on `backend` is confirmed before the window**');
+    expect(step1).toContain('**If the variable is absent, or `enforce`, do not start.**');
+  });
+
+  it('production branches: auth is already deployed and attached; step 9 skips the attach and expects 200 (owner, 2026-11-21)', () => {
+    const step1 = steps[0] as string;
+    expect(step1).toMatch(/`auth` \*\*has\*\* a live deployment and `auth\.askansari\.ai` \*\*is attached\*\*/);
+    const step9 = steps[stepOf(/Attach `auth\.askansari\.ai`/) - 1] as string;
+    const prodAt = step9.indexOf('### Production: skip the attach');
+    const stagingAt = step9.indexOf('### Staging');
+    expect(prodAt).toBeGreaterThanOrEqual(0);
+    expect(stagingAt).toBeGreaterThan(prodAt);
+    const prod = step9.slice(prodAt, stagingAt);
+    expect(prod).toMatch(/\*\*Check \(production\):\*\*[\s\S]*prints `200`/);
+    expect(prod).toMatch(/\*\*Abort \(production\):\*\* do \*\*not\*\* detach the domain or remove the deployment/);
+    expect(prod).toContain('[Empty the production auth database: drop and re-apply]');
+    expect(prod).not.toMatch(/`404` or `502`/);
+    const guide = read(GUIDE);
+    expect(guide).toMatch(/\$AUTH\/health\s+# PRODUCTION: 200; never 000/);
+    expect(guide).toMatch(/\$AUTH\/health\s+# STAGING: 404 or 502; never 200, never 000/);
+  });
+
+  it('production auth deploys from develop: step 9 checks its build-path tree before the push, step 11 expects no new deployment, step 16 switches it to main (owner, 2026-11-21)', () => {
+    const tree = 'git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches';
+    const step1 = steps[0] as string;
+    expect(step1).toMatch(/\*\*Production `auth`\s+deploys from `develop`, with auto-deploy on\*\*/);
+    expect(step1).toMatch(/\*\*step 10's push to `main`\s+starts no `auth` deployment\*\*/);
+    const step9 = steps[stepOf(/Attach `auth\.askansari\.ai`/) - 1] as string;
+    expect(step9).toContain(tree);
+    expect(step9).toMatch(/stop\s+here, before step 10/);
+    expect(read(GUIDE)).toContain(tree);
+    // The tree check's paths are auth's build inputs: every watch pattern of its railway.toml.
+    const toml = read('apps/auth/railway.toml');
+    for (const path of ['apps/auth', 'packages', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+      expect(toml, path).toContain(`"${path}`);
+    }
+    const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
+    expect(step11).toMatch(/\*\*Production:\*\* step 10's push to `main` starts \*\*no\*\* `auth` deployment/);
+    const step16 = doc.slice(doc.indexOf('## 16.'), doc.indexOf('## Orphan app rows'));
+    expect(step16).toMatch(/\*\*First, production: switch `auth`'s source branch to `main`\*\*/);
+    expect(step16.indexOf("switch `auth`'s source branch")).toBeLessThan(step16.indexOf('un-silence the alerts'));
+    // Round 4: main must be the promoted commit; the check is against the recorded commit; three states.
+    const promoted = 'git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit';
+    expect(step16).toContain(promoted);
+    expect(read(GUIDE)).toContain(promoted);
+    expect(step16).toMatch(/deployed commit equals `<recorded commit>`/);
+    expect(step16).not.toMatch(/equals `git rev-parse origin\/main`/);
+    for (const state of ['**(a) Not switched:**', '**(b) Switched, new deployment Active:**', '**(c) Switched, build failed:**']) {
+      expect(step16, state).toContain(state);
+    }
+    // A second attempt overrides step 1's auth line; step 1 points there.
+    expect(step1).toMatch(/This line describes the \*\*first attempt\*\*/);
+    const second = read(ROLLBACK).slice(read(ROLLBACK).indexOf('## A second attempt'), read(ROLLBACK).indexOf('## If no second attempt'));
+    expect(second).toMatch(/\*\*Production overrides/);
+    expect(second).toMatch(/only on the security architect's word/);
+    // The guide maps its step numbers to the runbook's.
+    const mapping = [...read(GUIDE).matchAll(/^\| (\d+)\. ([^|]+) \| ([^|]+) \|$/gm)].map((m) => Number(m[1]));
+    expect(mapping).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(read(GUIDE)).toMatch(/\| 7\. Attach the auth domain \| 9 \|/);
+  });
+
+  it('runs from a fresh checkout verified against the recorded commit, never the spir-300 worktree (#416)', () => {
+    expect(doc).toContain('[ "$(git rev-parse HEAD)" = "<recorded commit>" ] && echo checkout-at-recorded-commit');
+    expect(doc).toContain('ls apps/auth/scripts/cutover/auth-journal.mjs packages/auth/drizzle/0001_api_key.sql');
+    // Clean, fresh clone (#416 round 2): the clean-tree line in both docs, in the opening block and
+    // again before the first repo script (runbook step 5, guide step 3).
+    const clean = '[ -z "$(git status --porcelain)" ] && echo clean-tree';
+    const guide = read(GUIDE);
+    const between = (text: string, from: string, to: string) => {
+      const a = text.indexOf(from);
+      const b = text.indexOf(to, a + 1);
+      expect(a, from).toBeGreaterThanOrEqual(0);
+      expect(b, to).toBeGreaterThan(a);
+      return text.slice(a, b);
+    };
+    for (const [name, opening, script] of [
+      ['runbook', between(doc, '**The operator environment', '**A dry run before the window'), between(doc, '## 5. The auth baseline', '## 6. ')],
+      ['guide', between(guide, '## 1. Open the operator session', '## 2. '), between(guide, '## 3. Auth schema', '## 4. ')],
+    ] as const) {
+      expect(opening, `${name}: clean-tree in the opening block`).toContain(clean);
+      expect(opening, name).toMatch(/git clone <repo URL> <new empty directory>/);
+      expect(script, `${name}: clean-tree before the first script`).toContain(clean);
+    }
+    expect(doc).not.toMatch(/\*\*The checkout is the `builder-spir-300` worktree\*\*/);
+    expect(read(GUIDE)).not.toMatch(/# the builder-spir-300 worktree/);
+    for (const text of [doc, read(GUIDE)]) expect(text).not.toMatch(/builder-spir-300|6ed22431/);
+    // #416 round 3: nothing deploys production auth in the window.
+    for (const text of [doc, read(GUIDE)]) {
+      expect(text).not.toMatch(/stays on\s+step 10's deployment|stays on the deployment serving after the deploys/);
+    }
+  });
+
+  it('step 1 gives auth\'s state per environment: production deployed and attached, staging none; admins are granted by id (H-7)', () => {
+    const step1 = steps[0] as string;
+    const prod = step1.indexOf('**Production (owner\'s decision, 2026-11-21;');
+    const staging = step1.indexOf('**Staging, and any environment without that decision:** **no domain yet** and **no active deployment**');
+    expect(prod).toBeGreaterThanOrEqual(0);
+    expect(staging).toBeGreaterThan(prod);
+    // The both-environments requirements are their own top-level bullet, not inside the staging one.
+    expect(step1).toMatch(/^- \*\*In both environments, the variables:\*\*/m);
     const admins = steps[stepOf(/Admin roles/) - 1] as string;
     expect(admins).toContain('grant-admin.ts <email> --confirm <id>');
     expect(admins).toContain('05-audit-admins-auth.sql');
@@ -172,8 +346,11 @@ describe('the window runbook', () => {
 
   it("names the operator environment: the owner's machine through the Tailscale forwarder (H-8)", () => {
     expect(doc).toContain('**The operator environment (spec H-8).**');
-    // The checkout is not checked (owner, 2026-10-19): no PROMOTED_COMMIT and no clean-checkout gate.
-    expect(doc).not.toMatch(/PROMOTED_COMMIT|git status --porcelain/);
+    // The scripts do not check the checkout (owner, 2026-10-19): no PROMOTED_COMMIT gate in them.
+    // The operator's own clean-tree line (#416) is tested with the fresh checkout. The owner
+    // confirmed it on 2026-11-21 as a narrowing of the 2026-10-19 "no clean-checkout gate"
+    // decision: the operator runs the line, and the scripts still check nothing.
+    expect(doc).not.toMatch(/PROMOTED_COMMIT/);
     expect(doc).toContain('read -rs APP_DATABASE_URL && export APP_DATABASE_URL');
     expect(doc).toContain('set +o history');
     expect(doc).toMatch(/`<project>-<environment>-tailscale-forwarder`/);
@@ -240,7 +417,7 @@ describe('the window runbook', () => {
     expect(hits).toEqual([]);
   });
 
-  it.each([/Edge probe on the `apps\/api` production domains/, /The deploys: `auth`, `backend` and web/])(
+  it.each([/Edge probe on the `apps\/api` production domains/, /The deploys: `auth` and `backend`/])(
     '%s checks both edge properties on both paths: all three client-IP headers forged, and two networks differ',
     (title) => {
       const step = steps[stepOf(title) - 1] as string;
@@ -348,9 +525,87 @@ describe('the rollback runbook', () => {
     expect(doc).not.toMatch(/revert the promotion on `develop` and promote that before\s+re-enabling auto-deploy/);
   });
 
-  it('empties the auth database if no second attempt follows within 7 days (R6)', () => {
-    expect(doc).toMatch(/within 7 days/);
-    expect(doc).toContain("DROP SCHEMA auth CASCADE'");
+  it('production rollback: auth is untouched, domain attached, auto-deploy off; staging as before (owner, 2026-11-21)', () => {
+    const step3 = doc.slice(doc.indexOf('## 3. Auto-deploy off'), doc.indexOf('## 4.'));
+    expect(step3).toMatch(/\*\*Production: `auth` is untouched\.\*\*/);
+    expect(step3).toMatch(/\*\*Check \(production\):\*\*[\s\S]*`200`[\s\S]*auto-deploy\s+shows off/);
+    // Window step 16's three states, each with its own check (#416 round 4).
+    const check = step3.slice(step3.indexOf('**Check (production):**'), step3.indexOf('**Check (staging):**'));
+    expect(check).toMatch(/\*\*\(a\) or \(c\):\*\*[\s\S]*auth-tree-matches/);
+    expect(check).toMatch(/\*\*\(b\):\*\*[\s\S]*window step 16 recorded/);
+    for (const state of ['(a) Not switched', '(b) Switched, new deployment Active', '(c) Switched, build failed']) {
+      expect(step3, state).toContain(state);
+    }
+    expect(step3).toMatch(/\*\*Check \(staging\):\*\*[\s\S]*`auth` has no active deployment/);
+    expect(step3.indexOf('**Check (production):**')).toBeLessThan(step3.indexOf('**Check (staging):**'));
+    const step5 = doc.slice(doc.indexOf('## 5. Detach'), doc.indexOf('## 6.'));
+    expect(step5).toMatch(/^\*\*Production: skip this step\.\*\*/m);
+    expect(step5.indexOf('**Production: skip this step.**')).toBeLessThan(step5.indexOf('**Staging'));
+    expect(step5).toContain('https://auth-staging.askansari.ai/health');
+    expect(doc).toMatch(/\*\*Production `auth` is not a rollback target\*\*/);
+    expect(doc).not.toMatch(/not decided|OPEN OWNER DECISION|window's deployment\*\* \(step 10's commit\)/i);
+  });
+
+  it('empties the auth database: production by the named drop-and-re-apply procedure, staging by the drop alone (R6; owner, 2026-11-21)', () => {
+    const PROC = '[Empty the production auth database: drop and re-apply]';
+    const runbook = read(RUNBOOK);
+    const proc = runbook.slice(runbook.indexOf('## Empty the production auth database: drop and re-apply'), runbook.indexOf('## 1. Preconditions'));
+    // ONE transaction: the drop and every journal file, in order, piped into a single psql.
+    // The journal list is captured first and must be non-empty: an empty list would make `cat` read
+    // the terminal, and the drop could commit without the journal.
+    // The journal check runs inside the same transaction, so a missing object rolls the drop back.
+    const oneTxn = `F="$(node apps/auth/scripts/cutover/auth-journal.mjs files)" && C="$(node apps/auth/scripts/cutover/auth-journal.mjs check)" && [ -n "$F" ] && [ -n "$C" ] && { echo "set lock_timeout = '5s';"; echo 'DROP SCHEMA auth CASCADE;'; cat $(printf '%s\\n' "$F"); printf '%s\\n' "$C"; } | psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction`;
+    expect(proc).toContain(oneTxn);
+    expect(proc).not.toMatch(/^psql .*-c 'DROP SCHEMA/m);
+    expect(proc).toContain('git diff --quiet <auth running commit> HEAD -- packages/auth/drizzle && echo journal-matches');
+    expect(proc).toContain("curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks");
+    expect(proc).toMatch(/\*\*Check:\*\*[\s\S]*`<tag>\|t`[\s\S]*prints `0`[\s\S]*JWKS probe prints `200`\. Not\s+`\/health`/);
+    expect(proc).toMatch(/\*\*stays true\*\*/);
+    // Every DROP SCHEMA line in the runbook, the guide and the rollback is inside the procedure,
+    // under a `### Staging` heading, or on a line labelled staging (#416 round 3).
+    // The procedure is exempt by its LINE RANGE (its heading to the next `## `), never by matching
+    // text, so a production drop copied verbatim elsewhere is still caught (#416 round 4).
+    const bare = (text: string) => {
+      const lines = text.split('\n');
+      const start = lines.findIndex((l) => l === '## Empty the production auth database: drop and re-apply');
+      const end = start < 0 ? -1 : lines.findIndex((l, k) => k > start && l.startsWith('## '));
+      return lines.flatMap((line, i) => {
+        if (!/DROP SCHEMA/.test(line) || (start >= 0 && i > start && i < end) || /staging/i.test(line)) return [];
+        for (let j = i; j >= 0; j--) {
+          const heading = /^#{2,3} (.*)$/.exec(lines[j] ?? '');
+          if (heading) return /^Staging/.test(heading[1] ?? '') ? [] : [line];
+        }
+        return [line];
+      });
+    };
+    expect(bare('## 9. X\n**Abort (production):** `DROP SCHEMA auth CASCADE`')).toHaveLength(1);
+    expect(bare('### Staging, and so on\nrun `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
+    expect(bare('## 5. X\n**Abort (staging):** `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
+    // The exact planted case: the procedure's own drop line, copied verbatim into a later step.
+    const dropLine = runbook.split('\n').find((l) => l.includes("echo 'DROP SCHEMA auth CASCADE;'")) ?? '';
+    expect(dropLine).not.toBe('');
+    expect(bare(runbook)).toEqual([]);
+    expect(bare(runbook.replace('## 8. Admin roles', `${dropLine}\n\n## 8. Admin roles`))).toEqual([dropLine]);
+    const hits = [bare(runbook), bare(read(GUIDE)), bare(doc)].flat();
+    console.info(`[cutover-docs] DROP SCHEMA lines outside the procedure or a staging branch: ${hits.length}`);
+    expect(hits).toEqual([]);
+    const section = doc.slice(doc.indexOf('## If no second attempt follows within 7 days'));
+    expect(section).toMatch(/within 7 days/);
+    const prodAt = section.indexOf('### Production: drop, then re-apply');
+    const stagingAt = section.indexOf('### Staging');
+    expect(prodAt).toBeGreaterThanOrEqual(0);
+    expect(stagingAt).toBeGreaterThan(prodAt);
+    const prod = section.slice(prodAt, stagingAt);
+    expect(prod).toContain(PROC);
+    expect(prod).not.toMatch(/DROP SCHEMA/);
+    expect(prod).toMatch(/do\s+not reverse it/);
+    const staging = section.slice(stagingAt);
+    expect(staging).toContain("DROP SCHEMA auth CASCADE'");
+    expect(staging).not.toContain('auth-journal.mjs files');
+    // The second attempt uses the procedure in production too, and step 5 is then check only.
+    const second = doc.slice(doc.indexOf('## A second attempt'), doc.indexOf('## If no second attempt'));
+    expect(second).toContain(PROC);
+    expect(second).toMatch(/\*\*check only\*\*/);
   });
 
   it('runs its database step from the operator environment (H-8)', () => {

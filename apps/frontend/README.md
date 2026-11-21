@@ -213,7 +213,10 @@ image (`Dockerfile.web`, built from the repo root:
 `docker build -f apps/frontend/Dockerfile.web .`) on Railway; `railway.toml`
 is the reviewable record of the dashboard settings. `EXPO_PUBLIC_API_URL` and
 `EXPO_PUBLIC_AUTH_URL` are baked in at build time — both are mandatory on
-every Railway web service, for the same environment, and the image build fails
+every Railway web service built from `Dockerfile.web` (today staging web only; a
+production `apps/frontend` service when one is created, #305), for the same
+environment. Production web stays on `legacy/frontend-web` for now (#416): its own
+Dockerfile, `EXPO_PUBLIC_API_V2_URL`, no such guard. The image build fails
 at its guard (`scripts/check-web-env.mjs`) when either is unset or when only one
 names production (the staging defaults serve local builds only); changing
 either requires a redeploy.
