@@ -57,6 +57,14 @@ upstream, because that silently reverts the fix:
   footer no longer sit in the page's scroll flow:
   - `src/components/chat/MessageList.tsx`
   - `e2e/chat-scroll.spec.ts`
+- Maintenance mode (2026-11-21): the build-time `MAINTENANCE_MODE` variable (Dockerfile build arg, mapped to
+  `EXPO_PUBLIC_MAINTENANCE_MODE`) replaces the whole app with the legacy mobile app's maintenance screen,
+  with no api request. See `README.md`:
+  - `src/components/MaintenanceScreen.tsx`
+  - `src/app/_layout.tsx`
+  - `src/utils/getEnv.ts`, `src/utils/getEnv.test.ts`
+  - `src/__tests__/rootLayout.test.tsx`
+  - `Dockerfile`, `dotenv.example`, `README.md`
 
 To recover the exact upstream tree:
 ```
