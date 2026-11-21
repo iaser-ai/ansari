@@ -5,7 +5,8 @@ never deployed to staging ahead of its merge. The whole window runbook
 ([`better-auth-cutover.md`](better-auth-cutover.md), its "Staging rehearsal" section gives the
 differences) runs on staging, with the cutover PR's merge to `develop` as its step 10, and then
 the rollback ([`rollback.md`](rollback.md)). `develop` is frozen from that merge on. This file holds the procedure and, filled in by the docs-only evidence PR, the results.
-`develop` is not promoted until that PR merges.
+`develop` is not promoted until that PR merges (waived for the 2026-11-21 window by the owner;
+see the owner's statement under Part F).
 
 Who does what:
 - the owner operates Railway and runs every database step from the operator environment, the
@@ -250,7 +251,9 @@ production receives.
 
 **2026-11-21, owner's statement (to the security architect):** the staging rehearsal has been
 run end to end. The result rows in this file are still blank; they await the owner's numbers. No
-result is recorded here until then.
+result is recorded here until then. **The owner waives, for this production window, the written
+evidence, the security architect's verdicts and the same-commit requirement** (2026-11-21;
+runbook step 1, "Production only"). The rows stay blank.
 
 | Run | `develop` merge commit | Result |
 |---|---|---|

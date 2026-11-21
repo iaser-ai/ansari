@@ -109,7 +109,9 @@ read -rs AUTH_DATABASE_URL && export AUTH_DATABASE_URL
   `checkout-at-recorded-commit` and `clean-tree`, and `ls` lists both files with no error.
   `pnpm install` is there because the operator scripts run through `pnpm exec tsx`, which a
   fresh clone does not have yet. The `clean-tree` line is run again at step 5, just before the
-  first repo script runs (`auth-journal.mjs`).
+  first repo script runs (`auth-journal.mjs`). The owner confirmed this line on 2026-11-21, as a
+  narrowing of the 2026-10-19 "no clean-checkout gate" decision: the operator runs the line, and
+  the scripts still check nothing.
 - **No edits in the checkout during the window.** Nothing checks the checkout after this, so an
   edit made mid-window would run unnoticed.
 - **The session ends with the window:** `exit` the shell, which takes the URLs with it. They are
@@ -173,7 +175,8 @@ Roles:
   analytics login, the stored-guest sign-in
 
 The evidence lands as a docs-only PR to `develop`, and only then does the production window
-promote `develop`. Each step is run as written, except for these differences:
+promote `develop` (**waived for this window by the owner, 2026-11-21**: step 1, "Production
+only"). Each step is run as written, except for these differences:
 
 | Production | Staging rehearsal |
 |---|---|
@@ -338,9 +341,15 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   promoted (the cutover PR's merge, or a later `develop` commit carrying no migration); on the
   staging run, the cutover PR's head, current with `develop`. Steps 3 to 9 run from a checkout of
   it, and step 10 checks that what deploys has the same tree.
-- **Production only:** the staging rehearsal (the section above: this runbook, the rollback and
-  the second forward run, on staging, from the same commit) passed, the security architect has its
-  verdicts, and its docs-only evidence PR is merged. On the staging run itself, this item reads:
+- **Production only: the rehearsal precondition is waived for this window** (owner, 2026-11-21).
+  The owner states the staging rehearsal was run end to end, and waives for this window the
+  written evidence, the security architect's verdicts and the same-commit requirement (it was to
+  be this runbook, the rollback and the second forward run, on staging, from the same commit,
+  passed, with the verdicts given and the docs-only evidence PR merged). **The consequence:**
+  [`rehearsal.md`](rehearsal.md)'s result rows are blank and the staging edge verdict was never
+  recorded. So the edge properties are first measured live at steps 11 and 12, where the security
+  architect decides whether the window goes on. Legacy web against the new `apps/api` has not been
+  run either; step 12a is the first chance. On the staging run itself, this item reads:
   the cutover PR is approved, current with `develop`, and not yet merged.
 - **The operator machine (spec H-8), checked before anything changes:**
   - full-disk encryption is on;

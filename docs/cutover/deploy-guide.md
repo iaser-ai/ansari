@@ -108,7 +108,13 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   switches it to `main`. `develop` is frozen for the window: a push to it would redeploy
   production `auth`.
 - The admin list is approved. On staging, the cutover PR is approved and current with `develop`.
-  In production, the staging rehearsal has passed and its evidence is merged (runbook step 1).
+  In production, the rehearsal precondition is **waived for this window** (owner, 2026-11-21;
+  runbook step 1). The owner states the staging rehearsal was run end to end, and waives the
+  written evidence, the security architect's verdicts and the same-commit requirement. The
+  consequence: the rehearsal's result rows are blank and the staging edge verdict was never
+  recorded, so the edge properties are first measured live at runbook steps 11 and 12, where the
+  security architect decides whether the window goes on. Legacy web against the new `apps/api`
+  has not been run either; runbook step 12a is the first chance.
   (#307, #317 and #305 are no longer window preconditions: they belong to `apps/frontend`.)
 
 ## 1. Open the operator session

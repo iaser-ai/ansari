@@ -128,3 +128,15 @@
   every other reference reads "runbook step N".
 - Test: the DROP SCHEMA scan exempts the procedure by line range. The planted case (the
   procedure's drop line copied verbatim into step 8) is caught.
+
+## 2026-11-21: owner decisions — rehearsal waiver, clean-tree line kept
+
+- The owner waives the production rehearsal precondition for this window: the written evidence,
+  the security architect's verdicts and the same-commit requirement. The consequence is stated in
+  four places: runbook step 1 (plus the "only then does the production window promote" line), the
+  deploy guide's "Before the day", the release-record owner entry, and rehearsal.md (owner line,
+  and the "not promoted until" line). The edge properties are first measured live at steps 11 and
+  12, and legacy web against the new api first runs at step 12a. RELEASE.md never mentions the
+  rehearsal, so it was not changed.
+- The owner confirmed the operator clean-tree line as a narrowing of 2026-10-19's "no
+  clean-checkout gate". Recorded in the runbook and in the test comment.

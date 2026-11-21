@@ -222,6 +222,19 @@ describe('the window runbook', () => {
     expect(read(GUIDE)).toContain('**No service keys in the window**');
   });
 
+  it('the rehearsal precondition is waived for production, with its consequence stated, everywhere it was a precondition (owner, 2026-11-21)', () => {
+    const step1 = steps[0] as string;
+    const bullet = step1.slice(step1.indexOf('- **Production only:'), step1.indexOf('- **The operator machine'));
+    expect(bullet).toContain('**Production only: the rehearsal precondition is waived for this window** (owner, 2026-11-21)');
+    expect(bullet).toMatch(/edge properties are first measured live at steps 11 and 12/);
+    expect(bullet).toMatch(/step 12a is the first chance/);
+    expect(bullet).toContain('On the staging run itself, this item reads:');
+    expect(read(GUIDE)).toMatch(/rehearsal precondition is \*\*waived for this window\*\*/);
+    expect(read(GUIDE)).not.toMatch(/the staging rehearsal has passed and its evidence is merged/);
+    expect(read(RECORD)).toMatch(/\*\*The rehearsal precondition is waived for this window\*\*/);
+    expect(read('docs/cutover/rehearsal.md')).toMatch(/The owner waives, for this production window/);
+  });
+
   it('MCP_COMPLETE_KEY_MODE=log-only is a hard precondition (no key is issued in the window)', () => {
     const step1 = steps[0] as string;
     expect(step1).toContain('**`MCP_COMPLETE_KEY_MODE=log-only` on `backend` is confirmed before the window**');
@@ -334,7 +347,9 @@ describe('the window runbook', () => {
   it("names the operator environment: the owner's machine through the Tailscale forwarder (H-8)", () => {
     expect(doc).toContain('**The operator environment (spec H-8).**');
     // The scripts do not check the checkout (owner, 2026-10-19): no PROMOTED_COMMIT gate in them.
-    // The operator's own clean-tree line (#416 round 2) is tested with the fresh checkout.
+    // The operator's own clean-tree line (#416) is tested with the fresh checkout. The owner
+    // confirmed it on 2026-11-21 as a narrowing of the 2026-10-19 "no clean-checkout gate"
+    // decision: the operator runs the line, and the scripts still check nothing.
     expect(doc).not.toMatch(/PROMOTED_COMMIT/);
     expect(doc).toContain('read -rs APP_DATABASE_URL && export APP_DATABASE_URL');
     expect(doc).toContain('set +o history');

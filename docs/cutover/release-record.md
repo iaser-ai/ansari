@@ -121,6 +121,13 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
   the keys between the copy and the promotion. That earlier line is struck through there, as
   history.
 - **WhatsApp is out of this window** (#336 open).
+- **The rehearsal precondition is waived for this window** (owner, 2026-11-21). The owner states
+  the staging rehearsal was run end to end, and waives the written evidence, the security
+  architect's verdicts and the same-commit requirement. Consequence: `rehearsal.md`'s result rows
+  are blank and the staging edge verdict was never recorded, so the edge properties are first
+  measured live at runbook steps 11 and 12, where the security architect decides whether the
+  window goes on. Legacy web against the new `apps/api` has not been run; runbook step 12a is the
+  first chance.
 - **`MCP_COMPLETE_KEY_MODE=log-only` on `backend`** is already set (owner's statement, not
   verified from the repo). With no key issued, it is the only thing keeping `mcp.ansari.chat` and
   the agent skill served after step 10, so the runbook's step 1 refuses to start without it.
