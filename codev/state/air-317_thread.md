@@ -21,3 +21,4 @@
   With it, api showed ONE real failure, mine: `tests/release-doc.test.ts` extracts `/api/...` from RELEASE.md and
   my new text `lib/api/config.ts` read as an endpoint `/api/config` (its lookbehind excludes only `apps/api`).
   Reworded to name `DEFAULT_API_URL`/`DEFAULT_AUTH_URL`; that test went from failing to 16/16.
+- porch tests check passed through the override (api 1422/3 skipped, auth 635, eval 145, frontend 803; 213 s). PR #413 opened against develop. CMAP skipped (small change; main reviews the Dockerfile hunk). Waiting at the pr gate.
