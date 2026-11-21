@@ -111,3 +111,20 @@
   against a planted defect (1 failure each).
 - A second whole-file proofread found 13 defects; all are fixed (cross-references in rollback now
   say "window step N", plus aborts and the Staging/Both labels).
+
+## 2026-11-21: review round 4
+
+- Step 16 is written by outcome. It first confirms `main` is still the recorded promoted commit
+  (`main-is-promoted-commit`), then sets the branch and applies; exactly one deployment is
+  expected. The check is against `<recorded commit>`.
+- Step 16 defines three states: (a) not switched, (b) switched and Active, (c) switched but the
+  build failed. Rollback step 3 and step 7 handle each, with a check per state (deployment ID plus
+  the tree comparison, or the recorded commit).
+- "A second attempt" has production overrides: `auth` stays as the rollback left it, with
+  auto-deploy off through the retry; step 1 records that state; step 9's tree check runs as
+  written; auto-deploy comes back on only on the security architect's word. Runbook step 1 points
+  there. These overrides are my proposal: flagged to the security architect for verification.
+- The deploy guide gains a guide-to-runbook step mapping table. Bare "step N" means a guide step;
+  every other reference reads "runbook step N".
+- Test: the DROP SCHEMA scan exempts the procedure by line range. The planted case (the
+  procedure's drop line copied verbatim into step 8) is caught.

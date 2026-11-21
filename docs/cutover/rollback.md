@@ -95,13 +95,17 @@ push in between:
      `develop`; owner's statement, 2026-11-21), so `auth` stays on the deployment it had all
      along: the one window step 9 checked (window step 1's, unless window step 9 had it redeployed at the
      promoted commit), with its domain attached (owner's decision). Do **not** remove or redeploy
-     it. Its auto-deploy is off for the rollback's duration (item 1), so a push to `develop` cannot
-     move it. The legacy `apps/api` that this step restores never calls `apps/auth`.
-     **After window step 16's switch to `main`:** `auth` runs the deployment window step 16 recorded
-     (its check: the deployed commit equalled `origin/main` at that time). With its auto-deploy off
-     it stays there, and a later push to `main` (a revert, say) does not reach it. `origin/main` before the promotion has no
-     `apps/auth/Dockerfile`, so do not turn `auth`'s auto-deploy back on for a revert of the
-     promotion: tell the security architect.
+     it. The legacy `apps/api` that this step restores never calls `apps/auth`.
+     Its state is one of window step 16's three, and the rollback leaves it there in each:
+     - **(a) Not switched** (a rollback before window step 16, or before its switch): the
+       `develop` deployment window step 9 checked; source `develop`.
+     - **(b) Switched, new deployment Active:** the deployment window step 16 recorded; source
+       `main`.
+     - **(c) Switched, build failed:** still the window step 9 deployment; source now `main`.
+
+     In each, auto-deploy is off (item 1), so no push to `develop` or `main` moves it.
+     `origin/main` before the promotion has no `apps/auth/Dockerfile`: never turn `auth`'s
+     auto-deploy back on for a revert of the promotion; tell the security architect.
    - **Staging, and any environment without that decision:** `auth`: back to its recorded state, **no active deployment**:
      remove the one window step 10 started. On staging the PIR #59 deployment is not restored either:
      nothing the legacy code runs calls `apps/auth`.
@@ -110,8 +114,12 @@ push in between:
 healthy, each on the commit the release record holds for it; `auth`:
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` and
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` print `200`, its
-deployment is the one window step 9 checked (or, after window step 16, the deployment window step 16 recorded), and its
-auto-deploy shows off like the others.
+auto-deploy shows off like the others, and by the state the release record names:
+- **(a) or (c):** its deployment ID is window step 9's, and in the window checkout
+  `git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches` prints `auth-tree-matches`;
+- **(b):** its deployment ID is the one window step 16 recorded, and its deployed commit equals the
+  recorded promoted commit.
+
 **Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth` has no active deployment.
 
@@ -166,16 +174,37 @@ rollback was step 3.
 **Production `auth` after a rollback: its auto-deploy stays off until the security architect says
 otherwise.** A reverted `main` has no `apps/auth/Dockerfile`. Any other new code would be code the
 window never ran, deployed onto an auth database that holds every migrated hash. Its disposition:
-- **Rollback before window step 16:** `auth` is still on its `develop` deployment, the one window
-  step 9 checked. Its auto-deploy stays off until the security architect says otherwise, so
-  `develop` need not stay frozen for it.
-- **Rollback after window step 16:** `auth` is on the `main` deployment window step 16 recorded, with
-  auto-deploy off.
+- **State (a), not switched:** `auth` is on its `develop` deployment (window step 9's); source
+  `develop`.
+- **State (b), switched and Active:** `auth` is on the deployment window step 16 recorded; source
+  `main`.
+- **State (c), switched but the build failed:** `auth` is still on window step 9's deployment;
+  source `main`.
+
+In all three its auto-deploy stays off until the security architect says otherwise, so neither
+`develop` nor `main` needs to stay frozen for it.
 
 **Service keys:** none. No `create-service` or `create-key` runs in the window (owner's decision,
 2026-11-21), so a rollback has no service user or key to deal with.
 
 ## A second attempt (restart procedure)
+
+**Production overrides (the runbook's step 1 `auth` deploy-source line describes the first
+attempt).** After a rollback, production `auth` is in state (a), (b) or (c) with auto-deploy
+**off**. A second attempt keeps it that way:
+- **Source branch and auto-deploy before the second attempt:** as the rollback left them. Whether
+  the source is `develop` or `main`, auto-deploy stays **off** through the second window, so
+  nothing moves `auth` during it. The `develop` freeze is then not needed for `auth`.
+- **Step 1** records that state (source, auto-deploy off, the deployment ID and its commit as
+  `<auth running commit>`) in place of the first attempt's line.
+- **Step 9's tree check** runs as written against that `<auth running commit>`. If it does not
+  print `auth-tree-matches`, the owner deploys `auth` at the promoted commit from the dashboard (a
+  manual deploy works with auto-deploy off), records the new ID and commit, and the check is
+  re-run.
+- **Step 16** then brings `auth` to state (b) as written, and the owner turns `auth`'s auto-deploy
+  back on **only on the security architect's word**.
+- **Who restores anything:** the owner, on the security architect's word. Nothing is restored by
+  default.
 
 The copy refuses a non-empty auth database. To try the window again: empty the auth database
 (**production:** [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply); the apply record stays true, and step 5

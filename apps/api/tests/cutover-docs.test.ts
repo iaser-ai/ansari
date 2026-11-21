@@ -265,6 +265,24 @@ describe('the window runbook', () => {
     const step16 = doc.slice(doc.indexOf('## 16.'), doc.indexOf('## Orphan app rows'));
     expect(step16).toMatch(/\*\*First, production: switch `auth`'s source branch to `main`\*\*/);
     expect(step16.indexOf("switch `auth`'s source branch")).toBeLessThan(step16.indexOf('un-silence the alerts'));
+    // Round 4: main must be the promoted commit; the check is against the recorded commit; three states.
+    const promoted = 'git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit';
+    expect(step16).toContain(promoted);
+    expect(read(GUIDE)).toContain(promoted);
+    expect(step16).toMatch(/deployed commit equals `<recorded commit>`/);
+    expect(step16).not.toMatch(/equals `git rev-parse origin\/main`/);
+    for (const state of ['**(a) Not switched:**', '**(b) Switched, new deployment Active:**', '**(c) Switched, build failed:**']) {
+      expect(step16, state).toContain(state);
+    }
+    // A second attempt overrides step 1's auth line; step 1 points there.
+    expect(step1).toMatch(/This line describes the \*\*first attempt\*\*/);
+    const second = read(ROLLBACK).slice(read(ROLLBACK).indexOf('## A second attempt'), read(ROLLBACK).indexOf('## If no second attempt'));
+    expect(second).toMatch(/\*\*Production overrides/);
+    expect(second).toMatch(/only on the security architect's word/);
+    // The guide maps its step numbers to the runbook's.
+    const mapping = [...read(GUIDE).matchAll(/^\| (\d+)\. ([^|]+) \| ([^|]+) \|$/gm)].map((m) => Number(m[1]));
+    expect(mapping).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(read(GUIDE)).toMatch(/\| 7\. Attach the auth domain \| 9 \|/);
   });
 
   it('runs from a fresh checkout verified against the recorded commit, never the spir-300 worktree (#416)', () => {
@@ -495,7 +513,14 @@ describe('the rollback runbook', () => {
   it('production rollback: auth is untouched, domain attached, auto-deploy off; staging as before (owner, 2026-11-21)', () => {
     const step3 = doc.slice(doc.indexOf('## 3. Auto-deploy off'), doc.indexOf('## 4.'));
     expect(step3).toMatch(/\*\*Production: `auth` is untouched\.\*\*/);
-    expect(step3).toMatch(/\*\*Check \(production\):\*\*[\s\S]*`200`[\s\S]*window step 9 checked[\s\S]*auto-deploy\s+shows off/);
+    expect(step3).toMatch(/\*\*Check \(production\):\*\*[\s\S]*`200`[\s\S]*auto-deploy\s+shows off/);
+    // Window step 16's three states, each with its own check (#416 round 4).
+    const check = step3.slice(step3.indexOf('**Check (production):**'), step3.indexOf('**Check (staging):**'));
+    expect(check).toMatch(/\*\*\(a\) or \(c\):\*\*[\s\S]*auth-tree-matches/);
+    expect(check).toMatch(/\*\*\(b\):\*\*[\s\S]*window step 16 recorded/);
+    for (const state of ['(a) Not switched', '(b) Switched, new deployment Active', '(c) Switched, build failed']) {
+      expect(step3, state).toContain(state);
+    }
     expect(step3).toMatch(/\*\*Check \(staging\):\*\*[\s\S]*`auth` has no active deployment/);
     expect(step3.indexOf('**Check (production):**')).toBeLessThan(step3.indexOf('**Check (staging):**'));
     const step5 = doc.slice(doc.indexOf('## 5. Detach'), doc.indexOf('## 6.'));
@@ -523,19 +548,30 @@ describe('the rollback runbook', () => {
     expect(proc).toMatch(/\*\*stays true\*\*/);
     // Every DROP SCHEMA line in the runbook, the guide and the rollback is inside the procedure,
     // under a `### Staging` heading, or on a line labelled staging (#416 round 3).
-    const bare = (text: string, procedure = '') =>
-      text.split('\n').flatMap((line, i, lines) => {
-        if (!/DROP SCHEMA/.test(line) || (procedure && procedure.includes(line)) || /staging/i.test(line)) return [];
+    // The procedure is exempt by its LINE RANGE (its heading to the next `## `), never by matching
+    // text, so a production drop copied verbatim elsewhere is still caught (#416 round 4).
+    const bare = (text: string) => {
+      const lines = text.split('\n');
+      const start = lines.findIndex((l) => l === '## Empty the production auth database: drop and re-apply');
+      const end = start < 0 ? -1 : lines.findIndex((l, k) => k > start && l.startsWith('## '));
+      return lines.flatMap((line, i) => {
+        if (!/DROP SCHEMA/.test(line) || (start >= 0 && i > start && i < end) || /staging/i.test(line)) return [];
         for (let j = i; j >= 0; j--) {
           const heading = /^#{2,3} (.*)$/.exec(lines[j] ?? '');
           if (heading) return /^Staging/.test(heading[1] ?? '') ? [] : [line];
         }
         return [line];
       });
+    };
     expect(bare('## 9. X\n**Abort (production):** `DROP SCHEMA auth CASCADE`')).toHaveLength(1);
     expect(bare('### Staging, and so on\nrun `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
     expect(bare('## 5. X\n**Abort (staging):** `DROP SCHEMA auth CASCADE`')).toHaveLength(0);
-    const hits = [bare(runbook, proc), bare(read(GUIDE)), bare(doc)].flat();
+    // The exact planted case: the procedure's own drop line, copied verbatim into a later step.
+    const dropLine = runbook.split('\n').find((l) => l.includes("echo 'DROP SCHEMA auth CASCADE;'")) ?? '';
+    expect(dropLine).not.toBe('');
+    expect(bare(runbook)).toEqual([]);
+    expect(bare(runbook.replace('## 8. Admin roles', `${dropLine}\n\n## 8. Admin roles`))).toEqual([dropLine]);
+    const hits = [bare(runbook), bare(read(GUIDE)), bare(doc)].flat();
     console.info(`[cutover-docs] DROP SCHEMA lines outside the procedure or a staging branch: ${hits.length}`);
     expect(hits).toEqual([]);
     const section = doc.slice(doc.indexOf('## If no second attempt follows within 7 days'));

@@ -1,10 +1,28 @@
 # Cutover deployment guide (spec 300)
 
 The commands only, in order. The full runbook, [`better-auth-cutover.md`](better-auth-cutover.md),
-is the authority: it has the reason, the check and the abort for every step. If a check fails in
-steps 3 to 7, take that step's abort in the runbook (in production, the auth database is emptied
-only by its drop-and-re-apply procedure). From step 8 on, follow [`rollback.md`](rollback.md)
-(valid until `CUTOVER_AT` + 24 hours).
+is the authority: it has the reason, the check and the abort for every step. **The step numbers
+differ.** In this guide, "step N" is the guide's own step; a runbook step is always written
+"runbook step N":
+
+| Guide step | Runbook step(s) |
+|---|---|
+| Before the day | 1 (preconditions) |
+| 1. Open the operator session | the operator environment; 1 (the machine and database checks) |
+| 2. Go offline | 2, 3, 4 |
+| 3. Auth schema | 5 |
+| 4. Copy the users | 6 |
+| 5. App schema | 7 |
+| 6. Admin roles | 8 |
+| 7. Attach the auth domain | 9 |
+| 8. Deploy: merge | 10, 11 |
+| 9. Verify | 11, 12, 12a, 13, 14 |
+| 10. Back online | 15, 16 |
+
+If a check fails in guide steps 3 to 7, take the abort of the matching runbook step (5 to 9, from
+the table; in production, the auth database is emptied only by the runbook's drop-and-re-apply
+procedure). From guide step 8 on, follow [`rollback.md`](rollback.md) (valid until `CUTOVER_AT` +
+24 hours).
 
 Auto-deploy stays **on** throughout. The merge in step 8 is the deploy.
 
@@ -308,13 +326,20 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 ```
 
 - Relaunch a released mobile build and sign in.
-- **Production: switch `auth` to `main`**, before the freeze lifts (the runbook's step 16). Until
-  then, every merge to `develop` that touches `auth`'s build paths deploys to production `auth`.
-  In the dashboard: set `auth`'s source branch to `main` and save; trigger a deploy of `main`'s
-  latest commit; wait until it is **Active**; record its deployment ID. A failed build leaves the
-  previous deployment serving: the freeze holds; retry, or tell the security architect. Check:
-  its deployed commit equals `git rev-parse origin/main`, `$AUTH/api/auth/jwks` and `$AUTH/health`
-  both answer `200`, and a sign-in on legacy web works.
+- **Production: switch `auth` to `main`**, before the freeze lifts (runbook step 16, which defines
+  the three states a rollback must handle). Until then, every merge to `develop` that touches
+  `auth`'s build paths deploys to production `auth`. First, `main` must not have moved:
+
+  ```bash
+  git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit
+  ```
+
+  If it does not print, stop and tell the security architect. Then set `auth`'s source branch to
+  `main` and apply. If that started a deployment, wait for it; if not, trigger one deploy of
+  `main`'s latest commit. Exactly one new deployment is expected: wait until it is **Active** and
+  record its ID. A failed build leaves the previous deployment serving: the freeze holds; retry,
+  or tell the security architect. Check: `auth`'s deployed commit equals `<recorded commit>`,
+  `$AUTH/api/auth/jwks` and `$AUTH/health` both answer `200`, and a sign-in on legacy web works.
 - Un-silence the alerts and close the release record.
 - Remove the Tailscale forwarder and revoke its key.
 - `exit` the shell.

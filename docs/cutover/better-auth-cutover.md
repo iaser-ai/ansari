@@ -328,7 +328,9 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   runs spec 300 code that `main` lacks: `origin/main` has no `apps/auth/Dockerfile`
   (`git cat-file -e origin/main:apps/auth/Dockerfile` fails). So **step 10's push to `main`
   starts no `auth` deployment**. Production `auth` keeps the deployment it has, which steps 9 and
-  11 check, and step 16 switches it to `main`.
+  11 check, and step 16 switches it to `main`. This line describes the **first attempt**. A second
+  attempt after a rollback starts from the state the rollback left (auto-deploy off): see
+  [`rollback.md`](rollback.md), "A second attempt", production overrides.
 - **`develop` is frozen for the window** (the freeze above), so production `auth` does not move
   during it. **A push to `develop` during the window would redeploy production `auth`**: one
   that touches its build paths (below) deploys that code; Railway decides from its watch paths.
@@ -919,14 +921,33 @@ threads.
 
 **First, production: switch `auth`'s source branch to `main`** (owner, 2026-11-21). Why: until
 this switch, every merge to `develop` that touches `auth`'s build paths deploys unreleased code to
-production `auth`. This is done before the freeze lifts. Changing the branch and deploying are
-separate Railway actions:
-1. In the dashboard, set the `auth` service's source branch to `main`, and save.
-2. Trigger a deploy of `main`'s latest commit from the dashboard.
-3. Wait until that deployment is **Active**, and record its deployment ID in the release record.
+production `auth`. This is done before the freeze lifts. Written by outcome, not by how Railway's
+UI sequences a branch change and a deploy:
+1. Confirm `main` has not moved since step 10:
 
-A failed build leaves the previous deployment serving (`RELEASE.md`): the freeze holds; retry, or
-tell the security architect. **Check:** `auth`'s deployed commit equals `git rev-parse origin/main`;
+   ```bash
+   git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit
+   ```
+
+   If it does not print `main-is-promoted-commit`, **stop** and tell the security architect.
+2. Set the `auth` service's source branch to `main`, and apply the change.
+3. If applying started a deployment, wait for it. If it did not, trigger one deploy of `main`'s
+   latest commit. **Exactly one** new deployment is expected; wait until it is **Active**, and
+   record its deployment ID in the release record.
+
+**Three states can follow; the release record names which one holds.**
+- **(a) Not switched:** `auth` is on its `develop` deployment (the one step 9 checked), with
+  source `develop`.
+- **(b) Switched, new deployment Active:** `auth` is on the deployment recorded here, with
+  source `main`.
+- **(c) Switched, build failed:** a failed build leaves the previous deployment serving
+  (`RELEASE.md`). `auth` is still on the step 9 deployment, with source now `main`. The freeze
+  holds: retry, or tell the security architect.
+
+[`rollback.md`](rollback.md) step 3 handles each.
+
+**Check (state b, the goal):** `auth`'s deployed commit equals `<recorded commit>`, the recorded
+promoted commit, not a mutable "latest";
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` and
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` both print `200`; and a
 sign-in on legacy web works.
