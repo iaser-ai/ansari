@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { runFacilitator, type Message, type FacilitatorStreamEvent } from '@/lib/facilitator/agent';
+import { assessHistory, HISTORY_REQUEST_TOO_LONG_MESSAGE } from '@/lib/facilitator/history-limit';
 import {
   toolCallsOrNull,
   type ContentBlock,
@@ -249,6 +250,18 @@ async function handleMcpComplete(
   Sentry.setTag('source', 'ai-skill');
 
   const messages = prepareMessages(inputMessages);
+
+  // Thread history limit (issue #400), before anything is saved. The body caps
+  // above keep a request far below the default threshold; this holds the rule
+  // if they change.
+  const history = assessHistory(messages);
+  if (history.verdict === 'block') {
+    console.warn('[history-limit] request refused', {
+      route: 'mcp-complete',
+      estimatedTokens: history.estimatedTokens,
+    });
+    return createErrorResponse(HISTORY_REQUEST_TOO_LONG_MESSAGE, 400);
+  }
 
   // Log to DB: create system user, thread, and user messages. `source` stays
   // 'ai-skill' (product surface). `client` is the key's client_id whenever a

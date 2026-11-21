@@ -1,0 +1,31 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The harness runs apps/api's facilitator in process: `@/` in tsconfig.json
+    // and vitest.config.ts points into apps/api, so tsc checks those files and
+    // the tests load them. None of that is in this package's task hash by
+    // default, and a workspace dependency on ansari-api would not put it there
+    // (a `workspace:*` dependency's file contents are not hashed). So the three
+    // api trees the alias reaches are inputs here. Without them an edit under
+    // apps/api/lib left ansari-eval#typecheck and #test at the same hash, and a
+    // warm cache replayed a stale pass (issue #397; verified in both directions).
+    // `lint` reads only this package's files and needs nothing extra.
+    "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/api/src/**",
+        "$TURBO_ROOT$/apps/api/lib/**",
+        "$TURBO_ROOT$/apps/api/db/**"
+      ]
+    },
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/api/src/**",
+        "$TURBO_ROOT$/apps/api/lib/**",
+        "$TURBO_ROOT$/apps/api/db/**"
+      ]
+    }
+  }
+}

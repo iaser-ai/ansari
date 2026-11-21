@@ -112,6 +112,8 @@ empty-final retry ladder still applies as same-model retries.
 | `TINKER_API_KEY` | unset | Enables the Inkling off-Vertex fallback rung and terminal-error rescue (issues #74/#79). When unset (and `INKLING_API_KEY` too), both are skipped cleanly |
 | `LEADERBOARD_API_KEY` | unset | Bearer token for `/api/v1/chat/completions` (OpenAI-compat endpoint for evaluation harnesses). Min 32 chars when set; the endpoint returns 503 when unset |
 | `MCP_COMPLETE_KEY_MODE` | `enforce` | How `/api/v2/mcp-complete` treats its `Authorization: Bearer` service key (#314): `enforce` refuses a missing or invalid key with 401; an unreachable apps/auth is 503. `log-only` (rollout only) verifies and records the verdict (`unverified` when apps/auth is unreachable, with a Sentry warning) and always serves. Any other value fails validation |
+| `THREAD_HISTORY_WARN_TOKENS` | `150000` | From this many estimated tokens of thread history (the UTF-8 bytes of the text a turn would send, divided by 4), an answer on the thread routes opens with a notice asking the user to start a new conversation soon (#400). Must be a positive integer below `THREAD_HISTORY_BLOCK_TOKENS`; anything else fails validation |
+| `THREAD_HISTORY_BLOCK_TOKENS` | `200000` | From this many estimated tokens, no model is called: the thread routes answer with a notice to start a new conversation, and `/api/v2/mcp-complete` and `/api/v1/chat/completions` answer 400 (#400). One incoming message of this size on its own is told the message is too long and is not stored. Must be a positive integer |
 | `MAINTENANCE_MODE` | `false` | Served by `/api/v2/app-check` |
 | `IOS_MINIMUM_BUILD_VERSION` | `1` | App-version gate (`/api/v2/app-check`) |
 | `IOS_LATEST_BUILD_VERSION` | `1` | |
@@ -275,7 +277,8 @@ auth database (after the duplicate check in the runbook, in a quiet window: it l
 `auth.account`) before the `apps/auth` that uses it deploys; that `apps/auth` refuses to boot
 without it. On a deployment that tracks Ansari's own order: staging gets `0001` before the merge,
 and production gets the whole auth journal, in order, at its cutover
-(`docs/cutover/better-auth-cutover.md`).
+(`docs/cutover/better-auth-cutover.md`; Ansari's own production had it applied ahead of the window
+on 2026-11-21, `docs/cutover/release-record.md`).
 
 ### MCP completions need a service key (#314)
 

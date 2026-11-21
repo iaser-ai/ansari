@@ -46,6 +46,7 @@ database; generate + migrate.
 - `lib/ai/prompts/facilitator.ts` — the system prompt; changes need cited justification
 - `src/app/api/` — HTTP surface (`v2/*` product API, `v1/chat/completions` OpenAI-compat, `health`)
 - `tests/` — Vitest suites (`*.test.ts`); the full suite runs without external services
+- Not here: the model evaluation harness is its own package, `apps/eval/` (`apps/eval/README.md`). It loads `lib/` and `db/` through `@/` and is typechecked against them in the `eval` CI job; nothing in this app may import it
 
 ## Conventions
 

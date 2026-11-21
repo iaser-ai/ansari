@@ -18,6 +18,7 @@ import {
 } from '../ai/gemini-client';
 import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
+import { convertToGeminiHistory } from './history';
 import { config } from '../config';
 import { createToolMap, getGeminiToolDescriptions } from '../tools';
 import { citabilityOf, type ToolResult } from '../tools/types';
@@ -98,6 +99,24 @@ const EMPTY_ANSWER_ERROR_MESSAGE =
   'The model returned an empty answer. Please try again.';
 const SAFETY_BLOCKED_ERROR_MESSAGE =
   'The response was blocked by the provider. Please rephrase your question and try again.';
+
+// A model refused the request because the prompt exceeds its limit (issue #400): Gemini's
+// 1,048,576-token input limit, or Inkling's 65,536-token window on a rescue of a thread it
+// cannot fit. Recognised by each provider's own wording, since neither error carries a code
+// that says so. The user is told in plain words; the provider's text goes to the log and
+// Sentry only. An error that matches neither wording still surfaces with its own text.
+const PROMPT_TOO_LARGE_ERRORS = [
+  /input token count.{0,40}exceeds the maximum number of tokens/i,
+  /exceeds the model's context window/i,
+];
+export const PROMPT_TOO_LARGE_MESSAGE =
+  'Ansari could not answer because this conversation is too long. Please try again, or start a new conversation.';
+
+/** What the user is told for a terminal model error: plain words for a prompt too large, else the error's own text. */
+export function userFacingModelError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return PROMPT_TOO_LARGE_ERRORS.some((pattern) => pattern.test(message)) ? PROMPT_TOO_LARGE_MESSAGE : message;
+}
 
 // Degenerate-fragment detection (issue #66). Beyond a fully empty final (#60), Vertex's
 // capacity-cut family can end a turn with a real finishReason and a single trivial token as
@@ -329,61 +348,13 @@ export interface FacilitatorStreamEvent {
    * Set on every terminal event (`done` AND `error`) that a model call produced
    * (issue #99): the serving backend + model id of the call that produced —
    * or failed to produce — the final turn. A #79-rescued turn reports
-   * provider 'inkling' even though the request's primary was gemini, and the
-   * synthesis path reports the model that wrote the synthesis. Absent only
+   * provider 'inkling' even though the request's primary was gemini, a turn
+   * gemini-client served from GEMINI_FALLBACK_MODEL reports that model (#402), and
+   * the synthesis path reports the model that wrote the synthesis. Absent only
    * when no provider was ever engaged (e.g. no user message to process);
    * persist sites map absence to NULL.
    */
   provenance?: ModelProvenance;
-}
-
-/**
- * Convert our message history to Gemini's Content[] format
- *
- * For assistant messages with rawPayload, uses the preserved Gemini Content
- * which includes tool calls and thought signatures. Falls back to text-only
- * for legacy messages without rawPayload.
- */
-function convertToGeminiHistory(messages: Message[]): Content[] {
-  const history: Content[] = [];
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      // Extract text from user messages
-      const textContent = msg.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n');
-
-      if (textContent) {
-        history.push({
-          role: 'user',
-          parts: [{ text: textContent }],
-        });
-      }
-    } else {
-      // For assistant messages, prefer rawPayload if available
-      // This preserves tool calls, citations, and thought signatures
-      if (msg.rawPayload) {
-        history.push(msg.rawPayload);
-      } else {
-        // Fallback for legacy messages without rawPayload
-        const textContent = msg.content
-          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-          .map((c) => c.text)
-          .join('');
-
-        if (textContent) {
-          history.push({
-            role: 'model',
-            parts: [{ text: textContent }],
-          });
-        }
-      }
-    }
-  }
-
-  return history;
 }
 
 /**
@@ -421,8 +392,26 @@ export async function* runFacilitator(
      * ladder rung and the #79 rescue.
      */
     provider?: 'gemini' | 'inkling';
+    /**
+     * Pin the whole request to one Gemini model (issue #393). EVALUATION ONLY: no
+     * route passes it. Every call of the request (tool-loop iterations, same-model
+     * retries, the synthesis pass) targets this model instead of config.gemini.model,
+     * and no other model may answer: the intra-Vertex 429 failover, the empty-final
+     * ladder's Inkling rung and the #79 Inkling rescue are all off, so a failure
+     * surfaces as a failure rather than as another model's answer under this model's
+     * name. Same reasoning as `provider: 'inkling'` above. Selects Gemini whatever
+     * PRIMARY_BACKEND says; combining it with `provider: 'inkling'` throws.
+     */
+    model?: string;
   }
 ): AsyncGenerator<FacilitatorStreamEvent> {
+  const pinnedModel = options?.model;
+  if (pinnedModel !== undefined && options?.provider === 'inkling') {
+    throw new Error("runFacilitator: `model` pins a Gemini model and cannot be combined with provider 'inkling'");
+  }
+  // Spread into every Gemini call's options; empty when the request is not pinned, so
+  // an unpinned request's calls are exactly what they were before the seam existed.
+  const pinnedCallOptions = pinnedModel !== undefined ? { model: pinnedModel, noModelFallback: true } : {};
   const tools = getGeminiToolDescriptions();
   const tracker: ToolUsageTracker = { history: [], callsWithArgs: [] };
 
@@ -487,7 +476,9 @@ export async function* runFacilitator(
   // `!useInklingRung` guard): rescuing an inkling-primary request with Inkling would
   // be meaningless, so inkling-primary failures fail loudly instead. The empty-final
   // ladder still applies, as same-model (Inkling) retries.
-  let useInklingRung = (options?.provider ?? config.primaryBackend) === 'inkling';
+  const inklingPrimary =
+    pinnedModel === undefined && (options?.provider ?? config.primaryBackend) === 'inkling';
+  let useInklingRung = inklingPrimary;
   // Terminal-Gemini-error rescue (#79): at most ONE Inkling rescue attempt per request
   // (cost guardrail), tracked separately from the ladder's emptyFinalRetries.
   let inklingRescueUsed = false;
@@ -497,10 +488,15 @@ export async function* runFacilitator(
   // to produce) the final turn — after any ladder escalation or #79 rescue flipped
   // useInklingRung. config.gemini is only read on the gemini path (same lazy-read
   // rule as the ladder's model label: an inkling-only deployment's getter throws).
+  // On the gemini path the model is the one that ANSWERED the latest Gemini call (issue
+  // #402): gemini-client can fail over to config.gemini.fallbackModel inside a call, and
+  // only the response says so. Cleared before every call, so a call that fails without a
+  // response names the model it asked for.
+  let answeringGeminiModel: string | undefined;
   const currentProvenance = (): ModelProvenance =>
     useInklingRung
       ? { provider: 'inkling', modelId: config.inkling.model }
-      : { provider: 'gemini', modelId: config.gemini.model };
+      : { provider: 'gemini', modelId: answeringGeminiModel ?? pinnedModel ?? config.gemini.model };
 
   // Overall request-time budget (Spec 49). softDeadline = when we stop starting new tool
   // work; the reserve between it and hardDeadline is the window for one synthesis pass.
@@ -509,6 +505,22 @@ export async function* runFacilitator(
   const startTime = Date.now();
   const softDeadline = startTime + budgetMs - reserveMs;
   const hardDeadline = startTime + budgetMs;
+
+  // No silent escalation (issue #399): when a request that left Gemini for Inkling — the
+  // empty-final ladder's rung (#74) or the terminal-error rescue (#79), never an
+  // inkling-primary request — ends in an answer, name the model that wrote it. Engagement
+  // is logged where it happens; without this line an answered escalation leaves no trace,
+  // and the logs cannot tell it from one that never finished. No PII: provider, model id
+  // and counters only.
+  const logEscalatedAnswer = () => {
+    if (!useInklingRung || inklingPrimary) return;
+    console.warn('[facilitator] escalated request answered', {
+      ...currentProvenance(),
+      escalation: inklingRescueUsed ? 'terminal-error rescue' : 'empty-final ladder',
+      elapsedMs: Date.now() - startTime,
+      iterations,
+    });
+  };
 
   // Token usage summed across every Gemini call in this turn (initial + tool-loop continuations).
   const totalUsage: GeminiUsageMetadata = {
@@ -591,6 +603,7 @@ export async function* runFacilitator(
 
     let synthText = '';
     let synthResponse: GeminiResponse | null = null;
+    answeringGeminiModel = undefined;
     try {
       // Tools omitted → the model cannot emit a functionCall, so it must answer from context.
       // Once the request escalated to Inkling (#74/#79 — ladder rung or error rescue),
@@ -608,13 +621,14 @@ export async function* runFacilitator(
             ...synthesisOptions,
             timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
           })
-        : streamGemini('', synthesisOptions);
+        : streamGemini('', { ...synthesisOptions, ...pinnedCallOptions });
       for await (const event of stream) {
         if (event.type === 'text') {
           synthText += event.data;
           yield { type: 'text', data: event.data };
         } else if (event.type === 'done') {
           synthResponse = event.response;
+          if (!useInklingRung) answeringGeminiModel = event.response.modelId;
         }
       }
     } catch (error) {
@@ -664,6 +678,7 @@ export async function* runFacilitator(
       });
     }
     logShortCircuit('done');
+    logEscalatedAnswer();
     yield {
       type: 'done',
       data: '',
@@ -688,6 +703,7 @@ export async function* runFacilitator(
     // rescue: re-issuing a call whose text partially reached the client would duplicate
     // delivered tokens (the #42 rule) — such failures must still surface as errors.
     let visibleTextDelivered = false;
+    answeringGeminiModel = undefined;
 
     try {
       // Stream the model response with real-time event delivery. Bound the tool-gathering
@@ -709,7 +725,7 @@ export async function* runFacilitator(
             ...callOptions,
             timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
           })
-        : streamGemini(currentQuery, callOptions);
+        : streamGemini(currentQuery, { ...callOptions, ...pinnedCallOptions });
 
       const toolCallsCollected: GeminiToolCall[] = [];
       let response: GeminiResponse | null = null;
@@ -765,6 +781,7 @@ export async function* runFacilitator(
       if (!response) {
         throw new Error('Stream ended without response');
       }
+      if (!useInklingRung) answeringGeminiModel = response.modelId;
 
       addUsage(response.usage);
 
@@ -789,10 +806,13 @@ export async function* runFacilitator(
           // config.gemini is never read AT ALL: on an inkling-only deployment (no
           // Gemini credentials) that getter throws, which would break the documented
           // same-model retry.
-          const currentModel = useInklingRung ? config.inkling.model : config.gemini.model;
+          const currentModel = useInklingRung
+            ? config.inkling.model
+            : (pinnedModel ?? config.gemini.model);
           // Rung 2 (#74/#79) runs on Inkling's separate (non-Vertex) infrastructure;
           // without TINKER_API_KEY the ladder is the single same-model retry.
-          const inklingAvailable = isInklingConfigured();
+          // A pinned request (#393) never leaves its model: same-model retry only.
+          const inklingAvailable = pinnedModel === undefined && isInklingConfigured();
           const maxRetries = inklingAvailable ? MAX_EMPTY_FINAL_RETRIES : 1;
           const summary = {
             degenerateKind,
@@ -801,7 +821,8 @@ export async function* runFacilitator(
             iterations,
             toolCallCount: tracker.history.length,
             emptyFinalRetries,
-            model: currentModel,
+            // The model that wrote this final; `currentModel` is the one a retry asks for.
+            model: currentProvenance().modelId,
           };
           if (RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason) && emptyFinalRetries < maxRetries) {
             emptyFinalRetries++;
@@ -867,6 +888,7 @@ export async function* runFacilitator(
           });
         }
 
+        logEscalatedAnswer();
         yield {
           type: 'done',
           data: '',
@@ -1021,8 +1043,10 @@ export async function* runFacilitator(
       //     delivered tokens would duplicate them),
       //   - enough gathering budget remains for a real attempt (≥20s before the soft
       //     deadline, which also keeps Spec 49's synthesis reserve intact), and
-      //   - TINKER_API_KEY is configured.
+      //   - TINKER_API_KEY is configured, and
+      //   - the request is not pinned to one model (#393).
       if (
+        pinnedModel === undefined &&
         !useInklingRung &&
         !inklingRescueUsed &&
         !visibleTextDelivered &&
@@ -1057,7 +1081,7 @@ export async function* runFacilitator(
       Sentry.captureException(error);
       yield {
         type: 'error',
-        data: error instanceof Error ? error.message : 'Unknown error',
+        data: userFacingModelError(error),
         toolCalls: collectedToolCalls(),
         provenance: currentProvenance(),
       };

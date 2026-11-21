@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { Provider } from 'react-redux'
 import { LoadingScreen } from '@/components'
+import MaintenanceScreen from '@/components/MaintenanceScreen'
 // eslint-disable-next-line camelcase
 import { useFonts, Inter_400Regular } from '@expo-google-fonts/inter'
 import RootContainer from '@/components/RootContainer'
@@ -17,6 +18,7 @@ import { captureConsoleIntegration } from '@sentry/core'
 import { isRunningInExpoGo } from 'expo'
 import { Platform, StatusBar, useColorScheme } from 'react-native'
 import { getThemeStyle } from '@/utils'
+import getEnv from '@/utils/getEnv'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 
 const navigationIntegration = Sentry.reactNavigationIntegration({
@@ -72,11 +74,21 @@ const RootLayout = () => {
     Inter: Inter_400Regular,
   })
 
+  // Decided from the build-time env alone, with no request to the api.
+  const maintenanceMode = getEnv('MAINTENANCE_MODE')
+
   useEffect(() => {
+    // initStore() fetches /users/me for a signed-in user, so it must not run in maintenance mode.
+    if (maintenanceMode) return
     initStore().then((store) => {
       setReduxStore(store)
     })
-  }, [])
+  }, [maintenanceMode])
+
+  // In place of the whole app, as legacy/frontend-app does.
+  if (maintenanceMode) {
+    return fontsLoaded ? <MaintenanceScreen /> : <LoadingScreen />
+  }
 
   if (!reduxStore || !fontsLoaded) {
     return <LoadingScreen />

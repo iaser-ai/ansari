@@ -26,6 +26,8 @@ export default defineConfig({
       'components/**/*.test.{ts,tsx}',
       'hooks/**/*.test.{ts,tsx}',
       'constants/**/*.test.{ts,tsx}',
+      // Build scripts (plain Node ESM, e.g. the Dockerfile.web env guard).
+      'scripts/**/*.test.mjs',
     ],
   },
 });

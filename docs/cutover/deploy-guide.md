@@ -1,18 +1,43 @@
 # Cutover deployment guide (spec 300)
 
 The commands only, in order. The full runbook, [`better-auth-cutover.md`](better-auth-cutover.md),
-is the authority: it has the reason, the check and the abort for every step. If any check fails
-after step 2, stop and follow [`rollback.md`](rollback.md) (valid until `CUTOVER_AT` + 24 hours).
+is the authority: it has the reason, the check and the abort for every step. **The step numbers
+differ.** In this guide, "step N" is the guide's own step; a runbook step is always written
+"runbook step N":
+
+| Guide step | Runbook step(s) |
+|---|---|
+| Before the day | 1 (preconditions) |
+| 1. Open the operator session | the operator environment; 1 (the machine and database checks) |
+| 2. Go offline | 2, 3, 4 |
+| 3. Auth schema | 5 |
+| 4. Copy the users | 6 |
+| 5. App schema | 7 |
+| 6. Admin roles | 8 |
+| 7. Attach the auth domain | 9 |
+| 8. Deploy: merge | 10, 11 |
+| 9. Verify | 11, 12, 12a, 13, 14 |
+| 10. Back online | 15, 16 |
+
+If a check fails in guide steps 3 to 7, take the abort of the matching runbook step (5 to 9, from
+the table; in production, the auth database is emptied only by the runbook's drop-and-re-apply
+procedure). From guide step 8 on, follow [`rollback.md`](rollback.md) (valid until `CUTOVER_AT` +
+24 hours).
 
 Auto-deploy stays **on** throughout. The merge in step 8 is the deploy.
 
-The three Railway services, by their dashboard names:
+**A backend-only release (owner, 2026-11-21; #416).** The window releases `apps/api` and
+`apps/auth`. Production web stays on legacy web (`legacy/frontend-web`), and `apps/frontend` is
+not released to production. The promotion in step 8 carries every commit `main` lacks, not only
+spec 300: the runbook's "What the promotion carries" has the measured count.
+
+The Railway services, by their dashboard names:
 
 | Service | Runs | Domain (production) |
 |---|---|---|
 | `backend` | the api (`apps/api`) | `api.askansari.ai`, `api-35.ansari.chat` |
-| `auth` | the auth service (`apps/auth`) | `auth.askansari.ai` (attached in step 7) |
-| the web service | the web app (`apps/frontend`) | the web domain |
+| `auth` | the auth service (`apps/auth`) | `auth.askansari.ai` (attached in step 7; production, 2026-11-21: already attached and serving, see [`release-record.md`](release-record.md)) |
+| the web service | production: legacy web (`legacy/frontend-web`), not changed by this release; staging: `apps/frontend` | the web domain (detached in step 2, re-attached in step 9) |
 
 ## Before the day (Railway dashboard)
 
@@ -32,7 +57,13 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | `AUTH_LAYER_ORIGIN` | `https://api.askansari.ai` (the same as on `auth`) |
   | `ENVIRONMENT` | `production` (`staging` in staging; #314, also the Sentry environment) |
 
-  Also on `backend`: `MAINTENANCE_MODE=false`. **Keep** `JWT_SECRET`,
+  Also on `backend`: `MAINTENANCE_MODE=false`, and **confirm `MCP_COMPLETE_KEY_MODE=log-only`**.
+  It is already set in production (owner's statement, 2026-11-21, not verified from the repo).
+  Confirm it on the day and record it. Do not set it in the window. No service key is issued in
+  the window, so after the promotion `log-only` is the only thing keeping `mcp.ansari.chat` and
+  the agent skill served (they send no key, #409; absent means `enforce`, which refuses them with
+  401). **If it is absent or `enforce`, do not start.** WhatsApp is out of this window (owner's
+  decision, 2026-11-21; #336). **Keep** `JWT_SECRET`,
   `ACCESS_TOKEN_EXPIRY_HOURS`, `REFRESH_TOKEN_EXPIRY_HOURS`, `ADMIN_EMAILS`, `RESEND_API_KEY` and
   `FRONTEND_URL`. The new code ignores them, but the legacy code that serves until step 8 and
   that a rollback redeploys needs them. They are removed in the contract PR, not now.
@@ -41,34 +72,61 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   | Variable | Value |
   |---|---|
   | `DATABASE_URL` | the auth database (Railway reference variable) |
-  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters |
+  | `BETTER_AUTH_SECRET` | a new random secret, at least 32 characters. **Production, 2026-11-21:** already set and in use (the key pair in `auth.jwks` is encrypted under it); changing it requires emptying `auth.jwks`. See [`release-record.md`](release-record.md) |
   | `BETTER_AUTH_URL` | `https://auth.askansari.ai` |
   | `AUTH_JWT_ISSUER` | `https://auth.askansari.ai` |
   | `AUTH_JWT_AUDIENCE` | `ansari-api` |
   | `AUTH_LAYER_ORIGIN` | `https://api.askansari.ai` |
-  | `CORS_ORIGIN` | the `apps/frontend` web origins |
+  | `CORS_ORIGIN` | the real web origins (legacy web never calls `auth` directly; it calls only `apps/api`) |
   | `RESEND_API_KEY` | the Resend key (reset emails are now sent by `auth`) |
-  | `FRONTEND_URL` | the web origin (reset links point here) |
+  | `FRONTEND_URL` | the web origin, which legacy web serves: no value change (one origin for legacy and new web, owner's statement). Reset links `${FRONTEND_URL}/reset-password?token=…` land on legacy web's reset page |
   | `NODE_ENV` | `production` |
   | `ENVIRONMENT` | `production` (`staging` in staging; #314: required, and the environment in every service key's prefix) |
   | `PORT` | `3100` |
 
   Optional on `auth`: `SENTRY_DSN`, and `MARKETMAKER_URL` (copy `backend`'s value if it has
-  one). Do **not** set `ADMIN_EMAILS` on it. The service has **no domain and no active deployment** (staging: remove the PIR #59 deployment).
-- **The web service: set** `EXPO_PUBLIC_API_URL=https://api.askansari.ai` and
-  `EXPO_PUBLIC_AUTH_URL=https://auth.askansari.ai`.
-- The auth domain's DNS record exists and is not attached to any service.
+  one). Do **not** set `ADMIN_EMAILS` on it.
+  - **Production:** the service **has** a live deployment and `auth.askansari.ai` attached, and
+    keeps both (owner's decision, 2026-11-21; [`release-record.md`](release-record.md)).
+    Its health probe prints `200` (runbook step 1, the production line).
+  - **Staging:** the service has **no domain and no active deployment** (remove the PIR #59 deployment).
+- **The web service: no change.** In production it is legacy web, and nothing is set on it for
+  this window (no `EXPO_PUBLIC_*` variables: `apps/frontend` is not released).
+- **Staging:** the auth domain's DNS record exists and is not attached to any service.
+  (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
-  `auth` (`none` if it has no deployment). These are the rollback targets.
-- The admin list is approved, #307 and #317 are merged, and the cutover PR is approved and
-  current with `develop`.
+  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` and
+  the web service to these. `auth`'s is recorded for the record: nothing in the window deploys
+  production `auth` (it deploys from `develop`), so it stays on this same deployment, or on the one
+  step 7 had the owner redeploy (its ID then recorded), and a rollback leaves it there (owner,
+  2026-11-21). On staging, all three are rollback targets.
+- In the release record, from the dashboard, for `backend`, `auth` and the web service: the branch
+  each deploys from, its auto-deploy setting, its Dockerfile path, and the commit it runs now.
+  Production `auth` deploys from `develop` with auto-deploy on (owner's statement, 2026-11-21),
+  so the promotion in step 8 starts no `auth` deployment; step 7 checks its code, and step 10
+  switches it to `main`. `develop` is frozen for the window: a push to it would redeploy
+  production `auth`.
+- The admin list is approved. On staging, the cutover PR is approved and current with `develop`.
+  In production, the rehearsal precondition is **waived for this window** (owner, 2026-11-21;
+  runbook step 1). The owner states the staging rehearsal was run end to end, and waives the
+  written evidence, the security architect's verdicts and the same-commit requirement. The
+  consequence: the rehearsal's result rows are blank and the staging edge verdict was never
+  recorded, so the edge properties are first measured live at runbook steps 11 and 12, where the
+  security architect decides whether the window goes on. Legacy web against the new `apps/api`
+  has not been run either; runbook step 12a is the first chance.
+  (#307, #317 and #305 are no longer window preconditions: they belong to `apps/frontend`.)
 
 ## 1. Open the operator session
 
 ```bash
 tailscale status                                   # the forwarder is listed
-cd <repo>                                          # the builder-spir-300 worktree, at the commit being deployed
+git clone <repo URL> <new empty directory> && cd <new empty directory>   # a NEW empty directory, never a builder worktree
+git checkout --detach <recorded commit>
+[ "$(git rev-parse HEAD)" = "<recorded commit>" ] && echo checkout-at-recorded-commit
+[ -z "$(git status --porcelain)" ] && echo clean-tree
+ls apps/auth/scripts/cutover/auth-journal.mjs packages/auth/drizzle/0001_api_key.sql
+pnpm install --frozen-lockfile
 set +o history
 export CUTOVER_ENV=production                      # or staging
 read -rs APP_DATABASE_URL && export APP_DATABASE_URL     # paste at the prompt
@@ -76,9 +134,10 @@ read -rs AUTH_DATABASE_URL && export AUTH_DATABASE_URL
 export API=https://api.askansari.ai AUTH=https://auth.askansari.ai   # staging: api-staging / auth-staging
 ```
 
-Tell the builder before you start: it makes no edits and no git operations in that worktree until
-the window ends. Keep the worktree until the production cutover is done; if it is gone, use a
-fresh checkout of `develop` at the commit being promoted.
+`<recorded commit>` is the commit being promoted, in full, from the release record. The checks
+print `checkout-at-recorded-commit` and `clean-tree` (run again at step 3), and `ls` lists both
+files. If either fails, stop. The clone is in a new empty directory, never an existing checkout
+or a builder worktree. Make no edits in the checkout until the window ends.
 
 **Both database URLs must go through the Tailscale forwarder, or the scripts reject them.**
 Railway's own URLs will not work. The scripts refuse `DATABASE_URL` (`*.railway.internal`, which
@@ -97,20 +156,39 @@ postgresql://postgres:<auth PGPASSWORD>@<project>-<environment>-tailscale-forwar
 - If Postgres refuses TLS on this path, drop `?sslmode=require`. The scripts then print a warning,
   which is expected.
 
-Both databases are on Postgres 18, and they are two different clusters. The auth database is empty:
+Both databases are on Postgres 18, and they are two different clusters:
 
 ```bash
 psql "$APP_DATABASE_URL" -X -At -c "select version()"     # PostgreSQL 18
 psql "$AUTH_DATABASE_URL" -X -At -c "select version()"    # PostgreSQL 18
 psql "$APP_DATABASE_URL" -X -At -c "select system_identifier from pg_control_system()"
 psql "$AUTH_DATABASE_URL" -X -At -c "select system_identifier from pg_control_system()"   # a different number
+psql "$AUTH_DATABASE_URL" -X -At -c "select to_regclass('public.users')"   # an empty line (NULL)
+```
+
+**Production** (the auth journal was applied ahead of the window): the auth schema is there, with
+both files, and no users:
+
+```bash
+psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"   # PRODUCTION: 1
+set -o pipefail
+node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1   # 0000_auth_schema|t and 0001_api_key|t
+psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0
+```
+
+**Staging:** the auth database is empty:
+
+```bash
+psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.schemata where schema_name = 'auth'"   # STAGING: 0
 psql "$AUTH_DATABASE_URL" -X -At -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')"   # 0
 ```
 
 ## 2. Go offline
 
 Post the notice and silence alerts. In Railway, set `MAINTENANCE_MODE=true` on `backend` and
-detach the web domain from the web service. Then:
+detach the web domain from the web service (production: the legacy web service). The detach is
+what stops web traffic: `MAINTENANCE_MODE` only changes the `app-check` answer, and legacy web never
+asks for it (the runbook's step 3). Then:
 
 ```bash
 export CUTOVER_AT="$(psql "$APP_DATABASE_URL" -X -At -c "select now()")"
@@ -125,7 +203,15 @@ both databases and record their ids.
 
 ## 3. Auth schema
 
+> **Production, 2026-11-21:** production's auth journal is already applied
+> ([`release-record.md`](release-record.md)). In production run only the `set -o pipefail` and
+> `check` lines, **not** the `for` loop (it would re-apply `0000_auth_schema` and stop on its
+> error). In production a drop always runs in one transaction with the re-apply ([Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply)), so this step stays check only. Apply only a file the check reports missing (a journal file newer than the record), one
+> at a time, and record it:
+> `psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f packages/auth/drizzle/<tag>.sql`
+
 ```bash
+[ -z "$(git status --porcelain)" ] && echo clean-tree
 for f in $(node apps/auth/scripts/cutover/auth-journal.mjs files); do psql "$AUTH_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break; done
 set -o pipefail
 node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL" -X -q -At -v ON_ERROR_STOP=1   # one <tag>|t per file, in order; no output at all is a failure
@@ -133,8 +219,15 @@ node apps/auth/scripts/cutover/auth-journal.mjs check | psql "$AUTH_DATABASE_URL
 
 ## 4. Copy the users
 
+> **Production, 2026-11-21:** no `create-service` or `create-key` in production before
+> `copy.sh: audit OK` (a service user makes the copy refuse: `auth.users is not empty`). Issue no
+> service keys at all in the window (owner's decision, 2026-11-21): they are issued after it
+> closes; see [`release-record.md`](release-record.md). The users-and-accounts count runs immediately before
+> `copy.sh` and must print `0` (the `auth` domain serves throughout).
+
 ```bash
 psql "$APP_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/00-preflight-app.sql   # no collision, not_bcrypt = 0
+psql "$AUTH_DATABASE_URL" -X -At -c "select (select count(*) from auth.users) + (select count(*) from auth.account)"   # 0
 apps/auth/scripts/cutover/copy.sh                  # copy.sh: audit OK
 ```
 
@@ -162,12 +255,39 @@ psql "$AUTH_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -f apps/auth/scripts/cutover/
 If the first command prints a warning (a recent or unverified account), confirm with the person
 before you run `--confirm`.
 
+**No service keys in the window** (owner's decision, 2026-11-21): no `create-service` and no
+`create-key` at all. The keys are issued after the window closes, by
+[`service-keys-runbook.md`](service-keys-runbook.md), and never before `copy.sh: audit OK`.
+
 ## 7. Attach the auth domain
 
-In Railway, attach the auth domain to the `auth` service on port 3100. Then:
+**Production:** do **not** attach, detach or remove anything: the domain is already attached and
+served by `auth`'s existing deployment, which stays (owner's decision, 2026-11-21;
+[`release-record.md`](release-record.md)). Run:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # 404 or 502; never 200, never 000
+curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # PRODUCTION: 200; never 000
+```
+
+Also, production: `auth` runs the promoted commit's code on its build paths
+(`<auth running commit>` is the commit the dashboard shows for it):
+
+```bash
+git cat-file -e <auth running commit>^{commit} && echo commit-present
+git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches
+```
+
+If it does not print `auth-tree-matches`, **stop before step 8**: the owner redeploys `auth` at the
+promoted commit from the dashboard, records the new ID, and you re-run the line (the runbook's
+step 9).
+
+If the probe does not print `200`: do not detach anything; run [Empty the production auth database: drop and re-apply](better-auth-cutover.md#empty-the-production-auth-database-drop-and-re-apply), then step 2's offline
+actions in reverse (the runbook's step 9, production abort). The apply record stays true.
+
+**Staging:** in Railway, attach the auth domain to the `auth` service on port 3100. Then:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' $AUTH/health   # STAGING: 404 or 502; never 200, never 000
 ```
 
 ## 8. Deploy: merge
@@ -182,7 +302,9 @@ git fetch origin && git push origin origin/develop:main          # production
 git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   # origin/develop on staging
 ```
 
-Auto-deploy builds `auth`, `backend` and the web service. Wait until all three are healthy.
+Auto-deploy builds `backend`. Production `auth` deploys from `develop`, so it keeps the deployment
+step 7 checked (staging: the merge deploys `auth` too). The web service builds only if its watch
+paths matched the push (staging's always does). Wait until each is healthy.
 
 ## 9. Verify
 
@@ -193,9 +315,13 @@ curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                     
 ```
 
 - Run the edge probes in [`edge-check.md`](edge-check.md).
-- Attach the web domain to the `apps/frontend` web service.
-- In a private window, run the smoke test: guest, sign up, sign out, sign in, ask a question,
-  reset the password from the email, and delete the account.
+- Re-attach the web domain to the **same** web service it was detached from in step 2 (production:
+  the legacy web service). There is no web swap.
+- Smoke test, in a private window: **production** on legacy web (runbook step 14 lists each
+  flow's `/api/v2` route); **staging** on the staging web service (`apps/frontend`). Guest, sign
+  up, sign out, sign in, ask a question, reset the password from the email, and delete the
+  account. After the delete, check that signing in with it fails: legacy web's delete page goes to
+  `/welcome` even when the delete failed. Once the domain is back, real users are on it too.
 
 ## 10. Back online
 
@@ -206,6 +332,20 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 ```
 
 - Relaunch a released mobile build and sign in.
+- **Production: switch `auth` to `main`**, before the freeze lifts (runbook step 16, which defines
+  the three states a rollback must handle). Until then, every merge to `develop` that touches
+  `auth`'s build paths deploys to production `auth`. First, `main` must not have moved:
+
+  ```bash
+  git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit
+  ```
+
+  If it does not print, stop and tell the security architect. Then set `auth`'s source branch to
+  `main` and apply. If that started a deployment, wait for it; if not, trigger one deploy of
+  `main`'s latest commit. Exactly one new deployment is expected: wait until it is **Active** and
+  record its ID. A failed build leaves the previous deployment serving: the freeze holds; retry,
+  or tell the security architect. Check: `auth`'s deployed commit equals `<recorded commit>`,
+  `$AUTH/api/auth/jwks` and `$AUTH/health` both answer `200`, and a sign-in on legacy web works.
 - Un-silence the alerts and close the release record.
 - Remove the Tailscale forwarder and revoke its key.
 - `exit` the shell.

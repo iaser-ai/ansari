@@ -228,3 +228,169 @@ describe('429 fast-failover (issue #44)', () => {
     expect(sdk.establishCalls).toBe(2);
   });
 });
+
+/**
+ * A failover must never be silent (issue #402): the response names the model that wrote
+ * it, and a fallback that answered is logged as such.
+ */
+describe('the response names the model that answered (issue #402)', () => {
+  const fail429 = (): AsyncGenerator<unknown> =>
+    // eslint-disable-next-line require-yield
+    (async function* () {
+      throw new Error(RESOURCE_EXHAUSTED);
+    })();
+  const answeredLines = () =>
+    vi.mocked(console.warn).mock.calls.map(([line]) => String(line)).filter((line) => line.includes('answered by fallback'));
+
+  async function doneResponseOf(stream: AsyncGenerator<{ type: string; response?: { modelId: string } }>) {
+    let response: { modelId: string } | undefined;
+    for await (const ev of stream) if (ev.type === 'done') response = ev.response;
+    if (!response) throw new Error('no done event');
+    return response;
+  }
+
+  it('streamGemini served by the fallback: modelId is the fallback, and one line says it answered', async () => {
+    sdk.scripts = [
+      fail429,
+      async function* () {
+        yield textChunk('Answer from the fallback pool');
+      },
+    ];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(streamGemini('What is sabr?'));
+
+    expect(response.modelId).toBe('gemini-fallback');
+    expect(answeredLines()).toEqual([
+      '[gemini] streamGemini: answered by fallback gemini-fallback (primary gemini-primary did not answer)',
+    ]);
+  });
+
+  it('streamGemini served by the primary, even after a retry: modelId is the primary, no such line', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(UNAVAILABLE);
+      },
+    ];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(streamGemini('What is sabr?'));
+
+    expect(sdk.modelsTried).toEqual(['gemini-primary', 'gemini-primary']);
+    expect(response.modelId).toBe('gemini-primary');
+    expect(answeredLines()).toEqual([]);
+  });
+
+  it('a fallback that was tried but failed is not logged as having answered', async () => {
+    sdk.scripts = [fail429, fail429, fail429, fail429];
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    await expect(doneResponseOf(streamGemini('What is sabr?'))).rejects.toThrow('RESOURCE_EXHAUSTED');
+
+    expect(sdk.modelsTried.at(-1)).toBe('gemini-fallback');
+    expect(answeredLines()).toEqual([]);
+  });
+
+  it('callGeminiStreaming served by the fallback names it too', async () => {
+    sdk.scripts = [
+      fail429,
+      async function* () {
+        yield textChunk('Fallback answer');
+      },
+    ];
+    const { callGeminiStreaming } = await import('../lib/ai/gemini-client');
+
+    const response = await callGeminiStreaming('What is sabr?');
+
+    expect(response.modelId).toBe('gemini-fallback');
+    expect(answeredLines()).toHaveLength(1);
+  });
+
+  it('a pinned call answers as the pinned model', async () => {
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const response = await doneResponseOf(
+      streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })
+    );
+
+    expect(response.modelId).toBe('model-under-test');
+  });
+});
+
+/**
+ * Pinned calls (issue #393): `noModelFallback` keeps a call on its primary model. The
+ * evaluation harness pins every call so an answer is attributable to the model under
+ * test; the same 429 that fails over above must retry the pinned model instead.
+ */
+describe('noModelFallback pins a call to its model (issue #393)', () => {
+  it('a 429 retries the pinned model and never reaches the fallback', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      },
+      async function* (model: string) {
+        yield textChunk(`answer from ${model}`);
+      },
+    ];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const texts: string[] = [];
+    for await (const ev of streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })) {
+      if (ev.type === 'text') texts.push(ev.data);
+    }
+
+    expect(texts.join('')).toBe('answer from model-under-test');
+    expect(sdk.modelsTried).toEqual(['model-under-test', 'model-under-test']);
+  });
+
+  it('a pinned model that keeps 429ing surfaces the error; the fallback never answers', async () => {
+    const always429 = (): AsyncGenerator<unknown> =>
+      // eslint-disable-next-line require-yield
+      (async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      })();
+    sdk.scripts = [always429, always429, always429, always429, always429, always429];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    let caught: unknown = null;
+    try {
+      for await (const _ev of streamGemini('What is sabr?', { model: 'model-under-test', noModelFallback: true })) {
+        // nothing is expected to arrive
+      }
+    } catch (e) {
+      caught = e;
+    }
+
+    expect((caught as Error).message).toContain('RESOURCE_EXHAUSTED');
+    // MAX_RETRIES (3) + 1 attempts, every one on the pinned model.
+    expect(sdk.modelsTried).toEqual(Array(4).fill('model-under-test'));
+  });
+
+  // The control: the same override WITHOUT the pin still fails over, so the two tests
+  // above pass because of the pin and not because the override changed the fallback.
+  it('control: a model override without the pin still fails over on a 429', async () => {
+    sdk.scripts = [
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new Error(RESOURCE_EXHAUSTED);
+      },
+      async function* (model: string) {
+        yield textChunk(`answer from ${model}`);
+      },
+    ];
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+
+    const texts: string[] = [];
+    for await (const ev of streamGemini('What is sabr?', { model: 'model-under-test' })) {
+      if (ev.type === 'text') texts.push(ev.data);
+    }
+
+    expect(texts.join('')).toBe('answer from gemini-fallback');
+    expect(sdk.modelsTried).toEqual(['model-under-test', 'gemini-fallback']);
+  });
+});

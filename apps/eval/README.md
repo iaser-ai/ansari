@@ -1,0 +1,197 @@
+# Model evaluation harness
+
+Runs a versioned question set through the **real facilitator** (its prompt, tools, retries
+and budgets) once per model, scores every answer with code, and writes a results file and
+a comparison report. Built for issue #393; meant to be re-run whenever a new model appears.
+
+It is its own workspace package, `ansari-eval`, in `apps/eval/` (issue #397). It calls
+apps/api's `runFacilitator` in process, so `@/` here means what it means in apps/api:
+`tsconfig.json` (read by tsx and tsc) and `vitest.config.ts` map `@/lib`, `@/db` and `@/`
+to `../api/lib`, `../api/db` and `../api/src`. It is never deployed. The api image copies
+`apps/api`, `packages` and the root manifests, so the harness and its results are not in
+it. The api service's recorded watch patterns (`apps/api/railway.toml`) are `apps/api/**`,
+`packages/**` and the root manifests, so a new question or a results file does not
+redeploy the api. Two limits on that: Railway reads its dashboard, not the toml, so the
+live patterns are whatever the dashboard holds; and `pnpm-lock.yaml` is a watched file, so
+adding or bumping a dependency of this package does redeploy the api.
+
+Three rules keep it out of production, all enforced by
+`apps/api/tests/source-scan/facilitator-model-pin.test.ts`: nothing under apps/api's
+`src/`, `lib/` or `db/` imports the harness, by path or as `ansari-eval`; no route passes
+`model` to `runFacilitator`; and no `COPY` source in the api Dockerfile or watch pattern
+recorded in the api `railway.toml` takes in `apps/eval`.
+
+## Run it
+
+From the repo root, with an env file that holds real credentials:
+
+```bash
+pnpm --filter ansari-eval exec -- tsx --env-file=.env.eval.local run.ts \
+  --models gemini-3.7-flash,gemini-4-hydrogen,gemini-4-argon
+```
+
+The `--` after `exec` is required: without it pnpm takes `--env-file` for itself and the
+run stops with `node: .env.eval.local: not found`. pnpm runs the command in `apps/eval/`,
+so the env file path and `run.ts` are relative to it. That is also what makes `@/`
+resolve: tsx reads the `tsconfig.json` of the directory it starts in.
+
+The first model is the baseline the others are compared against. The run prints one line
+per conversation and ends with the two paths it wrote, under `apps/eval/results/`:
+
+- `<run id>.json`: inputs, model ids, git revision, dates, every raw answer, the tool-call
+  records, the looked-up verses and the scores.
+- `<run id>.md`: the comparison report.
+
+`--dry-run` prints the plan and the number of calls without calling anything. A full run
+of question set v1 over three models is 138 facilitator requests, roughly 280 to 550 model
+calls. Other options: `--repeats <n>` (samples per question), `--only <ids or
+category:name>`, `--concurrency <n>` (default 4), `--questions <file>`, `--out <dir>`,
+`--verbose`.
+
+### The env file
+
+`apps/eval/.env.eval.local` (git ignores `.env.*.local`). The harness reads the same
+variables the app does, through apps/api's `lib/config.ts`:
+
+```bash
+# Vertex AI: the models under test are called here.
+GOOGLE_CLOUD_PROJECT=<project id>
+GOOGLE_CLOUD_LOCATION=global
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json   # or gcloud ADC
+# The search tools.
+KALEMAT_API_KEY=<key>
+USUL_API_TOKEN=<token>
+# Required by config validation; the harness never opens a database connection.
+DATABASE_URL=postgresql://unused:unused@localhost:5432/unused
+ENVIRONMENT=development
+```
+
+`GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`, `PRIMARY_BACKEND` and `TINKER_API_KEY` do not
+affect a run: each request is pinned to the model under test (see below).
+
+If the first four conversations all fail, the run stops and prints the error: a wrong
+credential or model id should not produce a file of 138 errors.
+
+## What "the real facilitator path" means here
+
+`runFacilitator(history, undefined, { model })`. The `model` option pins the request:
+every Gemini call targets that model, the cross-model 429 failover is off, and the request
+never escalates to Inkling. Same-model retries, tool calls, budgets and the synthesis pass
+all run as in production. So an answer recorded under a model's name was written by that
+model, and a model that cannot answer shows up as an error, not as another model's answer.
+
+Follow-up turns replay history the way the chat route does: each earlier answer's text
+with the final model turn's raw payload.
+
+## What is scored
+
+All by code; the functions are in `lib/` and each file's header states its rules.
+
+| Measure | How |
+|---|---|
+| Quran quote matches its source | Every run of Arabic is compared with the retrieved text of the verse it is labelled with (`score-quran.ts`). Letters only, at three levels (`arabic.ts`): as written, in standard spelling, and ignoring alefs. A reference the answer names that no search returned is looked up, so a quote written from memory is still checked. Arabic a tafsir, fiqh or hadith search returned, and Arabic in a citation entry not headed with a Quran reference, is that source's text and is set aside. |
+| The reference is right | A quote whose text is a different verse than the reference on its own line (or heading its citation entry) is `wrong_reference`; a question can also list the references its answer should quote (`expectRefs`). |
+| Hadith `LK id` came from a search | Every `LK id` token is looked up among the ids `search_hadith` returned in that turn, an earlier turn, or nowhere (`fabricated`). Also: hadith citations with no id, and stated grades that contradict the search result (`score-hadith.ts`). |
+| Answer is in the question's language | Script share of the prose, then function words or script-specific letters (`score-language.ts`). |
+| Searched before quoting | Per quote: the verse (or the quoted words, inside a tafsir or hadith result) came from a search in this turn, an earlier turn, or none. Per turn: scripture quoted with no result from the matching search tool. |
+| Latency, tokens, cost, tools, failures | Time to first event and first visible text, total time; tokens summed over the turn's model calls; cost per answer and per 1,000 answers from `models.json` (see Prices); tool calls and how many returned no source; errors, budget syntheses and retries (read from the facilitator's own log lines, attributed per request). |
+
+The report states counts and lists every failed quote with its diff, every fabricated id,
+every answer in the wrong language and every error. A quote fails only when it is labelled:
+a reference on its own line, or in its paragraph when the text is plainly an attempt at a
+verse in hand. Two buckets are for a human to read, not for the gate: quotes that differ
+from their source only by an alef, and `suspect` Arabic (text near a reference that
+matches nothing, text resembling a verse with no reference at all, or one verse's text in
+a paragraph that names only another).
+
+### Limits, stated
+
+- A Quran quote with no reference near it and no matching verse in hand is not scored.
+- In an answer written in Arabic script, only Arabic that is quoted (`﴿ ﴾`, `« »`, `" "`)
+  or vowelled is read as a quote; unvowelled, unquoted scripture inside Arabic prose is
+  missed.
+- Spelling the checker does not fold (open ta for ta marbuta, a silent letter standard
+  spelling drops, a dropped hamza) shows up as a mismatch or an alef-only difference, with
+  its diff, for a human to judge.
+- An errored turn reports no token usage, so it adds nothing to cost.
+- One sample per question. Zero failures in n answers bounds the true rate below about
+  3/n. Use `--repeats` for more.
+
+## Rescore without calling a model
+
+```bash
+pnpm --filter ansari-eval exec -- tsx rescore.ts results/<run id>.json
+```
+
+Recomputes every score from what the file recorded and rewrites the report. Use it after
+correcting a scorer or adding a price to `models.json`.
+
+## Check that a clean result means something
+
+```bash
+pnpm --filter ansari-eval exec -- tsx selfcheck.ts results/<run id>.json
+```
+
+"No failed quotes" is only good news if a failed quote would have been seen. This takes
+each answer in the results file that quotes a verse correctly, corrupts that quote two ways
+(swaps two words, drops a word), scores it again, and reports how many corruptions the
+scorer failed, how many it only listed for reading, and how many it missed. No model is
+called. Run it on every results file before believing its Quran numbers.
+
+## Add a model
+
+1. Pass its id in `--models`. Nothing else is needed to run it.
+2. For cost, add its price to `models.json` (US dollars per million input and output
+   tokens, with where the number came from). A model without a price reports cost as n/a.
+
+### Prices
+
+The report's Cost section gives, per model, the price inputs, the cost per answer and per
+1,000 answers, and the ratio to the baseline. Each entry in `models.json` carries:
+
+- `confirmed`: `true` only after a person has checked the numbers against the
+  [Vertex AI pricing page](https://cloud.google.com/vertex-ai/generative-ai/pricing). The
+  report marks every figure for an unconfirmed model. Put the date you checked in `source`.
+- `checked` (optional): a weaker check in a few words, such as "Developer API page, Vertex
+  unconfirmed". It is shown beside the NO; the price still counts as not confirmed.
+- `next` (optional): an announced price change, `{ "from": "2026-12-01", "inputPerMTok":
+  4, "outputPerMTok": 20 }`. The report then also costs the run at that price, because an
+  introductory rate that ends next month is not the price a decision should rest on.
+
+After editing prices, run `rescore.ts` on the results file: no model is called.
+
+What the cost figure is: model tokens only, at the full input price (the facilitator does
+not report cached-input tokens, so a caching discount makes the real bill lower), averaged
+over this question set, which is not production's mix of questions.
+
+## Add or change a question
+
+Question sets are files in `questions/`, validated on load (`lib/question-set.ts`).
+
+```json
+{
+  "id": "near-in-our-eyes",
+  "category": "near-identical",
+  "language": "en",
+  "note": "Why it is in the set.",
+  "turns": [{ "text": "The question.", "expectRefs": ["52:48"] }]
+}
+```
+
+- More than one entry in `turns` makes a follow-up conversation.
+- `language` is the language the answer must be in.
+- `expectRefs` is optional: the Quran references the answer should quote.
+
+A released set is not edited: copy it to `v2.json`, raise `version`, and change that. The
+results file records the set's version and hash, so two runs are comparable only when
+both match. Write questions yourself. Do not copy a user's conversation out of a database.
+
+## Tests
+
+`pnpm --filter ansari-eval test`, from the repo root; no env or credentials are needed.
+The suite is in `tests/`, and CI runs it with lint and typecheck in the `eval` job. Each
+scorer is tested against a known-bad answer it must fail and a near-miss it must pass;
+the staging misquote (بِعَيْنِنَا for بِأَعْيُنِنَا, labelled 68:48) is one of the fixtures. The
+runner, scoring and report are tested end to end against a scripted facilitator.
+`tests/run-command.test.ts` starts the run command itself under tsx, and loads the api
+modules a real run needs through `@/` under both tsx and vitest.

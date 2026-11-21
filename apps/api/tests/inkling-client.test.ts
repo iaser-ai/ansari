@@ -51,6 +51,7 @@ vi.mock('@/lib/config', () => ({
 
 import { streamInkling, isInklingConfigured } from '../lib/ai/inkling-client';
 import type { GeminiStreamEvent } from '../lib/ai/gemini-client';
+import { userFacingModelError, PROMPT_TOO_LARGE_MESSAGE } from '../lib/facilitator/agent';
 
 function sseBody(chunks: object[]): string {
   return chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -160,6 +161,7 @@ describe('streamInkling', () => {
 
     const response = doneOf(events);
     expect(response.text).toBe('Patience is a virtue.');
+    expect(response.modelId).toBe('thinkingmachines/Inkling');
     expect(response.finishReason).toBe('STOP');
     expect(response.toolCalls).toEqual([]);
     expect(response.rawPayload).toEqual({
@@ -585,6 +587,73 @@ describe('streamInkling', () => {
 
       const events = await collect(streamInkling('q'));
       expect(doneOf(events).text).toBe('Answer.');
+    });
+  });
+
+  describe('in-stream provider error frame (issue #399)', () => {
+    // The body Tinker returned, HTTP 200, to the #79 rescue's request once the thread's
+    // history no longer fitted: one error frame, no choices, no finish_reason, no [DONE].
+    const CONTEXT_WINDOW_FRAME =
+      'data: {"error": {"message": "Prompt length plus max_tokens exceeds the model\'s context window: ' +
+      '72453 prompt tokens + 8192 max_tokens > 65536.", "type": "invalid_request_error", ' +
+      '"request_id": "oai-00000000:sample:0:1"}}\n\n';
+
+    it("surfaces the provider's reason instead of reporting a truncation after 0 chars", async () => {
+      fetchMock.mockResolvedValue(rawSseResponse(CONTEXT_WINDOW_FRAME));
+
+      const error = await collect(streamInkling('q')).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      const message = (error as Error).message;
+      expect(message).toContain('[inkling] provider error in stream');
+      expect(message).toContain('invalid_request_error');
+      expect(message).toContain('72453 prompt tokens + 8192 max_tokens > 65536');
+      expect(message).not.toMatch(/truncated/i);
+    });
+
+    // Issue #400: the facilitator recognises this error by the provider's wording and
+    // tells the user in plain words. Checked on the error the real client throws for the
+    // real frame, so a change to how the client words it cannot quietly bring the raw
+    // text back; any other provider error keeps its own text.
+    it('the context-window error is the one the facilitator turns into its plain message', async () => {
+      fetchMock.mockResolvedValue(rawSseResponse(CONTEXT_WINDOW_FRAME));
+      const tooLarge = await collect(streamInkling('q')).catch((e: unknown) => e);
+      expect(userFacingModelError(tooLarge)).toBe(PROMPT_TOO_LARGE_MESSAGE);
+
+      fetchMock.mockResolvedValue(sseResponse([{ error: { type: 'server_error', message: 'sampler unavailable' } }]));
+      const other = await collect(streamInkling('q')).catch((e: unknown) => e);
+      expect(userFacingModelError(other)).toBe('[inkling] provider error in stream — server_error: sampler unavailable');
+    });
+
+    it('an error frame followed by [DONE] is still an error, never an empty completion', async () => {
+      fetchMock.mockResolvedValue(sseResponse([{ error: { type: 'server_error', message: 'sampler unavailable' } }]));
+
+      await expect(collect(streamInkling('q'))).rejects.toThrow(
+        '[inkling] provider error in stream — server_error: sampler unavailable'
+      );
+    });
+
+    it('an error with a message but no type is labelled plainly as an error', async () => {
+      fetchMock.mockResolvedValue(sseResponse([{ error: { message: 'sampler unavailable' } }]));
+
+      await expect(collect(streamInkling('q'))).rejects.toThrow(
+        '[inkling] provider error in stream — error: sampler unavailable'
+      );
+    });
+
+    it('an error of an unexpected shape is reported as its JSON, capped at 500 chars', async () => {
+      fetchMock.mockResolvedValue(sseResponse([{ error: 'x'.repeat(2000) }]));
+
+      const error = (await collect(streamInkling('q')).catch((e: unknown) => e)) as Error;
+
+      expect(error.message.startsWith('[inkling] provider error in stream — "xxx')).toBe(true);
+      expect(error.message.length).toBe('[inkling] provider error in stream — '.length + 500);
+    });
+
+    it('a chunk with `error: null` is an ordinary chunk', async () => {
+      fetchMock.mockResolvedValue(sseResponse([{ ...delta({ content: 'Answer.' }, 'stop'), error: null }]));
+
+      expect(doneOf(await collect(streamInkling('q'))).text).toBe('Answer.');
     });
   });
 });

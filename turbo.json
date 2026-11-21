@@ -145,6 +145,10 @@
     // variable and the log-only branch one week after enforcement; the issue
     // is opened at enforce (rollout step 6).
     "MCP_COMPLETE_KEY_MODE",
+    // Thread history limits (#400), in apps/api's Zod schema. Undeclared, an
+    // override would be invisible to tasks and the defaults would apply.
+    "THREAD_HISTORY_WARN_TOKENS",
+    "THREAD_HISTORY_BLOCK_TOKENS",
     // #314 Amendment 3: the deployment label (development, staging,
     // production) in apps/api and apps/auth's Zod schemas, the Sentry
     // environment of both, and the service-key prefix's environment. Required

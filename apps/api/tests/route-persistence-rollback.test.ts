@@ -47,7 +47,12 @@ vi.mock('@/lib/config', async () => {
   // mcp-complete's key gate (#314) reads authService and mcpCompleteKeyMode.
   const { MCP_KEY_CONFIG } = await import('./helpers/mcp-key');
   return {
-    config: { leaderboard: { apiKey: 'rollback-test-leaderboard-key-at-least-32-chars' }, ...MCP_KEY_CONFIG },
+    config: {
+      leaderboard: { apiKey: 'rollback-test-leaderboard-key-at-least-32-chars' },
+      // Both routes check the thread history limit (#400) before they persist.
+      threadHistory: { warnTokens: 150000, blockTokens: 200000 },
+      ...MCP_KEY_CONFIG,
+    },
   };
 });
 

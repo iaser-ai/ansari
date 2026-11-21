@@ -42,7 +42,8 @@ because it is the one place both databases are named.
 **Dry run: `copy.sh --dry-run`.** The same copy, guards and audits, with nothing committed:
 `02`'s transaction ends in `ROLLBACK` after printing the auth-side audit from inside it (another
 session cannot see uncommitted rows). If the auth database has no schema yet (staging and
-production before runbook step 5), the **whole auth journal**, in `_journal.json` order
+production before runbook step 5; **production, 2026-11-21:** its journal is already applied,
+see `docs/cutover/release-record.md`, so no baseline is added there), the **whole auth journal**, in `_journal.json` order
 (`auth-journal.mjs sql`: every migration, then an assertion that each one is present), is applied
 inside the same transaction and rolled back with it, so the dry run proves the copy against the
 schema production will have, and step 1's empty-database check still holds afterwards. The SQL

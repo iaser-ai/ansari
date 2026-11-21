@@ -16,6 +16,7 @@ import { getClientId } from '@/lib/attribution';
 import { maybeGenerateThreadName } from '@/lib/ai/thread-naming';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
+import { HISTORY_MESSAGE_TOO_LONG_MESSAGE, incomingMessageTooLong, limitThreadTurn } from '@/lib/facilitator/history-limit';
 import {
   startHeartbeat,
   RAW_TEXT_HEARTBEAT,
@@ -122,6 +123,12 @@ const chatSchema = z.object({
   role: z.string().optional(),
 });
 
+const STREAM_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+};
+
 // POST /api/v2/threads/[id] - Send a message and get streaming response
 // (Frontend calls this endpoint, not /threads/[id]/chat)
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -149,6 +156,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const { content } = parseResult.data;
+
+    // A message over the block threshold on its own is answered at once and NOT
+    // stored (issue #400): stored, it would block this thread for good.
+    if (incomingMessageTooLong(content, threadId)) {
+      return new Response(HISTORY_MESSAGE_TOO_LONG_MESSAGE, { headers: STREAM_HEADERS });
+    }
 
     // Per-client attribution (spec 56). Capture the header value BEFORE the
     // stream starts — the assistant message is written inside the async stream
@@ -228,7 +241,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         );
 
         try {
-          for await (const event of runFacilitator(messageHistory)) {
+          // Thread history limits (issue #400): a long thread's answer opens with a
+          // notice, and a too-long thread gets the notice instead of a model call.
+          const turn = limitThreadTurn(messageHistory, threadId, () => runFacilitator(messageHistory));
+          for await (const event of turn) {
             switch (event.type) {
               case 'text':
                 heartbeat.stop();
@@ -319,13 +335,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(stream, { headers: STREAM_HEADERS });
   } catch (error) {
     console.error('Chat error:', error);
     Sentry.captureException(error);

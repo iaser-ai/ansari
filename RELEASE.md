@@ -72,21 +72,17 @@ migration runbook were both proven in real releases on 2026-08-02.
 > Build: repo-root context, `legacy/whatsapp/Dockerfile`. Health check `/`. The Meta callback URL is
 > `https://<domain>/whatsapp/v2`, one Meta app per environment. Environment surface (full list in
 > `legacy/whatsapp/.env.example`):
-> `ENVIRONMENT` (required, `staging` or `production`), `BACKEND_SERVER_URL` (apps/api),
+> `ENVIRONMENT` (required: `development`, `staging` or `production`; the same name apps/api and apps/auth use), `BACKEND_SERVER_URL` (apps/api),
 > `AUTH_SERVER_URL` and `AUTH_WHATSAPP_API_KEY` (apps/auth, issue #329),
 > `META_BUSINESS_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN_FROM_SYS_USER`, `META_ANSARI_APP_SECRET` and
 > `META_WEBHOOK_VERIFY_TOKEN` (all four of the same Meta app, all required),
 > `SENTRY_DSN`, `WA_MAINTENANCE_MODE`, `WHATSAPP_CHAT_RETENTION_HOURS`, `LOGGING_LEVEL` (unset = `INFO`).
-> The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
-> `ENVIRONMENT=development`. `ENVIRONMENT` also routes messages (issue #363): production answers text with no
-> `!d `/`!s ` prefix, staging only `!s ` (testers must start every staging message with `!s `), development only
-> `!d `. The Meta side is separate: the staging and test apps must be subscribed to the production WhatsApp account, and
-> each instance's phone number id and token must point at the production number.
+> **Prefix routing (issue #363):** one WhatsApp number can feed production, staging and a developer's machine. A message with no prefix is production's, `!s ` is staging's and `!d ` is development's; each environment ignores the others' and drops its own prefix before asking apps/api. On staging, testers must start every message with `!s `.
+> **Order of the Meta steps:** subscribe the production WhatsApp account to the staging (or development) app only once the prefix code is running there. In the other order, staging answers every real user's plain message on the production number, and users get two answers.
+> **`ENVIRONMENT=production` on the production service:** Sentry events are tagged `production` with 0.2 sample rates, and `/sentry-debug` is not mounted.
 >
-> **Production:** `ENVIRONMENT=production` is the only value that answers messages with no prefix, so the production service
-> must be deployed with it. **Order of the Meta steps:** subscribe the production WhatsApp account to the staging (or
-> development) app only once the prefix code is running there. In the other order, staging answers every real user's plain
-> message on the production number, and users get two answers.
+> The service refuses to start if a secret above is missing, or if any `MOCK_*` switch is set outside
+> `ENVIRONMENT=development`.
 >
 > **mcp service (issue #364; staging only for now)** — one listener on `PORT` (3000): set `PORT=3000` as a
 > service variable so Railway does not assign its own, and make the public domain's target port match. Build: repo-root context, `apps/mcp/Dockerfile`, which copies `package.json`, the lockfile,
@@ -111,7 +107,8 @@ migration runbook were both proven in real releases on 2026-08-02.
 > client: no private-network hop, no shared secret (spec amendment H-1).
 > It has its OWN Railway Postgres, the auth database, with snapshots or PITR
 > enabled before its first real row, on Postgres 18 (C-4: the owner's service; in staging it
-> already exists, empty; in production it is created or found, and checked empty in window step 1).
+> already exists, empty; in production its schema is already applied, and window step 1 checks it
+> holds no users and no accounts).
 > Its image is the service only: no Postgres client
 > and no migration SQL. The cutover runs from the owner's machine over the Tailscale route
 > (spec amendment H-8; the runbook's "operator environment"). The two operator scripts run from
@@ -135,11 +132,21 @@ migration runbook were both proven in real releases on 2026-08-02.
 > keeps the previous deployment.
 >
 > **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
-> and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so both are set on the
-> Railway service and a change needs a redeploy. They name the SAME environment:
-> production `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
-> `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai` (the
-> defaults when unset). The web app signs in at `EXPO_PUBLIC_AUTH_URL` (spec 300).
+> and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so a change needs a
+> redeploy. **Both are mandatory on every web service built from
+> `apps/frontend/Dockerfile.web`**: today that is staging web only, and a production
+> `apps/frontend` service when one is created (#305). The image build fails at its guard
+> (`apps/frontend/scripts/check-web-env.mjs`, #317) when either is unset or empty,
+> naming the variable. They name the SAME environment: production
+> `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
+> `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai`; a pair
+> with one production host and not the other fails the build, showing both values.
+> **Production web stays on `legacy/frontend-web` for now (#416):** it builds from its
+> own `legacy/frontend-web/Dockerfile`, takes `EXPO_PUBLIC_API_V2_URL`, and has no such
+> guard; neither variable above is needed on it.
+> The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
+> `expo start`/`expo export` only, never an image. The `apps/frontend` web app signs in at
+> `EXPO_PUBLIC_AUTH_URL` (spec 300).
 >
 > **`apps/*/railway.toml` are not read by Railway here.** This project configures
 > deployment through the dashboard with a Dockerfile path (confirmed by the operator,
@@ -154,6 +161,8 @@ migration runbook were both proven in real releases on 2026-08-02.
   root directory = repo root, dockerfile build from `apps/api/Dockerfile`,
   healthcheck `/api/health` with a 300s timeout, restart `ON_FAILURE` up to 3 times.
   `apps/api/railway.toml` records those same values in git.
+  The production `auth` service deploys from `develop` today (owner's statement, 2026-11-21),
+  and from `main` after the cutover window's step 16 switches it.
 - **Promotion is a fast-forward, nothing else.** `main` is moved to `develop`'s
   tip with `--ff-only` — no merge commits, no cherry-picks, so `main` is always
   an exact prefix of `develop`'s history.

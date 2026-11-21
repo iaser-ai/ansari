@@ -8,7 +8,9 @@
  * local `apps/api` and `apps/auth` — but staging is the default so a fresh
  * checkout boots without any `.env.local`. The two defaults name the SAME
  * environment, so an env-less build never signs in at one environment and
- * calls the API of another.
+ * calls the API of another. The defaults serve local `expo start` and
+ * `expo export` only: the web image (`Dockerfile.web`) refuses to build
+ * without both variables (`scripts/check-web-env.mjs`, #317).
  *
  * `EXPO_PUBLIC_*` vars are inlined at bundle time, so a change here requires an
  * `expo start` restart to take effect. Each `process.env.EXPO_PUBLIC_*` access

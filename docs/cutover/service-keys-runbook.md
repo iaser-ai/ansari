@@ -57,6 +57,12 @@ lines and exits 3: record the action in the [key log](#key-log) at once.
 
 ## Issuance
 
+**Production, 2026-11-21:** not before the cutover copy's `copy.sh: audit OK`
+([`better-auth-cutover.md`](better-auth-cutover.md) step 6): `create-service` writes a row to
+`auth.users` and `auth.account`, and the copy then refuses (`auth.users is not empty`). Issue
+production's WhatsApp key **after the cutover window closes**, never inside it (owner's decision, 2026-11-21; WhatsApp's production status is open in #336); see
+[`release-record.md`](release-record.md).
+
 1. The migration is applied (see [Applying `0001`](#applying-0001-staging-before-the-merge)) and the
    auth service is deployed with it.
 2. `create-service whatsapp`, then `create-service whatsapp --confirm whatsapp`.
@@ -174,6 +180,10 @@ stands then (`0000`, `0001` and any later migration) is applied in order before 
 deploys, owned by [`better-auth-cutover.md`](better-auth-cutover.md). The auth database is empty
 when the journal is applied there, so the constraint cannot fail at apply; the copy then runs
 against the final schema in its single transaction, where a duplicate aborts cleanly.
+
+> **Production, 2026-11-21:** the journal (`0000`, `0001`) was applied to the empty production
+> auth database ahead of the window ([`release-record.md`](release-record.md)); the window runs
+> only the journal check and applies any newer file it reports missing.
 
 Verify (both must be `t`):
 
@@ -345,6 +355,12 @@ apps/api whose `AUTH_URL` points at staging auth (a dashboard mistake) verifies 
 with every check passing, and nothing refuses or alerts. Check `AUTH_URL` against `ENVIRONMENT`
 on each apps/api deploy; a boot assertion pairing the two is a possible follow-up.
 
+**Production, 2026-11-21:** not before the cutover copy's `copy.sh: audit OK`
+([`better-auth-cutover.md`](better-auth-cutover.md) step 6): `create-service` writes a row to
+`auth.users` and `auth.account`, and the copy then refuses (`auth.users is not empty`). Issue
+production's `ansari-mcp` service and key (`mcp.ansari.chat`, `ansari-mcp-production`) **after the cutover window closes**, never inside it (owner's decision, 2026-11-21); see
+[`release-record.md`](release-record.md).
+
 1. apps/auth is deployed with the verify route (it ships with this change; there is no new
    migration: `auth.apikey` is spec 329's `0001`).
 2. Once: `create-service ansari-mcp`, then `create-service ansari-mcp --confirm ansari-mcp`.
@@ -396,8 +412,20 @@ or `log-only`. Any other value stops apps/api at boot.
    bearer), `refused` (`valid: false`) or `unverified` (apps/auth gave no usable answer; also the
    Sentry warning `mcp-complete key unverified (log-only)`). Expect no `missing` or `refused`
    from the MCP servers.
-4. Remove the variable, which enforces.
-5. Open the follow-up issue due one week after the enforce date: remove log-only mode,
+4. **Before enforcing, check the known callers that hold no key.** Enforcement closes the
+   no-key path (spec 314, option (a)); any caller that still relies on it fails with 401 from
+   that moment. Known today:
+   - the public **Ansari agent skill** (`ansari-project/ansari-skill`, `ansari/SKILL.md`): a
+     `curl` to this route with `X-Ansari-Client: ansari-skill` and no key. It cannot hold a
+     secret. Its fate is decided in #409 (route it through the MCP server, or a capped no-key
+     tier, spec 314 option (b)); the skill repo must change **in step** with apps/api;
+   - the **browsing-AI `?src=` prompt** (#87): header-less GETs, the same class.
+
+   Read the log-only week's `missing` verdicts by `X-Ansari-Client` (and the 30-day
+   `threads.client` query in spec 314) for any other caller, and do not enforce while one of
+   them carries traffic you intend to keep.
+5. Remove the variable, which enforces.
+6. Open the follow-up issue due one week after the enforce date: remove log-only mode,
    `MCP_COMPLETE_KEY_MODE` and its `turbo.json` entry, so a transition switch does not outlive
    the transition as a way to turn auth off.
 

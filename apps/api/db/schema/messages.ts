@@ -78,9 +78,11 @@ export type ModelProvider = 'gemini' | 'inkling';
  * `tool_call_orphans`. With PRIMARY_BACKEND switching (#95), per-env Inkling
  * checkpoints (#90), and the #79 rescue, which model served a given answer is
  * runtime state — this makes it queryable per row instead of inferable from
- * usage fingerprints or Sentry events. On the gemini path `modelId` is the
- * request's configured primary model; the intra-Vertex 429 fast-failover (#45)
- * stays within provider 'gemini' and is not distinguished here.
+ * usage fingerprints or Sentry events. On the gemini path `modelId` is the model
+ * that answered the turn's final call (issue #402): GEMINI_FALLBACK_MODEL when
+ * gemini-client failed over to it (#45), otherwise the configured or pinned model.
+ * A call that failed without a response names the model it asked for. Rows written
+ * before #402 name the configured primary even where the fallback answered.
  */
 export interface ModelProvenance {
   provider: ModelProvider;

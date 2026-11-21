@@ -216,6 +216,12 @@ export interface GeminiResponse {
   allParts: Part[];
   /** Whether this response contains thinking parts */
   hasThinking: boolean;
+  /**
+   * The model that wrote this response (issue #402). After a failover it is
+   * config.gemini.fallbackModel, not the model the call asked for, so provenance
+   * must be read from here and never from the configuration.
+   */
+  modelId: string;
   /** Token usage metadata */
   usage?: GeminiUsageMetadata;
   /** Duration in milliseconds */
@@ -256,6 +262,14 @@ export interface GeminiCallOptions {
    * Vertex pool); kept for future per-call routing. Omit for the configured default.
    */
   model?: string;
+  /**
+   * Pin the call to its primary model (issue #393): never fail over to
+   * config.gemini.fallbackModel. A 429 then takes the bounded same-model retries, and a
+   * call that still fails surfaces its error instead of an answer written by another
+   * model. For evaluation runs, where an answer must be attributable to the model under
+   * test. Omit for the configured failover.
+   */
+  noModelFallback?: boolean;
   /** Streaming callback for text chunks */
   onTextChunk?: (text: string) => void | Promise<void>;
   /** Callback for thinking parts (for logging, not display) */
@@ -373,6 +387,14 @@ function backoffDelayMs(attemptNum: number): number {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * No silent failover (issue #402): the "falling back" lines say a fallback was TRIED;
+ * this one says it ANSWERED. Model ids and the call label only.
+ */
+function logFallbackAnswered(label: string, primary: string, fallback: string): void {
+  console.warn(`[gemini] ${label}: answered by fallback ${fallback} (primary ${primary} did not answer)`);
+}
+
+/**
  * Run a Gemini establishment call with retry + model fallback.
  *
  * Tries the primary model (config.gemini.model) up to MAX_RETRIES+1 times with
@@ -388,10 +410,12 @@ async function withRetry<T>(
   operation: (model: string) => Promise<T>,
   label: string,
   // Per-call primary override (issue #70); see GeminiCallOptions.model.
-  primaryOverride?: string
+  primaryOverride?: string,
+  // Pinned call (issue #393); see GeminiCallOptions.noModelFallback.
+  noModelFallback = false
 ): Promise<T> {
   const primary = primaryOverride ?? config.gemini.model;
-  const fallback = config.gemini.fallbackModel;
+  const fallback = noModelFallback ? undefined : config.gemini.fallbackModel;
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -421,7 +445,9 @@ async function withRetry<T>(
       `[gemini] ${label}: ${primary} exhausted after ${MAX_RETRIES + 1} attempts, falling back to ${fallback}`
     );
     try {
-      return await operation(fallback);
+      const result = await operation(fallback);
+      logFallbackAnswered(label, primary, fallback);
+      return result;
     } catch (error) {
       lastError = error;
     }
@@ -464,10 +490,12 @@ async function streamWithRetry(
   openStream: (model: string) => ReturnType<Chat['sendMessageStream']>,
   emit: (event: GeminiStreamEvent) => boolean | Promise<boolean>,
   // Per-call primary override (issue #70); see GeminiCallOptions.model.
-  primaryOverride?: string
+  primaryOverride?: string,
+  // Pinned call (issue #393); see GeminiCallOptions.noModelFallback.
+  noModelFallback = false
 ): Promise<GeminiResponse> {
   const primary = primaryOverride ?? config.gemini.model;
-  const fallback = config.gemini.fallbackModel;
+  const fallback = noModelFallback ? undefined : config.gemini.fallbackModel;
   // The fallback only buys us anything when it's a DIFFERENT model — it draws on a
   // separate Vertex capacity pool. GEMINI_FALLBACK_MODEL defaults to the same value
   // as GEMINI_MODEL (lib/config.ts), so this is commonly false; the 429 fast-failover
@@ -652,6 +680,7 @@ async function streamWithRetry(
       rawPayload,
       allParts,
       hasThinking,
+      modelId: model,
       usage: finalUsage,
       durationMs: Date.now() - startTime,
       finishReason,
@@ -701,7 +730,9 @@ async function streamWithRetry(
     console.warn(`[gemini] ${label}: falling back to ${fallback}`);
     for (let attemptNum = 0; attemptNum <= FALLBACK_MAX_RETRIES; attemptNum++) {
       try {
-        return await attempt(fallback);
+        const response = await attempt(fallback);
+        logFallbackAnswered(label, primary, fallback);
+        return response;
       } catch (error) {
         lastError = error;
         if (emitted || !isRetryableError(error)) throw error;
@@ -799,7 +830,7 @@ function streamRawPayload(finalContent: Content | undefined, allParts: Part[]): 
 /**
  * Parse a non-streaming response into GeminiResponse format
  */
-function parseResponse(response: GenerateContentResponse): GeminiResponse {
+function parseResponse(response: GenerateContentResponse, modelId: string): GeminiResponse {
   const candidate = response.candidates?.[0];
 
   if (!candidate || !candidate.content) {
@@ -809,6 +840,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
       rawPayload: { role: 'model', parts: [] },
       allParts: [],
       hasThinking: false,
+      modelId,
     };
   }
 
@@ -820,6 +852,7 @@ function parseResponse(response: GenerateContentResponse): GeminiResponse {
     rawPayload: candidate.content, // Preserve exact format with thought signatures
     allParts: parts,
     hasThinking: hasThinkingParts(parts),
+    modelId,
   };
 }
 
@@ -850,15 +883,15 @@ export async function callGemini(
 ): Promise<GeminiResponse> {
   const ai = getClient();
 
-  const response = await withRetry((model) => {
+  const { response, model } = await withRetry(async (model) => {
     const chat: Chat = ai.chats.create({
       model,
       config: buildConfig(options),
       history: options.history ?? [],
     });
-    return chat.sendMessage({ message });
-  }, 'callGemini', options.model);
-  return parseResponse(response);
+    return { response: await chat.sendMessage({ message }), model };
+  }, 'callGemini', options.model, options.noModelFallback);
+  return parseResponse(response, model);
 }
 
 /**
@@ -903,7 +936,8 @@ export async function callGeminiStreaming(
         return chat.sendMessageStream({ message });
       },
       emit,
-      options.model
+      options.model,
+      options.noModelFallback
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini streaming call');
@@ -980,7 +1014,8 @@ export async function* streamGemini(
           notify();
           return true;
         },
-        options.model
+        options.model,
+        options.noModelFallback
       );
 
       queue.push({ type: 'done', response });
@@ -1142,7 +1177,8 @@ export async function continueWithToolResult(
         return chat.sendMessageStream({ message: TOOL_CONTINUATION_DIRECTIVE });
       },
       emit,
-      options.model
+      options.model,
+      options.noModelFallback
     );
 
   return await withTimeout(streamingOperation(), GEMINI_TIMEOUT_MS, 'Gemini tool result call');

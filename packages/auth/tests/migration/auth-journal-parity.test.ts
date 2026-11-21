@@ -17,11 +17,12 @@ import * as schema from '../../src/schema';
 import { DRIZZLE_DIR, drizzleFor, journal, migrate, setAuthEnv } from '../helpers/auth-db';
 
 // Last auth-journal migration applied to the production auth database. Owner:
-// the main architect. It stays `null` until the cutover window applies the
-// journal: nothing is deployed yet, so the deployed-state test below is
-// skipped, loudly. Setting it is a DECLARATION that the migration is applied
-// in production; it is not evidence that anyone applied it.
-const AUTH_DEPLOYED_THROUGH: string | null = null;
+// the main architect. Set on 2026-11-21: the owner applied the whole journal
+// (0000_auth_schema, 0001_api_key) to the empty production auth database ahead
+// of the cutover window, recorded in docs/cutover/release-record.md. This is
+// still a DECLARATION that the migration is applied in production; it is not
+// evidence that anyone applied it (nothing here reads the production database).
+const AUTH_DEPLOYED_THROUGH: string | null = '0001_api_key';
 
 // The cutover's record of the apply. Once a release note in RELEASE.md or a
 // docs/ page carries this line, a `null` AUTH_DEPLOYED_THROUGH fails.
@@ -183,7 +184,7 @@ describe('better-auth on the deployed auth journal', () => {
   });
 
   it.skipIf(deployed === null)(
-    'SKIPPED until the cutover: signs up and in against the migrations deployed in production',
+    'signs up and in against the migrations deployed in production',
     async () => {
       const client = await migrate(deployed!);
       try {
