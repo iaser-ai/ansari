@@ -131,11 +131,16 @@ migration runbook were both proven in real releases on 2026-08-02.
 > keeps the previous deployment.
 >
 > **frontend (web) build variables** — `Dockerfile.web` bakes `EXPO_PUBLIC_API_URL`
-> and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so both are set on the
-> Railway service and a change needs a redeploy. They name the SAME environment:
+> and `EXPO_PUBLIC_AUTH_URL` into the bundle at build time, so a change needs a
+> redeploy. **Both are mandatory on every web service, staging included**: the
+> image build fails at its guard (`apps/frontend/scripts/check-web-env.mjs`, #317)
+> when either is unset or empty, naming the variable. They name the SAME environment:
 > production `https://api.askansari.ai` + `https://auth.askansari.ai`, staging
-> `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai` (the
-> defaults when unset). The web app signs in at `EXPO_PUBLIC_AUTH_URL` (spec 300).
+> `https://api-staging.askansari.ai` + `https://auth-staging.askansari.ai`; a pair
+> with one production host and not the other fails the build, showing both values.
+> The app's staging defaults (`DEFAULT_API_URL`, `DEFAULT_AUTH_URL`) serve local
+> `expo start`/`expo export` only, never an image. The web app signs in at
+> `EXPO_PUBLIC_AUTH_URL` (spec 300).
 >
 > **`apps/*/railway.toml` are not read by Railway here.** This project configures
 > deployment through the dashboard with a Dockerfile path (confirmed by the operator,

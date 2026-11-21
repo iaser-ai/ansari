@@ -10,6 +10,22 @@ RUN corepack enable
 
 WORKDIR /repo
 
+# EXPO_PUBLIC_* values are baked into the JS bundle at export time.
+# Railway service variables arrive here as build args. EXPO_PUBLIC_API_URL and
+# EXPO_PUBLIC_AUTH_URL are the app's ENTIRE env surface (lib/api/config.ts).
+# BOTH ARE REQUIRED, in every environment (#317): the staging defaults in
+# lib/api/config.ts are for local `expo start`/`expo export` only, and an image
+# must never fall back to them. The guard below fails the build, naming the
+# variable, when either is unset or empty, and refuses a pair that puts
+# production api with non-production auth (or the reverse). It runs first, on
+# plain Node, so a misconfigured service fails in seconds, before the install.
+ARG EXPO_PUBLIC_API_URL
+ARG EXPO_PUBLIC_AUTH_URL
+# A declared ARG is visible as an env var to RUN steps in this stage, so the
+# args above reach the guard and the export below without re-exporting via ENV.
+COPY apps/frontend/scripts/check-web-env.mjs /tmp/check-web-env.mjs
+RUN node /tmp/check-web-env.mjs
+
 # Workspace manifests first so the dependency layer caches independently
 # of source changes.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -22,16 +38,6 @@ RUN pnpm install --frozen-lockfile --filter ansari-frontend
 
 COPY apps/frontend apps/frontend
 
-# EXPO_PUBLIC_* values are baked into the JS bundle at export time.
-# Railway service variables arrive here as build args.
-# EXPO_PUBLIC_API_URL and EXPO_PUBLIC_AUTH_URL are the app's ENTIRE env surface
-# (lib/api/config.ts); unset, the bundle uses its baked staging defaults,
-# https://api-staging.askansari.ai and https://auth-staging.askansari.ai. Set
-# both on the Railway service, for the same environment.
-ARG EXPO_PUBLIC_API_URL
-ARG EXPO_PUBLIC_AUTH_URL
-# A declared ARG is visible as an env var to RUN steps in this stage, so the
-# args above reach the export below without re-exporting via ENV.
 ENV EXPO_NO_TELEMETRY=1
 
 RUN pnpm --filter ansari-frontend run build:web

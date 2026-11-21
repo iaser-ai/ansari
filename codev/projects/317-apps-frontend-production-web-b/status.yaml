@@ -1,0 +1,17 @@
+id: '317'
+title: apps-frontend-production-web-b
+protocol: air
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-11-21T06:01:58.236Z'
+    approved_at: '2026-11-21T06:16:08.492Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-21T05:44:39.023Z'
+updated_at: '2026-11-21T06:16:17.004Z'
+pr_ready_for_human: false
