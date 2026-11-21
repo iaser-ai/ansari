@@ -2,7 +2,10 @@
 
 The production window's release record ([`better-auth-cutover.md`](better-auth-cutover.md),
 "Release record"). Entries are added as the work is done, newest last. Counts and checksums only:
-no email, hash, id or URL is ever written here.
+no email, password hash, user id or database URL is ever written here. Deployment IDs, snapshot
+ids and service key ids **are** recorded: they are not secrets, and runbook step 1 and
+[`service-keys-runbook.md`](service-keys-runbook.md) ask for them (security architect,
+2026-11-21). A service key itself is never written here.
 
 ## 2026-11-21: auth journal applied ahead of the window (schema only)
 
