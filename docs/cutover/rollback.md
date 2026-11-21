@@ -44,10 +44,13 @@ auto-deploy OFF on all three and return `backend` to the deployment the window's
 recorded (step 3). **In production only `backend` returns:** legacy web stays on the maintenance
 build until step 4 builds it again with the flag off, and its recorded deployment ID is kept as the
 record of the pre-window build, and as step 4's last option (c). On staging, `backend` and the web
-service return to their recorded deployments together (step 3). **Production `auth` is not a rollback target**: window step
-10 never deployed it (it deploys from `develop`; owner's statement, 2026-11-21), so it stays on
-the deployment it had all along, with auto-deploy off for the rollback's duration. Its recorded
-ID is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
+service return to their recorded deployments together (step 3). **Production `auth` is not a rollback target**: it
+stays where it is, with auto-deploy off for the rollback's duration (owner's decision,
+2026-11-21). Production `auth` deploys from `main` (measured in the 2026-11-21 window, then
+confirmed by the owner; this paragraph earlier said `develop`, on the owner's statement before the
+window), so window step 10's push deployed it from the promoted commit, the code window step 9
+checked. From window step 11 on it is in state (b) of step 3, item 4. Its recorded pre-window ID
+is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
 code. Auto-deploy comes back only when the branch carries a revert PR or the forward fix (step
 7): the revert PR is the follow-up, never the mechanism.
 
@@ -118,17 +121,20 @@ push in between:
    - **Staging:** the staging web service's recorded ID → **Redeploy**, if it is not already the
      live deployment.
 4. `auth`, by environment:
-   - **Production: `auth` is untouched.** Window step 10 starts no `auth` deployment (it deploys from
-     `develop`; owner's statement, 2026-11-21), so `auth` stays on the deployment it had all
-     along: the one window step 9 checked (window step 1's, unless window step 9 had it redeployed at the
-     promoted commit), with its domain attached (owner's decision). Do **not** remove or redeploy
-     it. The legacy `apps/api` that this step restores never calls `apps/auth`.
-     Its state is one of window step 16's three, and the rollback leaves it there in each:
-     - **(a) Not switched** (a rollback before window step 16, or before its switch): the
-       `develop` deployment window step 9 checked; source `develop`.
-     - **(b) Switched, new deployment Active:** the deployment window step 16 recorded; source
+   - **Production: `auth` stays where it is.** It deploys from `main` (measured 2026-11-21;
+     before the window this item said `develop` and "untouched", on the owner's statement), so
+     window step 10's push deployed it from the promoted commit, the code window step 9 checked.
+     It keeps whatever deployment it is on, with its domain attached (owner's decision). Do
+     **not** remove or redeploy it. The legacy `apps/api` that this step restores never calls
+     `apps/auth`. Its state is one of window step 16's three, and the rollback leaves it there in
+     each:
+     - **(a) Before step 10's deployment** (a rollback before window step 10's `auth` deployment
+       is Active): the deployment window step 9 checked (window step 1's, unless window step 9
+       had it redeployed at the promoted commit).
+     - **(b) Step 10's deployment Active** (from window step 11 on; the 2026-11-21 window): the
+       deployment window step 10's push started, recorded at window steps 11 and 16; source
        `main`.
-     - **(c) Switched, build failed:** still the window step 9 deployment; source now `main`.
+     - **(c) Step 10's build failed:** still the window step 9 deployment; source `main`.
 
      In each, auto-deploy is off (item 1), so no push to `develop` or `main` moves it.
      `origin/main` before the promotion has no `apps/auth/Dockerfile`: never turn `auth`'s
@@ -146,8 +152,8 @@ for it or step 10's; `auth`:
 auto-deploy shows off like the others, and by the state the release record names:
 - **(a) or (c):** its deployment ID is window step 9's, and in the window checkout
   `git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches` prints `auth-tree-matches`;
-- **(b):** its deployment ID is the one window step 16 recorded, and its deployed commit equals the
-  recorded promoted commit.
+- **(b):** its deployment ID is the one window step 16 recorded (step 10's push's), and its
+  deployed commit equals the recorded promoted commit.
 
 **Check (staging):** auto-deploy shows off on all three; `backend` and the web service are
 healthy, each on the commit the release record holds for it; `auth` has no active deployment.
@@ -184,7 +190,7 @@ for it.
 
 ## 5. Detach the auth domain (staging)
 
-**Production: skip this step.** `auth` is untouched and keeps its domain attached
+**Production: skip this step.** `auth` stays where it is and keeps its domain attached
 (owner's decision, 2026-11-21; step 3, item 4). **Check (production):** the domain is
 still listed on the `auth` service, and step 3's production check passed.
 
@@ -223,12 +229,11 @@ rollback was step 3.
 **Production `auth` after a rollback: its auto-deploy stays off until the security architect says
 otherwise.** A reverted `main` has no `apps/auth/Dockerfile`. Any other new code would be code the
 window never ran, deployed onto an auth database that holds every migrated hash. Its disposition:
-- **State (a), not switched:** `auth` is on its `develop` deployment (window step 9's); source
-  `develop`.
-- **State (b), switched and Active:** `auth` is on the deployment window step 16 recorded; source
+- **State (a), before step 10's deployment:** `auth` is on window step 9's deployment.
+- **State (b), step 10's deployment Active:** `auth` is on the deployment window step 10's push
+  started (recorded at window steps 11 and 16); source `main`.
+- **State (c), step 10's build failed:** `auth` is still on window step 9's deployment; source
   `main`.
-- **State (c), switched but the build failed:** `auth` is still on window step 9's deployment;
-  source `main`.
 
 In all three its auto-deploy stays off until the security architect says otherwise, so neither
 `develop` nor `main` needs to stay frozen for it.
@@ -241,17 +246,19 @@ In all three its auto-deploy stays off until the security architect says otherwi
 **Production overrides (the runbook's step 1 `auth` deploy-source line describes the first
 attempt).** After a rollback, production `auth` is in state (a), (b) or (c) with auto-deploy
 **off**. A second attempt keeps it that way:
-- **Source branch and auto-deploy before the second attempt:** as the rollback left them. Whether
-  the source is `develop` or `main`, auto-deploy stays **off** through the second window, so
-  nothing moves `auth` during it. The `develop` freeze is then not needed for `auth`.
+- **Source branch and auto-deploy before the second attempt:** as the rollback left them (source
+  `main`, measured 2026-11-21). Auto-deploy stays **off** through the second window, so nothing
+  moves `auth` during it, **step 10's push included**: unlike the first attempt, the push does not
+  deploy `auth`.
 - **Step 1** records that state (source, auto-deploy off, the deployment ID and its commit as
   `<auth running commit>`) in place of the first attempt's line.
 - **Step 9's tree check** runs as written against that `<auth running commit>`. If it does not
   print `auth-tree-matches`, the owner deploys `auth` at the promoted commit from the dashboard (a
   manual deploy works with auto-deploy off), records the new ID and commit, and the check is
   re-run.
-- **Step 16** then brings `auth` to state (b) as written, and the owner turns `auth`'s auto-deploy
-  back on **only on the security architect's word**.
+- **Steps 11 and 16:** `auth` stays on the deployment step 9 checked, which serves the promoted
+  commit's code. At step 16 the owner records that deployment as the state, and turns `auth`'s
+  auto-deploy back on **only on the security architect's word**.
 - **Who restores anything:** the owner, on the security architect's word. Nothing is restored by
   default.
 
@@ -263,8 +270,8 @@ baseline), after its steps 1 to 4 (the preconditions, comms, maintenance and a n
 the snapshots). The app window migration (`0011`) is already applied and is not re-run; its check
 in step 7 still holds. **Step 10 of a second attempt** deploys the commit that carries the
 cutover: if the branch still carries it (no revert yet), redeploy that commit on `backend` (on
-staging also `auth` and the staging web service; production `auth` is not redeployed, window step 9
-checks it) from the dashboard, and turn auto-deploy back on for `backend` and the web service
+staging also `auth` and the staging web service; production `auth` is not redeployed: its
+auto-deploy is off, and window step 9 checks its code) from the dashboard, and turn auto-deploy back on for `backend` and the web service
 (staging: and `auth`; production `auth`'s stays off until the security architect says otherwise); if a revert
 landed, revert the revert through a PR and promote (or merge) as window step 10 says.
 

@@ -410,11 +410,21 @@ describe('the window runbook', () => {
     expect(guide).toMatch(/\$AUTH\/health\s+# STAGING: 404 or 502; never 200, never 000/);
   });
 
-  it('production auth deploys from develop: step 9 checks its build-path tree before the push, step 11 expects no new deployment, step 16 switches it to main (owner, 2026-11-21)', () => {
+  it('production auth deploys from main (measured in the 2026-11-21 window): step 9 checks its build-path tree before the push, step 10 deploys it, step 11 waits for it, step 16 confirms the source (#416 close-out)', () => {
     const tree = 'git diff --quiet <auth running commit> HEAD -- apps/auth packages package.json pnpm-lock.yaml pnpm-workspace.yaml && echo auth-tree-matches';
     const step1 = steps[0] as string;
-    expect(step1).toMatch(/\*\*Production `auth`\s+deploys from `develop`, with auto-deploy on\*\*/);
-    expect(step1).toMatch(/\*\*step 10's push to `main`\s+starts no `auth` deployment\*\*/);
+    expect(step1).toMatch(/\*\*Production `auth`\s+deploys from `main`, with auto-deploy on\*\*/);
+    expect(step1).toMatch(/\*\*step 10's push to `main` deploys production\s+`auth` too\*\*/);
+    // The history stays honest: the earlier statement is named as the owner's, before the window.
+    expect(step1).toMatch(/Before the window the owner's statement was that it deploys\s+from `develop`/);
+    // The old claims are gone as live statements, everywhere (the struck-through history excepted).
+    for (const rel of [RUNBOOK, ROLLBACK, GUIDE, 'docs/cutover/edge-check.md']) {
+      const text = read(rel);
+      expect(text, rel).not.toMatch(/\*\*step 10's push to `main`\s+starts no `auth` deployment\*\*/);
+      expect(text, rel).not.toMatch(/starts \*\*no\*\* `auth` deployment|Wait for `backend` only/);
+      expect(text, rel).not.toMatch(/\(it deploys from `develop`|`auth` deploys from `develop`(?!`)/);
+      expect(text, rel).not.toMatch(/`auth` is untouched/);
+    }
     const step9 = steps[stepOf(/Attach `auth\.askansari\.ai`/) - 1] as string;
     expect(step9).toContain(tree);
     expect(step9).toMatch(/stop\s+here, before step 10/);
@@ -424,20 +434,34 @@ describe('the window runbook', () => {
     for (const path of ['apps/auth', 'packages', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
       expect(toml, path).toContain(`"${path}`);
     }
+    const step10 = steps[stepOf(/Promote `develop` to `main`/) - 1] as string;
+    // B2: Railway waits for CI on main; B4: the admin push's bypass notice is not a rejection.
+    expect(step10).toMatch(/\*\*Production: nothing deploys until CI on `main` is green\.\*\*/);
+    expect(step10).toMatch(/that wait is not a failure/);
+    expect(step10).toContain('remote: Bypassed rule violations');
+    expect(step10).toMatch(/\*\*not a rejection\*\*/);
     const step11 = steps[stepOf(/The deploys: `auth` and `backend`/) - 1] as string;
-    expect(step11).toMatch(/\*\*Production:\*\* step 10's push to `main` starts \*\*no\*\* `auth` deployment/);
+    expect(step11).toMatch(/Wait for the deployments of step 10's commit on `backend` and on `auth`/);
+    expect(step11).toMatch(/step 10's push deploys \*\*`auth` too\*\*/);
+    // B3: backend did not auto-deploy on 2026-11-21; the manual deploy, its commit check, the cause open.
+    expect(step11).toMatch(/\*\*Production: if no `backend` deployment appears\.\*\*/);
+    expect(step11).toMatch(/deploy the latest commit of `main` on `backend` by hand, and confirm the deployment's commit is\s+step 10's/);
+    expect(step11).toMatch(/cause is \*\*not established\*\*/);
     const step16 = doc.slice(doc.indexOf('## 16.'), doc.indexOf('## Orphan app rows'));
-    expect(step16).toMatch(/\*\*First, production: switch `auth`'s source branch to `main`\*\*/);
-    expect(step16.indexOf("switch `auth`'s source branch")).toBeLessThan(step16.indexOf('un-silence the alerts'));
+    expect(step16).toMatch(/\*\*First, production: confirm `auth`'s source branch is `main`, and record its deployment\*\*/);
+    expect(step16.indexOf("confirm `auth`'s source branch")).toBeLessThan(step16.indexOf('un-silence the alerts'));
+    expect(step16).toMatch(/No new deployment is triggered here/);
+    expect(step16).not.toMatch(/Set the `auth` service's source branch to `main`/);
     // Round 4: main must be the promoted commit; the check is against the recorded commit; three states.
     const promoted = 'git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit';
     expect(step16).toContain(promoted);
     expect(read(GUIDE)).toContain(promoted);
     expect(step16).toMatch(/deployed commit equals `<recorded commit>`/);
     expect(step16).not.toMatch(/equals `git rev-parse origin\/main`/);
-    for (const state of ['**(a) Not switched:**', '**(b) Switched, new deployment Active:**', '**(c) Switched, build failed:**']) {
+    for (const state of ["**(a) Before step 10's deployment:**", "**(b) Step 10's deployment Active:**", "**(c) Step 10's build failed:**"]) {
       expect(step16, state).toContain(state);
     }
+    expect(step16).toMatch(/This is the state from step 11 on/);
     // A second attempt overrides step 1's auth line; step 1 points there.
     expect(step1).toMatch(/This line describes the \*\*first attempt\*\*/);
     const second = read(ROLLBACK).slice(read(ROLLBACK).indexOf('## A second attempt'), read(ROLLBACK).indexOf('## If no second attempt'));
@@ -569,16 +593,63 @@ describe('the window runbook', () => {
   });
 
   it.each([/Edge probe on the `apps\/api` production domains/, /The deploys: `auth` and `backend`/])(
-    '%s checks both edge properties on both paths: all three client-IP headers forged, and two networks differ',
+    '%s checks both edge properties on both paths: two headers forged via Cloudflare, all three direct, and two networks differ',
     (title) => {
       const step = steps[stepOf(title) - 1] as string;
-      expect(step).toMatch(
-        /-H 'X-Real-IP: 192\.0\.2\.66' -H 'X-Forwarded-For: 192\.0\.2\.66' -H 'CF-Connecting-IP: 192\.0\.2\.66'/
-      );
+      const lines = step.split('\n').filter((l) => l.startsWith('curl -4 -s -H'));
+      // Direct (--resolve): all three forged.
+      const direct = lines.filter((l) => l.includes('--resolve'));
+      expect(direct.length).toBeGreaterThan(0);
+      for (const l of direct) {
+        expect(l).toMatch(/-H 'X-Real-IP: 192\.0\.2\.66' -H 'X-Forwarded-For: 192\.0\.2\.66' -H 'CF-Connecting-IP: 192\.0\.2\.66'/);
+      }
+      // Via Cloudflare: never CF-Connecting-IP (Cloudflare answers 403, error code: 1000; measured 2026-11-21).
+      const viaCf = lines.filter((l) => !l.includes('--resolve'));
+      expect(viaCf.length).toBeGreaterThan(0);
+      for (const l of viaCf) {
+        expect(l).toMatch(/-H 'X-Real-IP: 192\.0\.2\.66' -H 'X-Forwarded-For: 192\.0\.2\.66' https:/);
+        expect(l).not.toMatch(/CF-Connecting-IP/);
+      }
       expect(step).toMatch(/second network/);
       expect(step).toMatch(/--resolve/);
     }
   );
+
+  it('edge-check.md: the via-Cloudflare method forges no CF-Connecting-IP; the window rows are filled (#416 close-out)', () => {
+    const edge = read('docs/cutover/edge-check.md');
+    expect(edge).toContain("FORGED_CF=(-H 'X-Real-IP: 192.0.2.66' -H 'X-Forwarded-For: 192.0.2.66')");
+    expect(edge).toContain('curl -4 -s "${FORGED_CF[@]}" "$URL"');
+    expect(edge).toContain('curl -6 -s "${FORGED_CF[@]}" "$URL"');
+    expect(edge).toMatch(/`403` with the body `error code: 1000`/);
+    for (const row of [
+      '| `api.askansari.ai` via Cloudflare | window step 12 | **PASS** |',
+      '| `api.askansari.ai` direct to the Railway edge | window step 12 | **PASS** |',
+      '| `api-35.ansari.chat` direct | window step 12 | **PASS** |',
+      '| `auth.askansari.ai` via Cloudflare | window step 11 | **PASS** |',
+      '| `auth.askansari.ai` direct to the Railway edge | window step 11 | not measured:',
+    ]) {
+      expect(edge, row).toContain(row);
+    }
+    expect(edge).toMatch(/\*\*Production verdict \(window step 12, 2026-11-21\):\*\*/);
+    // Real addresses never appear: every window row uses the RFC 5737 scheme.
+    const realIp = /(?<!\w)x_real_ip: (?!203\.0\.113\.|192\.0\.2\.)/;
+    expect(edge).not.toMatch(realIp);
+    // The scan can fail: a real-looking address is caught, a field ending in x_real_ip is not.
+    expect('`{x_real_ip: 8.8.8.8, ...}`').toMatch(realIp);
+    expect('x_forwarded_for_first_is_x_real_ip: false').not.toMatch(realIp);
+  });
+
+  it('records that legacy clients sign up under maintenance, and recommends the dry run at step 6 (measured 2026-11-21)', () => {
+    const step3 = steps[stepOf(/Maintenance mode on, web off/) - 1] as string;
+    expect(step3).toMatch(/\*\*Measured on 2026-11-21: legacy clients keep registering under maintenance\.\*\*/);
+    expect(step3).toMatch(/87,825 to 87,829/);
+    expect(step3).toMatch(/\*\*any sign-up between the copy and the new\s+`apps\/api` going live \(step 11\) is an orphan app row\*\*/);
+    const step6 = steps[stepOf(/The copy and the audits/) - 1] as string;
+    expect(step6).toMatch(/\*\*Recommended: the dry run first, in the same session\.\*\*/);
+    expect(step6).toContain('apps/auth/scripts/cutover/copy.sh --dry-run');
+    // The procedure is otherwise unchanged: the copy line is still the bare script.
+    expect(step6).toMatch(/^apps\/auth\/scripts\/cutover\/copy\.sh$/m);
+  });
 
   it('keeps the legacy variables on backend for the rollback (R3)', () => {
     const bullet = (steps[0] as string).split('\n- ').find((b) => b.includes('keeps its legacy variables'));
@@ -678,15 +749,16 @@ describe('the rollback runbook', () => {
 
   it('production rollback: auth is untouched, domain attached, auto-deploy off; staging as before (owner, 2026-11-21)', () => {
     const step3 = doc.slice(doc.indexOf('## 3. Auto-deploy off'), doc.indexOf('## 4.'));
-    expect(step3).toMatch(/\*\*Production: `auth` is untouched\.\*\*/);
+    expect(step3).toMatch(/\*\*Production: `auth` stays where it is\.\*\*/);
     expect(step3).toMatch(/\*\*Check \(production\):\*\*[\s\S]*`200`[\s\S]*auto-deploy\s+shows off/);
     // Window step 16's three states, each with its own check (#416 round 4).
     const check = step3.slice(step3.indexOf('**Check (production):**'), step3.indexOf('**Check (staging):**'));
     expect(check).toMatch(/\*\*\(a\) or \(c\):\*\*[\s\S]*auth-tree-matches/);
     expect(check).toMatch(/\*\*\(b\):\*\*[\s\S]*window step 16 recorded/);
-    for (const state of ['(a) Not switched', '(b) Switched, new deployment Active', '(c) Switched, build failed']) {
+    for (const state of ["(a) Before step 10's deployment", "(b) Step 10's deployment Active", "(c) Step 10's build failed"]) {
       expect(step3, state).toContain(state);
     }
+    expect(step3).toMatch(/from window step 11 on; the 2026-11-21 window/);
     expect(step3).toMatch(/\*\*Check \(staging\):\*\*[\s\S]*`auth` has no active deployment/);
     expect(step3.indexOf('**Check (production):**')).toBeLessThan(step3.indexOf('**Check (staging):**'));
     const step5 = doc.slice(doc.indexOf('## 5. Detach'), doc.indexOf('## 6.'));
@@ -966,5 +1038,44 @@ describe('the service-keys runbook (spec 329)', () => {
     for (const legacy of Object.values(serviceUsers.LEGACY_SCANNING_PATTERNS).flat()) expect(now).toContain(`\`${legacy.source}\``);
     expect(scanning).toContain('Settings → Code security → Secret scanning → Custom patterns');
     expect(scanning).toMatch(/\*\*revoke the key at once\*\*/);
+  });
+});
+
+describe('the release record: the production window, as run (2026-11-21, #416 close-out)', () => {
+  const record = read(RECORD);
+  const at = record.indexOf('## 2026-11-21: the production window, as run');
+  const section = record.slice(at);
+
+  it('is the last entry, with the promoted commit and the counts', () => {
+    expect(at).toBeGreaterThan(0);
+    expect(section.slice(3)).not.toMatch(/^## /m);
+    expect(section).toContain('`c314fa5919e797d307a8daf132217c0b10765863`');
+    expect(section).toMatch(/1,484/);
+    expect(section).toMatch(/\*\*87,829 users migrated\*\*/);
+    expect(section).toMatch(/No journal file applied in the window/);
+  });
+
+  it('marks what only the owner can fill, and invents nothing in its place', () => {
+    const owed = section.match(/\*\*owner to fill\*\*/g) ?? [];
+    console.info(`[cutover-docs] release record: ${owed.length} "owner to fill" markers`);
+    expect(owed.length).toBeGreaterThanOrEqual(15);
+    for (const row of [
+      '`cutover_at`: **owner to fill**',
+      '**Rollback deadline** (`cutover_at` + 24 hours): **owner to fill**',
+      'Key ids and names:\n  **owner to fill**',
+    ]) {
+      expect(section, row).toContain(row);
+    }
+  });
+
+  it('holds no email address and no service key', () => {
+    const email = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+    const key = /ansari_[a-z]+_(?:production|staging|development)_[A-Za-z0-9]/;
+    expect(record).not.toMatch(email);
+    expect(record).not.toMatch(key);
+    // The scans can fail.
+    expect('someone@example.com').toMatch(email);
+    expect('ansari_wa_production_AbC123').toMatch(key);
+    expect('`ansari_wa_production_`').not.toMatch(key);
   });
 });

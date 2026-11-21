@@ -108,16 +108,17 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` to its
   recorded deployment. Legacy web stays on the maintenance build until rollback step 4 builds it
   again with the flag off; its recorded ID is kept as the record of the pre-window build, and as
-  rollback step 4's last option (c). On staging, `backend` and the web service return to these. `auth`'s is recorded for the record: nothing in the window deploys
-  production `auth` (it deploys from `develop`), so it stays on this same deployment, or on the one
-  step 7 had the owner redeploy (its ID then recorded), and a rollback leaves it there (owner,
+  rollback step 4's last option (c). On staging, `backend` and the web service return to these. `auth`'s is recorded for the record: production `auth` serves on
+  this same deployment (or on the one step 7 had the owner redeploy, its ID then recorded) until
+  step 8's promotion deploys it from `main`, and a rollback leaves it where it is (owner,
   2026-11-21). On staging, all three are rollback targets.
 - In the release record, from the dashboard, for `backend`, `auth` and the web service: the branch
   each deploys from, its auto-deploy setting, its Dockerfile path, and the commit it runs now.
-  Production `auth` deploys from `develop` with auto-deploy on (owner's statement, 2026-11-21),
-  so the promotion in step 8 starts no `auth` deployment; step 7 checks its code, and step 10
-  switches it to `main`. `develop` is frozen for the window: a push to it would redeploy
-  production `auth`.
+  Production `auth` deploys from `main` with auto-deploy on (measured in the 2026-11-21 window and
+  confirmed by the owner; before the window this guide said `develop`, on the owner's statement),
+  so the promotion in step 8 deploys `auth` too, from the promoted commit; step 7 checks
+  beforehand that `auth`'s serving code is that commit's, and step 10 confirms the source branch.
+  `develop` is frozen for the window, so step 8 promotes exactly what the scripts ran from.
 - The admin list is approved. On staging, the cutover PR is approved and current with `develop`.
   In production, the rehearsal precondition is **waived for this window** (owner, 2026-11-21;
   runbook step 1). The owner states the staging rehearsal was run end to end, and waives the
@@ -336,8 +337,17 @@ git fetch origin && git push origin origin/develop:main          # production
 git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   # origin/develop on staging
 ```
 
-Auto-deploy builds `backend`. Production `auth` deploys from `develop`, so it keeps the deployment
-step 7 checked (staging: the merge deploys `auth` too). The web service builds only if its watch
+**Production, the push's output:** `remote: Bypassed rule violations … - Changes must be made
+through a pull request.` is GitHub's notice that an admin bypassed `main`'s rule, **not a
+rejection**. The proof is `git rev-parse origin/main` equal to `HEAD`.
+
+Auto-deploy builds `backend` and `auth` (production `auth` deploys from `main`, measured
+2026-11-21; the code step 7 checked). **Production: nothing deploys until CI on `main` is green,
+about five minutes; that is not a failure.** Then wait for `auth` and `backend`, and record
+`auth`'s new deployment ID. **If no `backend` deployment appears** once CI is green and the other
+services have started (2026-11-21: `auth`, `mcp` and `whatsapp` deployed, `backend` did not; the
+cause is not established), deploy the latest commit of `main` on `backend` by hand and confirm its
+commit is the promoted one. The web service builds only if its watch
 paths matched the push (staging's always does); in production such a rebuild still has
 `MAINTENANCE_MODE=true` set, and `web_flag_on` must still print `web-flag-ON`. Wait until each is
 healthy.
@@ -350,7 +360,10 @@ curl -fsS $AUTH/api/auth/jwks | jq '.keys | length'                             
 curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                           # 401
 ```
 
-- Run the edge probes in [`edge-check.md`](edge-check.md).
+- `backend`'s and `auth`'s deployed commits are the promoted one (dashboard).
+- Run the edge probes in [`edge-check.md`](edge-check.md). Via Cloudflare, forge only `X-Real-IP`
+  and `X-Forwarded-For` (Cloudflare refuses a client-supplied `CF-Connecting-IP` with `403`,
+  `error code: 1000`); direct, forge all three.
 - Runbook step 12a: **production: skipped** (owner, 2026-11-21): with the flag on, the legacy web
   service's Railway domain shows the maintenance screen too. Staging: as the runbook says.
 - Web back (runbook step 13). **Production:** set `MAINTENANCE_MODE=false` on the legacy web
@@ -378,20 +391,20 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 ```
 
 - Relaunch a released mobile build and sign in.
-- **Production: switch `auth` to `main`**, before the freeze lifts (runbook step 16, which defines
-  the three states a rollback must handle). Until then, every merge to `develop` that touches
-  `auth`'s build paths deploys to production `auth`. First, `main` must not have moved:
+- **Production: confirm `auth`'s source branch is `main`**, before the freeze lifts (runbook step
+  16, which defines the three states a rollback must handle). Step 8's push already deployed
+  `auth` from `main` (measured 2026-11-21; this item used to switch the source from `develop`),
+  so nothing is switched or deployed here. First, `main` must not have moved:
 
   ```bash
   git fetch origin && [ "$(git rev-parse origin/main)" = "<recorded commit>" ] && echo main-is-promoted-commit
   ```
 
-  If it does not print, stop and tell the security architect. Then set `auth`'s source branch to
-  `main` and apply. If that started a deployment, wait for it; if not, trigger one deploy of
-  `main`'s latest commit. Exactly one new deployment is expected: wait until it is **Active** and
-  record its ID. A failed build leaves the previous deployment serving: the freeze holds; retry,
-  or tell the security architect. Check: `auth`'s deployed commit equals `<recorded commit>`,
-  `$AUTH/api/auth/jwks` and `$AUTH/health` both answer `200`, and a sign-in on legacy web works.
+  If it does not print, stop and tell the security architect. Then confirm in the dashboard that
+  `auth`'s source branch is `main` (anything else: stop, change nothing, tell the security
+  architect), and record the ID of its **Active** deployment, the one step 8's push started.
+  Check: `auth`'s deployed commit equals `<recorded commit>`, `$AUTH/api/auth/jwks` and
+  `$AUTH/health` both answer `200`, and a sign-in on legacy web works.
 - Un-silence the alerts and close the release record.
 - Remove the Tailscale forwarder and revoke its key.
 - `exit` the shell.
