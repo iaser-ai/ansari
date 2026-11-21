@@ -6,13 +6,10 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { setAuthTokenGetter } from '@/vendor/api-client-react/custom-fetch';
-import {
-  setAccessTokenGetter,
-  setUnauthorizedHandler,
-} from '@/lib/api/auth-bridge';
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { setAuthTokenGetter } from "@/vendor/api-client-react/custom-fetch";
+import { setAccessTokenGetter, setUnauthorizedHandler } from "@/lib/api/auth-bridge";
 import {
   clearSession,
   loadGuestCredentials,
@@ -20,13 +17,15 @@ import {
   saveGuestCredentials,
   saveSession,
   type StoredSession,
-} from '@/lib/auth/store';
-import { AuthError, type AuthSession, type RegisterInput } from '@/lib/auth/api';
-import { authApi } from '@/lib/auth/client';
-import { deleteAccountRequest } from '@/lib/auth/delete-account';
-import { AccountDeleteNotSentError, AccountSessionEndedError } from '@/lib/auth/errors';
-import { ApiError } from '@/vendor/api-client-react/custom-fetch';
-import { generateGuestCredentials } from '@/lib/auth/guest';
+} from "@/lib/auth/store";
+import { AuthError, type AuthSession, type RegisterInput } from "@/lib/auth/api";
+import { authApi } from "@/lib/auth/client";
+import { deleteAccountRequest } from "@/lib/auth/delete-account";
+import { AccountDeleteNotSentError, AccountSessionEndedError } from "@/lib/auth/errors";
+import { ApiError } from "@/vendor/api-client-react/custom-fetch";
+import { generateGuestCredentials } from "@/lib/auth/guest";
+import { startAppleSignIn } from "@/lib/auth/nativeApple";
+import { startGoogleSignIn } from "@/lib/auth/nativeGoogle";
 
 /**
  * The ONLY failure that means a stored guest is gone for good: apps/auth
@@ -35,10 +34,10 @@ import { generateGuestCredentials } from '@/lib/auth/guest';
  * transient, and must never orphan the device's guest and its threads.
  */
 function storedGuestRejected(error: unknown): boolean {
-  return error instanceof AuthError && error.endpoint === 'sign-in' && error.status === 401;
+  return error instanceof AuthError && error.endpoint === "sign-in" && error.status === 401;
 }
 
-type AuthStatus = 'loading' | 'signedIn' | 'signedOut';
+type AuthStatus = "loading" | "signedIn" | "signedOut";
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -57,6 +56,10 @@ interface AuthContextValue {
   checkSession: () => Promise<void>;
   /** Deletes the signed-in (non-guest) account, then returns to the guest. */
   deleteAccount: () => Promise<void>;
+  /** Social sign-in with Apple (returns false if cancelled, true if signed in). */
+  signInWithApple: () => Promise<boolean>;
+  /** Social sign-in with Google (returns false if cancelled, true if signed in). */
+  signInWithGoogle: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,7 +84,7 @@ export function AuthProvider({
   }, [deferGuest]);
   const [guestHeld, setGuestHeld] = useState(false);
   const heldGuestSent = useRef(false);
-  const [status, setStatus] = useState<AuthStatus>('loading');
+  const [status, setStatus] = useState<AuthStatus>("loading");
   const [session, setSession] = useState<StoredSession | null>(null);
 
   // A ref mirrors `session` so the transport-layer getters (called outside
@@ -100,9 +103,9 @@ export function AuthProvider({
       queryClient.clear();
       sessionRef.current = next;
       setSession(next);
-      setStatus(next ? 'signedIn' : 'signedOut');
+      setStatus(next ? "signedIn" : "signedOut");
     },
-    [queryClient],
+    [queryClient]
   );
 
   // Single-flight refresh: on a 401 the transport calls this; concurrent callers
@@ -137,7 +140,7 @@ export function AuthProvider({
         sessionRef.current = null;
         await clearSession();
         setSession(null);
-        setStatus('signedOut');
+        setStatus("signedOut");
         return null;
       } finally {
         refreshInFlight.current = null;
@@ -175,26 +178,47 @@ export function AuthProvider({
       await saveSession(next);
       applySession(next);
     },
-    [applySession],
+    [applySession]
   );
 
   const login = useCallback(
-    async (
-      email: string,
-      password: string,
-      opts: { guest?: boolean } = {},
-    ) => {
+    async (email: string, password: string, opts: { guest?: boolean } = {}) => {
       await startSession(await authApi.signIn(email, password), opts.guest ?? false);
     },
-    [startSession],
+    [startSession]
   );
 
   const register = useCallback(
     async (input: RegisterInput, opts: { guest?: boolean } = {}) => {
       await startSession(await authApi.signUp(input), opts.guest ?? false);
     },
-    [startSession],
+    [startSession]
   );
+
+  const signInWithApple = useCallback(async (): Promise<boolean> => {
+    const result = await startAppleSignIn();
+    if (!result) return false;
+    const auth = await authApi.signInWithIdToken({
+      provider: "apple",
+      idToken: result.token,
+      nonce: result.nonce,
+      user: result.user,
+    });
+    await startSession(auth, false);
+    return true;
+  }, [startSession]);
+
+  const signInWithGoogle = useCallback(async (): Promise<boolean> => {
+    const result = await startGoogleSignIn();
+    if (!result) return false;
+    const auth = await authApi.signInWithIdToken({
+      provider: "google",
+      idToken: result.token,
+      nonce: result.nonce,
+    });
+    await startSession(auth, false);
+    return true;
+  }, [startSession]);
 
   // Continue as guest. A device reuses its ONE guest account: if credentials are
   // stored, sign back into that same account. A new guest is signed up only when
@@ -280,7 +304,7 @@ export function AuthProvider({
   useEffect(() => {
     // Not on a public page (`deferGuest`): viewing a share never mints an
     // account. Leaving it re-runs this, and the guest comes then.
-    if (status !== 'signedOut' || deferGuest || reguesting.current) return;
+    if (status !== "signedOut" || deferGuest || reguesting.current) return;
     reguesting.current = true;
     loginAsGuest()
       .catch(() => {
@@ -332,7 +356,7 @@ export function AuthProvider({
     if (deleteInFlight.current) return deleteInFlight.current;
     const current = sessionRef.current;
     if (!current || current.isGuest) {
-      return Promise.reject(new Error('Sign in to the account you want to delete.'));
+      return Promise.reject(new Error("Sign in to the account you want to delete."));
     }
     deleteInFlight.current = (async () => {
       const token = await refresh();
@@ -376,8 +400,21 @@ export function AuthProvider({
       logout,
       checkSession,
       deleteAccount,
+      signInWithApple,
+      signInWithGoogle,
     }),
-    [status, session, login, register, loginAsGuest, logout, checkSession, deleteAccount],
+    [
+      status,
+      session,
+      login,
+      register,
+      loginAsGuest,
+      logout,
+      checkSession,
+      deleteAccount,
+      signInWithApple,
+      signInWithGoogle,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -386,7 +423,7 @@ export function AuthProvider({
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext);
   if (!value) {
-    throw new Error('useAuth must be used within an <AuthProvider>');
+    throw new Error("useAuth must be used within an <AuthProvider>");
   }
   return value;
 }

@@ -1,13 +1,13 @@
 // Relative imports, not `@/`: apps/auth's contract suite
 // (apps/auth/tests/frontend-client.test.ts) runs this module against a real
 // apps/auth, and that package has no `@` alias.
-import { ApiError, customFetch } from '../../vendor/api-client-react/custom-fetch';
+import { ApiError, customFetch } from "../../vendor/api-client-react/custom-fetch";
 import {
   authSessionSchema,
   authStatusSchema,
   authTokenSchema,
   signOutSchema,
-} from '../api/wire-schemas';
+} from "../api/wire-schemas";
 
 /**
  * The `apps/auth` (better-auth) client. One transport on web, iOS and
@@ -36,6 +36,20 @@ export interface RegisterInput {
   registerToMailList?: boolean;
 }
 
+export interface SocialIdTokenUser {
+  name?: {
+    firstName?: string;
+    lastName?: string;
+  };
+}
+
+export interface SignInWithIdTokenInput {
+  provider: "apple" | "google";
+  idToken: string;
+  nonce?: string;
+  user?: SocialIdTokenUser;
+}
+
 export interface AuthSession {
   sessionToken: string;
   firstName: string;
@@ -43,12 +57,13 @@ export interface AuthSession {
 }
 
 export type AuthEndpoint =
-  | 'sign-in'
-  | 'sign-up'
-  | 'token'
-  | 'sign-out'
-  | 'request-password-reset'
-  | 'reset-password';
+  | "sign-in"
+  | "sign-up"
+  | "sign-in-social"
+  | "token"
+  | "sign-out"
+  | "request-password-reset"
+  | "reset-password";
 
 /**
  * A human-readable auth failure. `status` is the HTTP status, or 0 when no
@@ -57,7 +72,7 @@ export type AuthEndpoint =
  * verifies" (401 from sign-in) from everything transient.
  */
 export class AuthError extends Error {
-  readonly name = 'AuthError';
+  readonly name = "AuthError";
   readonly status: number;
   readonly endpoint: AuthEndpoint;
   constructor(message: string, status: number, endpoint: AuthEndpoint, cause?: unknown) {
@@ -72,17 +87,17 @@ export class AuthError extends Error {
  * used (`INVALID_RESET_TOKEN_MESSAGE` in @ansari/auth, which this app cannot
  * import). apps/auth/tests/frontend-client.test.ts pins the two equal.
  */
-export const INVALID_RESET_TOKEN_MESSAGE = 'Invalid or expired reset token';
+export const INVALID_RESET_TOKEN_MESSAGE = "Invalid or expired reset token";
 
 const UNREACHABLE = "Couldn't reach Ansari. Check your connection and try again.";
-const UNAVAILABLE = 'Sign-in is unavailable right now. Please try again shortly.';
-const TOO_MANY = 'Too many attempts. Please wait a minute and try again.';
+const UNAVAILABLE = "Sign-in is unavailable right now. Please try again shortly.";
+const TOO_MANY = "Too many attempts. Please wait a minute and try again.";
 
 /** better-auth's error body is `{code, message}`. */
 function serverMessage(data: unknown): string | undefined {
-  if (!data || typeof data !== 'object') return undefined;
+  if (!data || typeof data !== "object") return undefined;
   const message = (data as { message?: unknown }).message;
-  return typeof message === 'string' && message.trim() ? message : undefined;
+  return typeof message === "string" && message.trim() ? message : undefined;
 }
 
 function toAuthError(error: unknown, endpoint: AuthEndpoint, fallback: string): AuthError {
@@ -106,6 +121,7 @@ export interface AuthApiOptions {
 export interface AuthApi {
   signIn(email: string, password: string): Promise<AuthSession>;
   signUp(input: RegisterInput): Promise<AuthSession>;
+  signInWithIdToken(input: SignInWithIdTokenInput): Promise<AuthSession>;
   /** A fresh apps/api JWT for a live session. */
   mintJwt(sessionToken: string): Promise<string>;
   signOut(sessionToken: string): Promise<void>;
@@ -118,37 +134,46 @@ export interface AuthApi {
 export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
   const url = (path: string) => `${baseUrl}/api/auth${path}`;
   const headers = (sessionToken?: string): Record<string, string> => ({
-    'X-Ansari-Client': clientId,
+    "X-Ansari-Client": clientId,
     ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
   });
 
   const toSession = (raw: unknown, fallback: { firstName?: string; lastName?: string } = {}) => {
     const parsed = authSessionSchema.parse(raw);
+    const rawUser = (raw as { user?: Record<string, unknown> })?.user;
     return {
       sessionToken: parsed.token,
-      firstName: parsed.user.first_name ?? fallback.firstName ?? '',
-      lastName: parsed.user.last_name ?? fallback.lastName ?? '',
+      firstName:
+        parsed.user.first_name ??
+        (typeof rawUser?.firstName === "string" ? rawUser.firstName : undefined) ??
+        fallback.firstName ??
+        "",
+      lastName:
+        parsed.user.last_name ??
+        (typeof rawUser?.lastName === "string" ? rawUser.lastName : undefined) ??
+        fallback.lastName ??
+        "",
     };
   };
 
   return {
     async signIn(email, password) {
       try {
-        const raw = await customFetch<unknown>(url('/sign-in/email'), {
-          method: 'POST',
+        const raw = await customFetch<unknown>(url("/sign-in/email"), {
+          method: "POST",
           headers: headers(),
           body: JSON.stringify({ email, password }),
         });
         return toSession(raw);
       } catch (error) {
-        throw toAuthError(error, 'sign-in', 'Could not sign you in. Please try again.');
+        throw toAuthError(error, "sign-in", "Could not sign you in. Please try again.");
       }
     },
 
     async signUp(input) {
       try {
-        const raw = await customFetch<unknown>(url('/sign-up/email'), {
-          method: 'POST',
+        const raw = await customFetch<unknown>(url("/sign-up/email"), {
+          method: "POST",
           headers: headers(),
           body: JSON.stringify({
             email: input.email,
@@ -160,39 +185,99 @@ export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
         });
         return toSession(raw, input);
       } catch (error) {
-        throw toAuthError(error, 'sign-up', 'Could not create your account. Please try again.');
+        throw toAuthError(error, "sign-up", "Could not create your account. Please try again.");
+      }
+    },
+
+    async signInWithIdToken(input) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "error") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new AuthError(
+          "An account with this email already exists. Sign in with your password, or reset it.",
+          400,
+          "sign-in-social"
+        );
+      }
+      if (mockMode === "network-error") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new AuthError(
+          "Couldn't reach Ansari. Check your connection and try again.",
+          0,
+          "sign-in-social"
+        );
+      }
+      if (mockMode === "true" || mockMode === "1") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {
+          sessionToken: `mock-session-${input.provider}`,
+          firstName:
+            input.user?.name?.firstName ?? (input.provider === "apple" ? "Apple" : "Google"),
+          lastName: input.user?.name?.lastName ?? "Tester",
+        };
+      }
+
+      try {
+        const raw = await customFetch<unknown>(url("/sign-in/social"), {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            provider: input.provider,
+            idToken: {
+              token: input.idToken,
+              ...(input.nonce ? { nonce: input.nonce } : {}),
+              ...(input.user ? { user: input.user } : {}),
+            },
+          }),
+        });
+        return toSession(raw, {
+          firstName: input.user?.name?.firstName,
+          lastName: input.user?.name?.lastName,
+        });
+      } catch (error) {
+        throw toAuthError(error, "sign-in-social", "Could not sign you in. Please try again.");
       }
     },
 
     async mintJwt(sessionToken) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "true" || mockMode === "1") {
+        return `mock-jwt-token-for-${sessionToken}`;
+      }
+
       try {
-        const raw = await customFetch<unknown>(url('/token'), {
-          method: 'GET',
+        const raw = await customFetch<unknown>(url("/token"), {
+          method: "GET",
           headers: headers(sessionToken),
         });
         return authTokenSchema.parse(raw).token;
       } catch (error) {
-        throw toAuthError(error, 'token', 'Your session has ended. Please sign in again.');
+        throw toAuthError(error, "token", "Your session has ended. Please sign in again.");
       }
     },
 
     async signOut(sessionToken) {
+      const mockMode = process.env.EXPO_PUBLIC_MOCK_AUTH;
+      if (mockMode === "true" || mockMode === "1") {
+        return;
+      }
+
       try {
-        const raw = await customFetch<unknown>(url('/sign-out'), {
-          method: 'POST',
+        const raw = await customFetch<unknown>(url("/sign-out"), {
+          method: "POST",
           headers: headers(sessionToken),
-          body: '{}',
+          body: "{}",
         });
         signOutSchema.parse(raw);
       } catch (error) {
-        throw toAuthError(error, 'sign-out', 'Could not sign you out.');
+        throw toAuthError(error, "sign-out", "Could not sign you out.");
       }
     },
 
     async requestPasswordReset(email) {
       try {
-        const raw = await customFetch<unknown>(url('/request-password-reset'), {
-          method: 'POST',
+        const raw = await customFetch<unknown>(url("/request-password-reset"), {
+          method: "POST",
           headers: headers(),
           body: JSON.stringify({ email }),
         });
@@ -200,22 +285,26 @@ export function createAuthApi({ baseUrl, clientId }: AuthApiOptions): AuthApi {
       } catch (error) {
         throw toAuthError(
           error,
-          'request-password-reset',
-          'Could not send the reset email. Please try again.',
+          "request-password-reset",
+          "Could not send the reset email. Please try again."
         );
       }
     },
 
     async resetPassword(token, newPassword) {
       try {
-        const raw = await customFetch<unknown>(url('/reset-password'), {
-          method: 'POST',
+        const raw = await customFetch<unknown>(url("/reset-password"), {
+          method: "POST",
           headers: headers(),
           body: JSON.stringify({ token, newPassword }),
         });
         authStatusSchema.parse(raw);
       } catch (error) {
-        throw toAuthError(error, 'reset-password', 'Could not reset your password. Please try again.');
+        throw toAuthError(
+          error,
+          "reset-password",
+          "Could not reset your password. Please try again."
+        );
       }
     },
   };

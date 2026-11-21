@@ -1,40 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import Animated, {
-  FadeIn,
-  ReduceMotion,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
-import { useColors } from '@/hooks/useColors';
-import { useScheme } from '@/hooks/useScheme';
-import { fonts } from '@/constants/colors';
-import { DURATION, EASE_OUT } from '@/constants/motion';
-import { RADIUS, rounded } from '@/constants/radius';
-import { isHovered } from '@/lib/web';
-import { heading } from '@/lib/semantics';
-import { useAuth } from '@/lib/auth/context';
-import {
-  closeAuthSheet,
-  setAuthSheetMode,
-  useAuthSheet,
-  type AuthMode,
-} from '@/lib/authSheet';
-import { AnsariMarkBrass } from '@/components/AnsariMarkBrass';
-import { AppleMark, GoogleMark } from '@/components/BrandMarks';
-import { PressableScale } from '@/components/PressableScale';
-import { Sheet } from '@/components/Sheet';
-import { Field } from '@/components/AuthField';
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Animated, { FadeIn, ReduceMotion, useAnimatedStyle } from "react-native-reanimated";
+import { useColors } from "@/hooks/useColors";
+import { useScheme } from "@/hooks/useScheme";
+import { fonts } from "@/constants/colors";
+import { DURATION, EASE_OUT } from "@/constants/motion";
+import { RADIUS, rounded } from "@/constants/radius";
+import { isHovered } from "@/lib/web";
+import { heading } from "@/lib/semantics";
+import { useAuth } from "@/lib/auth/context";
+import { isSocialAuthEnabled } from "@/lib/auth/features";
+import { closeAuthSheet, setAuthSheetMode, useAuthSheet, type AuthMode } from "@/lib/authSheet";
+import { AnsariMarkBrass } from "@/components/AnsariMarkBrass";
+import { AppleMark, GoogleMark } from "@/components/BrandMarks";
+import { PressableScale } from "@/components/PressableScale";
+import { Sheet } from "@/components/Sheet";
+import { Field } from "@/components/AuthField";
 
 // Turning between "Log in" and "Sign up" is the same card showing its
 // other face: what changes fades in where it stands, nothing travels.
@@ -42,7 +27,7 @@ const FACE_ENTER = FadeIn.duration(DURATION.state)
   .easing(EASE_OUT)
   .reduceMotion(ReduceMotion.System);
 
-type Provider = 'Apple' | 'Google';
+type Provider = "Apple" | "Google";
 
 /**
  * The platform's own sign-in button, in the platform's own dress — not
@@ -58,23 +43,26 @@ type Provider = 'Apple' | 'Google';
 function ProviderButton({
   provider,
   onPress,
+  disabled,
 }: {
   provider: Provider;
   onPress: () => void;
+  disabled?: boolean;
 }) {
-  const dark = useScheme() === 'dark';
+  const dark = useScheme() === "dark";
   const look =
-    provider === 'Apple'
+    provider === "Apple"
       ? dark
-        ? { fill: '#FFFFFF', rim: '#FFFFFF', ink: '#000000' }
-        : { fill: '#000000', rim: '#000000', ink: '#FFFFFF' }
+        ? { fill: "#FFFFFF", rim: "#FFFFFF", ink: "#000000" }
+        : { fill: "#000000", rim: "#000000", ink: "#FFFFFF" }
       : dark
-        ? { fill: '#131314', rim: '#8E918F', ink: '#E3E3E3' }
-        : { fill: '#FFFFFF', rim: '#747775', ink: '#1F1F1F' };
+        ? { fill: "#131314", rim: "#8E918F", ink: "#E3E3E3" }
+        : { fill: "#FFFFFF", rim: "#747775", ink: "#1F1F1F" };
   const label = `Continue with ${provider}`;
   return (
     <PressableScale
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
       testID={`auth-${provider.toLowerCase()}`}
@@ -83,16 +71,12 @@ function ProviderButton({
         {
           backgroundColor: look.fill,
           borderColor: look.rim,
-          opacity: state.pressed ? 0.8 : isHovered(state) ? 0.92 : 1,
+          opacity: disabled ? 0.6 : state.pressed ? 0.8 : isHovered(state) ? 0.92 : 1,
         },
       ]}
     >
       <View style={styles.providerMark}>
-        {provider === 'Apple' ? (
-          <AppleMark size={18} color={look.ink} />
-        ) : (
-          <GoogleMark size={18} />
-        )}
+        {provider === "Apple" ? <AppleMark size={18} color={look.ink} /> : <GoogleMark size={18} />}
       </View>
       <Text style={[styles.providerText, { color: look.ink }]}>{label}</Text>
     </PressableScale>
@@ -117,7 +101,7 @@ function KeyboardFoot() {
   const style = useAnimatedStyle(() => ({
     height: Math.max(0, -height.value - insets.bottom),
   }));
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === "web") return null;
   return <Animated.View style={style} />;
 }
 
@@ -149,7 +133,7 @@ export function AuthSheet() {
   const colors = useColors();
   const mode = useAuthSheet();
   const open = mode !== null;
-  const { login, register, loginAsGuest } = useAuth();
+  const { login, register, loginAsGuest, signInWithApple, signInWithGoogle } = useAuth();
 
   // Held past the store clearing, so the card still has a face to show
   // while it leaves.
@@ -158,34 +142,32 @@ export function AuthSheet() {
     if (mode) setShown(mode);
   }, [mode]);
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [unavailable, setUnavailable] = useState<Provider | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Gone means gone: the next time the card is raised it starts clean,
   // and a password never outlives the card it was typed into.
   const reset = () => {
     setShown(null);
-    setFirstName('');
-    setLastName('');
-    setEmail('');
-    setPassword('');
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setPassword("");
     setError(null);
-    setUnavailable(null);
     setSubmitting(false);
   };
 
   if (!shown) return null;
 
-  const isRegister = shown === 'register';
+  const isRegister = shown === "register";
 
   const switchFace = () => {
     setError(null);
-    setAuthSheetMode(isRegister ? 'login' : 'register');
+    setAuthSheetMode(isRegister ? "login" : "register");
   };
 
   const submit = async () => {
@@ -193,11 +175,11 @@ export function AuthSheet() {
     setError(null);
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
-      setError('Enter your email and password.');
+      setError("Enter your email and password.");
       return;
     }
     if (isRegister && password.length < 8) {
-      setError('Password must be at least 8 characters.');
+      setError("Password must be at least 8 characters.");
       return;
     }
     setSubmitting(true);
@@ -214,11 +196,7 @@ export function AuthSheet() {
       }
       closeAuthSheet();
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'Something went wrong. Please try again.',
-      );
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       setSubmitting(false);
     }
   };
@@ -227,7 +205,7 @@ export function AuthSheet() {
   // emailed link and the legacy `/forgot-password` address (#304).
   const forgotPassword = () => {
     closeAuthSheet();
-    router.push('/forgot-password');
+    router.push("/forgot-password");
   };
 
   // Continue as guest — reuses this device's guest account if it has
@@ -241,15 +219,41 @@ export function AuthSheet() {
       closeAuthSheet();
     } catch (e) {
       setError(
-        e instanceof Error
-          ? e.message
-          : "Couldn't start a guest session. Please try again.",
+        e instanceof Error ? e.message : "Couldn't start a guest session. Please try again."
       );
       setSubmitting(false);
     }
   };
 
-  const title = isRegister ? 'Create your account' : 'Welcome back';
+  const handleAppleSignIn = async () => {
+    if (submitting || !isSocialAuthEnabled()) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const ok = await signInWithApple();
+      if (ok) closeAuthSheet();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not sign in with Apple. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (submitting || !isSocialAuthEnabled()) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const ok = await signInWithGoogle();
+      if (ok) closeAuthSheet();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not sign in with Google. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const title = isRegister ? "Create your account" : "Welcome back";
 
   const header = (
     <View style={styles.header}>
@@ -265,8 +269,8 @@ export function AuthSheet() {
         </Animated.Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
           {isRegister
-            ? 'Keep your questions and their sources with you, across devices.'
-            : 'Pick up your questions where you left them.'}
+            ? "Keep your questions and their sources with you, across devices."
+            : "Pick up your questions where you left them."}
         </Text>
       </View>
       <PressableScale
@@ -306,39 +310,32 @@ export function AuthSheet() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.providers}>
-          <ProviderButton
-            provider="Apple"
-            onPress={() => setUnavailable('Apple')}
-          />
-          <ProviderButton
-            provider="Google"
-            onPress={() => setUnavailable('Google')}
-          />
-          {unavailable && (
-            <Text
-              accessibilityLiveRegion="polite"
-              aria-live="polite"
-              style={[styles.note, { color: colors.mutedForeground }]}
-              testID="auth-provider-unavailable"
-            >
-              Sign in with {unavailable} isn&apos;t available yet. Use your
-              email below.
-            </Text>
-          )}
-        </View>
+        {isSocialAuthEnabled() && (
+          <>
+            <View style={styles.providers}>
+              {Platform.OS !== "android" && (
+                <ProviderButton
+                  provider="Apple"
+                  onPress={handleAppleSignIn}
+                  disabled={submitting}
+                />
+              )}
+              <ProviderButton
+                provider="Google"
+                onPress={handleGoogleSignIn}
+                disabled={submitting}
+              />
+            </View>
 
-        <View style={styles.dividerRow}>
-          <View
-            style={[styles.dividerLine, { backgroundColor: colors.border }]}
-          />
-          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
-            or continue with email
-          </Text>
-          <View
-            style={[styles.dividerLine, { backgroundColor: colors.border }]}
-          />
-        </View>
+            <View style={styles.dividerRow}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
+                or continue with email
+              </Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+          </>
+        )}
 
         {isRegister && (
           <Animated.View entering={FACE_ENTER} style={styles.nameRow}>
@@ -375,12 +372,12 @@ export function AuthSheet() {
           testID="email-input"
         />
         <Field
-          label={isRegister ? 'Password (min 8 characters)' : 'Password'}
+          label={isRegister ? "Password (min 8 characters)" : "Password"}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
           autoCapitalize="none"
-          autoComplete={isRegister ? 'new-password' : 'current-password'}
+          autoComplete={isRegister ? "new-password" : "current-password"}
           onSubmitEditing={submit}
           returnKeyType="go"
           testID="password-input"
@@ -393,19 +390,14 @@ export function AuthSheet() {
             testID="auth-forgot-password"
             style={styles.forgotLink}
           >
-            <Text
-              style={[styles.forgotText, { color: colors.mutedForeground }]}
-            >
+            <Text style={[styles.forgotText, { color: colors.mutedForeground }]}>
               Forgot password?
             </Text>
           </PressableScale>
         )}
 
         {error && (
-          <Text
-            style={[styles.error, { color: colors.destructive }]}
-            testID="auth-error"
-          >
+          <Text style={[styles.error, { color: colors.destructive }]} testID="auth-error">
             {error}
           </Text>
         )}
@@ -426,10 +418,8 @@ export function AuthSheet() {
           {submitting ? (
             <ActivityIndicator color={colors.primaryForeground} />
           ) : (
-            <Text
-              style={[styles.buttonText, { color: colors.primaryForeground }]}
-            >
-              {isRegister ? 'Create account' : 'Log in'}
+            <Text style={[styles.buttonText, { color: colors.primaryForeground }]}>
+              {isRegister ? "Create account" : "Log in"}
             </Text>
           )}
         </PressableScale>
@@ -441,17 +431,15 @@ export function AuthSheet() {
             testID="auth-switch"
             style={styles.footerLink}
           >
-            <Text
-              style={[styles.footerText, { color: colors.mutedForeground }]}
-            >
-              {isRegister ? 'Already have an account? ' : 'New to Ansari? '}
+            <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
+              {isRegister ? "Already have an account? " : "New to Ansari? "}
               <Text
                 style={{
                   color: colors.foreground,
                   fontFamily: fonts.bodySemiBold,
                 }}
               >
-                {isRegister ? 'Log in' : 'Create an account'}
+                {isRegister ? "Log in" : "Create an account"}
               </Text>
             </Text>
           </PressableScale>
@@ -465,15 +453,13 @@ export function AuthSheet() {
               { opacity: submitting ? 0.6 : state.pressed ? 0.7 : 1 },
             ]}
           >
-            <Text
-              style={[styles.footerText, { color: colors.mutedForeground }]}
-            >
-              or{' '}
+            <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
+              or{" "}
               <Text
                 style={{
                   color: colors.foreground,
                   fontFamily: fonts.bodyMedium,
-                  textDecorationLine: 'underline',
+                  textDecorationLine: "underline",
                 }}
               >
                 continue as a guest
@@ -507,12 +493,12 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   headerText: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     gap: 8,
     // Balances the close button on the right so the title sits on the
     // card's centre line, not the text column's.
@@ -522,21 +508,21 @@ const styles = StyleSheet.create({
     fontSize: 23,
     lineHeight: 30,
     fontFamily: fonts.display,
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 2,
   },
   subtitle: {
     fontSize: 13.5,
     lineHeight: 19,
     fontFamily: fonts.body,
-    textAlign: 'center',
+    textAlign: "center",
     maxWidth: 300,
   },
   closeButton: {
     width: 30,
     height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     ...rounded(RADIUS.pill),
   },
   providers: {
@@ -544,17 +530,17 @@ const styles = StyleSheet.create({
   },
   provider: {
     minHeight: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 10,
     borderWidth: 1,
     ...rounded(RADIUS.pill),
   },
   providerMark: {
     width: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   providerText: {
     fontSize: 15.5,
@@ -564,11 +550,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontFamily: fonts.body,
-    textAlign: 'center',
+    textAlign: "center",
   },
   dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginVertical: 4,
   },
@@ -581,14 +567,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
   },
   nameRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   nameField: {
     flex: 1,
   },
   forgotLink: {
-    alignSelf: 'flex-end',
+    alignSelf: "flex-end",
     paddingVertical: 2,
     marginTop: -4,
   },
@@ -604,8 +590,8 @@ const styles = StyleSheet.create({
   },
   button: {
     minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: 4,
     ...rounded(RADIUS.md),
   },
@@ -614,16 +600,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
   },
   footer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 2,
   },
   footerLink: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: 7,
   },
   footerText: {
     fontSize: 14,
     fontFamily: fonts.body,
-    textAlign: 'center',
+    textAlign: "center",
   },
 });
