@@ -165,4 +165,4 @@ the architect). It keeps its live deployment and its attached `auth.askansari.ai
 - **To record before the window (runbook step 1):** the legacy web service's current deployment ID
   and commit; that the commit carries PR #418's switch; that `MAINTENANCE_MODE` is absent or
   `false` there, as a service variable; that its `EXPO_PUBLIC_API_V2_URL` is an absolute api
-  origin; and the step 3 bundle check's OFF output.
+  origin; and step 3's OFF check output (`web-flag-OFF`) with `web_flag`'s raw line.

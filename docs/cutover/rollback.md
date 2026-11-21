@@ -40,8 +40,11 @@ step 1 and re-attaches it to the same web service in step 4.
 
 **The mechanism (main, M2).** Auto-deploy is on for `backend`, the web service and `auth`
 (owner decision, 2026-10-19), so a rollback is **one step in the Railway dashboard**: turn
-auto-deploy OFF on all three and return `backend` and the web service to the deployments the
-window's step 1 recorded, together (step 3). **Production `auth` is not a rollback target**: window step
+auto-deploy OFF on all three and return `backend` to the deployment the window's step 1
+recorded (step 3). **In production only `backend` returns:** legacy web stays on the maintenance
+build until step 4 builds it again with the flag off, and its recorded deployment ID is kept as the
+record of the pre-window build, and as step 4's last option (c). On staging, `backend` and the web
+service return to their recorded deployments together (step 3). **Production `auth` is not a rollback target**: window step
 10 never deployed it (it deploys from `develop`; owner's statement, 2026-11-21), so it stays on
 the deployment it had all along, with auto-deploy off for the rollback's duration. Its recorded
 ID is for the record. On staging, `auth` returns to its recorded state too. Off first, or the next push to the branch silently redeploys the rolled-back
@@ -63,8 +66,8 @@ evidence), so web needs its own action:
 - **Staging:** the web domain detached from the staging web service.
 
 **Check:** the window's step 3 `app-check` probe prints `true` on both `apps/api` domains.
-Production: the window's step 3 bundle check prints `("true")`, `("True")` or `("1")` (anything
-else, or no output, is not ON: stop), and a fresh private window on the
+Production: the window's step 3 ON check (define the three functions there in this session)
+prints `web-flag-ON` (nothing printed is not ON: stop), and a fresh private window on the
 web domain shows the maintenance screen. Staging: the web domain no longer serves the web app.
 **If it fails:** stop; nothing below is safe while new code serves users. A web rebuild that fails
 leaves the previous deployment serving: if that is the live app, tell the security architect at
@@ -131,7 +134,7 @@ push in between:
 
 **Check (production):** auto-deploy shows off on all three; `backend` is healthy, on the commit
 the release record holds for it; the legacy web service is healthy and still serves the
-maintenance build (the bundle check prints the ON form), on the commit the release record holds
+maintenance build (the window's step 3 ON check prints `web-flag-ON`), on the commit the release record holds
 for it or step 10's; `auth`:
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/health` and
 `curl -s -o /dev/null -w '%{http_code}' https://auth.askansari.ai/api/auth/jwks` print `200`, its
@@ -148,16 +151,25 @@ healthy, each on the commit the release record holds for it; `auth` has no activ
 
 There is no swap to reverse (backend-only release).
 - **Production:** `MAINTENANCE_MODE=false` on the legacy web service, the only web service there.
-  It rebuilds: a variable change redeploys the service. With auto-deploy off, that is not
-  established (dashboard behaviour): if no deployment starts, trigger one of its current commit
-  from the dashboard. The public sees legacy
-  web, now on the legacy `apps/api`, once that deployment is live. If the rebuild fails, the
-  maintenance build keeps serving: retry once, then tell the security architect.
+  Whether a variable change starts a deployment while auto-deploy is off is not established
+  (dashboard behaviour). So bring web back by the first of these that works, in order. The proof
+  for each is the window's step 3 **OFF check**, `web_flag_off https://<web domain>`, printing
+  `web-flag-OFF`:
+  - **(a)** the deployment the variable change starts itself;
+  - **(b)** if no deployment starts, the dashboard's deploy of the service's latest commit;
+  - **(c)** if that fails, or the check still does not print `web-flag-OFF`, the recorded
+    pre-window web deployment (window step 1's ID) → **Redeploy**. It was built with the flag off.
+    Then make sure the variable is `false`, so it matches. Tell the security architect when (c) is
+    needed.
+
+  The failure mode of all three is web staying on the maintenance build, which is safe: the screen
+  makes no api request. The public sees legacy web, now on the legacy `apps/api`, once a deployment
+  that passes the OFF check is live.
 - **Staging:** re-attach the web domain, detached in step 1, to the **same** staging web service.
   Make sure that service runs the deployment whose **ID the release record holds** (window step
   1), redeploying that ID if anything else is live.
 
-**Check:** production: the window's step 3 bundle check prints the OFF form, a fresh private
+**Check:** production: the window's step 3 OFF check prints `web-flag-OFF`, a fresh private
 window on the web domain shows legacy web's app, and the deployed commit is the one the release
 record holds for the service or step 10's (`git diff --quiet <recorded web commit> <deployed web commit> -- legacy/frontend-web && echo web-sources-match`
 prints `web-sources-match`); record the new deployment's ID. Staging: the web domain serves the

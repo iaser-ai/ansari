@@ -102,8 +102,10 @@ before, and check that `backend` is healthy afterwards. Production values are sh
   (Production: attached, as above.)
 - The Tailscale forwarder: port 5432 to the app database, port 5433 to the auth database.
 - In the release record: the current deployment ID and commit of `backend`, the web service and
-  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` and
-  the web service to these. `auth`'s is recorded for the record: nothing in the window deploys
+  `auth` (`none` if it has no deployment). In production, the rollback returns only `backend` to its
+  recorded deployment. Legacy web stays on the maintenance build until rollback step 4 builds it
+  again with the flag off; its recorded ID is kept as the record of the pre-window build, and as
+  rollback step 4's last option (c). On staging, `backend` and the web service return to these. `auth`'s is recorded for the record: nothing in the window deploys
   production `auth` (it deploys from `develop`), so it stays on this same deployment, or on the one
   step 7 had the owner redeploy (its ID then recorded), and a rollback leaves it there (owner,
   2026-11-21). On staging, all three are rollback targets.
@@ -216,9 +218,9 @@ curl -s $API/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform
 
 `MAINTENANCE_MODE` takes effect only once Railway's redeploy of `backend` is healthy, so the probe
 prints `false` until then: wait and re-run it, that is not a failure. In production, also run the
-probe on `https://api-35.ansari.chat`, and the runbook step 3 bundle check on the web domain until
-it prints `("true")`, `("True")` or `("1")` (for example `MAINTENANCE_MODE:()=>E("true")`; the
-function name varies). Any other output, a quoted value or no output means OFF or unseen: stop.
+probe on `https://api-35.ansari.chat`, and, after defining the runbook step 3 web flag checks
+in this shell, `web_flag_on https://<web domain>` until it prints `web-flag-ON`. It prints that only
+for `true`, `True` or `1`; nothing printed means OFF or unseen: do not go on.
 A fresh private window there shows "Ansari is currently under maintenance." Take a Railway snapshot of
 both databases and record their ids.
 
@@ -326,7 +328,7 @@ git fetch origin && git diff-tree --quiet HEAD origin/main && echo same-tree   #
 Auto-deploy builds `backend`. Production `auth` deploys from `develop`, so it keeps the deployment
 step 7 checked (staging: the merge deploys `auth` too). The web service builds only if its watch
 paths matched the push (staging's always does); in production such a rebuild still has
-`MAINTENANCE_MODE=true` set, and the bundle check must still print the ON form. Wait until each is
+`MAINTENANCE_MODE=true` set, and `web_flag_on` must still print `web-flag-ON`. Wait until each is
 healthy.
 
 ## 9. Verify
@@ -342,7 +344,7 @@ curl -s -o /dev/null -w '%{http_code}' $AUTH/api/account/me                     
   service's Railway domain shows the maintenance screen too. Staging: as the runbook says.
 - Web back (runbook step 13). **Production:** set `MAINTENANCE_MODE=false` on the legacy web
   service; it rebuilds, and the public sees legacy web only when that deployment is live. Check:
-  the bundle check prints the OFF form, and a fresh private window shows the app. If the rebuild
+  `web_flag_off https://<web domain>` prints `web-flag-OFF`, and a fresh private window shows the app. If the rebuild
   fails or hangs, the maintenance build keeps serving: retry once, then set the variable back to
   `true` and tell the security architect. **Staging:** re-attach the web domain to the same web
   service it was detached from in step 2. There is no web swap. If legacy web fails against the

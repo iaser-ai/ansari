@@ -317,8 +317,10 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
   the **current Railway deployment ID and its commit** for the `backend` service, the legacy web
   service and the `auth` service (`none` if it has no deployment; production, 2026-11-21: it has
   one, see [`release-record.md`](release-record.md)). On staging there is no legacy web, so record
-  the staging web service instead. In production, rollback step 3 returns only `backend` and the web
-  service to exactly these. Production `auth`'s ID is recorded for the record. Nothing in the
+  the staging web service instead. In production, rollback step 3 returns only `backend` to its
+  recorded deployment. Legacy web stays on the maintenance build until rollback step 4 builds it
+  again with the flag off. The recorded web deployment ID is kept as the record of the pre-window
+  build, and as rollback step 4's last option (c). Production `auth`'s ID is recorded for the record. Nothing in the
   window deploys `auth` (it deploys from `develop`; below), so it stays on this same deployment, or
   on the one step 9 had the owner redeploy, whose ID is then recorded. Rollback leaves it there
   (owner, 2026-11-21; [`rollback.md`](rollback.md) step 3). On staging, rollback step 3 returns
@@ -336,9 +338,9 @@ all is a failure); the users-and-accounts count prints `0`; the JWKS probe print
     `backend`, whose flag goes off at a different step (web at 13, `backend` at 15). Only the
     owner can see this in the dashboard: record it. **No `EXPO_PUBLIC_MAINTENANCE_MODE` variable is
     left on the service** (it has no effect, step 3; an operator set one with a quoted value on
-    2026-11-21 and nothing happened): remove it if present. The step 3 bundle check, run now on the
-    public web domain, prints an OFF form (`(void 0)`, `("")` or `("false")`; production printed
-    `t("")` on 2026-11-21). Record its output.
+    2026-11-21 and nothing happened): remove it if present. Step 3's **OFF check**, run now on the
+    public web domain, prints `web-flag-OFF` (production showed `t("")` on 2026-11-21). Record its
+    output, and `web_flag`'s raw line.
   - **Its `EXPO_PUBLIC_API_V2_URL` is an absolute api origin** (`https://…/api/v2`), as
     `legacy/frontend-web/dotenv.example` shows. The value is in the dashboard only: the owner
     confirms it and records it. Step 3's residual rests on it.
@@ -550,7 +552,7 @@ code). Then take web offline, by environment:
   has no such switch (#419). Step 13 re-attaches it to the same service.
 
 Wait until **both** are live: `backend`'s flag (the `app-check` probe below) and, in production,
-the web service's maintenance build (the bundle check below). Then take **`cutover_at`** from the
+the web service's maintenance build (the ON check below). Then take **`cutover_at`** from the
 app database's own clock:
 
 ```bash
@@ -626,47 +628,59 @@ decision leaves that residual unchanged.
 
 `backend`'s `MAINTENANCE_MODE` takes effect only once its redeploy is healthy: until then the
 probe below prints `false`, which is not a failure; wait and re-run it. The web service's flag takes
-effect only once its rebuild is live: until then the bundle check prints the OFF form; wait and
+effect only once its rebuild is live: until then the ON check below prints nothing; wait and
 re-run it.
 
-**The bundle check (production web).** It reads the flag from the bundle the web domain serves:
+**The web flag checks (production web).** They read the flag from the bundle the web domain
+serves. Define them once in the session (bash or zsh; the rollback defines the same three):
 
 ```bash
-W=https://<web domain>
-JS="$(curl -fsS "$W/" | grep -oE '/_expo/static/js/web/entry-[0-9a-f]+\.js' | head -1)" && echo "$JS"
-curl -fsS "$W$JS" | grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)'
+web_flag() {
+  js="$(curl -fsS "$1/" | grep -oE '/_expo/static/js/web/entry-[0-9a-f]+\.js' | head -1)" || return 1
+  [ -n "$js" ] || return 1
+  curl -fsS "$1$js" | grep -oE 'MAINTENANCE_MODE:\(\)=>[A-Za-z_$][A-Za-z0-9_$]*\(("([^"\\]|\\.)*"|void 0)\)'
+}
+web_flag_on() {
+  f="$(web_flag "$1")" && [ "$(printf '%s\n' "$f" | grep -c .)" = 1 ] &&
+    printf '%s\n' "$f" | grep -qE '\(("true"|"True"|"1")\)$' && echo web-flag-ON
+}
+web_flag_off() {
+  f="$(web_flag "$1")" && [ "$(printf '%s\n' "$f" | grep -c .)" = 1 ] &&
+    printf '%s\n' "$f" | grep -qE '\((void 0|""|"false")\)$' && echo web-flag-OFF
+}
 ```
 
-**ON (the "ON form") is exactly one of three arguments:** `("true")`, `("True")` or `("1")`, for example
-`MAINTENANCE_MODE:()=>E("true")`. **Anything else means the flag is OFF, or the check cannot see
-it: stop, and do not proceed on it.** That includes:
-- `(void 0)` (unset at build);
-- `("")` (the Dockerfile's argument with no variable);
-- `("false")`;
-- a quoted value: `"true"` typed with its quotes prints `("\"true\"")` and is OFF;
-- **no output from the second line.**
+- **The ON check:** `web_flag_on https://<web domain>` prints `web-flag-ON` and exits `0` only when
+  the bundle's flag argument is exactly `("true")`, `("True")` or `("1")`.
+- **The OFF check:** `web_flag_off https://<web domain>` prints `web-flag-OFF` and exits `0` only
+  when it is exactly `(void 0)` (unset at build), `("")` (the Dockerfile's argument with no
+  variable) or `("false")`.
+- Each exits nonzero and prints nothing otherwise: a quoted value (`"true"` typed with its quotes
+  builds to `("\"true\"")`, which is OFF in the app but passes **neither** check), a bundle with no
+  flag line or more than one, or a page that is not legacy web's export.
+- **Neither printing means stop**, and do not proceed on it. `web_flag https://<web domain>` prints
+  the raw line, to see why.
 
-Where a step expects the **OFF form**, it is `(void 0)`, `("")` or `("false")` exactly: a quoted value
-or no output is not a pass there either.
-
-The function name is the minifier's, not part of the check: `E` in this tree's builds, `t` in
-production's. The argument is what counts. Measured:
-- on this tree, a local `expo export` printed `E("true")` with the flag on, `E(void 0)` without it,
+Each step names the check it expects. The function name in the line is the minifier's, not part of
+the check: `E` in this tree's builds, `t` in production's. Measured:
+- on this tree, a local `expo export` showed `E("true")` with the flag on, `E(void 0)` without it,
   and `E("\"true\"")` with the value `"true"` quoted;
-- the Docker image built with no `MAINTENANCE_MODE` printed `E("")`, and so did the image built
-  with `--build-arg EXPO_PUBLIC_MAINTENANCE_MODE=true` (the wrong name has no effect);
-- production, flag off, measured by main on 2026-11-21, printed `t("")`.
+- the Docker image built with no `MAINTENANCE_MODE` showed `E("")`, and so did the image built with
+  `--build-arg EXPO_PUBLIC_MAINTENANCE_MODE=true` (the wrong name has no effect);
+- production, flag off, measured by main on 2026-11-21, showed `t("")`.
 
-If the first line prints nothing, the page is not legacy web's export: stop and look.
+Against served copies of the three local builds, in bash and in zsh: flag on gave `web-flag-ON`
+only, unset gave `web-flag-OFF` only, and the quoted value and an unreachable address gave
+neither (#416's PR).
 
 **Check:**
 `curl -s https://api.askansari.ai/api/v2/app-check -H 'Content-Type: application/json' -d '{"platform":"ios","native_application_version":"1.0.0","native_build_version":"1"}' | jq .maintenance_mode`
-prints `true`, and the same for `https://api-35.ansari.chat`. **Production:** the bundle check
-prints `("true")`, `("True")` or `("1")`, and a fresh private window on the web domain shows "Ansari is currently under
+prints `true`, and the same for `https://api-35.ansari.chat`. **Production:** the ON check
+(`web_flag_on https://<web domain>`) prints `web-flag-ON`, and a fresh private window on the web domain shows "Ansari is currently under
 maintenance." on `/` and on `/login`. **Staging:** the web domain no longer serves the web app.
 `cutover_at` and the session start are in the record.
 **Abort:** `MAINTENANCE_MODE=false` on `backend`; **production:** `MAINTENANCE_MODE=false` on the
-legacy web service too (it rebuilds; wait until the bundle check prints the OFF form);
+legacy web service too (it rebuilds; wait until the OFF check prints `web-flag-OFF`);
 **staging:** re-attach the web domain. Nothing else has changed.
 
 ## 4. Snapshots
@@ -902,7 +916,7 @@ deploys run code the scripts did not run from: follow [`rollback.md`](rollback.m
 Wait for the deployments of step 10's commit on `backend` (staging: and on `auth`), and on the web
 service only if it rebuilt (staging's always does; production's legacy web only if its watch paths
 matched). A production legacy web rebuild here still has `MAINTENANCE_MODE=true` set (step 3), so it
-is again a maintenance build: run step 3's bundle check after it, which must print the ON form.
+is again a maintenance build: run step 3's ON check after it, which must print `web-flag-ON`.
 
 - **Production:** step 10's push to `main` starts **no** `auth` deployment (`auth` deploys from
   `develop`, owner's statement; step 1). The deployment step 9 checked keeps serving, with code
@@ -972,7 +986,10 @@ The owner has decided not to replace this step for this window. So **legacy web 
 before, on staging or anywhere ([`rehearsal.md`](rehearsal.md), residuals). The owner accepts
 this (2026-11-21). Step 13's abort is the response if it fails.
 
-### Staging, and any environment whose web goes offline by a detach: unchanged
+### An environment that serves legacy web and takes it offline by a detach: unchanged
+
+**Staging skips 12a:** it has no legacy web service (the differences table: legacy web against
+the new `apps/api` is not part of the rehearsal).
 
 Run step 14's legacy web flows on the
 legacy web service's Railway-provided domain (`*.up.railway.app`) **before** step 13 re-attaches
@@ -1010,23 +1027,31 @@ service.
 answer, step 3) and the alerts are still silenced (until step 16). Step 14's smoke test runs
 alongside real users.
 
-**Check:** production: step 3's bundle check prints the OFF form, and a fresh private window on
+**Check:** production: step 3's OFF check prints `web-flag-OFF`, and a fresh private window on
 the web domain shows legacy web's app, not the maintenance screen; staging: the web domain serves
 the staging web service. That service's deployed commit is the one step 1 recorded for it, or
 step 10's if the push rebuilt it; for production, record the new deployment's ID.
 
 **If the rebuild fails or hangs (production):** a failed build leaves the previous deployment
 serving (`RELEASE.md`), here the maintenance build, so web stays offline. That is safe: the screen
-makes no api request, and the bundle check still prints the ON form. A build that hangs leaves the
+makes no api request, and the ON check still prints `web-flag-ON`. A build that hangs leaves the
 same deployment serving until it ends; cancel it in the dashboard (dashboard behaviour, not
-established from the repo). Read the build log and retry the deploy once. If it fails again, set
-`MAINTENANCE_MODE=true` on the legacy web service again, so the variable matches what is serving
-and any later build is a maintenance build, and tell the security architect, who decides between
-a fix forward and [`rollback.md`](rollback.md). Do not run step 14 until web is back.
+established from the repo). Read the build log, then bring web back by the first of these that
+works, in order. The proof for each is the OFF check printing `web-flag-OFF`:
+- **(a)** retry the deploy once;
+- **(b)** the dashboard's deploy of the service's latest commit;
+- **(c)** the recorded pre-window web deployment (step 1's ID) → **Redeploy**. It was built with
+  the flag off, and `legacy/frontend-web` is unchanged by this release. The variable stays
+  `false`. Tell the security architect when (c) is needed.
+
+If none of them passes, set `MAINTENANCE_MODE=true` on the legacy web service again, so the
+variable matches what is serving and any later build is a maintenance build. Then tell the
+security architect, who decides between a fix forward and [`rollback.md`](rollback.md). Do not run
+step 14 until web is back.
 **Abort** (this step's check, or legacy web failing against the new `apps/api` here or in step
 14): production: `MAINTENANCE_MODE=true` on the legacy web service. It takes effect only when that
-rebuild is live, and until then legacy web stays live to the public: wait until the bundle check
-prints the ON form. Staging: detach the domain. Then follow [`rollback.md`](rollback.md).
+rebuild is live, and until then legacy web stays live to the public: wait until the ON check
+prints `web-flag-ON`. Staging: detach the domain. Then follow [`rollback.md`](rollback.md).
 
 ## 14. Public smoke tests (scenario 31)
 
