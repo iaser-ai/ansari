@@ -200,3 +200,36 @@ JSON Response { messages: string[] }
 - Current streaming endpoint: `apps/api/src/app/api/v2/threads/[id]/chat/route.ts`
 - WhatsApp service: `apps/whatsapp/src/services/ansariClient.ts`
 - Facilitator: `apps/api/lib/facilitator/agent.ts`
+
+---
+
+## Testing Methodology (IMPORTANT — applies to EVERY phase)
+
+**Established in Phase 2. Carry this forward to Phases 3, 4, 5.**
+
+### The rule
+Every phase ends with **BOTH**:
+1. **Mocked unit/integration tests** (`tests/*.test.ts`, vitest) — free, deterministic, run in CI. These validate *our* logic (auth, validation, thread mgmt, error handling, response parsing).
+2. **A real end-to-end script** (`scripts/*.ts`, run with `npx tsx`) — costs real API usage (Gemini, Kalemat, Usul) but validates the *actual* behavior of the AI and external tools. This is the only way to know Gemini really returns WhatsApp-formatted output, that tools really respond, etc.
+
+### Why both (what we learned in Phase 2)
+- Mocked tests **cannot** catch: Gemini wrapping JSON in ```` ```json ```` code fences, tools being degraded (Kalemat `invalid_body`, Usul 502), or whether the WhatsApp prompt actually produces `*bold*`/`_italic_`/Arabic formatting. All of these only surfaced in the real script run.
+- The codebase convention confirms this split: `gemini.test.ts` explicitly mocks the SDK ("we can't make real API calls in tests"); `auth.integration.test.ts` uses real pglite (not mocks) for DB behavior; real external calls live in `scripts/` (e.g. `bench-documents.bench.ts`). Our `scripts/test-whatsapp-endpoint.ts` follows this exact pattern.
+
+### The real-test script pattern (reuse for later phases)
+`scripts/test-whatsapp-endpoint.ts` does the full real path:
+1. Sign up a throwaway user at `AUTH_URL/api/auth/sign-up/email` (needs `Origin` header = `http://localhost:3000`).
+2. Exchange the session token for a JWT at `AUTH_URL/api/auth/token` (GET, `Authorization: Bearer <sessionToken>`, `Origin` header).
+3. POST to the endpoint under test with `Authorization: Bearer <jwt>`.
+4. Print the raw response and parsed messages.
+
+**These real-test scripts are THROWAWAY validation aids, NOT committed artifacts.** They exist only so the human can watch real output once and confirm the phase works. Do NOT commit them and do NOT wire them into CI — a real API call on every CI run costs money and is non-deterministic. Delete the script (or keep it untracked/`.gitignore`d) once its output has been reviewed. The committed, CI-safe signal is the mocked vitest suite; the script is the one-time human eyeball check on top of it.
+
+**Prerequisites**: `apps/api` dev server running (`pnpm dev`, port 3000) **and** `apps/auth` dev server running (`pnpm dev`, port 3100), each with its `.env` copied from the main checkout (`apps/api/.env`, `apps/auth/.env`). The API verifies JWTs via the auth service's JWKS, so auth MUST be up or every request 401s.
+
+### Checklist for each remaining phase
+- [ ] Mocked tests written and passing (`pnpm test <file>`) — these get committed
+- [ ] Real end-to-end script written/updated in `scripts/` (throwaway, NOT committed)
+- [ ] Script run against live dev servers; raw AI output inspected (not just "it returned 200")
+- [ ] Findings (tool degradation, formatting quirks, latency) recorded in `codev/research/`
+- [ ] Real-test script deleted or left untracked once its output is reviewed

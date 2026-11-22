@@ -269,3 +269,68 @@ export async function getThreadWithMessages(
   const threadMessages = await findMessagesByThread(threadId, exec);
   return { thread, messages: threadMessages };
 }
+
+// ============================================================================
+// Thread Lifecycle Management (Spec 360)
+// ============================================================================
+
+/**
+ * Check if a thread has expired based on the expiry hours.
+ * expiryHours = 0 means always create a new thread.
+ * Uses updatedAt (which is updated when messages are created).
+ */
+function isThreadExpired(thread: Thread, expiryHours: number): boolean {
+  if (expiryHours === 0) return true; // Always create new thread
+  if (!thread.updatedAt) return true; // No timestamp — treat as expired
+  const expiryTime = new Date(thread.updatedAt);
+  expiryTime.setHours(expiryTime.getHours() + expiryHours);
+  return new Date() > expiryTime;
+}
+
+/**
+ * Get or create a thread for a user based on source and expiry.
+ * 
+ * Logic:
+ * 1. Check if user has an active thread with the given source
+ * 2. If no thread or thread expired, delete old thread and create new one
+ * 3. If thread exists and not expired, reuse it
+ * 
+ * Uses database transaction with row-level locking to prevent race conditions.
+ */
+export async function getOrCreateThread(
+  userId: string,
+  source: string,
+  expiryHours: number
+): Promise<Thread> {
+  return await db.transaction(async (tx) => {
+    // Try to find existing thread for this user and source
+    const [existingThread] = await tx
+      .select()
+      .from(threads)
+      .where(and(eq(threads.userId, userId), eq(threads.source, source)))
+      .orderBy(desc(threads.updatedAt))
+      .limit(1)
+      .for('update'); // Row-level lock to prevent race conditions
+
+    // If thread exists and not expired, reuse it
+    if (existingThread && !isThreadExpired(existingThread, expiryHours)) {
+      return existingThread;
+    }
+
+    // Delete expired thread FIRST (atomic operation)
+    if (existingThread) {
+      await tx.delete(threads).where(eq(threads.id, existingThread.id));
+    }
+
+    // Create new thread SECOND (atomic operation)
+    const [newThread] = await tx
+      .insert(threads)
+      .values({
+        userId,
+        source,
+      })
+      .returning();
+
+    return newThread;
+  });
+}
