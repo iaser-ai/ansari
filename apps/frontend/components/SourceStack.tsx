@@ -6,6 +6,7 @@ import {
   type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
+  type ScrollViewInstance,
 } from 'react-native';
 import Animated, {
   ReduceMotion,
@@ -127,7 +128,7 @@ export function SourceStack({
 }) {
   const colors = useColors();
   const reduced = useReducedMotion();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   /** Where each source begins in the column, as the cards report it. */
   const offsets = useRef(new Map<number, number>());
   /** A source asked for before its card had been laid out. */

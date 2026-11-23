@@ -6,9 +6,9 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
+  type TextInputInstance,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -185,7 +185,7 @@ export default function HomeScreen() {
   // directly through its ref and also ask the keyboard library's native
   // module (provably alive on device — it animates the composer) to
   // resign the keyboard itself.
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
   const closeKeyboard = () => {
     inputRef.current?.blur();
     if (Platform.OS !== 'web') {
