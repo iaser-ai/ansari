@@ -3,7 +3,8 @@
 # `eas workflow:run .eas/workflows/update.yml -F platform=all -F channel=preview`.
 #
 # `runtimeVersion: fingerprint` (app.json) decides which binaries an update
-# reaches: only builds whose native fingerprint matches this commit's.
+# reaches: only builds whose native fingerprint matches this commit's. An Expo
+# SDK upgrade changes the fingerprint, so ship a new build before its updates.
 name: Update
 
 on:
