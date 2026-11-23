@@ -22,6 +22,6 @@
     "tsx": "4.23.11",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vitest": "4.1.11"
+    "vitest": "5.1.1"
   }
 }
