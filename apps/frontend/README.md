@@ -1,6 +1,6 @@
 # Ansari — frontend (`apps/frontend`)
 
-The Ansari app: an Expo (SDK 57, React Native 0.86, React 19.2) client for
+The Ansari app: an Expo (SDK 58, React Native 0.88, React 19.3) client for
 iOS, Android and web (react-native-web), on the **Replit-sourced design**
 (dark mode, collapsible sidebar, source panel, a motion/layout/radius token
 system) and **wired end-to-end to this repo's backend** (`apps/api`) — auth,
@@ -92,12 +92,16 @@ sidebar → sidebar collapses/expands (desktop) or opens as a drawer (narrow
 width) → open the source panel from a citation → "Log in" (rail or account
 corner) → About page.
 
-### Uniwind: installed, wired, unused
+### Uniwind: installed, not wired, unused
 
-`uniwind` and Tailwind are dependencies, `metro.config.js` wraps the config
-in `withUniwindConfig` (CSS entry `src/global.css`), and the `gen:types` task
-generates `uniwind-types.d.ts` (gitignored; `types.d.ts` and
-`uniwind-env.d.ts` are committed). The UI itself is `StyleSheet`-only, and
+`uniwind` and Tailwind are dependencies, and the `gen:types` task generates
+`uniwind-types.d.ts` (gitignored; `types.d.ts` and `uniwind-env.d.ts` are
+committed). `metro.config.js` does **not** wrap the config in
+`withUniwindConfig`: that wrapper replaces every `react-native` import with
+Uniwind's own re-export shim, which (through uniwind 1.14.0) lacks React
+Native 0.88's new exports such as `AssetRegistry`. expo-asset 58 imports it,
+so with the wrapper every icon font fails on native (#428). Re-wiring is
+#264's call once upstream forwards the new exports. The UI itself is `StyleSheet`-only, and
 `app/_layout.tsx` deliberately does **not** import `src/global.css`:
 Tailwind's preflight reset would restyle it on the web. Adopting Uniwind
 for new UI is a separate product decision.
@@ -241,6 +245,6 @@ apps/frontend/
   lib/suggested-topics.ts    static suggested-questions list (consumed by lib/api/hooks.ts)
   assets/                    redrawn icons, ambient-shadow video
   public/                    web shell: index.html, fonts, icons, manifest (scripts/build-icons.mjs)
-  src/global.css             Uniwind/Tailwind CSS entry (wired, not imported; see above)
+  src/global.css             Uniwind/Tailwind CSS entry (not wired, not imported; see above)
   vendor/api-client-react/   custom-fetch.ts (fetch runtime) + generated/api.schemas.ts (types); see above
 ```
