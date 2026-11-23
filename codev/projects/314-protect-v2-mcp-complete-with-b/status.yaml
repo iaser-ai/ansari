@@ -1,7 +1,7 @@
 id: '314'
 title: protect-v2-mcp-complete-with-b
 protocol: spir
-phase: verify
+phase: verified
 plan_phases:
   - id: phase_1
     title: 'ansari-mcp key rules: limits, client-id rule, script constraints'
@@ -33,13 +33,14 @@ gates:
     requested_at: '2026-11-11T04:36:26.447Z'
     approved_at: '2026-11-12T00:17:07.478Z'
   verify-approval:
-    status: pending
+    status: approved
     requested_at: '2026-11-12T00:24:58.407Z'
+    approved_at: '2026-11-21T12:08:02.681Z'
 iteration: 1
-build_complete: false
+build_complete: true
 history: []
 started_at: '2026-11-11T02:47:51.234Z'
-updated_at: '2026-11-12T00:24:58.408Z'
+updated_at: '2026-11-21T12:08:04.479Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-11-11T03:09:39.378Z'
