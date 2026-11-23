@@ -84,7 +84,12 @@ run it through turbo, or run `pnpm gen:types` first from this directory.
 (`https://api-staging.askansari.ai`, `https://auth-staging.askansari.ai`);
 override them together with `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_AUTH_URL`
 in `.env.local` (see `.env.local.example`). Those are the app's only
-environment variables.
+environment variables. Since SDK 58 (#428), a development bundle
+(`expo start`) reads the `.env*` files at runtime and lets them win over
+variables set in the shell, even with `EXPO_NO_DOTENV=1`: to point a dev
+build somewhere else, edit `.env.local` rather than prefixing the command.
+Exports (`expo export`, the web image, EAS builds) still inline the shell's
+values over the files, as before.
 
 Then: home screen (dark-mode-capable, sidebar, ambient palm-shadow layer) →
 ask a question and watch the answer stream in → open a past thread from the
