@@ -1,7 +1,7 @@
 id: '300'
 title: better-auth-migration
 protocol: spir
-phase: review
+phase: verified
 plan_phases:
   - id: phase_1
     title: Legacy contract tests pinned against today's implementation
@@ -53,15 +53,18 @@ gates:
     requested_at: '2026-10-16T00:44:30.980Z'
     approved_at: '2026-10-16T05:10:51.636Z'
   pr:
-    status: pending
+    status: approved
     requested_at: '2026-10-17T02:48:53.217Z'
+    approved_at: '2026-11-21T12:23:27.742Z'
   verify-approval:
-    status: pending
+    status: approved
+    requested_at: '2026-11-21T12:23:43.522Z'
+    approved_at: '2026-11-21T12:23:49.741Z'
 iteration: 1
-build_complete: false
+build_complete: true
 history: []
 started_at: '2026-10-14T03:31:15.359Z'
-updated_at: '2026-10-17T02:48:53.217Z'
+updated_at: '2026-11-21T12:23:51.833Z'
 context_refreshes:
   - boundary: enter:plan
     at: '2026-10-16T00:28:28.599Z'
@@ -116,4 +119,6 @@ pr_history:
     pr_number: 315
     branch: builder/spir-300
     created_at: '2026-10-17T02:08:25.476Z'
-pr_ready_for_human: true
+    merged: true
+    merged_at: '2026-11-21T12:23:41.459Z'
+pr_ready_for_human: false
