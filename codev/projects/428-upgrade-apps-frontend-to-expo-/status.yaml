@@ -1,0 +1,18 @@
+id: '428'
+title: upgrade-apps-frontend-to-expo-
+protocol: pir
+phase: plan
+plan_phases: []
+current_plan_phase: null
+gates:
+  plan-approval:
+    status: pending
+  dev-approval:
+    status: pending
+  pr:
+    status: pending
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-23T22:08:52.471Z'
+updated_at: '2026-11-23T22:08:52.472Z'
