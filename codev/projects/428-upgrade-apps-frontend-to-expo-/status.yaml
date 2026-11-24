@@ -1,7 +1,7 @@
 id: '428'
 title: upgrade-apps-frontend-to-expo-
 protocol: pir
-phase: review
+phase: verified
 plan_phases: []
 current_plan_phase: null
 gates:
@@ -21,7 +21,7 @@ iteration: 1
 build_complete: false
 history: []
 started_at: '2026-11-23T22:08:52.471Z'
-updated_at: '2026-11-24T03:59:25.087Z'
+updated_at: '2026-11-24T03:59:27.551Z'
 pr_history:
   - phase: review
     pr_number: 438
