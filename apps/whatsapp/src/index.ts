@@ -67,3 +67,11 @@ process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled promise rejection', reason);
   sentryReporter(reason, { errorType: 'unhandled_rejection' });
 });
+
+// Unlike a rejection, an uncaught exception leaves the process in an unknown state, so report it, flush Sentry and exit non-zero.
+// Railway restarts the service (up to its restart limit), and the crash shows in the deploy logs.
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception', error);
+  sentryReporter(error, { errorType: 'uncaught_exception' });
+  void flushSentry(2_000).finally(() => process.exit(1));
+});

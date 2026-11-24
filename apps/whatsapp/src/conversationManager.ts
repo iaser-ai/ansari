@@ -2,7 +2,7 @@
  * The conversation manager: what happens between "Meta delivered a message" and "the user has an answer".
  *
  * Python counterpart: `services/whatsapp_conversation_manager.py`, plus the checks that lived in the webhook route of
- * `app/main.py` (maintenance mode, the staging `!d ` filter, the message-age check, the unsupported-type check).
+ * `app/main.py` (maintenance mode, the staging `!s ` filter, the message-age check, the unsupported-type check).
  *
  * The flow for a text message:
  *

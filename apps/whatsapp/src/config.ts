@@ -70,9 +70,9 @@ const secret = z.string().min(1).transform((raw) => new Secret(raw));
 const rawSchema = z.object({
   // ---------- apps/api and apps/auth ----------
   /** apps/api's base URL, no path. The client appends /api/v2/*. */
-  BACKEND_SERVER_URL: z.string().default('http://localhost:3000'),
+  BACKEND_SERVER_URL: z.url().default('http://localhost:3000'),
   /** apps/auth's base URL, no path. The auth client appends /api/whatsapp/session. */
-  AUTH_SERVER_URL: z.string().default('http://localhost:3100'),
+  AUTH_SERVER_URL: z.url().default('http://localhost:3100'),
   /** Authenticates this service to apps/auth's /whatsapp endpoint (`Authorization: Bearer <key>`, issue #329). */
   AUTH_WHATSAPP_API_KEY: secret,
 

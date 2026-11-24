@@ -162,7 +162,8 @@ export class MetaApiServiceReal implements MetaApiService {
     logger.error(`Meta's reply (${response.status}): ${await metaErrorSummary(response)}`);
     if (response.status !== 400) return;
 
-    let line = `Meta rejected the request (400). URL: ${this.#options.apiUrl} | Payload keys: ${pythonList(Object.keys(sent).sort())}`;
+    // The URL ends with the phone number ID, which config.ts treats as a secret, so it is masked like any other identifier
+    let line = `Meta rejected the request (400). URL: ${maskIdentifiers(this.#options.apiUrl)} | Payload keys: ${pythonList(Object.keys(sent).sort())}`;
     if (environment !== 'production') {
       const headers = Object.fromEntries(
         Object.entries(this.#headers()).map(([key, value]) => [key, key.toLowerCase() === 'authorization' ? 'Bearer ***' : value]),

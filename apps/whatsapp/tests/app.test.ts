@@ -5,7 +5,7 @@
  * - `test_whatsapp_service.py`: health, the handshake, a basic webhook, missing and wrong signatures, a phone-hidden user,
  *   a message with neither `from` nor `from_user_id`.
  * - `test_environment_behaviour.py`: a signed body that is not JSON is a 400, the handshake accepts the right token and refuses
- *   others (a non-ASCII token included), maintenance mode, the staging `!d ` filter, an unsupported type.
+ *   others (a non-ASCII token included), maintenance mode, the staging `!s ` filter, an unsupported type.
  * - `test_bsuid_auth_flow.py`: the webhook flow (who is signed in, who is replied to), and that no log line holds a phone number,
  *   BSUID, message text or the verify token.
  *
@@ -583,6 +583,13 @@ describe('with ALWAYS_RETURN_OK_TO_META on (what Meta really gets)', () => {
     await t.settle();
     expect(response.status).toBe(200);
     expect(response.json).toMatchObject({ success: false, error_code: errorCode });
+  });
+
+  it('the staging filter says what Python says, so a sender knows the message is for another environment', async () => {
+    const t = await started({ env: { ALWAYS_RETURN_OK_TO_META: 'true', ENVIRONMENT: 'staging' } });
+    const response = await t.post(webhookPayload({ text: { body: '!d hi' } }));
+    await t.settle();
+    expect(response.json).toMatchObject({ message: 'Message is meant for another environment', error_code: 'DEV_FILTER' });
   });
 
   it('answers 200 for a body over the size limit, so Meta does not resend it', async () => {

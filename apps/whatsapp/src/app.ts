@@ -2,7 +2,7 @@
  * The Express app: the three routes Meta and the platform call, built without listening so tests can drive it.
  *
  * Python counterpart: `app/main.py` (FastAPI). The checks that used to sit in its webhook route (maintenance, the staging
- * `!d ` filter, message age, message type) moved to `ConversationManager.triage`; this file only turns each answer into the
+ * `!s ` filter, message age, message type) moved to `ConversationManager.triage`; this file only turns each answer into the
  * HTTP reply Meta gets.
  *
  *   GET  /            health probe
@@ -55,7 +55,7 @@ const TRIAGE_REPLIES: Record<TriageAction, MetaResponseInput> = {
   maintenance: { success: false, message: 'Service under maintenance', statusCode: 503, errorCode: 'MAINTENANCE_MODE' },
   dev_filter: {
     success: false,
-    message: 'Message filtered for local development',
+    message: 'Message is meant for another environment',
     statusCode: 202,
     errorCode: 'DEV_FILTER',
   },

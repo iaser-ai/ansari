@@ -23,7 +23,7 @@ plan_phases:
     status: complete
   - id: phase_7
     title: Staging redeploy, smoke test and legacy rollback note
-    status: complete
+    status: pending
 current_plan_phase: null
 gates:
   spec-approval:
