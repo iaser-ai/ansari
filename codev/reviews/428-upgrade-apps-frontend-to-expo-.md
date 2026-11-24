@@ -22,7 +22,7 @@ Fixes #428
 | react-native-safe-area-context | ~5.7.0 | ~5.11.1 |
 | react-native-keyboard-controller | 1.21.9 | 1.22.7 |
 | react-native-svg / react-native-web | 15.15.4 / ^0.21.2 | 15.16.0 / ^0.21.4 |
-| the 20 `expo-*` modules, `@expo/metro-runtime` | 57.x | 58.x (e.g. expo-router ~58.0.32, expo-video ~58.0.14, expo-updates ~58.0.22) |
+| the 20 `expo-*` modules, `@expo/metro-runtime` | 57.x | 58.x (e.g. expo-router ~58.0.32, expo-video ~58.0.14, expo-updates ~58.0.22); expo-web-browser is ~58.1.0 rather than 58.0.x because that is the range SDK 58's `bundledNativeModules.json` pins, the tooling's choice, not mine |
 | babel-preset-expo / eslint-config-expo | ^57.0.14 / ^57.0.2 | ^58.0.26 / ^58.0.4 |
 
 React stays at the SDK's 19.3.0 in the frontend. `apps/api`'s 19.3.1 (PR 435) is separate and intended.
@@ -35,7 +35,8 @@ React stays at the SDK's 19.3.0 in the frontend. `apps/api`'s 19.3.1 (PR 435) is
 - **uniwind ^1.14.0** (`8aaeed82`, owner decision): **this bump does NOT fix the icon failure.** 1.14.0, the latest on 2026-11-24, still lacks `AssetRegistry` in its shim. `gen:types` output is byte-identical to 1.12.2's.
 - **zod-validation-error removed** (`d2fbfc22`): the owner's direct request, **not part of the SDK upgrade**. It was imported nowhere, and its 3.x line peers on zod ^3, unmet since the frontend moved to zod 4.6.7.
 - **`.env.local` wins in dev bundles** (`e9b89d2b`, docs only): in SDK 58, a development bundle (`expo start`) reads the `.env*` files at runtime through `expo/virtual/env` and merges them OVER the shell's variables, even with `EXPO_NO_DOTENV=1`. `EXPO_PUBLIC_API_URL=… expo start` is therefore silently overridden by `.env.local`. Exports (`expo export`, the web image, EAS builds) still inline the shell's values. The frontend README and CONTRIBUTING now say to edit `.env.local` for a dev build.
-- **Docs**: `metro.config.js` comment, frontend README (SDK line, Uniwind section), `arch.md`, and the EAS update workflow header.
+- **className guard** (review round 1): `tsconfig.json` still includes `uniwind-env.d.ts`, so `<View className="…">` typechecks but does nothing while Uniwind is unwired. `lib/no-classname.test.ts` scans every JSX attribute under `app/` and `components/` with the TypeScript AST and fails on any `className`. I proved it both ways: a `className` planted at `components/SourceStack.tsx:185` failed it, and removing it passed. The test also checks a planted case and near-misses (comments, strings, `classNames`, `containerClassName`) in-file.
+- **Docs**: `metro.config.js` comment, frontend README (SDK line, Uniwind section, React Compiler note), `arch.md`, the EAS update workflow header, and three comments this PR made false (`.gitignore`, `eslint.config.mjs`, `babel.config.js`).
 
 ## OTA safety: the fingerprint proof
 
@@ -95,18 +96,38 @@ Details are in the PR comment.
 ## Test Results
 
 - `npx expo-doctor`: ✓ 20/20
-- lint: ✓ 0 errors (64 warnings; I did not measure the SDK 57 baseline); typecheck: ✓; frontend tests: ✓ 809 passed (62 files)
+- lint: ✓ 0 errors; typecheck: ✓; frontend tests: ✓ 813 passed (63 files: the 809 plus the 4 className-guard tests)
+- **What the vitest suite does not prove:** `vitest.config.ts` aliases `react-native` to `react-native-web`, so the tests run the web branch only. They are **not** evidence for gesture-handler 3, worklets on the UI thread, expo-video native or SecureStore; those rest on the device checks below.
+
+**Lint baseline, per rule** (frontend eslint, develop `cf584b6f` vs this PR's head):
+
+| Rule | develop | this PR |
+|---|---|---|
+| import/first | 36 | 36 |
+| import/no-duplicates | 2 | 2 |
+| react-hooks/globals | 2 | 2 |
+| react-hooks/immutability | 3 | 3 |
+| react-hooks/refs | 9 | 9 |
+| react-hooks/set-state-in-effect | 12 | 12 |
+| **total** (errors) | **64** (0) | **64** (0) |
+
+The sets are identical: every React Compiler rule (`react-hooks/*`) fires on the same files the same number of times on both. No compiler decision changed. eslint-config-expo 58.0.4 still ships eslint-plugin-react-hooks v7 (7.1.1), like 57.
 - web export: ✓ one bundle; Docker web image (`Dockerfile.web`): ✓ builds and serves one bundle
 - porch build and tests checks: ✓ (API suite run with `apps/api/.env.ci`, as CI does)
 - Built web `dist/` in headless Chrome: ✓ 12 routes, no page errors, no error boundary
 
 Verified by me:
-- **iOS 27.2 simulator (iPhone 18 Pro), dev build**: launches, icons render, no JS errors. I could not drive taps there, so **iOS interaction was tested by the owner, not by me**, at the dev-approval gate.
+- **iOS 27.2 simulator (iPhone 18 Pro), dev build**: launches, icons render, no JS errors. I could not drive taps there, so **iOS interaction was tested by the owner, not by me**, at the dev-approval gate: the composer riding the keyboard on iOS and every swipe (sheet drag, swipe-to-reveal, edge swipe, toast, mark spin) were the owner's device checks.
 - **Android emulator (API 36.1), dev build, against staging**: fresh guest session, a question typed and sent, answer streamed to completion with Sources (Qur'an and Hadith pills, hadith grades, footnotes), on the final head with zod 4.6.7. Composer rides the keyboard.
 
 Verified by the owner (dev-approval, 2026-11-24): the device test list (iOS and Android dev builds, real-device timing, mobile web in the iOS Simulator).
 
 Not verified: an Android release build. R8 is now on by default in SDK 58 release builds; the optional `preview` EAS build check was left to the owner.
+
+## Owner checks requested at review round 1 (answers recorded when relayed)
+
+- Native SDK 58 build against staging, open an emailed password-reset link (`ansarichat://reset-password?token=…`): the form appears, the reset succeeds, and the token is gone from the route params (`app/reset-password.tsx:55-66` relies on a same-path `router.replace`). *Pending.*
+- Optional: install the SDK 58 build over an existing SDK 57 build and confirm the session survives (SecureStore). *Pending.*
 
 ## Pre-existing bug found: Retry brings the answer back without sources
 
@@ -125,11 +146,11 @@ Not caused by this PR or by zod 4. Proposed as its own issue; not filed.
 
 ## Proposed note for issue #264
 
-> Uniwind is installed but no longer wired into Metro (#428): through uniwind 1.14.0 its `react-native` shim lacks RN 0.88's `AssetRegistry`, which breaks every icon font on native. Re-wiring needs an upstream release that forwards the new RN exports, verified on a native build.
+> Uniwind is installed but no longer wired into Metro (#428): through uniwind 1.14.0 its `react-native` shim lacks RN 0.88's `AssetRegistry`, which breaks every icon font on native. Re-wiring needs an upstream release that forwards the new RN exports, verified on a native build. Until then `apps/frontend/lib/no-classname.test.ts` fails on any `className` under `app/` and `components/`; remove that test when re-wiring.
 
 ## Architecture Updates
 
-COLD `codev/resources/arch.md`: the frontend entry now says SDK 58 / RN 0.88 / React 19.3, that Uniwind is installed but not wired (and why), and that the web export is one bundle on purpose (`asyncRoutes.web: false`, and the Caddy `try_files` reason). No HOT change: none of these changes a cross-cutting rule.
+COLD `codev/resources/arch.md`: the frontend entry now says SDK 58 / RN 0.88 / React 19.3, that Uniwind is installed but not wired (and why), that the web export is one bundle on purpose (`asyncRoutes.web: false`, and the Caddy `try_files` reason), that this narrows the stale-tab window without closing it, and the className guard. No HOT change: none of these changes a cross-cutting rule.
 
 ## Lessons Learned Updates
 
@@ -148,7 +169,8 @@ HOT `lessons-critical.md`: the map line for SDK upgrades now names #428. No new 
 - **`pnpm-lock.yaml`** is large but tool-generated. Each `develop` merge took `develop`'s lockfile and regenerated it. The task-15s3 packages and next/sharp were checked byte-identical to `develop`.
 - **`@expo/dom-webview`** came back as 57.0.1 from `develop`'s lockfile on every merge and was refreshed to 58.0.2 each time. A future merge of an old lockfile can bring it back; `expo-doctor` catches it.
 - **gesture-handler 3** keeps the deprecated `Gesture.*` builder API in five components. Moving to the hook API before RNGH removes the builders is a separate follow-up.
-- **The `asyncRoutes.web: false` opt-out** is a deliberate behaviour choice beyond the raw upgrade, made to avoid broken tabs after deploys. Removing it later needs cache-safe chunk serving first.
+- **The `asyncRoutes.web: false` opt-out** is a deliberate behaviour choice beyond the raw upgrade, made to avoid broken tabs after deploys. It **narrows the stale-tab window but does not close it**: a tab holding a pre-deploy `index.html` asks for a bundle hash that no longer exists and gets `index.html` back. `apps/frontend/Caddyfile` sets no cache headers and has no `/_expo/` rule; it is only `file_server` plus `try_files {path} /index.html`. The durable fix is a proposed follow-up, not done here: a 404 instead of the `index.html` fallthrough under `/_expo/`, plus explicit cache headers. Removing the opt-out needs that first.
+- **Stale comments**: the three flagged were fixed (`.gitignore:12`, `eslint.config.mjs:27`, `babel.config.js:3`). A repo-wide sweep for present-tense SDK 57 / RN 0.86 claims found **1 more**, fixed (`apps/frontend/README.md`, the React Compiler note). These were kept as dated records: the README's "SDK 54 → 57 port (#262)" table, the lessons-learned #262 section and `app/_layout.tsx:176` ("expo-navigation-bar 57 replaced…", still true). Flag only, not edited: `codev/state/app.md` lines 70 and 83 still say SDK 57 (the app architect's state file).
 - **The R8 release build** is not verified.
 
 ## How to Test Locally
