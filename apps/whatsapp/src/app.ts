@@ -279,7 +279,7 @@ export function buildApp({
 
   // Express recognises an error handler by its four parameters, so `_next` must stay even though it is not used
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
     const status = httpStatusOf(error);
     if (status >= 500) {
       logger.error('Unhandled exception', error);
@@ -289,6 +289,17 @@ export function buildApp({
     }
     if (res.headersSent) {
       res.end();
+      return;
+    }
+    // A webhook body the parser refuses (too large, aborted) is answered through the Meta rule like every other webhook, so with
+    // ALWAYS_RETURN_OK_TO_META on, Meta gets a 200 and does not resend the same body for up to a day
+    if (req.path === WEBHOOK_PATH && status < 500) {
+      answerMeta(res, {
+        success: false,
+        message: 'Webhook body rejected',
+        statusCode: status,
+        errorCode: status === 413 ? 'PAYLOAD_TOO_LARGE' : 'INVALID_BODY',
+      });
       return;
     }
     // Never the error's own text: it can quote part of the request

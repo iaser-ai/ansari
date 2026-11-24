@@ -27,7 +27,7 @@ import types
 
 # Dummy credentials, as in legacy/whatsapp/tests/conftest.py. Nothing here is a real secret.
 for key, value in {
-    "DEPLOYMENT_TYPE": "local",
+    "ENVIRONMENT": "development",
     "MOCK_META_API": "True",
     "MOCK_ANSARI_CLIENT": "True",
     "MOCK_AUTH_CLIENT": "True",

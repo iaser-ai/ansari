@@ -244,7 +244,7 @@ describe('the signature', () => {
     const huge = 'x'.repeat(1_200_000);
     const response = await t.post(null, { raw: huge });
     expect(response.status).toBe(413);
-    expect(response.json).toEqual({ detail: 'Payload Too Large' });
+    expect(response.json).toMatchObject({ success: false, error_code: 'PAYLOAD_TOO_LARGE' });
   });
 
   it('keeps the signature and the app secret out of the logs', async () => {
@@ -583,6 +583,13 @@ describe('with ALWAYS_RETURN_OK_TO_META on (what Meta really gets)', () => {
     await t.settle();
     expect(response.status).toBe(200);
     expect(response.json).toMatchObject({ success: false, error_code: errorCode });
+  });
+
+  it('answers 200 for a body over the size limit, so Meta does not resend it', async () => {
+    const t = await started({ env: { ALWAYS_RETURN_OK_TO_META: 'true' } });
+    const response = await t.post(null, { raw: 'x'.repeat(1_200_000) });
+    expect(response.status).toBe(200);
+    expect(response.json).toMatchObject({ success: false, error_code: 'PAYLOAD_TOO_LARGE' });
   });
 
   it('answers 200 for a body that is not JSON', async () => {

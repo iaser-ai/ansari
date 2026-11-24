@@ -15,8 +15,12 @@ import { flushSentry, initSentry, sentryReporter } from './sentry';
 import { createServices } from './services/createServices';
 import { gracefulShutdown } from './server';
 
-/** Railway waits about this long after SIGTERM before it kills the process. */
-const SHUTDOWN_GRACE_MS = 8_000;
+/**
+ * Time given to answers already in progress after SIGTERM, about one typical Gemini answer (60 s in local tests). Railway
+ * force-kills the process when its "draining seconds" setting runs out. That setting is unset on the whatsapp service, so
+ * Railway's default applies (not stated in its docs), and this grace only works if that value is at least this long.
+ */
+const SHUTDOWN_GRACE_MS = 60_000;
 
 const env = getEnv();
 const logger = createLogger({
