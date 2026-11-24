@@ -75,6 +75,17 @@ See `codev/reviews/262-promote-prototypes-ansari-expo.md` for the full context.
 - **Compare streamed answers only after completion.** A mid-stream snapshot showed 0 footnotes against staging's 25, a false alarm. Footnotes render after `done` and a `/documents` refetch. Wait for the app's own completion signal ("Ansari has answered"). Marker counts also vary per model answer, so compare the structure, not the count.
 - **`npx expo install` edits `app.json`.** It appends config plugins (here `expo-image`, `expo-secure-store`), and `expo run:ios` / prebuild rewrites `package.json` scripts. When a plugin list is a decision, diff `app.json` after every install.
 
+## Expo SDK 57 → 58 (issue #428)
+
+See `codev/reviews/428-upgrade-apps-frontend-to-expo-.md` for the full context.
+
+- **A Metro wrapper that replaces `react-native` imports breaks on an RN bump, far from where it fails.** Uniwind's `withUniwindConfig` redirects every `react-native` import to a fixed re-export list that lacked RN 0.88's `AssetRegistry`, which expo-asset 58 imports. The symptom was every `@expo/vector-icons` font failing on native (`getAssetByID of undefined`), with web, typecheck and tests all green. Prove a suspect wrapper both ways on a device (with and without it) before deciding.
+- **SDK 58 dev bundles let `.env*` files win over the shell.** `expo/virtual/env` merges the `.env*` files over `process.env` at runtime, even with `EXPO_NO_DOTENV=1`, so `EXPO_PUBLIC_API_URL=… expo start` is silently overridden by `.env.local`. Exports still inline the shell's values. Before chasing an app bug against a backend, `curl` the served bundle and grep it for the URL you expect.
+- **One bad device session is not a regression.** A single run that showed "Answer not delivered" and no sources looked like a zod 4 on Hermes failure; three more runs, an on-device probe on every decode failure path and a like-for-like zod 3 control showed it was a pre-existing Retry bug. Repeat, control and read the actual error before raising a blocker.
+- **The SDK's stale optional peer comes back on every merge.** `@expo/dom-webview` (an auto-installed optional peer of `expo`, range `*`) stays at 57.x from `develop`'s lockfile and fails expo-doctor. Refresh it with `npx expo install @expo/dom-webview` then `pnpm remove @expo/dom-webview` (no hand edit, no new dependency). `pnpm update --depth Infinity` is far too broad (it moved the vitest graph). A filtered `pnpm remove` can drop a lockfile `catalogs:` row; `pnpm install --resolution-only` restores it.
+- **`npx expo install` still appends plugins.** It added `expo-image` and `expo-status-bar` to `app.json`; with no props both are no-ops, so they were reverted (as in #262, diff `app.json` after every install).
+- **Driving an Android emulator for a native check.** RN 0.88's `console.*` reaches neither logcat nor Metro, and the Metro inspector socket was not scriptable here, so an on-screen `Alert` probe (in a scratch checkout, never the branch) was the reliable way to see an error. `uiautomator dump` fails while the ambient video plays. The send button moves with the keyboard, and the dev menu closes on a tap above the sheet, not Back.
+
 ## Derived citable documents (spec 168)
 
 See `codev/reviews/168-serve-citable-documents-derive.md` for the full context.

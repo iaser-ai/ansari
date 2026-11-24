@@ -1142,3 +1142,7 @@ conditional by design:
 - The reset link appears in access logs; this is with the owner.
 - The production web swap is un-rehearsed.
 - A true two-connection race test needs real Postgres.
+
+## Close-out (2026-11-21)
+
+- The `pr` gate was approved on 2026-11-21 on the owner's written approval (relayed by the security architect). Porch's `pr_exists` check matched PR #422, the #416 close-out branch's PR. The project's own PR is #315, merged 2026-10-19T09:11:11Z (merge commit `2c847955`). The `merged_at` in `codev/projects/300-better-auth-migration/status.yaml` (2026-11-21) is when porch recorded the merge, not when it happened. `verify-approval` followed, under the same approval, after the production cutover window ran on 2026-11-21 (`docs/cutover/release-record.md`).

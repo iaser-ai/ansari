@@ -853,7 +853,7 @@ export default function ChatScreen() {
                         question={retryQuestion}
                         onRetry={() => send(retryQuestion)}
                       />
-                    ) : null
+                    ) : undefined
                   }
                   renderItem={({ item }) => (
                     // The question carried in from the ask is already drawn,

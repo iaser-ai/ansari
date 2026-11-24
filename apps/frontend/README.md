@@ -1,6 +1,6 @@
 # Ansari — frontend (`apps/frontend`)
 
-The Ansari app: an Expo (SDK 57, React Native 0.86, React 19.2) client for
+The Ansari app: an Expo (SDK 58, React Native 0.88, React 19.3) client for
 iOS, Android and web (react-native-web), on the **Replit-sourced design**
 (dark mode, collapsible sidebar, source panel, a motion/layout/radius token
 system) and **wired end-to-end to this repo's backend** (`apps/api`) — auth,
@@ -84,7 +84,12 @@ run it through turbo, or run `pnpm gen:types` first from this directory.
 (`https://api-staging.askansari.ai`, `https://auth-staging.askansari.ai`);
 override them together with `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_AUTH_URL`
 in `.env.local` (see `.env.local.example`). Those are the app's only
-environment variables.
+environment variables. Since SDK 58 (#428), a development bundle
+(`expo start`) reads the `.env*` files at runtime and lets them win over
+variables set in the shell, even with `EXPO_NO_DOTENV=1`: to point a dev
+build somewhere else, edit `.env.local` rather than prefixing the command.
+Exports (`expo export`, the web image, EAS builds) still inline the shell's
+values over the files, as before.
 
 Then: home screen (dark-mode-capable, sidebar, ambient palm-shadow layer) →
 ask a question and watch the answer stream in → open a past thread from the
@@ -92,12 +97,20 @@ sidebar → sidebar collapses/expands (desktop) or opens as a drawer (narrow
 width) → open the source panel from a citation → "Log in" (rail or account
 corner) → About page.
 
-### Uniwind: installed, wired, unused
+### Uniwind: installed, not wired, unused
 
-`uniwind` and Tailwind are dependencies, `metro.config.js` wraps the config
-in `withUniwindConfig` (CSS entry `src/global.css`), and the `gen:types` task
-generates `uniwind-types.d.ts` (gitignored; `types.d.ts` and
-`uniwind-env.d.ts` are committed). The UI itself is `StyleSheet`-only, and
+`uniwind` and Tailwind are dependencies, and the `gen:types` task generates
+`uniwind-types.d.ts` (gitignored; `types.d.ts` and `uniwind-env.d.ts` are
+committed). `metro.config.js` does **not** wrap the config in
+`withUniwindConfig`: that wrapper replaces every `react-native` import with
+Uniwind's own re-export shim, which (through uniwind 1.14.0) lacks React
+Native 0.88's new exports such as `AssetRegistry`. expo-asset 58 imports it,
+so with the wrapper every icon font fails on native (#428). Re-wiring is
+#264's call once upstream forwards the new exports. Because `tsconfig.json`
+still includes `uniwind-env.d.ts`, `<View className="…">` typechecks but does
+nothing while Uniwind is unwired; `lib/no-classname.test.ts` fails on any JSX
+`className` under `app/` and `components/` until it is re-wired (remove the
+test then). The UI itself is `StyleSheet`-only, and
 `app/_layout.tsx` deliberately does **not** import `src/global.css`:
 Tailwind's preflight reset would restyle it on the web. Adopting Uniwind
 for new UI is a separate product decision.
@@ -171,8 +184,9 @@ for five changes the upgrade forced or exposed:
 | `Sidebar`'s `style` prop typed as `Animated.View`'s | reanimated 4.5 typing |
 | `composerBottomPad` (`constants/layout.ts`) marked `'worklet'` | both screens call it inside `useAnimatedStyle`, which runs on the UI thread on native; unmarked, it threw "Tried to synchronously call a Remote Function". Pre-existing since #121; `lib/worklets.test.ts` now scans every worklet body for unmarked calls |
 
-The React Compiler lint rules from eslint-config-expo 57 are warnings for
-now (see `eslint.config.mjs`); fixing them is part of #264.
+The React Compiler lint rules from eslint-config-expo (57, and 58 since
+#428; both ship eslint-plugin-react-hooks v7) are warnings for now (see
+`eslint.config.mjs`); fixing them is part of #264.
 
 ## Builds
 
@@ -241,6 +255,6 @@ apps/frontend/
   lib/suggested-topics.ts    static suggested-questions list (consumed by lib/api/hooks.ts)
   assets/                    redrawn icons, ambient-shadow video
   public/                    web shell: index.html, fonts, icons, manifest (scripts/build-icons.mjs)
-  src/global.css             Uniwind/Tailwind CSS entry (wired, not imported; see above)
+  src/global.css             Uniwind/Tailwind CSS entry (not wired, not imported; see above)
   vendor/api-client-react/   custom-fetch.ts (fetch runtime) + generated/api.schemas.ts (types); see above
 ```

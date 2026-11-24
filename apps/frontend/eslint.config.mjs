@@ -24,8 +24,8 @@ export default [
     },
   },
   {
-    // SCOPED OVERRIDE (#262 -> #264). eslint-config-expo 57 ships
-    // eslint-plugin-react-hooks v7, whose React Compiler rules flag 26 sites
+    // SCOPED OVERRIDE (#262 -> #264). eslint-config-expo (57, and 58 since
+    // #428) ships eslint-plugin-react-hooks v7, whose React Compiler rules flag 26 sites
     // in code ported verbatim from the SDK 54 prototype (which never ran
     // eslint). They mark components the compiler skips optimising, not
     // runtime errors, and each fix restructures a component, which is

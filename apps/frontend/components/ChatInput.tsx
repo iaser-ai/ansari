@@ -5,8 +5,8 @@ import {
   StyleSheet,
   TextInput,
   View,
-  type NativeSyntheticEvent,
-  type TextInputKeyPressEventData,
+  type TextInputInstance,
+  type TextInputKeyPressEvent,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
@@ -300,7 +300,7 @@ export function ChatInput({
   /** Fires when the question field gains or loses focus. */
   onFocusChange?: (focused: boolean) => void;
   /** Direct handle on the field, so screens can blur it reliably. */
-  inputRef?: React.Ref<TextInput>;
+  inputRef?: React.Ref<TextInputInstance>;
   /** Clearer glass for media-backed screens (the ambient-video home). */
   clearGlass?: boolean;
   /** Keeps the draft visible when the thread is unavailable. */
@@ -335,9 +335,7 @@ export function ChatInput({
   // (Arabic transliteration and the like) is left alone. Native
   // keyboards never come through here with Enter; they use
   // submitBehavior/onSubmitEditing as before.
-  const submitOnEnter = (
-    e: NativeSyntheticEvent<TextInputKeyPressEventData>,
-  ) => {
+  const submitOnEnter = (e: TextInputKeyPressEvent) => {
     if (Platform.OS !== 'web') return;
     const web = e as unknown as {
       key?: string;

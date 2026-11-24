@@ -78,7 +78,8 @@ an `ansari-mcp` key, as a deployed one does: issue a development key and put
 `MCP_COMPLETE_KEY_MODE=log-only`. `pnpm mcp inspect` opens the MCP Inspector on it. The
 steps are in [`apps/mcp/README.md`](apps/mcp/README.md), under "Local development". The frontend talks to
 **staging** unless `EXPO_PUBLIC_API_URL=http://localhost:3000` and
-`EXPO_PUBLIC_AUTH_URL=http://localhost:3100` are set.
+`EXPO_PUBLIC_AUTH_URL=http://localhost:3100` are set in `apps/frontend/.env.local`
+(since SDK 58 a dev bundle lets that file win over the shell; see the frontend README).
 
 **Two databases.** Development and CI use two: the app database (`apps/api`,
 e.g. `ansari`) and the auth database (`apps/auth`, e.g. `ansari_auth`), each
