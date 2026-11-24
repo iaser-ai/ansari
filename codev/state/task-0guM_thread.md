@@ -21,3 +21,12 @@ develop, B a hotfix to main (branched from origin/main c314fa59).
   never reached.
 - Merged develop twice (434 vitest at 2405c760, then 435 react at f827e38a); lockfile regenerated each
   time with pnpm, never hand-merged.
+
+## PRs
+
+- A: #436, base develop f827e38a.
+- B: #437, HOTFIX base main c314fa59 (branch hotfix/task-0guM-next-15.5.29, made in a scratch worktree off
+  origin/main). Only the 3 change files, with its own lockfile regenerated from main's. Same 39/10 package
+  set; api tests 1453/1453, equal to main's own count. After B merges, main must be merged back into develop
+  (as #418 → #420).
+- Both stop at review: no merge, no deploy without the security architect's review and the owner's word.
