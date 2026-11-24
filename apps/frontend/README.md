@@ -106,7 +106,11 @@ committed). `metro.config.js` does **not** wrap the config in
 Uniwind's own re-export shim, which (through uniwind 1.14.0) lacks React
 Native 0.88's new exports such as `AssetRegistry`. expo-asset 58 imports it,
 so with the wrapper every icon font fails on native (#428). Re-wiring is
-#264's call once upstream forwards the new exports. The UI itself is `StyleSheet`-only, and
+#264's call once upstream forwards the new exports. Because `tsconfig.json`
+still includes `uniwind-env.d.ts`, `<View className="…">` typechecks but does
+nothing while Uniwind is unwired; `lib/no-classname.test.ts` fails on any JSX
+`className` under `app/` and `components/` until it is re-wired (remove the
+test then). The UI itself is `StyleSheet`-only, and
 `app/_layout.tsx` deliberately does **not** import `src/global.css`:
 Tailwind's preflight reset would restyle it on the web. Adopting Uniwind
 for new UI is a separate product decision.
@@ -180,8 +184,9 @@ for five changes the upgrade forced or exposed:
 | `Sidebar`'s `style` prop typed as `Animated.View`'s | reanimated 4.5 typing |
 | `composerBottomPad` (`constants/layout.ts`) marked `'worklet'` | both screens call it inside `useAnimatedStyle`, which runs on the UI thread on native; unmarked, it threw "Tried to synchronously call a Remote Function". Pre-existing since #121; `lib/worklets.test.ts` now scans every worklet body for unmarked calls |
 
-The React Compiler lint rules from eslint-config-expo 57 are warnings for
-now (see `eslint.config.mjs`); fixing them is part of #264.
+The React Compiler lint rules from eslint-config-expo (57, and 58 since
+#428; both ship eslint-plugin-react-hooks v7) are warnings for now (see
+`eslint.config.mjs`); fixing them is part of #264.
 
 ## Builds
 
