@@ -408,7 +408,7 @@ describe('message length caps (issue #403)', () => {
     const { POST } = await import('../src/app/api/v1/chat/completions/route');
     const { z } = await import('zod');
     const installed = z.config().localeError;
-    z.config({ localeError: undefined });
+    z.config({ localeError: () => undefined });
     try {
       const bare = z.string().safeParse(1);
       expect(bare.error?.issues[0].message).toBe('Invalid input');

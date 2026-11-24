@@ -36,10 +36,10 @@
     "jose": "^6.2.9",
     "next": "^15.5.25",
     "pg": "^8.17.2",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "recharts": "^3.7.0",
-    "zod": "^4.3.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
@@ -51,9 +51,9 @@
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
-    "@types/react": "^19.2.9",
-    "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "dotenv": "^18.0.10",
     "drizzle-kit": "^0.31.8",
     "eslint": "catalog:",
@@ -61,7 +61,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
-    "vitest": "^4.1.11",
+    "vitest": "^5.1.1",
     "yaml": "^2.9.1"
   }
 }
