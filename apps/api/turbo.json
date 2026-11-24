@@ -29,6 +29,11 @@
     // The railway tomls are here for release-doc.test.ts (issue #364), which
     // checks each one against RELEASE.md: without them a toml-only edit left this
     // task at the same hash and a warm cache replayed the check green.
+    //
+    // skills/ is here for skill-docs.test.ts (issue #409), which checks the public
+    // agent skill (skills/ansari/SKILL.md) calls only the MCP server and carries no
+    // credential. skills/ is outside the workspace, so without it a skill-only edit
+    // left this task at the same hash and a warm cache replayed the check green.
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -43,6 +48,7 @@
         "$TURBO_ROOT$/RELEASE.md",
         "$TURBO_ROOT$/CONTRIBUTING.md",
         "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/skills/**",
         "$TURBO_ROOT$/docs/**",
         "$TURBO_ROOT$/.github/ISSUE_TEMPLATE/**",
         "$TURBO_ROOT$/.github/scripts/**",
@@ -76,6 +82,7 @@
         "$TURBO_ROOT$/RELEASE.md",
         "$TURBO_ROOT$/CONTRIBUTING.md",
         "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/skills/**",
         "$TURBO_ROOT$/docs/**",
         "$TURBO_ROOT$/.github/ISSUE_TEMPLATE/**",
         "$TURBO_ROOT$/.github/scripts/**",
