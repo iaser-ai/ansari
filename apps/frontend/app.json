@@ -34,7 +34,12 @@
       "backgroundColor": "#E7E5E4"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": { "web": false }
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       "expo-video",

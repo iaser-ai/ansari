@@ -3,7 +3,7 @@ import {
   AppState,
   Platform,
   StyleSheet,
-  type View,
+  type ViewInstance,
   type ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -528,7 +528,7 @@ const SEEK_SETTLE_MS = 200;
  */
 function useClipBuffered(
   player: VideoPlayer,
-  hostRef: React.RefObject<View | null>,
+  hostRef: React.RefObject<ViewInstance | null>,
 ): boolean {
   const [buffered, setBuffered] = useState(Platform.OS !== 'web');
 
@@ -664,7 +664,7 @@ function AmbientVideoPlayer({
   }, [status]);
   const live = (Platform.OS === 'web' || ready) && !failed;
 
-  const hostRef = useRef<View>(null);
+  const hostRef = useRef<ViewInstance>(null);
   const clipBuffered = useClipBuffered(player, hostRef);
 
   // Warm-up. On the web a browser fetches nothing until something asks it

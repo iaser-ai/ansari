@@ -468,7 +468,9 @@ channel also names the EAS environment and the GitHub Environment.
   matches the commit it was published from. After any native change (a
   dependency with native code, a config plugin, `app.json` native fields), ship
   a new build first; an update alone reaches no one. The fingerprint contract
-  is tracked in #267.
+  is tracked in #267. An Expo SDK upgrade is always such a change: SDK 57 → 58
+  changed both the iOS and the Android fingerprint (#428), so an update built
+  on the new SDK never reaches a binary built on the old one.
 - **Concurrent dispatches queue, they never cancel** (`queue: max`, so every
   pending run is kept). **Build** serializes the *dispatch* per
   profile/platform pair, not the EAS build. The dispatcher does not wait, so
