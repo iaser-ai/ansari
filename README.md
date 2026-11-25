@@ -16,6 +16,7 @@ Alliance for Safe, Ethical, and Responsible AI).
 | [`apps/api/`](apps/api/) | The production backend: Next.js API, Gemini-powered facilitator, Islamic search tools |
 | [`apps/frontend/`](apps/frontend/) | The Ansari app: Expo / React Native (iOS, Android, and web via react-native-web) |
 | [`docs/`](docs/) | Documentation, including the [self-hosting guide](docs/self-hosting.md) |
+| [`skills/`](skills/README.md) | The Ansari [agent skill](skills/ansari/SKILL.md), which answers Islamic questions through the Ansari MCP server; outside the pnpm workspace |
 
 This is a [pnpm workspace](https://pnpm.io/workspaces) driven by
 [Turborepo](https://turborepo.com): one `pnpm install` at the repo root installs
