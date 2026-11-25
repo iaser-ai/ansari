@@ -73,7 +73,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The only use of EXPO_TOKEN in this repo's Actions.
-      - uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
+      - uses: expo/expo-github-action@5273c2136bd09c2a341fe3340d3e767ce5a13015 # 9.0.2
         with:
           eas-version: 24.12.1
           token: ${{ secrets.EXPO_TOKEN }}
