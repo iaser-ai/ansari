@@ -25,7 +25,7 @@ test('legacy discovery and question bounds are enforced before upstream work', a
     assert.equal(tools[0].description, legacyDescription);
     assert.equal(tools[0].annotations?.readOnlyHint, true);
     assert.equal(tools[0].annotations?.openWorldHint, true);
-    assert.equal(tools[0].annotations?.destructiveHint, undefined);
+    assert.equal(tools[0].annotations?.destructiveHint, false);
     assert.equal(tools[0].annotations?.idempotentHint, undefined);
     for (const question of ['', 'x'.repeat(4001)]) {
       const result = await client.callTool({name: toolName, arguments: {question}}).then(
