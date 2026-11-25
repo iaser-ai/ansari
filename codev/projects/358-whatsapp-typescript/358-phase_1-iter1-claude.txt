@@ -1,0 +1,30 @@
+AGENT SELF-REVIEW, NOT A CONSULT RUN. Written by the implementing agent (GitHub Copilot) because Codex and
+Gemini are not installed here and the Claude consult hung. The owner reviews after this. Findings below were
+checked by running code, not by reading alone.
+
+Scope: plan phase_1, commit 1d4b6c19 (apps/whatsapp scaffold, config, masking, logger, errors).
+
+Verified (ran it):
+- typecheck, lint and 84 vitest tests pass.
+- Six rules were broken on purpose, one at a time, and a test failed each time; files restored byte-for-byte:
+  production refusal of META_REPLY_BY_PHONE, mocks refused outside local, phone masking, secret never printing
+  through JSON.stringify, JSON log lines going to stdout, and a setting missing from .env.example. Three boolean
+  mutations (accept any string, wrong default, "1" read as false) were caught as well.
+- A Secret prints as "Secret(**********)" under console.log and as "{}" when spread, so it cannot leak by accident.
+- A message-id, BSUID and phone number are masked in every case from the Python table.
+
+Found and fixed:
+- buildConfig's doc comment claimed it names every bad variable. With PORT=abc and a mock in production only PORT
+  is reported; the cross-field rules run once every variable passes on its own (same as Pydantic's after-validators).
+  The comment now says so. No behaviour change.
+
+Not verified / known differences from Python:
+- The JSON log line has no file, line or function fields: Node has no cheap way to read the caller. level, message
+  and request_id, which Railway reads, are unchanged. Owner agreed in review.
+- LOG_TEST_FILES_ONLY and META_WEBHOOK_ZROK_SHARE_TOKEN are not ported (owner decisions, recorded in the plan).
+- Booleans now refuse yes/on/TRUE, which Pydantic accepted. Railway staging values are not yet checked; plan
+  phase_7 step 1 does that before the redeploy.
+- pnpm-lock.yaml also dropped rolldown 1.2.3 (deduplicated to 1.2.11). apps/auth's build was NOT re-run after that.
+- The Docker image and a cold-cache root build are not run until plan phase_6.
+
+VERDICT: COMMENT

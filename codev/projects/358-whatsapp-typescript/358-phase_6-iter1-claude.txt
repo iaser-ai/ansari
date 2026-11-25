@@ -1,0 +1,36 @@
+NOTE: This is an agent self-review written by the implementing agent. It is NOT the output of a `consult` run; no external model was consulted (owner instruction: "don't consult; just self review").
+
+Phase 6 (Docker, Railway config, CI, turbo, documentation): apps/whatsapp/Dockerfile, apps/whatsapp/railway.toml, apps/whatsapp/README.md, tests/repoWiring.test.ts; edits to turbo.json, package.json (root), .github/workflows/ci.yml, codev/resources/arch.md, and one line of src/app.ts.
+
+VERIFIED (by running it)
+- `pnpm --filter ansari-whatsapp typecheck` exit 0, `lint` exit 0, `build` exit 0, `test` exit 0: 892 tests in 23 files (880 in 22 before this phase). Two full runs after the last edit.
+- The plan's root check, "from a cold cache": `pnpm exec turbo run lint typecheck test build --filter ansari-whatsapp... --force` exit 0, 4 tasks, 0 cached. Scope was this app and its dependencies, not the whole monorepo (the other apps were not changed and were not re-run; their task graph still plans the same tasks).
+- turbo's own view: `turbo run build --filter ansari-whatsapp --dry=json` lists 65 variables in the global cache key and includes META_ANSARI_APP_SECRET and WA_MAINTENANCE_MODE, i.e. the 20 new entries reach the cache key.
+- A simulation of the Dockerfile's steps (Docker is installed but its daemon is not running, so the image was NOT built; see below). In a clean temp copy holding only what the Dockerfile COPYs (root manifests, packages/, apps/whatsapp, none of node_modules/dist/.env): `pnpm install --frozen-lockfile --filter ansari-whatsapp...` exit 0 (341 packages), `pnpm --filter ansari-whatsapp build` exit 0, dist/index.mjs 111,515 bytes, and express, cors, zod, dotenv and @sentry/node are present in node_modules (the bundle leaves them as imports). Then `node dist/index.mjs` started with only the committed .env.ci values on a scrubbed environment:
+  - DEPLOYMENT_TYPE=staging, NODE_ENV=production: listened on 0.0.0.0, GET / 200, GET /sentry-debug 500, one JSON log line per entry on stdout, nothing on stderr.
+  - DEPLOYMENT_TYPE=production: GET / 200, GET /sentry-debug 404.
+  A first attempt failed to start only because I left MOCK_* switches in my shell with DEPLOYMENT_TYPE=staging; the service refused them as designed. The temp copy was deleted afterwards.
+- Mutation controls on the new wiring test, one rule broken at a time, only that test run, file restored and compared to the original: 21 controls, 21 caught, 0 not caught, 0 skipped, 0 restore mismatches. They cover: each of four ways turbo.json can lose a variable, a wrong Dockerfile start file, a root user, an install or build of the wrong app, a wrong usage path, a Railway config pointing at the Python Dockerfile, unwatched shared packages or lockfile, a health check on a missing route, the service left in root `pnpm dev` and `dev:no-auth`, the `pnpm whatsapp` shortcut removed, each CI step pointing at the wrong app, the dummy env not loaded, and the Python job renamed.
+- A finding while checking: root `pnpm dev` (turbo run dev --filter=!ansari-mcp) now included ansari-whatsapp#dev, and the service exits at start-up with no .env (AUTH_WHATSAPP_API_KEY is required). Confirmed by running it with the variables removed. Fixed by excluding the service in `dev` and `dev:no-auth` and adding `pnpm whatsapp` for running it alone. A test pins this.
+
+DECISIONS
+- CI job id `whatsapp-service`, name "whatsapp service (lint, typecheck, test, build)", beside the existing Python job named `whatsapp` ("whatsapp (lint, format, test)"). Branch protection matches check names, so the Python job keeps its name until the cutover; renaming it is an admin change that belongs to phase 7 or later. Tested both names.
+- The Dockerfile copies apps/auth's shape (single stage, repo-root context, `node:22-slim`, unprivileged `node` user, `node dist/index.mjs`). Differences: no bcrypt/native modules, so no glibc comment, and no operator scripts, so the chmod covers only what exists.
+- Healthcheck `/` checks nothing downstream (documented in railway.toml): an apps/auth or apps/api outage must not restart this service.
+- No `.dockerignore` change: the repo-wide one already excludes node_modules, dist and .env* and keeps .env.ci and .env.example.
+- turbo.json: 20 variables added to the global list (the other two the service reads, SENTRY_DSN and PORT, were already there). tests/repoWiring.test.ts checks the list against the config schema, so a key added to the schema and forgotten here fails a test. Its list parser skips comment lines first, because an existing comment in turbo.json contains `process.env[name]` and its `]` ended my first parser early (found by a failing test).
+- The architecture note went in the cold arch.md (one paragraph, current state, no history), not the hot arch-critical.md (capped). Its map already covers "Monorepo layout, build & deploy", so no map change.
+- src/app.ts: removed a redundant `runWithRequestId` around the "Request ended" log (verified that Node keeps the request id in an `res.once('finish')` listener without it); behaviour unchanged, 96 app tests pass.
+- RELEASE.md, legacy/whatsapp/README.md and the live staging service are NOT changed here: the live configuration still runs the Python service, and the plan puts the RELEASE.md/rollback text in phase 7 with the cutover.
+
+CORRECTIONS TO EARLIER WORK (found while the owner asked me to explain it)
+- The phase 5 review claimed "the signature check comes first" was a change from Python. It is not: FastAPI ran the signature `Depends` (main.py:193) before `request.json()` (main.py:253). It is a difference from a plain `express.json()` setup. Fixed in the phase 5 review file.
+- The phase 5 review claimed Python returned the JSON parser's error text as a leak the port fixed. Python did return `str(e)` (main.py:324), but its text ("Expecting value: line 1 column 1 (char 0)") does not quote the body; Node's does. The port's choice is protection against a straight port of `str(e)`. Fixed in the phase 5 review file.
+
+NOT VERIFIED
+- The Docker image was not built and `docker build` was not run: the Docker daemon is not running on this machine (docker.exe exists; `docker version` cannot connect). The simulation above runs the same install and build commands and the same start command on a clean copy, but it does not exercise the Dockerfile itself, base image, file permissions inside the image, the `USER node` step or the chmod. The plan says to record this as not verified, and it is.
+- The new CI job has not run on GitHub; it is a copy of the auth job with the names changed, and the commands it runs were run locally through turbo.
+- Nothing about Railway (dashboard settings, watch paths, the variables on the staging service) was touched or checked.
+- The full root `pnpm test`, `pnpm lint` and `pnpm build` for the other apps were not re-run; only this app's closure was (see above).
+
+VERDICT: COMMENT

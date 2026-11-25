@@ -1,0 +1,53 @@
+# Railway settings for the `whatsapp` service (apps/whatsapp, issue #358), kept in
+# version control.
+#
+# NOT READ BY RAILWAY IN THIS PROJECT (the same as apps/api/railway.toml and
+# apps/auth/railway.toml). Deployment is configured in the Railway dashboard
+# using a Dockerfile path:
+#   apps/whatsapp/Dockerfile
+# The dashboard is the live configuration; this file is the reviewable record of
+# what it should contain. Keep the two in sync: if you change a dashboard
+# setting, update this file in the same PR. See the "Railway service
+# configuration" block in RELEASE.md.
+#
+# The staging `whatsapp` service currently runs the Python service
+# (legacy/whatsapp/railway.toml). Repointing it at this file's Dockerfile is the
+# staging redeploy step of the plan, done with the owner's go-ahead.
+#
+# Production: this service must run with ENVIRONMENT=production, which is the only
+# environment that answers messages with no prefix. Order of the Meta steps: subscribe
+# the production WhatsApp account to the staging (or development) Meta app only once
+# this prefix code is running there. In the other order, staging answers every real
+# user's plain message on the production number, and users get two answers.
+#
+# One listener on PORT. Railway sets PORT itself: do not set it as a service
+# variable. The public domain's target port is whatever Railway assigns.
+#
+# The Meta callback URL changes with the service: this one answers
+# https://<domain>/whatsapp/v3 (the Python service answered /whatsapp/v2), so the
+# URL in the Meta app's webhook settings must be changed when the service is
+# repointed, and the handshake run again.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/whatsapp/Dockerfile"
+watchPatterns = [
+  "apps/whatsapp/**",
+  # The shared config packages are COPYied into this image (see the Dockerfile),
+  # so a packages-only change alters the built artifact. Without this pattern
+  # the change ships nothing: no rebuild, no deploy, no error.
+  "packages/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  # The image builds from the repo root, so this file decides what the build can see.
+  ".dockerignore",
+]
+
+[deploy]
+# `/` answers 200 as soon as the server listens. It checks nothing downstream,
+# on purpose: an apps/auth or apps/api outage must not restart this service.
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

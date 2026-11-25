@@ -1,0 +1,69 @@
+AGENT SELF-REVIEW, NOT A CONSULT RUN. Written by the implementing agent (GitHub Copilot) because Codex and
+Gemini are not installed here and the Claude consult hung. The owner reviews after this. Findings below were
+checked by running code, not by reading alone.
+
+Scope: plan phase_2 (pure logic): language.ts, time.ts, whatsappMessageFormatter.ts, messageSplitter.ts,
+parseWebhook.ts, InvalidMetaPayloadError, and their tests.
+
+Method: the Python suite barely covers the formatter, the time helpers and the parser, so the legacy Python code
+was run (main checkout's virtualenv, this worktree's source, verified by printing the module path) on a table of
+inputs, and its answers were written to tests/fixtures/pythonOracle.ts by tests/fixtures/generate_python_oracle.py.
+The TypeScript tests compare against that file, so "same as Python" is checked, not assumed. About 205 oracle
+cases (formatter, parser, splitter, time, direction, formatter steps), plus the fixed inputs listed below.
+
+Verified (ran it):
+- typecheck, lint and 351 vitest tests pass (84 from phase 1).
+- 13 rules were broken on purpose, one at a time, and a test failed each time; files restored byte-for-byte:
+  direction counted in UTF-16 units, direction threshold, tie rounding, message exactly at the threshold, NaN
+  timestamp, bold-before-italic, ASCII-only digits, first-marker-only rewrite, splitter without space preference,
+  splitter counting UTF-16 units, phone number read when replies by phone are off, inherited object keys read as
+  message keys, raw payload logged instead of the masked one.
+- A mutation that slipped through the first time (splitter counting UTF-16 units) exposed a missing case; an
+  emoji-paragraph input was added and the mutation is now caught.
+- Hostile input timing (20k to 1M characters): no catastrophic regex backtracking in the formatter or the splitter.
+  Not fixed: 20,000 header-like lines without a closing newline ("# x" repeated) take 1.4 s in the formatter, which
+  is quadratic. Python uses the same pattern; a real answer is far smaller. Recorded, not changed.
+
+Found and fixed while porting (JavaScript differs from Python):
+- toFixed(1) rounds ties up, Python's format rounds to even (0.25 -> "0.2"): own formatter, tested on ties.
+- String .length counts UTF-16 units, Python's len() counts code points: emoji skewed the direction share and the
+  splitter's limit and could be cut in half. Counting and cutting use code points now.
+- Python's \d matches Arabic-Indic digits, JavaScript's does not: \p{Nd} with the u flag.
+- Python's . matches \r, JavaScript's does not: [^\n] in the header patterns (CRLF input matched against Python).
+- `x in obj` finds inherited names ("constructor"): Object.hasOwn.
+- `!timestamp` is true for NaN in JavaScript but not in Python: explicit null/undefined/0 check.
+- Python's re.sub rewrites every list marker on a line; a JavaScript regex without the g flag rewrites one.
+- A splitter performance bug of my own: recounting the growing chunk per paragraph took 2.2 s on 130k paragraphs.
+  A running total makes it 67 ms with identical output.
+
+Python bugs FIXED on the owner's instruction (2026-11-10), each pinned by a test showing Python's answer beside the new one:
+- A lone * beside a space is no longer an italic marker: "2 * 3 and 4 * 5" and "* a / * b" lists stay as written
+  (Python: "2 _ 3 and 4 _ 5", "_ a / _ b"). A nested "* b" now becomes "-- b" like a nested "- b".
+- "***x***" becomes "*_x_*" (Python: "**x**").
+- A reply of only whitespace gives an EMPTY list from splitMessage, and a whitespace-only piece is dropped from a
+  longer reply (Python: nothing for newlines, pieces of spaces for spaces, which WhatsApp rejects). The caller
+  (plan phase_4) must send the "couldn't process your message" notice for an empty list.
+  Verified by mutation: 6 deliberate breakages of the three fixes, each caught (two slipped through once and led
+  to a better test).
+
+Behaviour kept from Python on purpose (looks odd, not changed here; pinned by a test):
+- A CRLF header gets the \r inside the bold-italic markers.
+- A line of three stars (a markdown rule) becomes two stars, as in Python.
+
+Differences from Python, deliberate:
+- Empty text: Python raises ZeroDivisionError in the direction check (and so in format_for_whatsapp); the port answers
+  "ltr" / the empty text. Unreachable (callers check first).
+- A from_user_id that is not a non-empty string is refused up front; Python passed any value along and failed later.
+- Timestamps outside years 1-9999 are "not too old". CPython raises ValueError on Linux (caught) but OSError on
+  Windows (not caught), so this machine cannot produce Railway's answer; the port follows Linux. Not in the oracle.
+- The parser returns a tagged union instead of an 8-tuple and is synchronous; the clock and settings are arguments.
+- get_language_from_text (an unused placeholder returning "en") and the dead in_nested_section state in
+  format_nested_lists are not ported.
+
+Not verified:
+- Python's int() accepts forms like "1_000" and non-ASCII digits in a timestamp; the port accepts ASCII digits only.
+  Meta sends plain digits.
+- The signature check, the response builder and the Meta sender are the next phases.
+- Cold-cache root build and the Docker image are plan phase_6.
+
+VERDICT: COMMENT

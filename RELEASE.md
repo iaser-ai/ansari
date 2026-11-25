@@ -40,6 +40,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > | auth | `apps/auth/Dockerfile` |
 > | whatsapp | `legacy/whatsapp/Dockerfile` |
 > | mcp | `apps/mcp/Dockerfile` |
+> | whatsapp-ts | `apps/whatsapp/Dockerfile` |
 >
 > **Watch paths** — set these per service, or Railway rebuilds *every* service on every push
 > (any commit touches the root lockfile):
@@ -49,6 +50,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > frontend:  apps/frontend/**  packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > auth:      apps/auth/**      packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml
 > whatsapp:  legacy/whatsapp/**  .dockerignore
+> whatsapp-ts: apps/whatsapp/** packages/** package.json pnpm-lock.yaml pnpm-workspace.yaml .dockerignore
 > mcp:       apps/mcp/**       packages/**  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .dockerignore
 > ```
 >
@@ -60,10 +62,13 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `package.json`, so today a packages-only change does not alter the shipped image. The pattern stays so that a future
 > runtime dependency cannot ship silently. **whatsapp is the exception:** it is a Python service outside the pnpm workspace, so its image contains nothing from
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
+> **whatsapp-ts** (`apps/whatsapp`, the TypeScript port, #358) sits inside the pnpm workspace and copies `packages/`, so it watches
+> the same shared paths as backend. Its record is named `whatsapp-ts` only until cutover, when it takes the `whatsapp` dashboard service.
+> **This dashboard service has not been created yet.** The Dockerfile exposes port 3200; the service variable `PORT=3200` must be set when it is created.
 > whatsapp and mcp add `.dockerignore`: their images build from the repo root, so that file decides what the build can see.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend
-> healthcheck `/`, whatsapp healthcheck `/`, auth healthcheck `/health` (200 only when the auth database
+> healthcheck `/`, whatsapp healthcheck `/`, whatsapp-ts healthcheck `/` (timeout 300s), auth healthcheck `/health` (200 only when the auth database
 > answers; timeout 300s), mcp healthcheck `/health` (timeout 300s); restart ON_FAILURE, max 3 retries.
 >
 >

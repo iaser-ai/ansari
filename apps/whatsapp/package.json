@@ -1,0 +1,40 @@
+{
+  "name": "ansari-whatsapp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp service for the Ansari monorepo: a TypeScript port of legacy/whatsapp (issue #358).",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsdown",
+    "start": "node dist/index.mjs",
+    "meta:subscriptions": "tsx scripts/checkMetaSubscriptions.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sentry/node": "^10.69.0",
+    "cors": "^2.8.5",
+    "dotenv": "^18.0.10",
+    "express": "^5.1.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@ansari/eslint-config": "workspace:*",
+    "@ansari/tsconfig": "workspace:*",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^25.0.10",
+    "eslint": "catalog:",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "^5.1.1"
+  }
+}

@@ -131,8 +131,8 @@ describe('CONTRIBUTING.md', () => {
     const emitted = Object.values(ci.jobs as Record<string, { name: string }>).map((j) => j.name);
     // The doc must name each job exactly as the workflow emits it, and notice
     // when a job is added or renamed. Five are named as required on `develop`;
-    // the sixth, `eval` (#397), runs on every PR and is named as not required.
-    expect(emitted.length).toBe(6);
+    // `eval` (#397) and `whatsapp service` (#358) run on every PR and are named as not required.
+    expect(emitted.length).toBe(7);
     for (const check of emitted) {
       expect(doc).toContain(`\`${check}\``);
     }
