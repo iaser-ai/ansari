@@ -64,6 +64,7 @@ migration runbook were both proven in real releases on 2026-08-02.
 > `packages/`, the root lockfile or `package.json`; watching them would only rebuild it for changes it does not ship.
 > **whatsapp-ts** (`apps/whatsapp`, the TypeScript port, #358) sits inside the pnpm workspace and copies `packages/`, so it watches
 > the same shared paths as backend. Its record is named `whatsapp-ts` only until cutover, when it takes the `whatsapp` dashboard service.
+> **This dashboard service has not been created yet.** The Dockerfile exposes port 3200; the service variable `PORT=3200` must be set when it is created.
 > whatsapp and mcp add `.dockerignore`: their images build from the repo root, so that file decides what the build can see.
 >
 > **Deploy settings** — backend healthcheck `/api/health` (timeout 300s), frontend

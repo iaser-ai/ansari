@@ -20,7 +20,7 @@
   "dependencies": {
     "@sentry/node": "^10.69.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
+      "dotenv": "^18.0.10",
     "express": "^5.1.0",
     "zod": "^4.3.5"
   },
@@ -35,6 +35,6 @@
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vitest": "^4.1.11"
+      "vitest": "^5.1.1"
   }
 }
