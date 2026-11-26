@@ -1,0 +1,44 @@
+### Review Assessment
+
+#### 1. Issue Resolution & Correctness
+- **Root Cause**: When `gemini-4-hydrogen` terminates a turn with an empty or degenerate response and `finishReason: 'MALFORMED_RESPONSE'`, `runFacilitator` in [agent.ts](file:///Users/mwk/Development/iaser/ansari/.builders/bugfix-444/apps/api/lib/facilitator/agent.ts#L101-L105) previously skipped the empty-final retry ladder because `RETRYABLE_EMPTY_FINISH_REASONS` only included `'STOP'` and `'MALFORMED_FUNCTION_CALL'`.
+- **Fix**: Adding `'MALFORMED_RESPONSE'` to `RETRYABLE_EMPTY_FINISH_REASONS` routes this transient provider completion state into the existing bounded retry ladder:
+  - Rung 1: One same-model retry.
+  - Rung 2: Off-Vertex Inkling fallback when configured and not a pinned-model request.
+  - Non-retryable reasons (`SAFETY`, `MAX_TOKENS`, missing/unknown reasons) continue to fail fast without retries.
+
+#### 2. Test Coverage & Quality
+- **Deterministic Regression Tests**: Six focused tests were added across three test suites:
+  - [facilitator-empty-final.test.ts](file:///Users/mwk/Development/iaser/ansari/.builders/bugfix-444/apps/api/tests/facilitator-empty-final.test.ts#L333-L390): Tests the staging failure shape (tool call round -> empty `MALFORMED_RESPONSE` -> same-model retry recovery + Sentry telemetry verification) and ladder exhaustion when Inkling is unconfigured.
+  - [facilitator-inkling-rung.test.ts](file:///Users/mwk/Development/iaser/ansari/.builders/bugfix-444/apps/api/tests/facilitator-inkling-rung.test.ts#L294-L338): Verifies escalation to Inkling after a repeated `MALFORMED_RESPONSE` on Gemini, as well as bounded termination (`MAX_EMPTY_FINAL_RETRIES = 2`) when every rung returns `MALFORMED_RESPONSE`.
+  - [facilitator-pinned-model.test.ts](file:///Users/mwk/Development/iaser/ansari/.builders/bugfix-444/apps/api/tests/facilitator-pinned-model.test.ts#L203-L228): Verifies that pinned evaluation requests retry once on the pinned model and never escalate to Inkling.
+- **Vacuity Check**: By inspection of [agent.ts](file:///Users/mwk/Development/iaser/ansari/.builders/bugfix-444/apps/api/lib/facilitator/agent.ts#L836), without `'MALFORMED_RESPONSE'` in `RETRYABLE_EMPTY_FINISH_REASONS`, `RETRYABLE_EMPTY_FINISH_REASONS.has(finishReason)` evaluates to `false` on the first empty `MALFORMED_RESPONSE` round and immediately yields an `error` event without incrementing `emptyFinalRetries` or re-calling the model. All six new tests assert on call counts (`toHaveLength(2)` or `toHaveLength(3)`) and recovery events, so all six deterministically fail without the fix.
+
+#### 3. Scope Discipline, Cleanliness & PR Hygiene
+- The change is minimal, surgical, well-documented in inline comments, and has no unrelated modifications or scope creep.
+- No PII is logged in telemetry (only `finishReason`, counters, and model provenance).
+- The PR description includes `Fixes #444` and clearly documents Summary, Root Cause, Fix, and Test Plan.
+
+---
+VERDICT: APPROVE
+SUMMARY: Clean, minimal fix adding MALFORMED_RESPONSE to RETRYABLE_EMPTY_FINISH_REASONS with comprehensive regression tests across unpinned, Inkling-escalated, and pinned-model paths.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- None
+
+PR_SUMMARY: |
+  ## Summary
+  Fixes #444. Adds `MALFORMED_RESPONSE` to `RETRYABLE_EMPTY_FINISH_REASONS` so empty or degenerate final completions with that reason take the existing bounded empty-final retry ladder instead of failing immediately.
+
+  ## Root Cause
+  `gemini-4-hydrogen` occasionally ends a turn with zero visible text and `finishReason: 'MALFORMED_RESPONSE'` (a string value not listed in the `@google/genai` `FinishReason` enum). Because `RETRYABLE_EMPTY_FINISH_REASONS` in `apps/api/lib/facilitator/agent.ts` only contained `STOP` and `MALFORMED_FUNCTION_CALL`, `runFacilitator` bypassed the retry ladder and immediately yielded an empty-answer error.
+
+  ## Fix
+  - Added `'MALFORMED_RESPONSE'` to `RETRYABLE_EMPTY_FINISH_REASONS` in `apps/api/lib/facilitator/agent.ts`.
+  - Updated comment blocks documenting the retryable finish reasons.
+  - Preserved existing fast-fail behavior for `SAFETY` and `MAX_TOKENS`.
+
+  ## Test Plan
+  - Added 6 regression tests across `facilitator-empty-final.test.ts`, `facilitator-inkling-rung.test.ts`, and `facilitator-pinned-model.test.ts` covering same-model retry recovery after tool use, ladder exhaustion, Inkling escalation, and pinned-model retry bounds.
+  - Verified all 6 new tests fail without the set entry and pass with it.

@@ -1,0 +1,23 @@
+---
+VERDICT: REQUEST_CHANGES
+SUMMARY: The focused fix and regression coverage are correct, but the branch does not satisfy BUGFIX commit-message hygiene.
+CONFIDENCE: HIGH
+---
+KEY_ISSUES:
+- Four commits lack the required `[Bugfix #444]` prefix: the three `chore(porch)` commits and the merge commit. Rewrite their subjects before integration. The implementation commits are correctly formatted.
+- No code-quality, correctness, test-coverage, scope, or security issues found.
+
+PR_SUMMARY: |
+  ## Summary
+  Fixes #444. Empty Gemini responses ending with `MALFORMED_RESPONSE` now use the existing bounded empty-final retry ladder instead of failing immediately.
+
+  ## Root Cause
+  `RETRYABLE_EMPTY_FINISH_REASONS` included `STOP` and `MALFORMED_FUNCTION_CALL`, but not the provider-returned string `MALFORMED_RESPONSE`.
+
+  ## Fix
+  Add `MALFORMED_RESPONSE` to the retryable set while preserving existing same-model, Inkling, pinned-model, safety, and token-limit behavior.
+
+  ## Test Plan
+  - Verify recovery, exhaustion, Inkling escalation, and pinned-model behavior through `runFacilitator`.
+  - Confirm the six regression tests fail without the set entry and pass with it.
+  - Run the API and repository test suites, build, and API typecheck.

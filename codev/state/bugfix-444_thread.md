@@ -39,3 +39,30 @@ Issue #444: retry an empty final answer when Gemini reports `MALFORMED_RESPONSE`
 - One of my own assertions was wrong at first: the "retrying" telemetry carries the retry
   count taken before the increment (0, not 1). The test now asserts the counters staging
   logged (`toolCallCount: 1`, `iterations: 2`, `emptyFinalRetries: 0`).
+
+## PR
+
+- PR #445 opened against develop. Porch checks before it: build passed, full test check
+  (api, auth, eval, frontend) passed.
+- The first Gemini and Codex consults, started seconds after the PR was created, printed
+  "No PR found for branch: builder/bugfix-444" and exited 0 with no review. Re-run a minute
+  later, both found the PR. A consult that exits 0 has not necessarily reviewed anything:
+  read the output for a VERDICT line.
+- CMAP: Gemini APPROVE, no issues.
+- CMAP: Codex REQUEST_CHANGES, on one point only: the three `chore(porch)` commits and
+  the merge of origin/develop lack the `[Bugfix #444]` prefix. It found no code, test,
+  scope or security issue. Not acted on: porch writes the chore commits itself, the merge
+  was the architect's instruction, and renaming any of them means rewriting pushed history,
+  which the architect ruled out (no rebase, no force-push).
+- CMAP: Claude APPROVE, no blocking issue. Acted on two of its notes in a follow-up commit:
+  (1) nothing pinned that an unlisted or missing finish reason still fails at once, so a
+  later widening to "retry anything" would pass every test — added a parameterised test
+  (`OTHER`, and no reason → `MISSING`); with the gate mutated to a SAFETY/MAX_TOKENS
+  denylist both rows fail, restored they pass; (2) an orphan short line my docblock reflow
+  left in `facilitator-empty-final.test.ts`.
+- Left for the architect, not decided here: Claude's point that an allowlist will meet this
+  again each time the API sends a new transient reason the SDK enum lacks. A denylist
+  (retry once unless SAFETY / MAX_TOKENS / RECITATION / …) would close the class but risks
+  retrying a blocked reason nobody listed. The issue prescribed the allowlist, so the PR
+  keeps it.
+- Follow-up was tests and a comment only, so CMAP was not re-run.
