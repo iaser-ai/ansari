@@ -291,6 +291,52 @@ describe('Inkling final fallback rung (issues #74/#79)', () => {
     expect(events.find((e) => e.type === 'error')?.data).toMatch(/empty answer/i);
   });
 
+  it('MALFORMED_RESPONSE climbs the same ladder as STOP: same-model retry, then Inkling (#444)', async () => {
+    const Sentry = await import('@sentry/nextjs');
+    h.scripts = [
+      emptyRound('MALFORMED_RESPONSE'),
+      emptyRound('MALFORMED_RESPONSE'),
+      textRound('should never be reached'),
+    ];
+    h.inklingScripts = [textRound('Answer from Inkling.')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(2); // attempt + same-model retry
+    expect(h.calls[1].options.model).toBeUndefined();
+    expect(h.inklingCalls).toHaveLength(1);
+    expect(types).toContain('done');
+    expect(types).not.toContain('error');
+    expect(textOf(events)).toBe('Answer from Inkling.');
+    expect(Sentry.addBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'inkling',
+        message: expect.stringContaining('ladder escalated'),
+        data: expect.objectContaining({ finishReason: 'MALFORMED_RESPONSE', emptyFinalRetries: 2 }),
+      })
+    );
+  });
+
+  it('MALFORMED_RESPONSE on every rung → explicit error after MAX_EMPTY_FINAL_RETRIES retries (#444)', async () => {
+    h.scripts = [
+      emptyRound('MALFORMED_RESPONSE'),
+      emptyRound('MALFORMED_RESPONSE'),
+      textRound('should never be reached'),
+    ];
+    h.inklingScripts = [emptyRound('MALFORMED_RESPONSE'), textRound('should never be reached')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    // The first call plus exactly two retries (same model, then Inkling) — never a fourth.
+    expect(h.calls).toHaveLength(2);
+    expect(h.inklingCalls).toHaveLength(1);
+    expect(types).toContain('error');
+    expect(types).not.toContain('done');
+    expect(events.find((e) => e.type === 'error')?.data).toMatch(/empty answer/i);
+  });
+
   it('fallbackModel config (distinct or not) is irrelevant to the ladder (#79)', async () => {
     h.gemini = { model: 'primary-model', fallbackModel: 'primary-model' };
     h.scripts = [emptyRound('STOP'), emptyRound('STOP')];
