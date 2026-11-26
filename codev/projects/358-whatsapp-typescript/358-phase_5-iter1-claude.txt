@@ -1,0 +1,48 @@
+NOTE: This is an agent self-review written by the implementing agent. It is NOT the output of a `consult` run; no external model was consulted (owner instruction: "don't consult; just self review").
+
+Phase 5 (HTTP app): src/app.ts, src/index.ts, src/server.ts, src/background.ts, src/sentry.ts, src/services/createServices.ts, src/webhook/signature.ts, src/webhook/metaResponse.ts; dependencies express, cors, @sentry/node (+ @types) added with the same specifiers as apps/auth.
+
+VERIFIED (by running it)
+- `pnpm --filter ansari-whatsapp typecheck` exit 0, `lint` exit 0, `build` exit 0 (tsdown, dist/index.mjs 111 kB), `test` exit 0: 880 tests in 22 files (708 in 16 files before this phase). Three further full runs after the last edit were stable.
+- A real end-to-end check on the BUILT file (node dist/index.mjs on port 3299, mock clients): health 200, handshake right token echoes the challenge, wrong token 403, no parameters 400, old /whatsapp/v2 404, /sentry-debug 500 in local, a signed webhook 200 with an X-Request-ID, an unsigned one 403, and the log showed the typing indicator and the message being handled after the reply.
+- Mutation controls, one rule broken at a time, whole suite run, file restored and compared to the original:
+  - Run 1: 73 entries in the script: 71 ran (63 caught, 8 not caught) and 2 were skipped because the change was a no-op (my script bug, not a result). 0 restore mismatches. Counts are from the results file; an earlier mid-run count of "7 not caught" was premature.
+  - The 8 not caught were looked at one by one. Five were real gaps and got tests: a signature header with a wrong 7-character prefix (the check cuts the prefix off blindly), a plain `===` token comparison (needed a test that proves `timingSafeEqual` is called: tests/signatureTiming.test.ts mocks `node:crypto`), JSON with one non-UTF-8 byte (Python's json.loads raises, checked on the legacy interpreter; the lenient decoder accepted it), a non-parser error being shown to the caller (a parser bug is simulated in tests/appParserFault.test.ts), and a CORS refusal not being logged at error level (the old test matched the text at any level). One was a wrong URL in createServices (the auth client pointed at apps/api's address); I then also tested the apps/api and Meta URLs, which were not among the 8, by recording where each real client calls. The last two (an idle keep-alive connection, and the request id lost in the background) are the equivalent mutants below.
+  - Run 2: 14 mutations (the 8 gaps, the two extra URL checks, a parser-bug-not-reported check, and two for the new test helper). 12 caught, 2 not caught (the two equivalent mutants), 0 restore mismatches.
+  - Equivalent mutants (a change that cannot alter behaviour): `server.close()` already closes idle keep-alive connections on Node 22 (probed: closed in 1 ms with no extra call), so the explicit `closeIdleConnections()` was redundant and is removed; AsyncLocalStorage context already follows every promise, setImmediate, setTimeout and queueMicrotask hop (probed), so the `runWithRequestId` wrapper in background.ts was redundant and is removed. The tests for both behaviours stay and pass.
+- A flaky test found and fixed: 2 of 878 failed once with `fetch failed: bad port`. `fetch` refuses certain ports (6000, 6667, ...) and port 0 can return one on this machine. tests/helpers/app.ts now asks again until it gets a port fetch will call (tests/listenHelper.test.ts proves the loop). Before the fix the run could not be repeated; it passed 6 of 6 and then 5 of 5 afterwards, which is evidence but not proof (the failure was random).
+- Python's real answers where they mattered: HMAC digests for four bodies (JSON, empty, Arabic plus an emoji, 5000 bytes) computed by Python's `hmac`; the invalid-UTF-8 behaviour of `json.loads`.
+
+PORTED FROM PYTHON
+- `main.py`: the three routes (now /whatsapp/v3), request-id middleware with an X-Request-ID header, CORS from ORIGINS with a log line for a refused origin, the Sentry init, /sentry-debug outside production, localhost vs 0.0.0.0 by DEPLOYMENT_TYPE, every status and error_code of the webhook route (MAINTENANCE_MODE 503, DEV_FILTER 202, MESSAGE_TOO_OLD 422, UNSUPPORTED_MESSAGE_TYPE 415, STATUS_MESSAGE, UNEXPECTED_PAYLOAD_FORMAT 400 with a notice to whoever can be reached, INVALID_PAYLOAD 400).
+- `whatsapp_webhook_utils.py`: the signature check (403 with WWW-Authenticate) and `create_response_for_meta` (always 200 unless ALWAYS_RETURN_OK_TO_META is off).
+- The Python tests listed in the test file header, driven through a real listening server with `fetch` instead of `TestClient`.
+
+DIFFERENCES FROM PYTHON (deliberate)
+- The routes are /whatsapp/v3 (owner decision; Meta's callback URL must be changed at cutover, a phase 7 step).
+- Raw bytes are read first and parsed by hand AFTER the signature check. This is NOT a change from Python: FastAPI also ran the signature check (a `Depends` on main.py:193) before the body was read (`request.json()` at main.py:253). It is a difference from the obvious Express setup, where `express.json()` would parse first and answer 400 to bad JSON before the signature was looked at. (My first wording called it a difference from Python; that was wrong, found when checking the Python line numbers.)
+- Invalid UTF-8 is refused with a 400 (INVALID_PAYLOAD), as Python's json.loads does.
+- The JSON parser's own error text is never returned or logged. Node's `SyntaxError` quotes the start of the body (checked: `Unexpected token 'h', "this is a-v"... is not valid JSON`), which is the user's message. Python also returned `str(e)` (main.py:324), but Python's text does not quote the body (checked: `Expecting value: line 1 column 1 (char 0)`). So this is protection against a leak that a straight port of `str(e)` would have introduced, not a fix of one Python had. The answer says only "Webhook body is not valid JSON".
+- Any non-parser error in the read step is answered with a fixed text; Python returned `str(e)`.
+- Body limit 1 MB (413). Python had none.
+- Express has no 405: a wrong method on a known path is a 404.
+- A preflight from a disallowed origin gets no CORS headers (Python's Starlette answered 400). Meta's servers send no Origin header.
+- The caller's own X-Request-ID is ignored (it is untrusted text going into the logs).
+- Sentry: Python sampled traces and profiles (20% in production) and filtered log events containing "HTTP exception: 401/403". Neither is ported: a trace records the request URL (the handshake URL holds the verify token), and nothing here sends log lines to Sentry. Events are scrubbed as in apps/auth (method, URL without query string, three harmless headers) and carry no breadcrumbs.
+- Graceful shutdown on SIGTERM/SIGINT (stop accepting, wait up to 8 s for background work, flush Sentry) is new: uvicorn did this implicitly in Python.
+- Background work runs in `BackgroundTasks`, the one place that catches, logs and reports (`background_processing_failure`); a failure there never becomes an unhandled rejection (tested).
+- Python's `get_*` singletons and `reset_*` functions are gone; `createServices` chooses real or mock once at start-up.
+
+KNOWN LIMITS
+- tests/app.test.ts is 96 tests in one file against the real app on a real port; it takes about 1 s but depends on the machine allowing 127.0.0.1 listeners.
+- 8 s of grace on shutdown is a guess at Railway's limit (documented as about that), not measured.
+- `index.ts` itself (the wiring, signal handlers and the unhandledRejection hook) is not unit tested: only run by hand against the built file. Its pieces (createServices, gracefulShutdown, BackgroundTasks, sentryReporter) are.
+- The `unhandledRejection` hook logs and reports but does not exit; I chose that so one bug cannot take the whole service down, but it also hides a corrupt state. Open for the owner's view.
+- The lockfile gained 15 lines for this app only (0 removed).
+
+NOT VERIFIED
+- No real Meta, apps/auth or apps/api call; no real Sentry event was sent (a spy transport only).
+- The Docker image and Railway behaviour (phase 6 and 7).
+- Behaviour under Meta's real redelivery timing.
+
+VERDICT: COMMENT

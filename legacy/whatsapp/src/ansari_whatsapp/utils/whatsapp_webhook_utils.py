@@ -92,7 +92,7 @@ def create_response_for_meta(
     Create appropriate webhook response based on deployment environment.
 
     In test environment: Returns proper HTTP status codes for testing
-    In production/staging/local: Always returns 200 for Meta compliance
+    In production/staging/development: Always returns 200 for Meta compliance
 
     Args:
         success: Whether the operation was successful

@@ -75,6 +75,17 @@ See `codev/reviews/262-promote-prototypes-ansari-expo.md` for the full context.
 - **Compare streamed answers only after completion.** A mid-stream snapshot showed 0 footnotes against staging's 25, a false alarm. Footnotes render after `done` and a `/documents` refetch. Wait for the app's own completion signal ("Ansari has answered"). Marker counts also vary per model answer, so compare the structure, not the count.
 - **`npx expo install` edits `app.json`.** It appends config plugins (here `expo-image`, `expo-secure-store`), and `expo run:ios` / prebuild rewrites `package.json` scripts. When a plugin list is a decision, diff `app.json` after every install.
 
+## Expo SDK 57 → 58 (issue #428)
+
+See `codev/reviews/428-upgrade-apps-frontend-to-expo-.md` for the full context.
+
+- **A Metro wrapper that replaces `react-native` imports breaks on an RN bump, far from where it fails.** Uniwind's `withUniwindConfig` redirects every `react-native` import to a fixed re-export list that lacked RN 0.88's `AssetRegistry`, which expo-asset 58 imports. The symptom was every `@expo/vector-icons` font failing on native (`getAssetByID of undefined`), with web, typecheck and tests all green. Prove a suspect wrapper both ways on a device (with and without it) before deciding.
+- **SDK 58 dev bundles let `.env*` files win over the shell.** `expo/virtual/env` merges the `.env*` files over `process.env` at runtime, even with `EXPO_NO_DOTENV=1`, so `EXPO_PUBLIC_API_URL=… expo start` is silently overridden by `.env.local`. Exports still inline the shell's values. Before chasing an app bug against a backend, `curl` the served bundle and grep it for the URL you expect.
+- **One bad device session is not a regression.** A single run that showed "Answer not delivered" and no sources looked like a zod 4 on Hermes failure; three more runs, an on-device probe on every decode failure path and a like-for-like zod 3 control showed it was a pre-existing Retry bug. Repeat, control and read the actual error before raising a blocker.
+- **The SDK's stale optional peer comes back on every merge.** `@expo/dom-webview` (an auto-installed optional peer of `expo`, range `*`) stays at 57.x from `develop`'s lockfile and fails expo-doctor. Refresh it with `npx expo install @expo/dom-webview` then `pnpm remove @expo/dom-webview` (no hand edit, no new dependency). `pnpm update --depth Infinity` is far too broad (it moved the vitest graph). A filtered `pnpm remove` can drop a lockfile `catalogs:` row; `pnpm install --resolution-only` restores it.
+- **`npx expo install` still appends plugins.** It added `expo-image` and `expo-status-bar` to `app.json`; with no props both are no-ops, so they were reverted (as in #262, diff `app.json` after every install).
+- **Driving an Android emulator for a native check.** RN 0.88's `console.*` reaches neither logcat nor Metro, and the Metro inspector socket was not scriptable here, so an on-screen `Alert` probe (in a scratch checkout, never the branch) was the reliable way to see an error. `uiautomator dump` fails while the ambient video plays. The send button moves with the keyboard, and the dev menu closes on a tap above the sheet, not Back.
+
 ## Derived citable documents (spec 168)
 
 See `codev/reviews/168-serve-citable-documents-derive.md` for the full context.
@@ -250,6 +261,16 @@ See `codev/reviews/329-apps-auth-service-api-keys-bet.md` for the full context.
 - **(spec 314) In a verify path, count a success only after the last check.** Calling `keyVerified()` before the owner and client-id checks let refused keys inflate the volume alerts. Pin the order with a test that fails under the old order.
 - **(spec 314) Pin a remote verdict's refusal shape on both sides.** apps/auth asserts a byte-identical `{"valid":false}`. apps/api accepts only that shape and treats anything else as an outage (503). Adding a field on one side turns every bad key into a 503, so both sides must change together.
 - **(spec 314) Scope a compatibility window to what it protects.** A legacy-prefix window meant for one live WhatsApp key was first applied to every service, which left the brand-new MCP route accepting a cross-environment prefix class that protected no key. Make the window's state a parameter of pure builders and test both states, so closing it is a one-line change that the tests already cover.
+
+## TypeScript WhatsApp service (issue #358)
+
+See `codev/reviews/358-whatsapp-typescript.md` for the full context.
+
+- **Meta's `/app/subscriptions` API refuses a `verify_token` over 64 characters.** The error is `(#100) Param verify_token must be at most 64 characters long`; the Graph docs state no limit and the dashboard field may accept more (not verified). A 65-character legacy token therefore cannot be re-registered by API. Check the length before re-registering a callback.
+- **`dotenv` never overrides a variable already in the environment.** A shell that loaded `META_*` (for a read-only Graph call, say) silently beats `.env`, so the service used the old token and Meta's handshake got a 403. Start the service from a shell with `META_*` removed.
+- **A dev service on `localhost` can bind IPv6 only (Node 22).** A tunnel aimed at `127.0.0.1` then returns 502. Check with `curl` on both addresses and point the tunnel at `[::1]`, or bind `127.0.0.1`.
+- **A fake signed webhook tests the whole chain except delivery.** Sign the exact bytes with the app secret and post it with an HTTP client (`curl` treats `[` and `{` in a body as globs). The reply to a BSUID fails on a test number (`131030`), so only a real message from a phone proves delivery.
+- **Breaking one rule at a time found a real gap in almost every phase.** A mutation run on the operator script found an untested missing-id case and showed that a Ctrl+C handler I had added was redundant (without a `SIGINT` listener readline closes itself; a do-nothing listener swallows Ctrl+C). Run the controls, then fix every one that is not caught or is skipped.
 
 ## Thread history limits (issue #400)
 

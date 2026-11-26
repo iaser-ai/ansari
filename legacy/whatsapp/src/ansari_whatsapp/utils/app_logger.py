@@ -16,7 +16,7 @@ Technical Details:
   including during tests. Developers should be aware that simply importing this module
   will modify the global logging state.
 
-Railway: outside local development, every log line is one JSON object on stdout, which Railway parses into
+Railway: outside development, every log line is one JSON object on stdout, which Railway parses into
 searchable fields (https://docs.railway.com/guides/logs#structured-logs). To find everything one message did:
 search `@request_id:<id>` in the log explorer (the id is also returned to the caller as the `X-Request-ID` header).
 """
@@ -45,12 +45,12 @@ logger.remove()
 settings = get_settings()
 
 
-def should_use_json_logs(deployment_type: str, github_actions: str | None) -> bool:
-    """JSON lines everywhere except local development and GitHub Actions."""
-    return deployment_type not in ["local", "development"] and github_actions != "true"
+def should_use_json_logs(environment: str, github_actions: str | None) -> bool:
+    """JSON lines everywhere except development and GitHub Actions."""
+    return environment != "development" and github_actions != "true"
 
 
-use_json_logs = should_use_json_logs(settings.DEPLOYMENT_TYPE, os.getenv("GITHUB_ACTIONS"))
+use_json_logs = should_use_json_logs(settings.ENVIRONMENT, os.getenv("GITHUB_ACTIONS"))
 
 # Railway understands debug/info/warn/error, so Loguru's other levels are mapped onto those
 RAILWAY_LEVELS = {"TRACE": "debug", "DEBUG": "debug", "INFO": "info", "SUCCESS": "info", "WARNING": "warn"}

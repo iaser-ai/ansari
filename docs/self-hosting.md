@@ -277,7 +277,8 @@ auth database (after the duplicate check in the runbook, in a quiet window: it l
 `auth.account`) before the `apps/auth` that uses it deploys; that `apps/auth` refuses to boot
 without it. On a deployment that tracks Ansari's own order: staging gets `0001` before the merge,
 and production gets the whole auth journal, in order, at its cutover
-(`docs/cutover/better-auth-cutover.md`).
+(`docs/cutover/better-auth-cutover.md`; Ansari's own production had it applied ahead of the window
+on 2026-11-21, `docs/cutover/release-record.md`).
 
 ### MCP completions need a service key (#314)
 

@@ -78,7 +78,8 @@ an `ansari-mcp` key, as a deployed one does: issue a development key and put
 `MCP_COMPLETE_KEY_MODE=log-only`. `pnpm mcp inspect` opens the MCP Inspector on it. The
 steps are in [`apps/mcp/README.md`](apps/mcp/README.md), under "Local development". The frontend talks to
 **staging** unless `EXPO_PUBLIC_API_URL=http://localhost:3000` and
-`EXPO_PUBLIC_AUTH_URL=http://localhost:3100` are set.
+`EXPO_PUBLIC_AUTH_URL=http://localhost:3100` are set in `apps/frontend/.env.local`
+(since SDK 58 a dev bundle lets that file win over the shell; see the frontend README).
 
 **Two databases.** Development and CI use two: the app database (`apps/api`,
 e.g. `ansari`) and the auth database (`apps/auth`, e.g. `ansari_auth`), each
@@ -148,7 +149,9 @@ You can still target one package directly — `pnpm api lint`, `pnpm frontend we
   `frontend (lint, typecheck)`, `whatsapp (lint, format, test)`, and
   `gitleaks (secret scan)`. `eval (lint, typecheck, test)` (the model evaluation
   harness, `apps/eval/`) also runs on every pull request and is not a required
-  check. The
+  check. `whatsapp service (lint, typecheck, test, build)` (the TypeScript
+  service, `apps/whatsapp`) runs the same way and is not required until the
+  branch protection rule names it. The
   [Checks](#checks) above are the same tasks, so passing them locally is a good
   predictor. If the secret scan fails, see [Secret scanning](#secret-scanning).
 - Stage files explicitly (`git add path/to/file`). Please don't use `git add -A`

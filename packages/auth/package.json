@@ -26,7 +26,7 @@
     "drizzle-orm": "^0.45.2",
     "pg": "^8.17.2",
     "resend": "^6.9.3",
-    "zod": "^4.3.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ansari/eslint-config": "workspace:*",
@@ -35,11 +35,11 @@
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^25.0.10",
     "@types/pg": "^8.16.0",
-    "dotenv": "^17.2.3",
+    "dotenv": "^18.0.10",
     "drizzle-kit": "^0.31.8",
     "eslint": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vitest": "^4.1.11"
+    "vitest": "^5.1.1"
   }
 }

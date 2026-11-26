@@ -134,6 +134,8 @@ describe('RELEASE.md consistency', () => {
       frontend: 'apps/frontend/railway.toml',
       auth: 'apps/auth/railway.toml',
       whatsapp: 'legacy/whatsapp/railway.toml',
+      // The TypeScript port (#358). It has its own name until cutover, because both services exist side by side until then.
+      'whatsapp-ts': 'apps/whatsapp/railway.toml',
       mcp: 'apps/mcp/railway.toml',
     };
 
