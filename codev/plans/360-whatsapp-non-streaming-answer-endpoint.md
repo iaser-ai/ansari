@@ -242,12 +242,12 @@ These were not in the original phases. Each is recorded here with the phase that
 
 - **What:** `POST /api/v2/chat/complete` now follows the same limit as the thread route. `chat/complete` is `src/app/api/v2/chat/complete/route.ts`.
   - An incoming message over the block threshold on its own is refused: the notice is the answer, nothing is stored, no model call.
-  - A warn-level thread gets the warning as its own first item in `messages[]`. The answer itself is unchanged.
-  - A block-level thread gets the notice as its only item, with no model call. The notice is stored as the assistant message, mirroring the thread route.
+  - A warn-level thread gets the warning as its own first item in `messages[]`, and the same warning is stored ahead of the answer. The answer itself is unchanged.
+  - A block-level thread gets the notice as its only item, with no model call. The notice is stored as the assistant message.
 - **Why:** The source scan `history-limit-coverage` (upstream, issue #400) fails for any route that calls `runFacilitator` without the limit. Without this, a long WhatsApp thread would send unbounded history to the model.
-- **Why the warning is not stored:** The thread route stores its warning because the web, Android and iOS apps are responsible for their own chat UI. They re-read the thread from our API after a reply, so an unstored warning would vanish on refresh. WhatsApp is different: Meta's WhatsApp app is responsible for the final chat UI and keeps the messages it received. Our endpoint is only asked for the answer, so storing the warning gains nothing and would add a little context to every later turn.
-- **Why the oversized check is here too:** Meta documents the 4,096-character limit for outbound text only. The inbound text body has no documented maximum, so a WhatsApp user could send a message over the block threshold. The check is therefore not redundant for WhatsApp.
-- **Open follow-up:** The block notice is stored, which by the same reasoning does not need to be. It is kept for parity with the thread route; revisit it in the PR review.
+- **Why both notices are stored (decided at the owner's request, for consistency):** The thread route stores its notices so the web, Android and iOS apps show the same transcript on reload. For WhatsApp that is redundant, because no UI of ours reads these threads: WhatsApp users are separate accounts from web users (keyed on the BSUID, with no credential), and Meta's WhatsApp app keeps the chat. We store the notices anyway so both routes behave the same way, and so the behaviour can be reused if a WhatsApp thread is ever shown in our apps.
+- **What the stored notices cost:** Replay uses `rawPayload` for every model turn, so a stored warning never reaches the model. A block notice never reaches the model either, because a blocked thread never calls the model again. So the stored notices add no model context.
+- **Why the oversized check is here too:** Meta documents the 4,096-character limit for outbound text only. I found no documented maximum for inbound text, so a WhatsApp user could send a message over the block threshold. The check is therefore not redundant for WhatsApp, and it mirrors the thread route, which also refuses that message before storing it.
 
 ### A2. Source scans use `/` paths on Windows (found in Phase 2, test infrastructure)
 
@@ -255,6 +255,14 @@ These were not in the original phases. Each is recorded here with the phase that
 - **Why:** The scans compare repo-relative paths with `/` literals. On Windows, `path.join` returns `\`, so the RAILWAY scan's directory check failed on every Windows machine. The fix changes no behaviour on Linux or macOS. It has been run on Windows only; Linux/macOS is untested from this machine.
 - **Also:** `history-limit-coverage.test.ts` lists the new route as a route that applies the limit.
 - **Not in the spec:** This is test infrastructure, so it is recorded here only.
+
+### PR body notes (design choices to carry into the PR description)
+
+- WhatsApp users are separate accounts from web users: they are keyed on the BSUID and have no credential. A WhatsApp thread therefore never appears in a web or mobile sidebar. The two flows share code and tables, not user data.
+- The history limit (A1) is applied on the WhatsApp endpoint because the upstream source scan requires it.
+- Both notices are stored for consistency with the thread route, even though no UI reads WhatsApp threads (A1 explains the reasoning and cost).
+- The oversized-message refusal is kept because Meta documents a limit only for outbound text.
+- The Windows-safe source-scan paths (A2) are test infrastructure, unrelated to WhatsApp.
 
 ### Follow-up after all phases (not in scope here)
 

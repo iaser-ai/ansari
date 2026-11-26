@@ -115,11 +115,14 @@ export async function POST(request: NextRequest) {
               return createErrorResponse('The model returned an empty answer. Please try again.', 500);
             }
 
-            // Store assistant message
+            // Store assistant message. A warn-level answer stores the warning ahead of the
+            // text, as the thread route does. Replay uses rawPayload, so the warning reaches
+            // the model only as history text when a turn has no rawPayload (never here).
+            const storedText = history.verdict === 'warn' ? `${HISTORY_WARNING_MESSAGE}\n\n${fullText}` : fullText;
             await createMessage({
               threadId,
               role: 'assistant',
-              content: [{ type: 'text', text: fullText }],
+              content: [{ type: 'text', text: storedText }],
               agentName: 'facilitator',
               source: 'whatsapp',
               client,
@@ -158,8 +161,8 @@ export async function POST(request: NextRequest) {
                 return createErrorResponse('Invalid response format from AI model', 500);
               }
 
-              // On a warn-level thread the notice leads the answer as its own message. It is
-              // not stored: WhatsApp reads only this response, not the thread.
+              // On a warn-level thread the notice leads the answer as its own message, so it
+              // reaches WhatsApp as a separate message; it is also stored (above).
               const answer: string[] =
                 history.verdict === 'warn'
                   ? [HISTORY_WARNING_MESSAGE, ...whatsappResponse.messages]

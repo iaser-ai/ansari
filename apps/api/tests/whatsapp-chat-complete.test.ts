@@ -340,6 +340,34 @@ describe('POST /api/v2/chat/complete', () => {
       expect(body.messages).toEqual([HISTORY_WARNING_MESSAGE, 'First part', 'Second part']);
     });
 
+    it('stores the warning ahead of a warn-level answer, as the thread route does', async () => {
+      mockAssessHistory.mockReturnValue({ verdict: 'warn', estimatedTokens: 300_000 });
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: ANSWER };
+        yield { type: 'done', data: '', toolCalls: [], provenance: { provider: 'gemini', modelId: 'm' } };
+      });
+
+      await POST(makeRequest({ message: 'test' }));
+      expect(mockCreateMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          role: 'assistant',
+          content: [{ type: 'text', text: `${HISTORY_WARNING_MESSAGE}\n\n${ANSWER}` }],
+        }),
+      );
+    });
+
+    it('stores an ok-level answer without the warning', async () => {
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: ANSWER };
+        yield { type: 'done', data: '', toolCalls: [], provenance: { provider: 'gemini', modelId: 'm' } };
+      });
+
+      await POST(makeRequest({ message: 'test' }));
+      expect(mockCreateMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ role: 'assistant', content: [{ type: 'text', text: ANSWER }] }),
+      );
+    });
+
     it('answers a block-level thread with the notice, without calling the model', async () => {
       mockAssessHistory.mockReturnValue({ verdict: 'block', estimatedTokens: 900_000 });
 
