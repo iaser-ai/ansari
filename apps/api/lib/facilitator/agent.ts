@@ -77,16 +77,20 @@ const BUDGET_ERROR_MESSAGE = 'This is taking longer than expected. Please try ag
 // (never retry after a finishReason) exists to avoid duplicating tokens already delivered
 // to the client — in the empty case nothing was delivered, so bounded retries duplicate
 // nothing. Retryable reasons are STOP and MALFORMED_FUNCTION_CALL (both transient provider
-// flakiness, #70). The ladder (#79): retry 1 re-issues on the same model (cheap, handles
-// blips); retry 2 leaves Vertex entirely for thinkingmachines/Inkling (Tinker
-// infrastructure, #74). Degradation that survives a same-model retry is overwhelmingly the
-// capacity-wave family that hits BOTH Vertex pools at once, so the second Vertex pool is
-// no longer a rung — config.gemini.fallbackModel now serves only gemini-client's
-// intra-Vertex 429 fast-failover (#45). When TINKER_API_KEY is unset the ladder is the
-// single same-model retry (the Inkling rung is skipped cleanly; warned once at boot-style
-// first use). Other reasons are NOT retried: SAFETY = blocked (a retry would likely
-// re-block), MAX_TOKENS = the thinking budget consumed the output cap (a config bug to
-// surface loudly — coordinate cap sizing with issue #51).
+// flakiness, #70) and MALFORMED_RESPONSE (#444: gemini-4-hydrogen ended 11 of 7,080
+// benchmark requests this way and answered every one of those questions on a retry; the
+// value is not in the @google/genai FinishReason enum, it arrives as a bare string). The
+// ladder (#79): retry 1 re-issues on the same model (cheap, handles blips); retry 2 leaves
+// Vertex entirely for thinkingmachines/Inkling (Tinker infrastructure, #74); a pinned
+// request (#393) never leaves its model, so it gets retry 1 only. Degradation that
+// survives a same-model retry is overwhelmingly the capacity-wave family that hits BOTH
+// Vertex pools at once, so the second Vertex pool is no longer a rung —
+// config.gemini.fallbackModel now serves only gemini-client's intra-Vertex 429
+// fast-failover (#45). When TINKER_API_KEY is unset the ladder is the single same-model
+// retry (the Inkling rung is skipped cleanly; warned once at boot-style first use). Other
+// reasons are NOT retried: SAFETY = blocked (a retry would likely re-block), MAX_TOKENS =
+// the thinking budget consumed the output cap (a config bug to surface loudly —
+// coordinate cap sizing with issue #51).
 const MAX_EMPTY_FINAL_RETRIES = 2;
 
 // Terminal-Gemini-error rescue (#79): minimum time remaining before the soft deadline for
@@ -94,7 +98,11 @@ const MAX_EMPTY_FINAL_RETRIES = 2;
 // budget anyway — surface the error (or synthesize) rather than start a doomed
 // off-Vertex call, and Spec 49's synthesis reserve beyond the soft deadline stays intact.
 const INKLING_RESCUE_MIN_REMAINING_MS = 20_000;
-const RETRYABLE_EMPTY_FINISH_REASONS = new Set(['STOP', 'MALFORMED_FUNCTION_CALL']);
+const RETRYABLE_EMPTY_FINISH_REASONS = new Set([
+  'STOP',
+  'MALFORMED_FUNCTION_CALL',
+  'MALFORMED_RESPONSE',
+]);
 const EMPTY_ANSWER_ERROR_MESSAGE =
   'The model returned an empty answer. Please try again.';
 const SAFETY_BLOCKED_ERROR_MESSAGE =
@@ -791,13 +799,14 @@ export async function* runFacilitator(
       if (toolCallsCollected.length === 0) {
         // Degenerate final completion (issues #60 + #66 + #70 + #79): a terminal answer
         // that is empty OR a trivial punctuation-only fragment (a lone '}' etc.) must
-        // never become a silent `done` that ships as a real reply. STOP and
-        // MALFORMED_FUNCTION_CALL get bounded retries (nothing usable was delivered, so
-        // re-issuing duplicates nothing, and the loop's soft-deadline check keeps them
-        // inside the #49 budget): retry 1 on the same model, retry 2 straight to Inkling
-        // off Vertex (#79 — no second-Vertex-pool rung). Anything else — SAFETY,
-        // MAX_TOKENS, or an unknown reason — fails fast with an explicit error. No PII in
-        // logs: reason + model + counters + fragment length only, never query text.
+        // never become a silent `done` that ships as a real reply. STOP,
+        // MALFORMED_FUNCTION_CALL and MALFORMED_RESPONSE (#444) get bounded retries
+        // (nothing usable was delivered, so re-issuing duplicates nothing, and the loop's
+        // soft-deadline check keeps them inside the #49 budget): retry 1 on the same
+        // model, retry 2 straight to Inkling off Vertex (#79 — no second-Vertex-pool
+        // rung). Anything else — SAFETY, MAX_TOKENS, or an unknown reason — fails fast
+        // with an explicit error. No PII in logs: reason + model + counters + fragment
+        // length only, never query text.
         const degenerateKind = classifyDegenerateFinal(assistantText);
         if (degenerateKind) {
           const finishReason = response.finishReason ?? 'MISSING';
