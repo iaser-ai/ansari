@@ -256,6 +256,6 @@ These were not in the original phases. Each is recorded here with the phase that
 - **Also:** `history-limit-coverage.test.ts` lists the new route as a route that applies the limit.
 - **Not in the spec:** This is test infrastructure, so it is recorded here only.
 
-### Unrelated follow-ups for the PR (not in scope here)
+### Follow-up after all phases (not in scope here)
 
-- The thread routes hardcode `source: 'web'` on every message they write, including the WhatsApp service's own streamed `/threads/{id}/chat` calls. Possible fix: take the message source from the thread's `source`. Separate from this spec; to raise with the owner.
+- **Backfill old WhatsApp messages.** Until Phase 3 ships, the WhatsApp service writes its messages through the generic thread route, which labels them `source: 'web'`. Once every phase is done, run a SQL update on staging and prod to set `source = 'whatsapp'` on messages whose thread has `source = 'whatsapp'` and whose `source` is `web`. Run it as a read-only count first, then the update. No rush.
