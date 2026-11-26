@@ -43,9 +43,11 @@ vi.mock('@/lib/db/threads', () => ({
 }));
 
 const mockAssessHistory = vi.fn();
+const mockIncomingMessageTooLong = vi.fn();
 vi.mock('@/lib/facilitator/history-limit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/facilitator/history-limit')>()),
   assessHistory: (...a: unknown[]) => mockAssessHistory(...a),
+  incomingMessageTooLong: (...a: unknown[]) => mockIncomingMessageTooLong(...a),
 }));
 
 vi.mock('@/lib/attribution', () => ({
@@ -53,7 +55,11 @@ vi.mock('@/lib/attribution', () => ({
 }));
 
 import { POST } from '../src/app/api/v2/chat/complete/route';
-import { HISTORY_BLOCK_MESSAGE, HISTORY_WARNING_MESSAGE } from '../lib/facilitator/history-limit';
+import {
+  HISTORY_BLOCK_MESSAGE,
+  HISTORY_MESSAGE_TOO_LONG_MESSAGE,
+  HISTORY_WARNING_MESSAGE,
+} from '../lib/facilitator/history-limit';
 
 const USER = { id: 'user-1', email: 'u@example.com' };
 const THREAD = { id: 'thread-1', userId: USER.id, source: 'whatsapp', updatedAt: new Date() };
@@ -72,6 +78,7 @@ beforeEach(() => {
   mockGetOrCreateThread.mockResolvedValue(THREAD);
   mockCreateMessage.mockResolvedValue({ id: 'msg-1' });
   mockAssessHistory.mockReturnValue({ verdict: 'ok', estimatedTokens: 10 });
+  mockIncomingMessageTooLong.mockReturnValue(false);
   mockFindMessagesByThread.mockResolvedValue([
     { role: 'user', content: [{ type: 'text', text: 'What is patience?' }] },
   ]);
@@ -353,6 +360,15 @@ describe('POST /api/v2/chat/complete', () => {
           content: [{ type: 'text', text: HISTORY_BLOCK_MESSAGE }],
         }),
       );
+    });
+
+    it('refuses one oversized message: the notice is the answer, nothing stored, no model call', async () => {
+      mockIncomingMessageTooLong.mockReturnValue(true);
+
+      const response = await POST(makeRequest({ message: 'x'.repeat(10) }));
+      expect(await response.json()).toEqual({ messages: [HISTORY_MESSAGE_TOO_LONG_MESSAGE] });
+      expect(mockCreateMessage).not.toHaveBeenCalled();
+      expect(mockRunFacilitator).not.toHaveBeenCalled();
     });
 
     it('leaves an ok-level answer unchanged', async () => {

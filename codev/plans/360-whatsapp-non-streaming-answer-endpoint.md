@@ -233,3 +233,29 @@ Every phase ends with **BOTH**:
 - [ ] Script run against live dev servers; raw AI output inspected (not just "it returned 200")
 - [ ] Findings (tool degradation, formatting quirks, latency) recorded in `codev/research/`
 - [ ] Real-test script deleted or left untracked once its output is reviewed
+
+## Amendments (changes found after the phase plan was written)
+
+These were not in the original phases. Each is recorded here with the phase that found it and the reason.
+
+### A1. Thread history limit applied to the WhatsApp endpoint (found in Phase 2 review, issue #400)
+
+- **What:** `POST /api/v2/chat/complete` now follows the same limit as the thread route. `chat/complete` is `src/app/api/v2/chat/complete/route.ts`.
+  - An incoming message over the block threshold on its own is refused: the notice is the answer, nothing is stored, no model call.
+  - A warn-level thread gets the warning as its own first item in `messages[]`. The answer itself is unchanged.
+  - A block-level thread gets the notice as its only item, with no model call. The notice is stored as the assistant message, mirroring the thread route.
+- **Why:** The source scan `history-limit-coverage` (upstream, issue #400) fails for any route that calls `runFacilitator` without the limit. Without this, a long WhatsApp thread would send unbounded history to the model.
+- **Why the warning is not stored:** The thread route stores its warning because the web, Android and iOS apps are responsible for their own chat UI. They re-read the thread from our API after a reply, so an unstored warning would vanish on refresh. WhatsApp is different: Meta's WhatsApp app is responsible for the final chat UI and keeps the messages it received. Our endpoint is only asked for the answer, so storing the warning gains nothing and would add a little context to every later turn.
+- **Why the oversized check is here too:** Meta documents the 4,096-character limit for outbound text only. The inbound text body has no documented maximum, so a WhatsApp user could send a message over the block threshold. The check is therefore not redundant for WhatsApp.
+- **Open follow-up:** The block notice is stored, which by the same reasoning does not need to be. It is kept for parity with the thread route; revisit it in the PR review.
+
+### A2. Source scans use `/` paths on Windows (found in Phase 2, test infrastructure)
+
+- **What:** `apps/api/tests/source-scan/scan.ts` gained `toPosixPath`, which converts `\` to `/` only when `process.platform === 'win32'`. It is applied in `sourceFiles` and `railwayScanDirs`.
+- **Why:** The scans compare repo-relative paths with `/` literals. On Windows, `path.join` returns `\`, so the RAILWAY scan's directory check failed on every Windows machine. The fix changes no behaviour on Linux or macOS. It has been run on Windows only; Linux/macOS is untested from this machine.
+- **Also:** `history-limit-coverage.test.ts` lists the new route as a route that applies the limit.
+- **Not in the spec:** This is test infrastructure, so it is recorded here only.
+
+### Unrelated follow-ups for the PR (not in scope here)
+
+- The thread routes hardcode `source: 'web'` on every message they write, including the WhatsApp service's own streamed `/threads/{id}/chat` calls. Possible fix: take the message source from the thread's `source`. Separate from this spec; to raise with the owner.

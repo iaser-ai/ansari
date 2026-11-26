@@ -9,7 +9,9 @@ import { runFacilitator, type Message } from '@/lib/facilitator/agent';
 import {
   assessHistory,
   HISTORY_BLOCK_MESSAGE,
+  HISTORY_MESSAGE_TOO_LONG_MESSAGE,
   HISTORY_WARNING_MESSAGE,
+  incomingMessageTooLong,
 } from '@/lib/facilitator/history-limit';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 
@@ -44,6 +46,12 @@ export async function POST(request: NextRequest) {
     // Get or create thread based on user-configurable expiry
     const thread = await getOrCreateThread(user.id, 'whatsapp', expiryHours);
     const threadId = thread.id;
+
+    // A message over the block threshold on its own is answered at once and NOT stored
+    // (issue #400): stored, it would block this thread for good.
+    if (incomingMessageTooLong(message, threadId)) {
+      return Response.json({ messages: [HISTORY_MESSAGE_TOO_LONG_MESSAGE] });
+    }
 
     // Store user message (createMessage also updates thread's updatedAt)
     const userContent: ContentBlock[] = [{ type: 'text', text: message }];

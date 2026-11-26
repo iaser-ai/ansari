@@ -73,6 +73,7 @@ WhatsApp needs a finished, complete answer in one response so it can:
 - LLM output: Instructed to return WhatsApp-formatted text via structured output/function calling
 - Text splitting: Smart splitting at paragraph/sentence boundaries (not hard character cuts)
 - No usage/token info in response (not needed by WhatsApp layer)
+- **Thread history limit (added at Phase 2 review, issue #400):** the endpoint applies the same limit as the thread route. A message over the block threshold on its own is refused and not stored; a warn-level thread gets the warning as its own first `messages` item; a block-level thread gets the notice as its answer with no model call. The warning is not stored (see plan, Amendments).
 
 ## Assumptions
 
