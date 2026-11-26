@@ -155,6 +155,7 @@ describe('every route that runs the facilitator applies the thread history limit
     ]);
     expect(assessedIn.sort()).toEqual([
       'apps/api/src/app/api/v1/chat/completions/route.ts',
+      'apps/api/src/app/api/v2/chat/complete/route.ts',
       'apps/api/src/app/api/v2/mcp-complete/route.ts',
     ]);
     expect(uncovered).toEqual({});

@@ -9,6 +9,14 @@ export const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
 const SOURCE_FILE = /\.(ts|tsx|js|mjs|cjs)$/;
 
+/**
+ * A repo-relative path with `/` separators, which the scans compare against literals.
+ * Windows' path.join uses `\`; other platforms already do, so the path passes through.
+ */
+export function toPosixPath(rel: string): string {
+  return process.platform === 'win32' ? rel.split(path.sep).join('/') : rel;
+}
+
 /** Every source file under `dir` (repo-relative), skipping build output and dependencies. */
 export function sourceFiles(dir: string): string[] {
   const abs = path.join(REPO_ROOT, dir);
@@ -16,7 +24,7 @@ export function sourceFiles(dir: string): string[] {
     if (name === 'node_modules' || name === 'dist' || name.startsWith('.next')) return [];
     const rel = path.join(dir, name);
     if (statSync(path.join(REPO_ROOT, rel)).isDirectory()) return sourceFiles(rel);
-    return SOURCE_FILE.test(name) ? [rel] : [];
+    return SOURCE_FILE.test(name) ? [toPosixPath(rel)] : [];
   });
 }
 
@@ -226,7 +234,9 @@ export function railwayScanDirs(): string[] {
       .map((name) => path.join(parent, name))
       .filter((rel) => statSync(path.join(REPO_ROOT, rel)).isDirectory());
   const apps = dirs('apps').flatMap((app) => [path.join(app, 'src'), path.join(app, 'lib')]);
-  return [...apps, ...dirs('packages')].filter((rel) => existsSync(path.join(REPO_ROOT, rel)));
+  return [...apps, ...dirs('packages')]
+    .filter((rel) => existsSync(path.join(REPO_ROOT, rel)))
+    .map(toPosixPath);
 }
 
 /** Each file whose code names a RAILWAY_* variable, with the names it names. No file is exempt. */

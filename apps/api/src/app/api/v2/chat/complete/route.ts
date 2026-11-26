@@ -6,6 +6,11 @@ import { requireUser } from '@/lib/auth/require-user';
 import { createMessage, findMessagesByThread, persistOrphanToolCalls, getOrCreateThread } from '@/lib/db/threads';
 import { getClientId } from '@/lib/attribution';
 import { runFacilitator, type Message } from '@/lib/facilitator/agent';
+import {
+  assessHistory,
+  HISTORY_BLOCK_MESSAGE,
+  HISTORY_WARNING_MESSAGE,
+} from '@/lib/facilitator/history-limit';
 import { toolCallsOrNull, type ContentBlock } from '@/db/schema/messages';
 
 const chatCompleteSchema = z.object({
@@ -57,6 +62,24 @@ export async function POST(request: NextRequest) {
       content: m.content,
       rawPayload: m.rawPayload ?? null,
     }));
+
+    // Thread history limit (issue #400). A blocked thread gets the notice as its answer,
+    // without a model call; the notice is stored, as the thread route stores its own.
+    const history = assessHistory(messageHistory);
+    if (history.verdict === 'block') {
+      console.warn('[chat-complete] thread history over block threshold', {
+        threadId,
+        estimatedTokens: history.estimatedTokens,
+      });
+      await createMessage({
+        threadId,
+        role: 'assistant',
+        content: [{ type: 'text', text: HISTORY_BLOCK_MESSAGE }],
+        source: 'whatsapp',
+        client,
+      });
+      return Response.json({ messages: [HISTORY_BLOCK_MESSAGE] });
+    }
 
     // Run facilitator with WhatsApp-specific prompt
     let fullText = '';
@@ -127,10 +150,13 @@ export async function POST(request: NextRequest) {
                 return createErrorResponse('Invalid response format from AI model', 500);
               }
 
-              // Return the messages array
-              return Response.json({
-                messages: whatsappResponse.messages,
-              });
+              // On a warn-level thread the notice leads the answer as its own message. It is
+              // not stored: WhatsApp reads only this response, not the thread.
+              const answer: string[] =
+                history.verdict === 'warn'
+                  ? [HISTORY_WARNING_MESSAGE, ...whatsappResponse.messages]
+                  : whatsappResponse.messages;
+              return Response.json({ messages: answer });
             } catch (parseError) {
               const e = parseError as { name?: string; message?: string };
               console.error('[chat-complete] failed to parse WhatsApp response', {

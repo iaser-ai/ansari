@@ -42,11 +42,18 @@ vi.mock('@/lib/db/threads', () => ({
   findThreadById: vi.fn(),
 }));
 
+const mockAssessHistory = vi.fn();
+vi.mock('@/lib/facilitator/history-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/facilitator/history-limit')>()),
+  assessHistory: (...a: unknown[]) => mockAssessHistory(...a),
+}));
+
 vi.mock('@/lib/attribution', () => ({
   getClientId: vi.fn().mockReturnValue('test-client'),
 }));
 
 import { POST } from '../src/app/api/v2/chat/complete/route';
+import { HISTORY_BLOCK_MESSAGE, HISTORY_WARNING_MESSAGE } from '../lib/facilitator/history-limit';
 
 const USER = { id: 'user-1', email: 'u@example.com' };
 const THREAD = { id: 'thread-1', userId: USER.id, source: 'whatsapp', updatedAt: new Date() };
@@ -64,6 +71,7 @@ beforeEach(() => {
   mockRequireUser.mockResolvedValue({ user: USER });
   mockGetOrCreateThread.mockResolvedValue(THREAD);
   mockCreateMessage.mockResolvedValue({ id: 'msg-1' });
+  mockAssessHistory.mockReturnValue({ verdict: 'ok', estimatedTokens: 10 });
   mockFindMessagesByThread.mockResolvedValue([
     { role: 'user', content: [{ type: 'text', text: 'What is patience?' }] },
   ]);
@@ -307,6 +315,54 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
+    });
+  });
+
+  describe('thread history limit (issue #400)', () => {
+    const ANSWER = '{"messages":["First part","Second part"]}';
+
+    it('leads a warn-level answer with the warning as its own message', async () => {
+      mockAssessHistory.mockReturnValue({ verdict: 'warn', estimatedTokens: 300_000 });
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: ANSWER };
+        yield { type: 'done', data: '', toolCalls: [], provenance: { provider: 'gemini', modelId: 'm' } };
+      });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+      const body = await response.json();
+      expect(body.messages).toEqual([HISTORY_WARNING_MESSAGE, 'First part', 'Second part']);
+    });
+
+    it('answers a block-level thread with the notice, without calling the model', async () => {
+      mockAssessHistory.mockReturnValue({ verdict: 'block', estimatedTokens: 900_000 });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ messages: [HISTORY_BLOCK_MESSAGE] });
+      expect(mockRunFacilitator).not.toHaveBeenCalled();
+    });
+
+    it('stores the block notice as the assistant message', async () => {
+      mockAssessHistory.mockReturnValue({ verdict: 'block', estimatedTokens: 900_000 });
+
+      await POST(makeRequest({ message: 'test' }));
+      expect(mockCreateMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          threadId: THREAD.id,
+          role: 'assistant',
+          content: [{ type: 'text', text: HISTORY_BLOCK_MESSAGE }],
+        }),
+      );
+    });
+
+    it('leaves an ok-level answer unchanged', async () => {
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: ANSWER };
+        yield { type: 'done', data: '', toolCalls: [], provenance: { provider: 'gemini', modelId: 'm' } };
+      });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+      expect((await response.json()).messages).toEqual(['First part', 'Second part']);
     });
   });
 
