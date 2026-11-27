@@ -1,0 +1,17 @@
+id: bugfix-444
+title: retry-an-empty-final-answer-wh
+protocol: bugfix
+phase: verified
+plan_phases: []
+current_plan_phase: null
+gates:
+  pr:
+    status: approved
+    requested_at: '2026-11-26T00:26:19.006Z'
+    approved_at: '2026-11-27T04:41:00.587Z'
+iteration: 1
+build_complete: false
+history: []
+started_at: '2026-11-26T00:13:36.486Z'
+updated_at: '2026-11-27T04:41:06.246Z'
+pr_ready_for_human: false

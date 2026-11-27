@@ -46,9 +46,9 @@ function textRound(text: string): () => AsyncGenerator<AnyEvent> {
   };
 }
 
-function emptyRound(): () => AsyncGenerator<AnyEvent> {
+function emptyRound(finishReason = 'STOP'): () => AsyncGenerator<AnyEvent> {
   return async function* () {
-    yield { type: 'done', response: doneResponse('') };
+    yield { type: 'done', response: doneResponse('', [], finishReason) };
   };
 }
 
@@ -198,6 +198,33 @@ describe('runFacilitator with a pinned model (issue #393)', () => {
     const last = events.at(-1)!;
     expect(last.type).toBe('error');
     expect(last.provenance).toEqual({ provider: 'gemini', modelId: 'model-under-test' });
+  });
+
+  // Issue #444: the benchmark path pins its model, and that is where MALFORMED_RESPONSE
+  // was seen. A pinned request gets the same-model retry and nothing more.
+  it('retries an empty MALFORMED_RESPONSE final once on the pinned model, never on Inkling', async () => {
+    h.scripts = [emptyRound('MALFORMED_RESPONSE'), textRound('the answer')];
+    const events = await collect(runFacilitator(question, undefined, { model: 'model-under-test' }));
+
+    expect(h.inklingCalls).toHaveLength(0);
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls.every((c) => c.options.model === 'model-under-test')).toBe(true);
+    expect(events.at(-1)!.type).toBe('done');
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe('the answer');
+  });
+
+  it('a pinned MALFORMED_RESPONSE that repeats: one same-model retry, then an error', async () => {
+    h.scripts = [
+      emptyRound('MALFORMED_RESPONSE'),
+      emptyRound('MALFORMED_RESPONSE'),
+      emptyRound('MALFORMED_RESPONSE'),
+    ];
+    const events = await collect(runFacilitator(question, undefined, { model: 'model-under-test' }));
+
+    expect(h.inklingCalls).toHaveLength(0);
+    expect(h.calls).toHaveLength(2); // the first call + exactly one same-model retry
+    expect(h.calls.every((c) => c.options.model === 'model-under-test')).toBe(true);
+    expect(events.at(-1)!.type).toBe('error');
   });
 
   it('never rescues a terminal Gemini error on Inkling', async () => {

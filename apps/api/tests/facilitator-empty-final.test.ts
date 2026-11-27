@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
- * Empty-final-completion handling — issues #60 / #66 / #70.
+ * Empty-final-completion handling — issues #60 / #66 / #70 / #444.
  *
  * Vertex's degraded-completion family can finish a call with a real finishReason=STOP
  * and zero visible text. Before the fix, runFacilitator yielded a silent empty `done`,
  * which mcp-complete shipped as a 200-with-attribution-footer and the web routes hid as
  * a user-message-with-no-reply thread.
  *
- * The policy (#60 as strengthened by #70, restructured by #79): STOP or
- * MALFORMED_FUNCTION_CALL + degenerate text + no tool calls → bounded retries (nothing
- * was delivered, so re-issuing duplicates nothing — the #42 no-retry-after-finishReason
- * rule protects delivered tokens only). Retry 1 re-issues on the same model; retry 2
- * escalates straight to Inkling off Vertex (#79 dropped the second-Vertex-pool rung —
- * config.gemini.fallbackModel is now only the #45 429 failover inside gemini-client).
- * With Inkling unconfigured (as in this file), the ladder is the single same-model
- * retry. Retries exhausted, or SAFETY / MAX_TOKENS / missing reason → an explicit
- * `error` event, never a silent empty `done`.
+ * The policy (#60 as strengthened by #70, restructured by #79, widened by #444): STOP,
+ * MALFORMED_FUNCTION_CALL or MALFORMED_RESPONSE + degenerate text + no tool calls →
+ * bounded retries (nothing was delivered, so re-issuing duplicates nothing — the #42
+ * no-retry-after-finishReason rule protects delivered tokens only). Retry 1 re-issues on
+ * the same model; retry 2 escalates straight to Inkling off Vertex (#79 dropped the
+ * second-Vertex-pool rung — config.gemini.fallbackModel is now only the #45 429 failover
+ * inside gemini-client). With Inkling unconfigured (as in this file), the ladder is the
+ * single same-model retry. Retries exhausted, or SAFETY / MAX_TOKENS / an unlisted or
+ * missing reason → an explicit `error` event, never a silent empty `done`.
  *
  * Mock scaffolding mirrors tests/facilitator-budget.test.ts: streamGemini is stubbed
  * with per-call scripts; the real runFacilitator loop is exercised end to end.
@@ -329,6 +329,65 @@ describe('empty final completion (issue #60)', () => {
     expect(types).not.toContain('done');
   });
 
+  // Issue #444: gemini-4-hydrogen can end a turn with no text and MALFORMED_RESPONSE, a
+  // reason the SDK's enum does not list — it arrives as a bare string. Staging logged it
+  // after one tool round (toolCallCount 1, iterations 2), and it is transient.
+  it('MALFORMED_RESPONSE + empty after tool use (the staging shape) → retried, answer delivered (#444)', async () => {
+    const Sentry = await import('@sentry/nextjs');
+    h.scripts = [
+      toolRound(['search_quran']),
+      emptyRound('MALFORMED_RESPONSE'),
+      textRound('Recovered answer.'),
+    ];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(3); // tool round + empty continuation + one retry
+    expect(h.calls[2].options.model).toBeUndefined(); // the retry stays on the same model
+    expect(types).toContain('done');
+    expect(types).not.toContain('error');
+    expect(events.filter((e) => e.type === 'text').map((e) => e.data).join('')).toBe('Recovered answer.');
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'facilitator empty final completion (retrying)',
+      expect.objectContaining({
+        level: 'warning',
+        // The counters staging logged for this shape, taken before the retry is counted.
+        extra: expect.objectContaining({
+          finishReason: 'MALFORMED_RESPONSE',
+          toolCallCount: 1,
+          iterations: 2,
+          emptyFinalRetries: 0,
+        }),
+      })
+    );
+  });
+
+  it('MALFORMED_RESPONSE exhausts the same ladder: one same-model retry, then error (#444)', async () => {
+    const Sentry = await import('@sentry/nextjs');
+    h.scripts = [
+      emptyRound('MALFORMED_RESPONSE'),
+      emptyRound('MALFORMED_RESPONSE'),
+      textRound('should never be reached'),
+    ];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(2); // bounded: Inkling is unconfigured here, so one retry
+    expect(h.calls[1].options.model).toBeUndefined();
+    expect(types).toContain('error');
+    expect(types).not.toContain('done');
+    expect(events.find((e) => e.type === 'error')?.data).toMatch(/empty answer/i);
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'facilitator empty final completion',
+      expect.objectContaining({
+        level: 'error',
+        extra: expect.objectContaining({ finishReason: 'MALFORMED_RESPONSE', emptyFinalRetries: 1 }),
+      })
+    );
+  });
+
   it('SAFETY + empty → immediate blocked error, no retry', async () => {
     h.scripts = [emptyRound('SAFETY')];
 
@@ -356,6 +415,31 @@ describe('empty final completion (issue #60)', () => {
       expect.objectContaining({
         level: 'error',
         extra: expect.objectContaining({ finishReason: 'MAX_TOKENS' }),
+      })
+    );
+  });
+
+  // The retryable set is an allowlist, and #444 widened it by exactly one name. A reason
+  // nobody listed (the API sends strings the SDK enum does not have) or no reason at all
+  // must still fail at once — this is what catches a later change to "retry anything".
+  it.each([
+    ['an unlisted reason', 'OTHER', 'OTHER'],
+    ['a missing reason', undefined, 'MISSING'],
+  ])('%s + empty → immediate error, no retry', async (_label, finishReason, logged) => {
+    const Sentry = await import('@sentry/nextjs');
+    h.scripts = [emptyRound(finishReason), textRound('should never be reached')];
+
+    const events = await collect(runFacilitator([userMessage('q')]) as AsyncGenerator<Event>);
+    const types = events.map((e) => e.type);
+
+    expect(h.calls).toHaveLength(1);
+    expect(types).toContain('error');
+    expect(types).not.toContain('done');
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'facilitator empty final completion',
+      expect.objectContaining({
+        level: 'error',
+        extra: expect.objectContaining({ finishReason: logged, emptyFinalRetries: 0 }),
       })
     );
   });
