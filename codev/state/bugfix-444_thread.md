@@ -66,3 +66,13 @@ Issue #444: retry an empty final answer when Gemini reports `MALFORMED_RESPONSE`
   retrying a blocked reason nobody listed. The issue prescribed the allowlist, so the PR
   keeps it.
 - Follow-up was tests and a comment only, so CMAP was not re-run.
+
+## Gate and merge
+
+- CI green on 0a6bfeea (api, auth, eval, frontend, whatsapp, whatsapp service, gitleaks).
+- 2026-11-26: architect relayed that staging is clear (the benchmark run ended 22:43 UTC on
+  11-25), and later that the human approved the `pr` gate for PR #445 at head 0a6bfeea.
+  Checked first that local, remote and PR head were all still 0a6bfeea, 0 commits behind
+  develop, merge state CLEAN; then ran `porch approve`.
+- Porch's own gate-approved and protocol-complete commits (status.yaml only) moved the head
+  past 0a6bfeea and restarted CI. Merging once CI is green on the final head.
