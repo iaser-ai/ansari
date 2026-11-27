@@ -244,7 +244,7 @@ Hono runs on Node through `@hono/node-server`; the official `@modelcontextprotoc
 
 ## MCP compatibility
 
-The tool retains the legacy server's `answer_islamic_question` name, detailed description and input help, and `readOnlyHint: true` / `openWorldHint: true` annotations. It accepts 1–4,000 characters, matching the Ansari API. The earlier experimental RC exposed `ask_ansari`; a deployment owner must refresh host discovery when adopting this tool name. The endpoint remains `/mcp`. Replacing the existing `mcp.ansari.chat` service and changing its DNS are separate rollout actions.
+The tool retains the legacy server's `answer_islamic_question` name, detailed description and input help, and `readOnlyHint: true` / `openWorldHint: true` annotations, plus an explicit `destructiveHint: false`, which OpenAI's app directory requires (#442). It accepts 1–4,000 characters, matching the Ansari API. The earlier experimental RC exposed `ask_ansari`; a deployment owner must refresh host discovery when adopting this tool name. The endpoint remains `/mcp`. Replacing the existing `mcp.ansari.chat` service and changing its DNS are separate rollout actions.
 
 ### "Unable to reach" after a deploy
 

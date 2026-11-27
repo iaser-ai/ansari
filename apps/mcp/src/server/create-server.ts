@@ -28,8 +28,8 @@ export function createAnsariMcpServer(options:CreateMcpServerOptions):McpServer{
     name:'answer_islamic_question',
     title:'Answer Islamic Question',
     description:'Answers questions about Islam including theology, jurisprudence (fiqh), history, Quranic interpretation (tafsir), Hadith sciences, Islamic law, worship practices, ethics, spirituality, and contemporary issues. Provides comprehensive answers with citations from Quran, authentic Hadith, and classical Islamic scholarship. Can handle questions about specific verses, hadiths, scholarly opinions, historical events, prophets, companions, and modern applications of Islamic principles.',
-    // Preserve the legacy discovery contract; read-only tools need no destructive/idempotent hints.
-    annotations:{readOnlyHint:true,openWorldHint:true},
+    // The legacy discovery hints, plus an explicit destructiveHint, which OpenAI's directory review requires (#442).
+    annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true},
     // Application handler bound, with a fresh lifetime per call.
     boundMs:HANDLER_BOUND_MS,
     input:z.object({question:z.string().min(1).max(4000).describe('The question about Islam to be answered. Include as much context and detail as possible. You can ask about specific Quranic verses, hadiths, Islamic rulings, historical events, theological concepts, or practical applications. The more context provided, the more comprehensive and relevant the answer will be.')}),

@@ -110,7 +110,7 @@ export function defineParityCases(kind: RuntimeKind): void {
           assert.deepEqual(tools.map(tool => tool.name), ['answer_islamic_question']);
           assert.equal(tools[0].annotations?.readOnlyHint, true);
           assert.equal(tools[0].annotations?.openWorldHint, true);
-          assert.equal(tools[0].annotations?.destructiveHint, undefined);
+          assert.equal(tools[0].annotations?.destructiveHint, false);
           assert.equal(tools[0].annotations?.idempotentHint, undefined);
           const before = upstream.seen.length;
           const question = `complete ${kind} ${mode}`;
