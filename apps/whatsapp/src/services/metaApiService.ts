@@ -34,11 +34,38 @@ export interface MetaApiService {
    */
   sendTypingIndicator(recipient: string, messageId: string): Promise<void>;
   /**
-   * Send already-split message parts, in order.
+   * Send text messages, in order.
+   * https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/text-messages
    *
-   * @throws {MetaApiError} if Meta refuses or cannot be reached; parts after the failed one are not sent.
+   * @throws {MetaApiError} if Meta refuses or cannot be reached; messages after the failed one are not sent.
    */
   sendMessage(recipient: string, messageParts: string[]): Promise<void>;
+  /**
+   * Send a list the user can pick one row from. Their choice comes back as a `list_reply` with the row's `id`.
+   * https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/interactive-list-messages
+   *
+   * @throws {MetaApiError} if Meta refuses or cannot be reached.
+   */
+  sendInteractiveList(recipient: string, list: InteractiveList): Promise<void>;
+}
+
+/** What `sendInteractiveList` shows. Meta allows at most 10 rows; a row title at most 24 characters. */
+export interface InteractiveList {
+  bodyText: string;
+  buttonText: string;
+  sectionTitle: string;
+  rows: Array<{ id: string; title: string }>;
+}
+
+/**
+ * Adds the addressee to a payload. Per Meta, a phone number goes in `to`, while a BSUID goes in `recipient` (with `to`
+ * omitted; if both are sent, `to` takes precedence). Meta's changelog says BSUID sending is supported since July 2026.
+ * https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids#send-message-requests
+ */
+function addressed(recipient: string, payload: Record<string, unknown>): Record<string, unknown> {
+  // Digits only is a phone number; anything else is a business-scoped user ID (e.g. US.1349...)
+  if (/^[0-9]+$/.test(recipient)) return { ...payload, to: recipient };
+  return { ...payload, recipient_type: 'individual', recipient };
 }
 
 /** A number, but not `true`/`false` (Python's `isinstance(value, int) and not isinstance(value, bool)`). */
@@ -192,11 +219,6 @@ export class MetaApiServiceReal implements MetaApiService {
     logger.info('Typing indicator sent successfully');
   }
 
-  /**
-   * Per Meta, a phone number goes in `to`, while a BSUID goes in `recipient` (with `to` omitted; if both are sent, `to`
-   * takes precedence). Meta's changelog says BSUID sending is supported since July 2026.
-   * https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids#send-message-requests
-   */
   async sendMessage(recipient: string, messageParts: string[]): Promise<void> {
     const { logger } = this.#options;
     if (!recipient) {
@@ -210,18 +232,36 @@ export class MetaApiServiceReal implements MetaApiService {
 
     logger.debug(`Sending ${messageParts.length} message part(s)`);
     for (const [index, part] of messageParts.entries()) {
-      const payload: Record<string, unknown> = { messaging_product: 'whatsapp', type: 'text', text: { body: part } };
-      // Digits only is a phone number; anything else is a business-scoped user ID (e.g. US.1349...)
-      if (/^[0-9]+$/.test(recipient)) {
-        payload.to = recipient;
-      } else {
-        payload.recipient_type = 'individual';
-        payload.recipient = recipient;
-      }
-      await this.#post(payload, 'message', 'send_message');
+      await this.#post(
+        addressed(recipient, { messaging_product: 'whatsapp', type: 'text', text: { body: part } }),
+        'message',
+        'send_message',
+      );
       logger.info(`Sent message part ${index + 1}/${messageParts.length}: ${[...part].length} characters`);
     }
     logger.info(`All ${messageParts.length} message part(s) sent successfully`);
+  }
+
+  async sendInteractiveList(recipient: string, list: InteractiveList): Promise<void> {
+    const { logger } = this.#options;
+    if (!recipient) {
+      logger.error('Cannot send list: No recipient');
+      return;
+    }
+    await this.#post(
+      addressed(recipient, {
+        messaging_product: 'whatsapp',
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: list.bodyText },
+          action: { button: list.buttonText, sections: [{ title: list.sectionTitle, rows: list.rows }] },
+        },
+      }),
+      'interactive list',
+      'send_interactive_list',
+    );
+    logger.info(`Sent interactive list with ${list.rows.length} rows`);
   }
 }
 
@@ -229,6 +269,8 @@ export class MetaApiServiceReal implements MetaApiService {
 export class MetaApiServiceMock implements MetaApiService {
   /** Every `sendMessage` call, so a test can assert on who was written to and what. */
   readonly sent: Array<{ recipient: string; messageParts: string[] }> = [];
+  /** Every `sendInteractiveList` call, for the same reason. */
+  readonly lists: Array<{ recipient: string; list: InteractiveList }> = [];
   readonly #logger: Logger;
   readonly #delayMs: number;
 
@@ -250,5 +292,10 @@ export class MetaApiServiceMock implements MetaApiService {
     for (const [index, part] of messageParts.entries()) {
       this.#logger.info(`[MOCK META API] Part ${index + 1}/${messageParts.length}: ${[...part].length} characters`);
     }
+  }
+
+  async sendInteractiveList(recipient: string, list: InteractiveList): Promise<void> {
+    this.#logger.info(`[MOCK META API] Sending an interactive list with ${list.rows.length} rows`);
+    this.lists.push({ recipient, list });
   }
 }

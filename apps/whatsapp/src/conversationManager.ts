@@ -6,11 +6,14 @@
  *
  * The flow for a text message:
  *
- *   triage()  ->  sign in (apps/auth)  ->  typing indicator  ->  find or start the user's thread (apps/api)
- *             ->  ask apps/api  ->  format for WhatsApp  ->  split  ->  send (Meta)
+ *   triage()  ->  sign in (apps/auth)  ->  typing indicator  ->  read the user's chat expiry (apps/api)
+ *             ->  complete the answer (apps/api)  ->  send each message in order (Meta)
+ *
+ * apps/api owns the thread and the formatting: the answer arrives as WhatsApp-ready messages, so nothing is reformatted or
+ * split here. `/expiry` sends a list the user picks the chat expiry from; the pick arrives as a list reply and is saved.
  *
  * Every refusal along the way is told to the user in plain words, and the ones an operator must act on are also reported
- * (see `ErrorReporter`). The notice texts are copied from Python word for word, including the odd ".." in the thread-deletion one,
+ * (see `ErrorReporter`). The notice texts are copied from Python word for word,
  * because a user may report one by its wording.
  *
  * Differences from Python:
@@ -19,12 +22,8 @@
  * - `triage()` is a plain function that answers "what should happen to this message?". The HTTP layer (phase 5) turns the
  *   answer into a status code and then calls `dispatch()`. Python mixed the checks and the status codes in one route.
  * - Everything the manager needs (settings, the three clients, the clock) is passed in, not looked up in globals.
- * - Two Python branches are gone because they cannot happen here: the notice for a thread-creation reply without an id (the
- *   apps/api client already refuses one) and the notice for an answer that formatted to nothing (the formatter never turns
- *   non-empty text into empty text).
- * - A `last_message_time` must carry a time-zone marker (`Z` or `+hh:mm`). JavaScript would read a bare timestamp as local
- *   time without complaint; Python raised an error, so this does too.
- * - A reply that is only whitespace splits into nothing; the user then gets the "couldn't process" notice (spec decision).
+ * - A reply that is only whitespace has nothing to send (WhatsApp rejects a blank message), so the user gets the
+ *   "couldn't process" notice (spec decision).
  */
 import type { Env } from './config';
 import type { ErrorReporter } from './errorReporter';
@@ -37,18 +36,13 @@ import {
   AuthTokenError,
   AuthUserBannedError,
   MessageProcessingError,
-  ThreadCreationError,
-  ThreadDeletionError,
-  ThreadInfoError,
+  PreferencesError,
 } from './errors';
-import { formatForWhatsApp } from './formatting/whatsappMessageFormatter';
-import { splitMessage } from './formatting/messageSplitter';
 import { getRequestId, type Logger } from './logger';
-import type { AnsariClient } from './services/ansariClient';
+import { CHAT_RETENTION_PREFERENCE, type AnsariClient } from './services/ansariClient';
 import type { AuthClient } from './services/authClient';
 import type { MetaApiService } from './services/metaApiService';
-import { pythonSplitWords } from './utils/pythonText';
-import { calculateTimePassed, getRetentionTimeSeconds, isMessageTooOld } from './utils/time';
+import { isMessageTooOld } from './utils/time';
 import type { ParsedWebhook } from './webhook/parseWebhook';
 
 /** A message from a user, as the webhook parser hands it over. */
@@ -63,8 +57,9 @@ export type ManagerConfig = Pick<
 /**
  * What should happen to an incoming message. The HTTP layer answers Meta according to this (Python's status codes:
  * `maintenance` 503, `dev_filter` 202, `too_old` 422, `unsupported` 415, `text` 200) and then calls `dispatch`.
+ * `expiry_command` and `list_reply` are answered with 200, as `text` is.
  */
-export type TriageAction = 'maintenance' | 'dev_filter' | 'too_old' | 'unsupported' | 'text';
+export type TriageAction = 'maintenance' | 'dev_filter' | 'too_old' | 'unsupported' | 'text' | 'expiry_command' | 'list_reply';
 
 export const SIGN_IN_FAILED_NOTICE = "Sorry, we couldn't sign you in. Please try again later.";
 export const BANNED_NOTICE = "Sorry, we can't answer messages from this account.";
@@ -73,11 +68,13 @@ export const MAINTENANCE_NOTICE =
 const PROCESSING_FAILED_NOTICE = 'An error occurred while processing your message. Please try again later.';
 const UNEXPECTED_FAILURE_NOTICE = 'An unexpected error occurred while processing your message. Please try again later.';
 const EMPTY_ANSWER_NOTICE = "Sorry, we couldn't process your message. Please try again later.";
-const THREAD_INFO_FAILED_NOTICE = "Sorry, we're having trouble accessing your chat history. Please try again later.";
-const THREAD_DELETE_FAILED_NOTICE =
-  'An unexpected error occurred while starting a new chat session.. Please try again later.';
-const THREAD_CREATE_FAILED_NOTICE =
-  'An unexpected error occurred while creating a new chat session. Please try again later.';
+const EXPIRY_SAVE_FAILED_NOTICE = 'An error occurred while saving your chat setting. Please try again later.';
+const INVALID_CHOICE_NOTICE = 'Sorry, that option is no longer available. Send /expiry to choose again.';
+
+/** The command that opens the chat-expiry list. Matched after any environment prefix, ignoring case and spaces. */
+const EXPIRY_COMMAND = '/expiry';
+/** The hours offered by `/expiry`. Meta allows at most 10 rows in a list; apps/api accepts any value from 0 to 24. */
+export const EXPIRY_CHOICES_HOURS = [0, 1, 2, 3, 6, 12, 24] as const;
 
 /** "...in about 5 minutes." The wait is rounded up to whole minutes and is never less than one. */
 export function rateLimitedNotice(retryAfterSeconds: number): string {
@@ -92,21 +89,63 @@ export function unsupportedTypeNotice(messageType: string): string {
   return `Sorry, I can't process ${named} yet. Please send me a text message.`;
 }
 
-/** `Z` or `+hh:mm`, as apps/api sends it. Anything else is refused rather than guessed (see the file header). */
-const TIMESTAMP_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function parseLastMessageTime(text: string): Date {
-  const date = TIMESTAMP_WITH_OFFSET.test(text) ? new Date(text) : new Date(Number.NaN);
-  if (Number.isNaN(date.getTime())) throw new TypeError('last message time is not an ISO timestamp with a time zone');
-  return date;
+/** How a number of hours reads in a sentence: "a new session for every message", "1 hour", "6 hours". */
+export function expiryPhrase(hours: number): string {
+  if (hours === 0) return 'a new session for every message';
+  return hours === 1 ? '1 hour' : `${hours} hours`;
 }
 
-/** The text of a text message: `{ body: '...' }`. Anything else is a fault in what Meta sent. */
-function incomingText(message: IncomingMessage): string {
+/**
+ * The text of one row of the `/expiry` list. Meta allows 24 characters for a row title, so the 0-hour row says "each":
+ * "New session every message" is 25 characters and Meta would reject the whole list.
+ */
+function rowTitle(hours: number): string {
+  if (hours === 0) return 'New session each message';
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
+
+/**
+ * The expiry a stored preference asks for, or `fallback` (the env default) when nothing usable is stored. A stored value is
+ * a whole number from 0 to 24; anything else is not trusted.
+ */
+export function chatRetentionHours(stored: string | undefined, fallback: number): number {
+  if (stored === undefined || !/^\d{1,2}$/.test(stored)) return fallback;
+  const hours = Number(stored);
+  return hours <= 24 ? hours : fallback;
+}
+
+/** The row id `/expiry` gives each choice. It ends with the environment, so only the one that sent the list answers it. */
+export function expiryRowId(hours: number, environment: ManagerConfig['ENVIRONMENT']): string {
+  return `expiry:${hours}:${environment}`;
+}
+
+/** The hours in a list reply's row id, when the id is one this environment offered. Anything else is `undefined`. */
+export function parseExpiryChoice(id: string, environment: ManagerConfig['ENVIRONMENT']): number | undefined {
+  const match = /^expiry:(\d{1,2}):([a-z]+)$/.exec(id);
+  if (!match || match[2] !== environment) return undefined;
+  const hours = Number(match[1]);
+  return (EXPIRY_CHOICES_HOURS as readonly number[]).includes(hours) ? hours : undefined;
+}
+
+/** The text of a text message: `{ body: '...' }`, or `undefined` for anything else. */
+function textOf(message: Pick<IncomingMessage, 'messageType' | 'messageBody'>): string | undefined {
+  if (message.messageType !== 'text') return undefined;
   const body = message.messageBody;
   const text = typeof body === 'object' && body !== null ? (body as { body?: unknown }).body : undefined;
-  if (typeof text !== 'string') throw new TypeError('text message has no body');
-  return text;
+  return typeof text === 'string' ? text : undefined;
+}
+
+/**
+ * The row id of a list reply (an interactive message the user answered from a list), or `undefined`.
+ * https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages
+ */
+function listReplyId(message: Pick<IncomingMessage, 'messageType' | 'messageBody'>): string | undefined {
+  if (message.messageType !== 'interactive') return undefined;
+  const body = message.messageBody;
+  if (typeof body !== 'object' || body === null || (body as { type?: unknown }).type !== 'list_reply') return undefined;
+  const reply = (body as { list_reply?: unknown }).list_reply;
+  const id = typeof reply === 'object' && reply !== null ? (reply as { id?: unknown }).id : undefined;
+  return typeof id === 'string' ? id : undefined;
 }
 
 const DEV_PREFIX = '!d ';
@@ -116,15 +155,17 @@ const STAGING_PREFIX = '!s ';
  * Which environment answers a message, by its prefix (issue #363): the production number is subscribed to the production,
  * staging and local (zrok) Meta apps, so all three receive every message. Production answers text with neither prefix,
  * staging only `!s `, development only `!d `. Prefixes are exact: lowercase, with the trailing space. A message that
- * is not text has no prefix, so only production answers it. `prefixLength` is how much to cut off the front of the text.
+ * is not text has no prefix, so only production answers it, except a list reply, which names its environment in its row id
+ * (see `expiryRowId`). `prefixLength` is how much to cut off the front of the text.
  */
 export function routeByPrefix(
   environment: ManagerConfig['ENVIRONMENT'],
   message: Pick<IncomingMessage, 'messageType' | 'messageBody'>,
 ): { answer: boolean; prefixLength: number } {
-  const body = message.messageBody;
-  const text = typeof body === 'object' && body !== null ? (body as { body?: unknown }).body : undefined;
-  const textMessage = message.messageType === 'text' && typeof text === 'string' ? text : undefined;
+  const listId = listReplyId(message);
+  if (listId !== undefined) return { answer: listId.endsWith(`:${environment}`), prefixLength: 0 };
+
+  const textMessage = textOf(message);
 
   if (environment === 'production') {
     const isOtherEnvironments = textMessage?.startsWith(DEV_PREFIX) === true || textMessage?.startsWith(STAGING_PREFIX) === true;
@@ -252,7 +293,8 @@ export class ConversationManager {
     const { config, logger } = this.#options;
 
     // Other environments' messages are ignored here, so nothing about them may be logged: no phone, BSUID or text
-    if (!routeByPrefix(config.ENVIRONMENT, message).answer) {
+    const route = routeByPrefix(config.ENVIRONMENT, message);
+    if (!route.answer) {
       logger.info(`Ignoring a message meant for another environment (ENVIRONMENT=${config.ENVIRONMENT})`);
       return 'dev_filter';
     }
@@ -264,7 +306,12 @@ export class ConversationManager {
       return 'too_old';
     }
 
-    return message.messageType === 'text' ? 'text' : 'unsupported';
+    if (listReplyId(message) !== undefined) return 'list_reply';
+    const text = textOf(message);
+    if (text !== undefined) {
+      return text.slice(route.prefixLength).trim().toLowerCase() === EXPIRY_COMMAND ? 'expiry_command' : 'text';
+    }
+    return 'unsupported';
   }
 
   /**
@@ -282,7 +329,16 @@ export class ConversationManager {
         await this.#handleUnsupported(turn);
         return;
       case 'text':
-        await this.#signInAndHandleText(turn);
+        await this.#signInThen(turn, async () => {
+          await this.#startTyping(turn);
+          await this.#handleText(turn);
+        });
+        return;
+      case 'expiry_command':
+        await this.#signInThen(turn, () => this.#sendExpiryList(turn));
+        return;
+      case 'list_reply':
+        await this.#signInThen(turn, () => this.#saveExpiryChoice(turn));
         return;
       case 'dev_filter':
       case 'too_old':
@@ -291,11 +347,11 @@ export class ConversationManager {
   }
 
   /**
-   * Send a text to a user: split it to fit WhatsApp's limit and send the parts in order. Never throws: a failure is logged
-   * (Meta reports it too), because the user has no one left to tell.
+   * Send a text to a user as one message. Never throws: a failure is logged (Meta reports it too), because the user has
+   * no one left to tell.
    */
   async notify(recipient: string, text: string): Promise<void> {
-    await this.#deliver(recipient, splitMessage(text));
+    await this.#deliver(recipient, [text]);
   }
 
   async #deliver(recipient: string, parts: string[]): Promise<void> {
@@ -356,16 +412,158 @@ export class ConversationManager {
     return null;
   }
 
-  async #signInAndHandleText(turn: Turn): Promise<void> {
+  /**
+   * Sign the user in, then run `action`. A sign-in refusal is told to the user and `action` does not run; an unexpected
+   * fault inside `action` is logged and told to the user, so nothing escapes `dispatch`.
+   */
+  async #signInThen(turn: Turn, action: () => Promise<void>): Promise<void> {
     const notice = await this.#authenticate(turn);
     if (notice !== null) {
       await this.notify(turn.replyTo, notice);
       return;
     }
+    try {
+      await action();
+    } catch (error) {
+      this.#options.logger.error('Unexpected error handling a message', error);
+      await this.notify(turn.replyTo, UNEXPECTED_FAILURE_NOTICE);
+    }
+  }
 
-    // Started only for a signed-in user, because #handleText is what stops it
-    await this.#startTyping(turn);
-    await this.#handleText(turn);
+  // ---------- calling apps/api ----------
+
+  /**
+   * Run one call to apps/api. If apps/api refuses the token (a session can end after its token was signed, e.g. a ban or a
+   * deletion), the cached token is dropped, apps/auth is asked once more, and the call is tried once more. A second refusal,
+   * or a refused exchange, ends it. A failed call is told to the user with `failureNotice`. Returns `null` when the user has
+   * already been told.
+   */
+  async #callApi<T>(
+    turn: Turn,
+    run: () => Promise<T>,
+    failureNotice: string = PROCESSING_FAILED_NOTICE,
+    attempt: 1 | 2 = 1,
+  ): Promise<T | null> {
+    const { authClient, logger } = this.#options;
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof ApiUnauthorizedError) {
+        if (attempt === 1) {
+          authClient.forget(turn.message.bsuid);
+          const notice = await this.#authenticate(turn);
+          if (notice === null) return this.#callApi(turn, run, failureNotice, 2);
+          // A user who sent one message must not be told they are sending too quickly, which is what a 429 on this
+          // second exchange would otherwise say
+          await this.notify(turn.replyTo, notice === BANNED_NOTICE ? BANNED_NOTICE : SIGN_IN_FAILED_NOTICE);
+        } else {
+          logger.error('apps/api refused a freshly exchanged token; giving up');
+          this.#report(error, 'api_unauthorized_after_reexchange');
+          await this.notify(turn.replyTo, PROCESSING_FAILED_NOTICE);
+        }
+        return null;
+      }
+      if (error instanceof MessageProcessingError) {
+        logger.error('Failed to process message', error);
+        this.#report(error, 'message_processing_failure');
+        await this.notify(turn.replyTo, failureNotice);
+        return null;
+      }
+      if (error instanceof PreferencesError) {
+        logger.error('Failed to read or save a preference', error);
+        this.#report(error, 'preferences_failure');
+        await this.notify(turn.replyTo, failureNotice);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /** The user's chat expiry: their saved choice, or the env default when they have not chosen one (or the value is unusable). */
+  async #expiryHours(token: string): Promise<number> {
+    const { ansariClient, config, logger } = this.#options;
+    const preferences = await ansariClient.getPreferences(token);
+    const stored = preferences[CHAT_RETENTION_PREFERENCE];
+    const hours = chatRetentionHours(stored, config.WHATSAPP_CHAT_RETENTION_HOURS);
+    if (stored !== undefined && hours !== Number(stored)) logger.warn('A stored chat expiry is not valid; the default is used');
+    return hours;
+  }
+
+  // ---------- answering ----------
+
+  /** Process an incoming text message and send the answer to the sender. */
+  async #handleText(turn: Turn): Promise<void> {
+    const { ansariClient, config, logger } = this.#options;
+    if (!turn.message.bsuid || !turn.token) {
+      logger.error('Cannot process text message: the user is not authenticated');
+      return;
+    }
+
+    try {
+      // The prefix only routes the message; the answer must not be about it
+      const { prefixLength } = routeByPrefix(config.ENVIRONMENT, turn.message);
+      const text = (textOf(turn.message) ?? '').slice(prefixLength);
+      logger.debug(`Whatsapp user sent a text message (${[...text].length} characters)`);
+
+      const messages = await this.#callApi(turn, async () => {
+        const expiryHours = await this.#expiryHours(turn.token);
+        return ansariClient.completeChat(turn.token, { message: text, expiryHours });
+      });
+      if (messages === null) return;
+      turn.typing?.stop();
+
+      // The API supplies WhatsApp-formatted message boundaries. WhatsApp rejects blank messages, so drop blank parts.
+      const parts = messages.filter((part) => part.trim() !== '');
+      if (parts.length === 0) {
+        logger.warn('Received an empty response from the backend');
+        await this.notify(turn.replyTo, EMPTY_ANSWER_NOTICE);
+        return;
+      }
+      await this.#deliver(turn.replyTo, parts);
+    } catch (error) {
+      logger.error('Unexpected error processing text message', error);
+      await this.notify(turn.replyTo, UNEXPECTED_FAILURE_NOTICE);
+    } finally {
+      // Every way out of here ends the typing indicator, so none is left running
+      turn.typing?.stop();
+    }
+  }
+
+  // ---------- the /expiry command ----------
+
+  /** Send the list the user picks the chat expiry from, with their current setting in the text. */
+  async #sendExpiryList(turn: Turn): Promise<void> {
+    const { config, logger, metaApi } = this.#options;
+    const current = await this.#callApi(turn, () => this.#expiryHours(turn.token));
+    if (current === null) return;
+    try {
+      await metaApi.sendInteractiveList(turn.replyTo, {
+        bodyText: `Your current setting: ${expiryPhrase(current)}. Pick a new one below.`,
+        buttonText: 'Choose',
+        sectionTitle: 'Chat expiry',
+        rows: EXPIRY_CHOICES_HOURS.map((hours) => ({ id: expiryRowId(hours, config.ENVIRONMENT), title: rowTitle(hours) })),
+      });
+    } catch (error) {
+      logger.error('Error sending the chat expiry list', error);
+    }
+  }
+
+  /** Save the choice from a list reply, then confirm it. A row this environment did not offer gets a short notice. */
+  async #saveExpiryChoice(turn: Turn): Promise<void> {
+    const { ansariClient, config } = this.#options;
+    const id = listReplyId(turn.message);
+    const hours = id === undefined ? undefined : parseExpiryChoice(id, config.ENVIRONMENT);
+    if (hours === undefined) {
+      await this.notify(turn.replyTo, INVALID_CHOICE_NOTICE);
+      return;
+    }
+    const saved = await this.#callApi(
+      turn,
+      () => ansariClient.setPreference(turn.token, CHAT_RETENTION_PREFERENCE, String(hours)),
+      EXPIRY_SAVE_FAILED_NOTICE,
+    );
+    if (saved === null) return;
+    await this.notify(turn.replyTo, `Done. Your chat setting is now ${expiryPhrase(hours)}.`);
   }
 
   // ---------- typing indicator ----------
@@ -391,153 +589,6 @@ export class ConversationManager {
       maxMs: this.#options.typingMaxMs ?? 300_000,
     });
     await turn.typing.start();
-  }
-
-  // ---------- the user's thread ----------
-
-  /**
-   * The id of the user's one current thread, replacing it when it has expired. Each user has exactly one thread. When the
-   * last message is older than the retention time (3 hours by default) the old thread and its messages are deleted and a
-   * new thread starts. Returns `null` when something failed and the user has already been told.
-   *
-   * Known corner case, deliberately NOT handled (spec 321): if a user's first message after the expiry is followed by a
-   * second one before the first has finished deleting and creating, both can see the expired thread and each create a new
-   * one, leaving the user with two. A per-user lock was considered and rejected:
-   * - two messages back to back from one user are unlikely, and delete-and-create takes well under a second;
-   * - the damage is small: the newest thread is always the one used, so replies still work;
-   * - it is easy to clean up: a manual sweep deletes all but the newest `whatsapp` thread of each user.
-   * A lock around this step would also not stop two answers streaming into one thread at once, which is accepted too.
-   */
-  async #resolveThread(turn: Turn, firstMessage: string): Promise<string | null> {
-    const { ansariClient, config, logger } = this.#options;
-
-    let info;
-    try {
-      info = await ansariClient.getLastThreadInfo(turn.token);
-    } catch (error) {
-      if (!(error instanceof ThreadInfoError)) throw error;
-      logger.error('Failed to get thread info', error);
-      this.#report(error, 'thread_info_failure');
-      await this.notify(turn.replyTo, THREAD_INFO_FAILED_NOTICE);
-      return null;
-    }
-
-    const lastMessageTime = info.lastMessageTime === null ? null : parseLastMessageTime(info.lastMessageTime);
-    const passed = calculateTimePassed(lastMessageTime, this.#now());
-    logger.debug(`Time passed since user's last whatsapp message: ${passed.forLogging}`);
-
-    if (info.threadId !== null && passed.seconds <= getRetentionTimeSeconds(config.WHATSAPP_CHAT_RETENTION_HOURS)) {
-      return info.threadId;
-    }
-
-    if (info.threadId !== null) {
-      try {
-        await ansariClient.deleteThread(turn.token, info.threadId);
-        logger.info("Deleted the user's expired thread");
-      } catch (error) {
-        if (!(error instanceof ThreadDeletionError)) throw error;
-        // Keep one thread per user: do not start a second one next to an expired thread we could not delete
-        logger.error('Failed to delete the expired thread', error);
-        this.#report(error, 'thread_deletion_failure');
-        await this.notify(turn.replyTo, THREAD_DELETE_FAILED_NOTICE);
-        return null;
-      }
-    }
-
-    try {
-      // The thread's title is the first six words of the message
-      const created = await ansariClient.createThread(turn.token, pythonSplitWords(firstMessage).slice(0, 6).join(' '));
-      logger.info('Created a new thread for the whatsapp user');
-      return created.threadId;
-    } catch (error) {
-      if (!(error instanceof ThreadCreationError)) throw error;
-      logger.error('Failed to create thread', error);
-      this.#report(error, 'thread_creation_failure');
-      await this.notify(turn.replyTo, THREAD_CREATE_FAILED_NOTICE);
-      return null;
-    }
-  }
-
-  // ---------- answering ----------
-
-  /**
-   * Ask apps/api for the answer. Two attempts at most: if apps/api refuses the token (a session can end after its token was
-   * signed, e.g. a ban or a deletion), the cached token is dropped, apps/auth is asked once more, and the message is tried
-   * once more. A second refusal, or a refused exchange, ends it. Returns `null` when the user has already been told.
-   */
-  async #answer(turn: Turn, text: string, attempt: 1 | 2): Promise<string | null> {
-    const { ansariClient, authClient, logger } = this.#options;
-    try {
-      const threadId = await this.#resolveThread(turn, text);
-      if (threadId === null) return null;
-      return await ansariClient.processMessage(turn.token, threadId, text);
-    } catch (error) {
-      if (error instanceof ApiUnauthorizedError) {
-        if (attempt === 1) {
-          authClient.forget(turn.message.bsuid);
-          const notice = await this.#authenticate(turn);
-          if (notice === null) return this.#answer(turn, text, 2);
-          // A user who sent one message must not be told they are sending too quickly, which is what a 429 on this
-          // second exchange would otherwise say
-          await this.notify(turn.replyTo, notice === BANNED_NOTICE ? BANNED_NOTICE : SIGN_IN_FAILED_NOTICE);
-        } else {
-          logger.error('apps/api refused a freshly exchanged token; giving up');
-          this.#report(error, 'api_unauthorized_after_reexchange');
-          await this.notify(turn.replyTo, PROCESSING_FAILED_NOTICE);
-        }
-        return null;
-      }
-      if (error instanceof MessageProcessingError) {
-        logger.error('Failed to process message', error);
-        this.#report(error, 'message_processing_failure');
-        await this.notify(turn.replyTo, PROCESSING_FAILED_NOTICE);
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /** Process an incoming text message and send the answer to the sender. */
-  async #handleText(turn: Turn): Promise<void> {
-    const { logger } = this.#options;
-    if (!turn.message.bsuid || !turn.token) {
-      logger.error('Cannot process text message: the user is not authenticated');
-      return;
-    }
-
-    try {
-      // The prefix only routes the message; the answer must not be about it
-      const { prefixLength } = routeByPrefix(this.#options.config.ENVIRONMENT, turn.message);
-      const text = incomingText(turn.message).slice(prefixLength);
-      logger.debug(`Whatsapp user sent a text message (${[...text].length} characters)`);
-
-      const answer = await this.#answer(turn, text, 1);
-      if (answer === null) return;
-      turn.typing?.stop();
-
-      if (answer === '') {
-        logger.warn('Received an empty response from the backend');
-        await this.notify(turn.replyTo, EMPTY_ANSWER_NOTICE);
-        return;
-      }
-
-      // Convert conventional markdown syntax to WhatsApp's markdown syntax
-      logger.debug(`Response received for markdown conversion (${[...answer].length} characters)`);
-      // An answer of only whitespace has nothing to send (WhatsApp rejects a blank message): same notice as an empty one
-      const parts = splitMessage(formatForWhatsApp(answer));
-      if (parts.length === 0) {
-        logger.warn('Response had no text to send after splitting');
-        await this.notify(turn.replyTo, EMPTY_ANSWER_NOTICE);
-        return;
-      }
-      await this.#deliver(turn.replyTo, parts);
-    } catch (error) {
-      logger.error('Unexpected error processing text message', error);
-      await this.notify(turn.replyTo, UNEXPECTED_FAILURE_NOTICE);
-    } finally {
-      // Every way out of here ends the typing indicator, so none is left running
-      turn.typing?.stop();
-    }
   }
 
   /** Tell the sender that this kind of message (image, audio, ...) is not understood yet. Needs no sign-in. */

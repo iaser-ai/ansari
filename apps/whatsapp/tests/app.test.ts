@@ -25,7 +25,6 @@ import { capturingLogger } from './helpers/network';
 import {
   APP_SECRET,
   BSUID,
-  NOW,
   PHONE,
   PHONE_NUMBER_ID,
   VERIFY_TOKEN,
@@ -270,6 +269,7 @@ describe('answering Meta before the work is done', () => {
       sendTypingIndicator: async () => {
         state.typing += 1;
       },
+      sendInteractiveList: async () => {},
       sendMessage: async () => {
         state.sendStarted = true;
         await gate;
@@ -320,12 +320,11 @@ describe('answering Meta before the work is done', () => {
   it('answers Meta while apps/api is still working', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
-    const inner = new AnsariClientMock({ logger: capturingLogger().logger, now: () => NOW });
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
     const slowApi: AnsariClient = {
-      createThread: (...args) => inner.createThread(...args),
-      deleteThread: (...args) => inner.deleteThread(...args),
-      getLastThreadInfo: (...args) => inner.getLastThreadInfo(...args),
-      processMessage: async (...args) => (await gate, inner.processMessage(...args)),
+      getPreferences: (...args) => inner.getPreferences(...args),
+      setPreference: (...args) => inner.setPreference(...args),
+      completeChat: async (...args) => (await gate, inner.completeChat(...args)),
     };
     const t = await started({ ansariClient: slowApi });
 
@@ -744,19 +743,17 @@ describe('a fault in the background work', () => {
       const sent: string[] = [];
       const metaApi: MetaApiService = {
         sendTypingIndicator: async () => {},
+        sendInteractiveList: async () => {},
         sendMessage: async (_recipient, parts) => {
           sent.push(...parts);
         },
       };
       const broken: AnsariClient = {
-        createThread: async () => {
-          throw new RangeError('a bug inside the thread code');
+        getPreferences: async () => {
+          throw new RangeError('a bug inside the preferences code');
         },
-        deleteThread: async () => {},
-        getLastThreadInfo: async () => {
-          throw new RangeError('a bug inside the thread code');
-        },
-        processMessage: async () => '',
+        setPreference: async () => {},
+        completeChat: async () => [],
       };
       const t = await started({ metaApi, ansariClient: broken });
 

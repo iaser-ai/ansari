@@ -1,67 +1,49 @@
 /**
- * The apps/api client: threads and the streamed chat answer.
+ * The apps/api client: one complete chat answer, and the user's preferences.
  *
  * Python counterparts: `ansari_client_base.py` (the interface), `ansari_client_real.py` and `ansari_client_mock.py`.
  *
- * How a chat answer arrives: `POST /api/v2/threads/{id}/chat` is a Server-Sent Events stream, the same route the web app
- * uses. Lines starting with `:` are keep-alives; each `data:` line is a JSON event: `text` (a piece of the answer),
- * `tool_call` / `tool_result` (ignored), `error`, and a final `done`. A stream with an `error` event, or one that ends
- * without `done`, is a failure, so a half answer is never passed on as complete. (HTTP status is 200 even for those, because
- * the status line is sent before the answer starts.)
+ * How an answer arrives: `POST /api/v2/chat/complete` returns one JSON body, `{ messages: string[] }`, once the answer is
+ * complete. apps/api owns the thread: it creates, reuses or replaces the user's thread from the `expiryHours` sent with
+ * each message, so this client no longer creates or deletes threads.
  *
  * Differences from Python:
- * - `fetch` does not follow Python's rule "a timeout applies to each wait". The chat call uses an idle timer that restarts on
- *   every chunk (see `IdleTimeout`), which is what httpx's 60 s read timeout meant for a stream.
- * - A body is read with `readLines` over a `ReadableStream`, because `fetch` hands over bytes, not lines.
+ * - `fetch` has no per-read timeout like httpx's, so each call gets one deadline. An answer that uses tools can take a
+ *   while, so the chat call has a longer one.
  */
 import { z } from 'zod';
-import {
-  ApiUnauthorizedError,
-  MessageProcessingError,
-  ThreadCreationError,
-  ThreadDeletionError,
-  ThreadInfoError,
-} from '../errors';
+import { ApiUnauthorizedError, MessageProcessingError, PreferencesError } from '../errors';
 import type { Logger } from '../logger';
-import { describeNetworkError, discardBody, IdleTimeout, readLines, trimTrailingSlashes, type FetchLike } from './http';
+import { describeNetworkError, discardBody, type FetchLike, trimTrailingSlashes } from './http';
 
 /** Per-client attribution id sent to apps/api (lowercase, per packages/types attribution). */
 export const CLIENT_ID = 'askansari-whatsapp';
 
-/** Ordinary calls (threads) give up after this long without an answer. */
-const REQUEST_TIMEOUT_MS = 60_000;
-/** The chat stream gives up after this long without a single byte (apps/api sends `: ping` lines to stay under it). */
-const CHAT_IDLE_TIMEOUT_MS = 60_000;
+/** The preference key, in apps/api's `preferences` table, that holds the user's chat expiry in hours. */
+export const CHAT_RETENTION_PREFERENCE = 'whatsapp.chat_retention_hours';
 
-export interface ThreadInfo {
-  /** `null` when the user has no thread yet. */
-  threadId: string | null;
-  /** ISO timestamp of the thread's last activity; `null` when there is no thread. */
-  lastMessageTime: string | null;
-}
+/** Preference reads and writes give up after this long. */
+const REQUEST_TIMEOUT_MS = 60_000;
+/** An answer can run the model and its tools for a while, so it gets more time than the other calls. */
+const CHAT_TIMEOUT_MS = 120_000;
 
 export interface AnsariClient {
   /**
-   * Create a thread for the user this JWT belongs to.
-   * @throws {ThreadCreationError}
-   */
-  createThread(token: string, title: string): Promise<{ threadId: string }>;
-  /**
-   * Delete a thread and, with it, all of its messages. A thread that is already gone is not an error.
-   * @throws {ThreadDeletionError}
-   */
-  deleteThread(token: string, threadId: string): Promise<void>;
-  /**
-   * The user's most recently active thread, or nulls if they have none.
-   * @throws {ThreadInfoError}
-   */
-  getLastThreadInfo(token: string): Promise<ThreadInfo>;
-  /**
-   * Send a message and collect the complete answer (WhatsApp cannot stream, so the whole stream is read first).
-   * An empty string means apps/api finished without saying anything.
+   * Send a message and get the complete answer as the list of messages to send, in order. An empty list means apps/api
+   * finished without saying anything.
    * @throws {MessageProcessingError}
    */
-  processMessage(token: string, threadId: string, message: string): Promise<string>;
+  completeChat(token: string, request: { message: string; expiryHours: number }): Promise<string[]>;
+  /**
+   * Every preference the user has, as key/value strings.
+   * @throws {PreferencesError}
+   */
+  getPreferences(token: string): Promise<Record<string, string>>;
+  /**
+   * Save one preference.
+   * @throws {PreferencesError}
+   */
+  setPreference(token: string, key: string, value: string): Promise<void>;
   /** Every method also throws `ApiUnauthorizedError` on a 401, which a fresh token can fix. */
 }
 
@@ -70,27 +52,25 @@ export interface AnsariClientOptions {
   baseUrl: string;
   logger: Logger;
   fetch?: FetchLike;
-  /** How long the chat stream may stay silent before it is given up on. Only tests change it. */
-  chatIdleTimeoutMs?: number;
+  /** How long the chat call may take before it is given up on. Only tests change it. */
+  chatTimeoutMs?: number;
 }
 
-/** One entry of `GET /api/v2/threads`: only the fields this client reads. */
-const threadListSchema = z.array(
-  z.looseObject({ thread_id: z.unknown().optional(), source: z.unknown().optional(), updated_at: z.unknown().optional() }),
-);
+const completeResponseSchema = z.object({ messages: z.array(z.string()) });
+const preferencesSchema = z.record(z.string(), z.string());
 
 /** Calls apps/api over HTTP, with the user's JWT as the bearer token on every request. */
 export class AnsariClientReal implements AnsariClient {
   readonly #baseUrl: string;
   readonly #logger: Logger;
   readonly #fetch: FetchLike;
-  readonly #chatIdleTimeoutMs: number;
+  readonly #chatTimeoutMs: number;
 
   constructor(options: AnsariClientOptions) {
     this.#baseUrl = trimTrailingSlashes(options.baseUrl);
     this.#logger = options.logger;
     this.#fetch = options.fetch ?? fetch;
-    this.#chatIdleTimeoutMs = options.chatIdleTimeoutMs ?? CHAT_IDLE_TIMEOUT_MS;
+    this.#chatTimeoutMs = options.chatTimeoutMs ?? CHAT_TIMEOUT_MS;
   }
 
   #headers(token: string): Record<string, string> {
@@ -106,7 +86,7 @@ export class AnsariClientReal implements AnsariClient {
   }
 
   /**
-   * One ordinary request. A network fault becomes `onNetworkError`'s error, so each method keeps its own error class.
+   * One request. A network fault becomes `onNetworkError`'s error, so each method keeps its own error class.
    * A redirect is a failure here (see http.ts), reported with its status like any other.
    */
   async #request(
@@ -114,6 +94,7 @@ export class AnsariClientReal implements AnsariClient {
     path: string,
     token: string,
     what: string,
+    timeoutMs: number,
     onNetworkError: (cause: unknown) => Error,
     body?: unknown,
   ): Promise<Response> {
@@ -123,7 +104,7 @@ export class AnsariClientReal implements AnsariClient {
         headers: this.#headers(token),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         redirect: 'manual',
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       this.#logger.error(`Network error ${what}: ${describeNetworkError(error)}`);
@@ -131,232 +112,120 @@ export class AnsariClientReal implements AnsariClient {
     }
   }
 
-  async createThread(token: string, title: string): Promise<{ threadId: string }> {
+  async completeChat(token: string, request: { message: string; expiryHours: number }): Promise<string[]> {
     const response = await this.#request(
       'POST',
-      '/api/v2/threads',
+      '/api/v2/chat/complete',
       token,
-      'creating thread',
-      (cause) => new ThreadCreationError('Network error during thread creation', { cause }),
-      { name: title, source: 'whatsapp' },
+      'getting the answer',
+      this.#chatTimeoutMs,
+      (cause) => new MessageProcessingError('Network error during message processing', { cause }),
+      { message: request.message, expiryHours: request.expiryHours },
     );
-    if (response.status === 401) await discardBody(response);
-    this.#refuseIfUnauthorized(response.status);
     if (!response.ok) {
       await discardBody(response);
-      this.#logger.error(`HTTP error creating thread: ${response.status}`);
-      throw new ThreadCreationError(`Failed to create thread: HTTP ${response.status}`);
+      this.#refuseIfUnauthorized(response.status);
+      this.#logger.error(`Error from backend API: HTTP ${response.status}`);
+      throw new MessageProcessingError(`Backend returned HTTP ${response.status}`);
     }
+
+    let body: unknown;
     try {
-      const body: unknown = await response.json();
-      const threadId = typeof body === 'object' && body !== null ? (body as { thread_id?: unknown }).thread_id : undefined;
-      if (typeof threadId !== 'string' || threadId === '') throw new TypeError('no thread_id');
-      return { threadId };
+      body = await response.json();
     } catch (error) {
-      this.#logger.error('apps/api returned an unexpected thread-creation response');
-      throw new ThreadCreationError('Unexpected thread-creation response', { cause: error });
+      this.#logger.error('apps/api sent an answer that is not JSON');
+      throw new MessageProcessingError('Malformed answer from apps/api', { cause: error });
     }
+    const parsed = completeResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      this.#logger.error('apps/api returned an unexpected answer shape');
+      throw new MessageProcessingError('Unexpected answer from apps/api');
+    }
+    if (parsed.data.messages.length === 0) this.#logger.warn('Received an empty response from the backend');
+    return parsed.data.messages;
   }
 
-  async deleteThread(token: string, threadId: string): Promise<void> {
-    const response = await this.#request(
-      'DELETE',
-      `/api/v2/threads/${encodeURIComponent(threadId)}`,
-      token,
-      'deleting thread',
-      (cause) => new ThreadDeletionError('Network error during thread deletion', { cause }),
-    );
-    await discardBody(response);
-    // The thread is already gone, which is the outcome we wanted
-    if (response.status === 404) return;
-    this.#refuseIfUnauthorized(response.status);
-    if (!response.ok) {
-      this.#logger.error(`HTTP error deleting thread: ${response.status}`);
-      throw new ThreadDeletionError(`Failed to delete thread: HTTP ${response.status}`);
-    }
-  }
-
-  /**
-   * apps/api lists a user's threads newest-first by `updated_at`, which it bumps on every message. Only threads this
-   * service created (`source` is `whatsapp`) count, so an expired one is never mistaken for, or deleted in place of, a
-   * thread from another client.
-   */
-  async getLastThreadInfo(token: string): Promise<ThreadInfo> {
+  async getPreferences(token: string): Promise<Record<string, string>> {
     const response = await this.#request(
       'GET',
-      '/api/v2/threads',
+      '/api/v2/preferences',
       token,
-      'getting last thread info',
-      (cause) => new ThreadInfoError('Network error during thread info retrieval', { cause }),
+      'getting preferences',
+      REQUEST_TIMEOUT_MS,
+      (cause) => new PreferencesError('Network error reading preferences', { cause }),
     );
-    if (response.status === 401) await discardBody(response);
-    this.#refuseIfUnauthorized(response.status);
     if (!response.ok) {
       await discardBody(response);
-      this.#logger.error(`HTTP error getting last thread info: ${response.status}`);
-      throw new ThreadInfoError(`Failed to get last thread info: HTTP ${response.status}`);
-    }
-    try {
-      const threads = threadListSchema.parse(await response.json()).filter((thread) => thread.source === 'whatsapp');
-      const latest = threads[0];
-      if (!latest) return { threadId: null, lastMessageTime: null };
-      if (typeof latest.thread_id !== 'string' || typeof latest.updated_at !== 'string') throw new TypeError('bad thread');
-      return { threadId: latest.thread_id, lastMessageTime: latest.updated_at };
-    } catch (error) {
-      this.#logger.error('apps/api returned an unexpected thread-list response');
-      throw new ThreadInfoError('Unexpected thread-list response', { cause: error });
-    }
-  }
-
-  async processMessage(token: string, threadId: string, message: string): Promise<string> {
-    const idle = new IdleTimeout(this.#chatIdleTimeoutMs);
-    try {
-      let response: Response;
-      try {
-        response = await this.#fetch(`${this.#baseUrl}/api/v2/threads/${encodeURIComponent(threadId)}/chat`, {
-          method: 'POST',
-          headers: this.#headers(token),
-          body: JSON.stringify({ message }),
-          redirect: 'manual',
-          signal: idle.signal,
-        });
-      } catch (error) {
-        throw this.#streamFailure(error, idle);
-      }
-
-      if (response.status === 401) await discardBody(response);
       this.#refuseIfUnauthorized(response.status);
-      if (response.status !== 200 || !response.body) {
-        await discardBody(response);
-        this.#logger.error(`Error from backend API: HTTP ${response.status}`);
-        throw new MessageProcessingError(`Backend returned HTTP ${response.status}`);
-      }
-
-      // Accumulate the answer from the `text` events
-      let fullResponse = '';
-      let done = false;
-      try {
-        for await (const line of readLines(response.body, () => idle.reset())) {
-          if (!line.startsWith('data:')) continue; // keep-alive comments and blank separator lines
-          let event: unknown;
-          try {
-            event = JSON.parse(line.slice('data:'.length));
-          } catch (error) {
-            this.#logger.error('apps/api sent a chat event that is not JSON');
-            throw new MessageProcessingError('Malformed chat event', { cause: error });
-          }
-          const type = typeof event === 'object' && event !== null ? (event as { type?: unknown }).type : undefined;
-          if (type === 'text') {
-            const content = (event as { content?: unknown }).content;
-            fullResponse += typeof content === 'string' ? content : '';
-          } else if (type === 'error') {
-            // The message is apps/api's own text, never user content, so it is safe to log
-            this.#logger.error(`apps/api reported a chat error: ${String((event as { message?: unknown }).message)}`);
-            throw new MessageProcessingError('apps/api reported an error while answering');
-          } else if (type === 'done') {
-            done = true;
-          }
-        }
-      } catch (error) {
-        if (error instanceof MessageProcessingError) throw error;
-        throw this.#streamFailure(error, idle);
-      }
-
-      if (!done) {
-        this.#logger.error('The chat stream from apps/api ended before it was complete');
-        throw new MessageProcessingError('Chat stream ended before completion');
-      }
-      if (fullResponse === '') {
-        this.#logger.warn('Received empty response from backend');
-        return '';
-      }
-      return fullResponse;
-    } finally {
-      idle.stop();
+      this.#logger.error(`HTTP error reading preferences: ${response.status}`);
+      throw new PreferencesError(`Failed to read preferences: HTTP ${response.status}`);
+    }
+    try {
+      return preferencesSchema.parse(await response.json());
+    } catch (error) {
+      this.#logger.error('apps/api returned an unexpected preferences response');
+      throw new PreferencesError('Unexpected preferences response', { cause: error });
     }
   }
 
-  /** Turn a `fetch` or stream fault into a `MessageProcessingError` without leaking a URL or body. */
-  #streamFailure(error: unknown, idle: IdleTimeout): MessageProcessingError {
-    if (idle.timedOut) {
-      this.#logger.error('Timeout processing message: no data from apps/api');
-      return new MessageProcessingError('Request timed out while processing message', { cause: error });
+  async setPreference(token: string, key: string, value: string): Promise<void> {
+    const response = await this.#request(
+      'PUT',
+      '/api/v2/preferences',
+      token,
+      'saving a preference',
+      REQUEST_TIMEOUT_MS,
+      (cause) => new PreferencesError('Network error saving a preference', { cause }),
+      { [key]: value },
+    );
+    await discardBody(response);
+    this.#refuseIfUnauthorized(response.status);
+    if (!response.ok) {
+      this.#logger.error(`HTTP error saving a preference: ${response.status}`);
+      throw new PreferencesError(`Failed to save preference: HTTP ${response.status}`);
     }
-    this.#logger.error(`Network error processing message: ${describeNetworkError(error)}`);
-    return new MessageProcessingError('Network error during message processing', { cause: error });
   }
 }
 
 /**
- * A stand-in for apps/api that keeps threads in memory, for local development (`MOCK_ANSARI_CLIENT`).
- * Threads belong to a token, mirroring apps/api, where the token alone identifies the user. The mock auth client gives
+ * A stand-in for apps/api that keeps preferences in memory, for local development (`MOCK_ANSARI_CLIENT`).
+ * Preferences belong to a token, mirroring apps/api, where the token alone identifies the user. The mock auth client gives
  * each BSUID its own stable token.
  *
  * Python's version slept 1 to 2 seconds per call and could be told to fail at random. Neither is kept: the delay slowed every
  * test, and tests that need a failure throw their own.
  */
 export class AnsariClientMock implements AnsariClient {
-  readonly #threads = new Map<string, { user: string; title: string; messages: Array<{ role: string; content: string }>; updatedAt: string }>();
-  #counter = 0;
+  readonly #preferences = new Map<string, Map<string, string>>();
   readonly #logger: Logger;
-  readonly #now: () => Date;
 
-  constructor(options: { logger: Logger; now?: () => Date }) {
+  constructor(options: { logger: Logger }) {
     this.#logger = options.logger;
-    this.#now = options.now ?? (() => new Date());
     this.#logger.info('Initialized AnsariClientMock - using mock backend');
   }
 
-  #user(token: string, error: new (message: string) => Error): string {
-    if (!token) throw new error('Invalid token');
-    return token;
-  }
-
-  async createThread(token: string, title: string): Promise<{ threadId: string }> {
-    const user = this.#user(token, ThreadCreationError);
-    this.#counter += 1;
-    const threadId = `mock_thread_${this.#counter}`;
-    this.#threads.set(threadId, { user, title, messages: [], updatedAt: this.#now().toISOString() });
-    this.#logger.info(`Mock: Created thread ${threadId}`);
-    return { threadId };
-  }
-
-  async deleteThread(token: string, threadId: string): Promise<void> {
-    const user = this.#user(token, ThreadDeletionError);
-    const thread = this.#threads.get(threadId);
-    if (!thread) return;
-    if (thread.user !== user) throw new ThreadDeletionError('Thread access denied');
-    this.#threads.delete(threadId);
-    this.#logger.info(`Mock: Deleted thread ${threadId}`);
-  }
-
-  async getLastThreadInfo(token: string): Promise<ThreadInfo> {
-    const user = this.#user(token, ThreadInfoError);
-    const mine = [...this.#threads].filter(([, thread]) => thread.user === user);
-    if (mine.length === 0) {
-      this.#logger.debug('Mock: No threads found for user');
-      return { threadId: null, lastMessageTime: null };
+  #store(token: string): Map<string, string> {
+    if (!token) throw new PreferencesError('Invalid token');
+    let store = this.#preferences.get(token);
+    if (!store) {
+      store = new Map();
+      this.#preferences.set(token, store);
     }
-    const [threadId, latest] = mine.reduce((best, entry) => (entry[1].updatedAt > best[1].updatedAt ? entry : best));
-    return { threadId, lastMessageTime: latest.updatedAt };
+    return store;
   }
 
-  async processMessage(token: string, threadId: string, message: string): Promise<string> {
-    const user = this.#user(token, MessageProcessingError);
-    const thread = this.#threads.get(threadId);
-    if (!thread) {
-      this.#logger.error(`Mock: Thread ${threadId} not found for message processing`);
-      throw new MessageProcessingError('Thread not found');
-    }
-    if (thread.user !== user) {
-      this.#logger.error(`Mock: Thread ${threadId} does not belong to this user`);
-      throw new MessageProcessingError('Thread access denied');
-    }
-    thread.messages.push({ role: 'user', content: message });
-    const response = `This is a *mock AI assistant* running in test mode.\n\nYour message: ${[...message].slice(0, 100).join('')}`;
-    thread.messages.push({ role: 'assistant', content: response });
-    thread.updatedAt = this.#now().toISOString();
-    this.#logger.info(`Mock: Processed message for thread ${threadId}, response length: ${[...response].length}`);
-    return response;
+  async completeChat(token: string, request: { message: string; expiryHours: number }): Promise<string[]> {
+    if (!token) throw new MessageProcessingError('Invalid token');
+    const answer = `This is a *mock AI assistant* running in test mode.\n\nYour message: ${[...request.message].slice(0, 100).join('')}`;
+    this.#logger.info(`Mock: Answered a message (expiry ${request.expiryHours} h), answer length: ${[...answer].length}`);
+    return [answer];
+  }
+
+  async getPreferences(token: string): Promise<Record<string, string>> {
+    return Object.fromEntries(this.#store(token));
+  }
+
+  async setPreference(token: string, key: string, value: string): Promise<void> {
+    this.#store(token).set(key, value);
   }
 }

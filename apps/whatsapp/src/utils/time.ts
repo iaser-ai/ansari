@@ -40,35 +40,6 @@ export function formatTimeDelta(seconds: number): string {
 }
 
 /**
- * Time since the last message, in seconds, and a compact form for logging ("5.2sec", "3.1mins", "2.5hours", "1.2days").
- *
- * No previous message gives `Infinity` seconds (Python: `float("inf")`), which is longer than any retention time, so the
- * conversation starts a new thread. Its logging text is "infdays", as in Python.
- *
- * @param lastMessageTime When the user last wrote, or `null` if they never did.
- * @param now The current time; only tests pass it.
- */
-export function calculateTimePassed(
-  lastMessageTime: Date | null,
-  now: Date = new Date(),
-): { seconds: number; forLogging: string } {
-  const seconds = lastMessageTime === null ? Infinity : (now.getTime() - lastMessageTime.getTime()) / 1000;
-
-  let forLogging: string;
-  if (seconds < 60) forLogging = `${formatOneDecimal(seconds)}sec`;
-  else if (seconds < 3600) forLogging = `${formatOneDecimal(seconds / 60)}mins`;
-  else if (seconds < 86400) forLogging = `${formatOneDecimal(seconds / 3600)}hours`;
-  else forLogging = `${formatOneDecimal(seconds / 86400)}days`;
-
-  return { seconds, forLogging };
-}
-
-/** The chat retention time in seconds, from `WHATSAPP_CHAT_RETENTION_HOURS`. After this much silence a new thread starts. */
-export function getRetentionTimeSeconds(retentionHours: number): number {
-  return retentionHours * 60 * 60;
-}
-
-/**
  * The range of unix seconds Python's `datetime.fromtimestamp(..., tz=utc)` accepts on Linux (where Railway runs): the
  * years 1 to 9999. Beyond it Python raises `ValueError`, which `is_message_too_old` catches and answers "not too old".
  */

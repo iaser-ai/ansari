@@ -4,12 +4,11 @@
  * (`tests/fixtures/pythonOracle.ts`).
  */
 import { describe, expect, it } from 'vitest';
-import { calculateTimePassed, formatTimeDelta, getRetentionTimeSeconds, isMessageTooOld } from '../src/utils/time';
+import { formatTimeDelta, isMessageTooOld } from '../src/utils/time';
 import {
   FIXED_NOW_UNIX,
   MESSAGE_AGE_CASES,
   TIME_DELTA_CASES,
-  TIME_PASSED_CASES,
 } from './fixtures/pythonOracle';
 
 const NOW = new Date(FIXED_NOW_UNIX * 1000);
@@ -25,27 +24,6 @@ describe('formatTimeDelta', () => {
     expect((0.25).toFixed(1)).toBe('0.3');
     expect(formatTimeDelta(0.25)).toBe('0.2 seconds');
     expect(formatTimeDelta(0.75)).toBe('0.8 seconds');
-  });
-});
-
-describe('calculateTimePassed', () => {
-  it.each(TIME_PASSED_CASES)('%s seconds ago -> %s, %s', (secondsAgo, passed, logging) => {
-    const last = secondsAgo === null ? null : new Date(NOW.getTime() - secondsAgo * 1000);
-    const result = calculateTimePassed(last, NOW);
-    expect(result.seconds).toBe(passed === 'inf' ? Infinity : passed);
-    expect(result.forLogging).toBe(logging);
-  });
-
-  it('reads the real clock when none is given', () => {
-    const result = calculateTimePassed(new Date(Date.now() - 5000));
-    expect(result.seconds).toBeGreaterThanOrEqual(5);
-    expect(result.seconds).toBeLessThan(10);
-  });
-});
-
-describe('getRetentionTimeSeconds', () => {
-  it('turns hours into seconds', () => {
-    expect(getRetentionTimeSeconds(3)).toBe(10800);
   });
 });
 

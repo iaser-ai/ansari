@@ -2,13 +2,14 @@
  * The conversation manager.
  *
  * Python tests ported:
- * - `test_thread_lifecycle.py`: one thread per user, three-hour expiry, the `Z` timestamp apps/api sends, a failed delete
- *   never leaves two threads, each thread failure is reported under its own name.
  * - `test_auth_statuses.py` (last half): what the user is told for each sign-in refusal, what the operator is told, one
  *   re-exchange after an apps/api 401 and never a third.
  * - `test_environment_behaviour.py`: maintenance mode, the staging `!d ` filter, an unsupported type in staging.
  * - `test_bsuid_auth_flow.py`: who a reply is addressed to, and that the phone never reaches apps/auth or apps/api.
  * - `test_whatsapp_service.py`: a message with no timestamp or an old one.
+ *
+ * Phase 3 (spec 360) removed the thread lifecycle from this service: apps/api owns the thread now. The tests for `/expiry`
+ * and the chat expiry sit at the end of this file.
  *
  * The Python tests built a manager and reached into its private methods; here the manager is driven through its two public
  * steps (`triage` and `dispatch`), which is also what the HTTP layer will do.
@@ -18,8 +19,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   BANNED_NOTICE,
+  chatRetentionHours,
   ConversationManager,
+  expiryRowId,
   MAINTENANCE_NOTICE,
+  parseExpiryChoice,
   rateLimitedNotice,
   SIGN_IN_FAILED_NOTICE,
   unsupportedTypeNotice,
@@ -36,27 +40,18 @@ import {
   AuthUserBannedError,
   MessageProcessingError,
   MetaApiError,
-  ThreadCreationError,
-  ThreadDeletionError,
-  ThreadInfoError,
+  PreferencesError,
 } from '../src/errors';
 import { runWithRequestId } from '../src/logger';
-import { AnsariClientMock, type AnsariClient, type ThreadInfo } from '../src/services/ansariClient';
+import { AnsariClientMock, CHAT_RETENTION_PREFERENCE, type AnsariClient } from '../src/services/ansariClient';
 import { AuthClientMock, type AuthClient } from '../src/services/authClient';
 import { MetaApiServiceMock, type MetaApiService } from '../src/services/metaApiService';
-import {
-  FIXED_NOW_UNIX,
-  RATE_LIMITED_NOTICE_CASES,
-  THREAD_TITLE_CASES,
-  UNSUPPORTED_NOTICE_CASES,
-} from './fixtures/pythonOracle';
+import { FIXED_NOW_UNIX, RATE_LIMITED_NOTICE_CASES, UNSUPPORTED_NOTICE_CASES } from './fixtures/pythonOracle';
 import { capturingLogger } from './helpers/network';
 
 const BSUID = 'US.13491208655302741918';
-const OTHER_BSUID = 'US.99999999999999999999';
 const PHONE = '201234567899';
 const NOW = new Date(FIXED_NOW_UNIX * 1000);
-const HOUR = 3600;
 
 const baseConfig: ManagerConfig = {
   WA_MAINTENANCE_MODE: false,
@@ -79,6 +74,20 @@ function textMessage(overrides: Partial<IncomingMessage> = {}, text = 'hello'): 
   };
 }
 
+/** A list reply, as the webhook parser hands it over: Meta's `interactive` body with a `list_reply`. */
+function listReply(id: string, overrides: Partial<IncomingMessage> = {}): IncomingMessage {
+  return {
+    kind: 'message',
+    bsuid: BSUID,
+    messageType: 'interactive',
+    messageBody: { type: 'list_reply', list_reply: { id, title: 'picked' } },
+    messageId: 'wamid.LIST',
+    messageUnixTime: FIXED_NOW_UNIX,
+    senderPhone: null,
+    ...overrides,
+  };
+}
+
 /** A manager wired to the in-memory mocks, with every error report and every sent message recorded. */
 function setup(
   options: {
@@ -93,7 +102,7 @@ function setup(
 ) {
   const log = capturingLogger();
   const clock = options.clock ?? { now: NOW };
-  const ansariClient = options.ansariClient ?? new AnsariClientMock({ logger: log.logger, now: () => clock.now });
+  const ansariClient = options.ansariClient ?? new AnsariClientMock({ logger: log.logger });
   const authClient = options.authClient ?? new AuthClientMock();
   const metaApi = options.metaApi ?? new MetaApiServiceMock({ logger: log.logger, delayMs: 0 });
   const reports: Array<{ error: unknown; report: ErrorReport }> = [];
@@ -134,10 +143,9 @@ function setup(
 /** Wraps an apps/api client so a test can make one call fail, count calls, or watch which token was used. */
 function wrappedAnsari(inner: AnsariClient, overrides: Partial<AnsariClient>): AnsariClient {
   return {
-    createThread: (...args) => inner.createThread(...args),
-    deleteThread: (...args) => inner.deleteThread(...args),
-    getLastThreadInfo: (...args) => inner.getLastThreadInfo(...args),
-    processMessage: (...args) => inner.processMessage(...args),
+    completeChat: (...args) => inner.completeChat(...args),
+    getPreferences: (...args) => inner.getPreferences(...args),
+    setPreference: (...args) => inner.setPreference(...args),
     ...overrides,
   };
 }
@@ -147,13 +155,6 @@ function authAnswering(getToken: (bsuid: string) => Promise<string>, forget: (bs
   return { getToken, forget };
 }
 
-/** The thread the mock holds for a user: used to see how many threads a user has. */
-async function threadIdOf(ansari: AnsariClient, bsuid: string): Promise<string | null> {
-  const token = await new AuthClientMock().getToken(bsuid);
-  return (await ansari.getLastThreadInfo(token)).threadId;
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
 describe('triage: what happens to a message', () => {
   it('answers a text message', () => {
     expect(setup().manager.triage(textMessage())).toBe('text');
@@ -254,13 +255,13 @@ describe('triage: what happens to a message', () => {
       ['development', '!d what is ansari?'],
     ] as const)('%s strips the prefix before the text goes to apps/api', async (environment, text) => {
       const sent: string[] = [];
-      const inner = new AnsariClientMock({ logger: capturingLogger().logger, now: () => NOW });
+      const inner = new AnsariClientMock({ logger: capturingLogger().logger });
       const t = setup({
         config: { ENVIRONMENT: environment },
         ansariClient: wrappedAnsari(inner, {
-          processMessage: (token, threadId, message) => {
-            sent.push(message);
-            return inner.processMessage(token, threadId, message);
+          completeChat: (token, request) => {
+            sent.push(request.message);
+            return inner.completeChat(token, request);
           },
         }),
       });
@@ -270,13 +271,13 @@ describe('triage: what happens to a message', () => {
 
     it('production sends a message without a prefix to apps/api unchanged', async () => {
       const sent: string[] = [];
-      const inner = new AnsariClientMock({ logger: capturingLogger().logger, now: () => NOW });
+      const inner = new AnsariClientMock({ logger: capturingLogger().logger });
       const t = setup({
         config: { ENVIRONMENT: 'production' },
         ansariClient: wrappedAnsari(inner, {
-          processMessage: (token, threadId, message) => {
-            sent.push(message);
-            return inner.processMessage(token, threadId, message);
+          completeChat: (token, request) => {
+            sent.push(request.message);
+            return inner.completeChat(token, request);
           },
         }),
       });
@@ -441,6 +442,7 @@ describe('who a reply goes to, and what identifies the user', () => {
       sendTypingIndicator: async (recipient) => {
         typing.push(recipient);
       },
+      sendInteractiveList: async () => {},
       sendMessage: async () => {},
     };
     const t = setup({ metaApi });
@@ -454,7 +456,7 @@ describe('who a reply goes to, and what identifies the user', () => {
     const seen: string[] = [];
     const log = capturingLogger();
     const mockAuth = new AuthClientMock();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
+    const inner = new AnsariClientMock({ logger: log.logger });
     const record = (...args: unknown[]) => seen.push(JSON.stringify(args));
     const t = setup({
       authClient: authAnswering(async (bsuid) => {
@@ -462,15 +464,15 @@ describe('who a reply goes to, and what identifies the user', () => {
         return mockAuth.getToken(bsuid);
       }),
       ansariClient: wrappedAnsari(inner, {
-        createThread: async (...args) => (record('create', ...args), inner.createThread(...args)),
-        getLastThreadInfo: async (...args) => (record('list', ...args), inner.getLastThreadInfo(...args)),
-        processMessage: async (...args) => (record('chat', ...args), inner.processMessage(...args)),
+        getPreferences: async (...args) => (record('prefs', ...args), inner.getPreferences(...args)),
+        completeChat: async (...args) => (record('chat', ...args), inner.completeChat(...args)),
+
       }),
     });
 
     await t.handle(textMessage({ senderPhone: PHONE }, 'a-very-distinctive-question'));
 
-    expect(seen.length).toBeGreaterThanOrEqual(4);
+    expect(seen.length).toBeGreaterThanOrEqual(3);
     expect(seen.some((line) => line.includes(PHONE))).toBe(false);
     expect(t.log.text()).not.toContain(PHONE);
   });
@@ -490,87 +492,6 @@ describe('who a reply goes to, and what identifies the user', () => {
     await t.manager.notify('', 'hello');
     expect(t.replies()).toEqual([]);
     expect(t.log.text()).toContain('No recipient');
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
-describe('a normal answer', () => {
-  it('signs in, shows typing, asks apps/api and sends the formatted answer', async () => {
-    const t = setup();
-
-    expect(await t.handle(textMessage({}, 'hello there'))).toBe('text');
-
-    // The mock answers "This is a *mock AI assistant* ...", which the formatter turns into WhatsApp italics
-    expect(t.replies()).toEqual(['This is a _mock AI assistant_ running in test mode.\n\nYour message: hello there']);
-    expect(t.reports).toEqual([]);
-  });
-
-  it('formats the answer for WhatsApp before sending it', async () => {
-    const answer = '## Title\n\nSome **bold** and *italic* text';
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    const t = setup({ ansariClient: wrappedAnsari(inner, { processMessage: async () => answer }) });
-
-    await t.handle(textMessage());
-
-    expect(t.replies()).toEqual(['*_Title_*\n\nSome *bold* and _italic_ text']);
-  });
-
-  it('splits a long answer into parts that each fit WhatsApp, in order', async () => {
-    const paragraph = (n: number) => `Paragraph ${n} ${'x'.repeat(1500)}`;
-    const answer = [1, 2, 3, 4, 5].map(paragraph).join('\n\n');
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    const t = setup({ ansariClient: wrappedAnsari(inner, { processMessage: async () => answer }) });
-
-    await t.handle(textMessage());
-
-    expect(t.replies().length).toBeGreaterThan(1);
-    expect(t.replies().every((part) => [...part].length <= 4000)).toBe(true);
-    expect(t.replies().join('\n\n')).toContain('Paragraph 1');
-    expect(t.replies().join('\n\n').indexOf('Paragraph 5')).toBeGreaterThan(t.replies().join('\n\n').indexOf('Paragraph 1'));
-  });
-
-  it('is the same user across messages: the second message finds the first one\'s thread', async () => {
-    const t = setup();
-    await t.handle(textMessage({}, 'first'));
-    const first = await threadIdOf(t.ansariClient, BSUID);
-    await t.handle(textMessage({}, 'second'));
-    expect(await threadIdOf(t.ansariClient, BSUID)).toBe(first);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
-describe('an answer with nothing to send', () => {
-  const notice = "Sorry, we couldn't process your message. Please try again later.";
-
-  async function answerWith(answer: string) {
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    const t = setup({ ansariClient: wrappedAnsari(inner, { processMessage: async () => answer }) });
-    await t.handle(textMessage());
-    return t;
-  }
-
-  it('tells the user when apps/api finished without saying anything', async () => {
-    expect((await answerWith('')).replies()).toEqual([notice]);
-  });
-
-  // Phase 2 made splitMessage return [] for blank text (Python sent nothing, or spaces WhatsApp refuses). Staying silent
-  // would leave the user waiting for nothing, so they get the same notice as for an empty answer.
-  it.each(['   ', '\n\n\n', ' \n \t \n', '\u3000'])('tells the user when the answer is only whitespace (%j)', async (blank) => {
-    expect((await answerWith(blank)).replies()).toEqual([notice]);
-  });
-
-  it('does not report an empty answer as an operator error', async () => {
-    expect((await answerWith('')).reports).toEqual([]);
-  });
-
-  it('stops the typing indicator for an empty answer too', async () => {
-    const t = await answerWith('');
-    const sentBefore = t.recipients().length;
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(t.recipients().length).toBe(sentBefore);
   });
 });
 
@@ -632,12 +553,13 @@ describe('sign-in: what the user and the operator are told', () => {
         throw new AuthTokenError('500');
       }),
       ansariClient: wrappedAnsari(inner, {
-        getLastThreadInfo: async (...args) => (apiCalls++, inner.getLastThreadInfo(...args)),
+        getPreferences: async (...args) => (apiCalls++, inner.getPreferences(...args)),
       }),
       metaApi: {
         sendTypingIndicator: async () => {
           typing += 1;
         },
+        sendInteractiveList: async () => {},
         sendMessage: async () => {},
       },
     });
@@ -685,456 +607,11 @@ describe('sign-in: what the user and the operator are told', () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-describe('one re-exchange after an apps/api 401', () => {
-  /** apps/api refuses the first `refused` chat calls with a 401, then answers from the mock. */
-  function apiRefusing(refused: number) {
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    const state = { chatCalls: 0, tokens: [] as string[] };
-    const client = wrappedAnsari(inner, {
-      processMessage: async (token, threadId, message) => {
-        state.chatCalls += 1;
-        state.tokens.push(token);
-        if (state.chatCalls <= refused) throw new ApiUnauthorizedError("apps/api refused the user's token");
-        return inner.processMessage(token, threadId, message);
-      },
-      // Threads belong to a token in the mock, so a fresh token is a fresh user. Keep one user across tokens.
-      getLastThreadInfo: async () => ({ threadId: null, lastMessageTime: null }),
-      createThread: async () => ({ threadId: 'mock_thread_fixed' }),
-    });
-    return { client, state, inner };
-  }
-
-  /** An exchange that hands out token-1, token-2, ... and counts calls. */
-  function countingExchange() {
-    const exchanges: string[] = [];
-    const forgotten: string[] = [];
-    const client = authAnswering(
-      async (bsuid) => {
-        exchanges.push(bsuid);
-        return `token-${exchanges.length}`;
-      },
-      (bsuid) => {
-        forgotten.push(bsuid);
-      },
-    );
-    return { client, exchanges, forgotten };
-  }
-
-  it('drops the stale token, exchanges once more, and answers the message with the fresh token', async () => {
-    const api = apiRefusing(1);
-    const auth = countingExchange();
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    // After the 401 the retry must reach a thread the fresh token can use
-    const t = setup({
-      ansariClient: wrappedAnsari(api.client, {
-        processMessage: async (token, threadId, message) => {
-          api.state.chatCalls += 1;
-          api.state.tokens.push(token);
-          if (api.state.chatCalls === 1) throw new ApiUnauthorizedError("apps/api refused the user's token");
-          return inner.processMessage(token, (await inner.createThread(token, 'x')).threadId, message);
-        },
-      }),
-      authClient: auth.client,
-    });
-
-    await t.handle(textMessage());
-
-    expect(auth.exchanges).toEqual([BSUID, BSUID]);
-    expect(auth.forgotten).toEqual([BSUID]);
-    expect(api.state.tokens).toEqual(['token-1', 'token-2']);
-    expect(t.replies()).toHaveLength(1);
-    expect(t.replies()[0]).toContain('mock AI assistant');
-    expect(t.reports).toEqual([]);
-  });
-
-  it('forgets the stale token before asking again, not after', async () => {
-    const order: string[] = [];
-    const api = apiRefusing(1);
-    const t = setup({
-      ansariClient: api.client,
-      authClient: authAnswering(
-        async () => {
-          order.push('exchange');
-          return `token-${order.length}`;
-        },
-        () => {
-          order.push('forget');
-        },
-      ),
-    });
-    await t.handle(textMessage());
-    expect(order).toEqual(['exchange', 'forget', 'exchange']);
-  });
-
-  it('gives up after a second 401: never a third exchange or a third attempt', async () => {
-    const api = apiRefusing(99);
-    const auth = countingExchange();
-    const t = setup({ ansariClient: api.client, authClient: auth.client });
-
-    await t.handle(textMessage());
-
-    expect(auth.exchanges).toHaveLength(2);
-    expect(api.state.chatCalls).toBe(2);
-    expect(t.reportedAs()).toEqual(['api_unauthorized_after_reexchange']);
-    expect(t.replies()).toEqual(['An error occurred while processing your message. Please try again later.']);
-  });
-
-  it('tells a user found banned on the re-exchange so, and does not retry', async () => {
-    const api = apiRefusing(99);
-    let exchanges = 0;
-    const t = setup({
-      ansariClient: api.client,
-      authClient: authAnswering(async () => {
-        exchanges += 1;
-        if (exchanges === 1) return 'token-1';
-        throw new AuthUserBannedError('403');
-      }),
-    });
-
-    await t.handle(textMessage());
-
-    expect(api.state.chatCalls).toBe(1);
-    expect(t.replies()).toEqual([BANNED_NOTICE]);
-  });
-
-  // The user sent one message. A 429 on the second exchange would say "you are sending too quickly", which is false.
-  it('does not tell the user they are sending too quickly when the re-exchange is rate limited', async () => {
-    const api = apiRefusing(99);
-    let exchanges = 0;
-    const t = setup({
-      ansariClient: api.client,
-      authClient: authAnswering(async () => {
-        exchanges += 1;
-        if (exchanges === 1) return 'token-1';
-        throw new AuthRateLimitedError('429', 300);
-      }),
-    });
-
-    await t.handle(textMessage());
-
-    expect(t.replies()).toEqual([SIGN_IN_FAILED_NOTICE]);
-    expect(t.replies()[0]).not.toContain('minutes');
-  });
-
-  it('reports a failed re-exchange the same way a failed first exchange is reported', async () => {
-    const api = apiRefusing(99);
-    let exchanges = 0;
-    const t = setup({
-      ansariClient: api.client,
-      authClient: authAnswering(async () => {
-        exchanges += 1;
-        if (exchanges === 1) return 'token-1';
-        throw new AuthKeyRejectedError('401');
-      }),
-    });
-
-    await t.handle(textMessage());
-
-    expect(t.reportedAs()).toEqual(['auth_key_rejected']);
-    expect(t.replies()).toEqual([SIGN_IN_FAILED_NOTICE]);
-  });
-
-  it('does not retry a failure that is not a 401', async () => {
-    const exchanges = countingExchange();
-    let chatCalls = 0;
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger });
-    const t = setup({
-      authClient: exchanges.client,
-      ansariClient: wrappedAnsari(inner, {
-        processMessage: async () => {
-          chatCalls += 1;
-          throw new MessageProcessingError('apps/api is down');
-        },
-      }),
-    });
-
-    await t.handle(textMessage());
-
-    expect(chatCalls).toBe(1);
-    expect(exchanges.exchanges).toHaveLength(1);
-  });
-
-  it('a 401 while listing threads is retried too, not only one on the chat call', async () => {
-    let listCalls = 0;
-    const auth = countingExchange();
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-    const t = setup({
-      authClient: auth.client,
-      ansariClient: wrappedAnsari(inner, {
-        getLastThreadInfo: async (token) => {
-          listCalls += 1;
-          if (listCalls === 1) throw new ApiUnauthorizedError('refused');
-          return inner.getLastThreadInfo(token);
-        },
-      }),
-    });
-
-    await t.handle(textMessage());
-
-    expect(auth.exchanges).toHaveLength(2);
-    expect(t.replies()[0]).toContain('mock AI assistant');
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
-describe('the user\'s one thread', () => {
-  async function userThreads(ansari: AnsariClientMock, bsuid: string): Promise<string[]> {
-    const token = await new AuthClientMock().getToken(bsuid);
-    // The mock lists only the newest thread, so count them by probing each id it may have made
-    const ids: string[] = [];
-    for (let n = 1; n <= 20; n++) {
-      const id = `mock_thread_${n}`;
-      try {
-        await ansari.processMessage(token, id, '');
-        ids.push(id);
-      } catch {
-        // not this user's, or not there
-      }
-    }
-    return ids;
-  }
-
-  function withMock(config: Partial<ManagerConfig> = {}) {
-    const log = capturingLogger();
-    const clock = { now: NOW };
-    const ansari = new AnsariClientMock({ logger: log.logger, now: () => clock.now });
-    const t = setup({ ansariClient: ansari, clock, config });
-    return { ...t, ansari, clock };
-  }
-
-  it('creates the only thread on the first message', async () => {
-    const t = withMock();
-    await t.handle(textMessage());
-    expect(await userThreads(t.ansari, BSUID)).toEqual(['mock_thread_1']);
-  });
-
-  it('reuses the thread inside the expiry and keeps its history', async () => {
-    const t = withMock();
-    await t.handle(textMessage({}, 'remember me'));
-    t.clock.now = new Date(NOW.getTime() + (3 * HOUR - 60) * 1000); // just inside
-    await t.handle(textMessage({}, 'hello again'));
-    expect(await userThreads(t.ansari, BSUID)).toEqual(['mock_thread_1']);
-  });
-
-  it('deletes the old thread and starts a new one after the expiry', async () => {
-    const t = withMock();
-    await t.handle(textMessage({}, 'old message'));
-    t.clock.now = new Date(NOW.getTime() + (3 * HOUR + 60) * 1000); // just outside
-    await t.handle(textMessage({}, 'hello again'));
-    expect(await userThreads(t.ansari, BSUID)).toEqual(['mock_thread_2']);
-  });
-
-  it('reads the expiry from the settings', async () => {
-    const t = withMock({ WHATSAPP_CHAT_RETENTION_HOURS: 1 });
-    await t.handle(textMessage());
-    t.clock.now = new Date(NOW.getTime() + (HOUR + 60) * 1000);
-    await t.handle(textMessage());
-    expect(await userThreads(t.ansari, BSUID)).toEqual(['mock_thread_2']);
-  });
-
-  it('treats a thread exactly at the retention time as still current', async () => {
-    const t = withMock();
-    await t.handle(textMessage());
-    t.clock.now = new Date(NOW.getTime() + 3 * HOUR * 1000);
-    await t.handle(textMessage());
-    expect(await userThreads(t.ansari, BSUID)).toEqual(['mock_thread_1']);
-  });
-
-  it('never touches another user\'s thread', async () => {
-    const t = withMock();
-    await t.handle(textMessage({ bsuid: OTHER_BSUID }));
-    await t.handle(textMessage());
-    t.clock.now = new Date(NOW.getTime() + (3 * HOUR + 60) * 1000);
-    await t.handle(textMessage());
-    expect(await userThreads(t.ansari, OTHER_BSUID)).toEqual(['mock_thread_1']);
-  });
-
-  // apps/api sends `...Z`, while the mock stores its own format, so this is the form production depends on
-  describe('with the timestamp apps/api really sends', () => {
-    function calls(info: ThreadInfo, options: { failDelete?: boolean } = {}) {
-      const log: string[] = [];
-      const client: AnsariClient = {
-        getLastThreadInfo: async () => info,
-        deleteThread: async (_token, id) => {
-          log.push(`delete ${id}`);
-          if (options.failDelete) throw new ThreadDeletionError('apps/api is down');
-        },
-        createThread: async (_token, title) => {
-          log.push(`create ${title}`);
-          return { threadId: 'new' };
-        },
-        processMessage: async (_token, id) => {
-          log.push(`chat ${id}`);
-          return 'ok';
-        },
-      };
-      return { client, log };
-    }
-    const fourHoursAgo = new Date(NOW.getTime() - 4 * HOUR * 1000).toISOString();
-
-    it('reads a Z timestamp: deletes the expired thread, then creates one titled by the first words', async () => {
-      const { client, log } = calls({ threadId: 'old', lastMessageTime: fourHoursAgo });
-      const t = setup({ ansariClient: client });
-      await t.handle(textMessage({}, 'hello there'));
-      expect(log).toEqual(['delete old', 'create hello there', 'chat new']);
-    });
-
-    it('reads a +00:00 timestamp and one with an offset', async () => {
-      for (const stamp of ['2026-11-10T08:00:00.000+00:00', '2026-11-10T10:00:00+02:00']) {
-        const { client, log } = calls({ threadId: 'old', lastMessageTime: stamp });
-        await setup({ ansariClient: client }).handle(textMessage());
-        expect(log).toEqual(['delete old', 'create hello', 'chat new']);
-      }
-    });
-
-    it('keeps a thread whose Z timestamp is recent', async () => {
-      const { client, log } = calls({ threadId: 'cur', lastMessageTime: new Date(NOW.getTime() - 60_000).toISOString() });
-      await setup({ ansariClient: client }).handle(textMessage());
-      expect(log).toEqual(['chat cur']);
-    });
-
-    it('starts a thread when there is none', async () => {
-      const { client, log } = calls({ threadId: null, lastMessageTime: null });
-      await setup({ ansariClient: client }).handle(textMessage());
-      expect(log).toEqual(['create hello', 'chat new']);
-    });
-
-    it('creates a thread without deleting when a thread exists but has no time', async () => {
-      const { client, log } = calls({ threadId: 'odd', lastMessageTime: null });
-      await setup({ ansariClient: client }).handle(textMessage());
-      expect(log).toEqual(['delete odd', 'create hello', 'chat new']);
-    });
-
-    // JavaScript would read this as local time and move the thread by the server's offset; Python refused it
-    it.each(['2026-11-10T08:00:00', '2026-11-10', 'yesterday', ''])('refuses a timestamp without a time zone (%j) rather than guessing', async (stamp) => {
-      const { client, log } = calls({ threadId: 'old', lastMessageTime: stamp });
-      const t = setup({ ansariClient: client });
-      await t.handle(textMessage());
-      expect(log).toEqual([]);
-      expect(t.replies()).toEqual(['An unexpected error occurred while processing your message. Please try again later.']);
-    });
-  });
-
-  describe('the thread title', () => {
-    it.each(THREAD_TITLE_CASES)('titles a thread from %j as Python did', async (message, python) => {
-      const titles: string[] = [];
-      const client: AnsariClient = {
-        getLastThreadInfo: async () => ({ threadId: null, lastMessageTime: null }),
-        deleteThread: async () => {},
-        createThread: async (_token, title) => {
-          titles.push(title);
-          return { threadId: 'new' };
-        },
-        processMessage: async () => 'ok',
-      };
-      await setup({ ansariClient: client }).handle(textMessage({}, message));
-      expect(titles).toEqual([python]);
-    });
-  });
-
-  describe('failures, each reported under its own name', () => {
-    function failing(overrides: Partial<AnsariClient>) {
-      const log = capturingLogger();
-      const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
-      return setup({ ansariClient: wrappedAnsari(inner, overrides) });
-    }
-
-    it('a failed thread list is reported, and the user is told about chat history', async () => {
-      const t = failing({
-        getLastThreadInfo: async () => {
-          throw new ThreadInfoError('apps/api is down');
-        },
-      });
-      await t.handle(textMessage());
-      expect(t.reportedAs()).toEqual(['thread_info_failure']);
-      expect(t.replies()).toEqual(["Sorry, we're having trouble accessing your chat history. Please try again later."]);
-    });
-
-    it('a failed delete is reported, the user is told, and no second thread is created', async () => {
-      const log = capturingLogger();
-      const clock = { now: NOW };
-      const inner = new AnsariClientMock({ logger: log.logger, now: () => clock.now });
-      let creates = 0;
-      const t = setup({
-        clock,
-        ansariClient: wrappedAnsari(inner, {
-          deleteThread: async () => {
-            throw new ThreadDeletionError('apps/api is down');
-          },
-          createThread: async (...args) => (creates++, inner.createThread(...args)),
-        }),
-      });
-      await t.handle(textMessage());
-      expect(creates).toBe(1);
-      clock.now = new Date(NOW.getTime() + (3 * HOUR + 60) * 1000);
-
-      await t.handle(textMessage());
-
-      expect(creates).toBe(1); // still exactly one thread
-      expect(t.reportedAs()).toEqual(['thread_deletion_failure']);
-      expect(t.replies().at(-1)).toBe('An unexpected error occurred while starting a new chat session.. Please try again later.');
-    });
-
-    it('a failed create is reported and the user is told', async () => {
-      const t = failing({
-        createThread: async () => {
-          throw new ThreadCreationError('apps/api is down');
-        },
-      });
-      await t.handle(textMessage());
-      expect(t.reportedAs()).toEqual(['thread_creation_failure']);
-      expect(t.replies()).toEqual(['An unexpected error occurred while creating a new chat session. Please try again later.']);
-    });
-
-    it('a failed chat call is reported and the user is told', async () => {
-      const t = failing({
-        processMessage: async () => {
-          throw new MessageProcessingError('stream cut off');
-        },
-      });
-      await t.handle(textMessage());
-      expect(t.reportedAs()).toEqual(['message_processing_failure']);
-      expect(t.replies()).toEqual(['An error occurred while processing your message. Please try again later.']);
-    });
-
-    it('an unexpected fault gets the "unexpected" notice, is logged, and is not an uncaught error', async () => {
-      const t = failing({
-        processMessage: async () => {
-          throw new RangeError('a bug');
-        },
-      });
-      await t.handle(textMessage());
-      expect(t.replies()).toEqual(['An unexpected error occurred while processing your message. Please try again later.']);
-      expect(t.log.lines().some((line) => line.level === 'error' && line.message.includes('Unexpected error processing'))).toBe(true);
-    });
-
-    it('a text message without a body gets the "unexpected" notice', async () => {
-      const t = setup();
-      await t.manager.dispatch(textMessage({ messageBody: { nothing: true } }), 'text');
-      expect(t.replies()).toEqual(['An unexpected error occurred while processing your message. Please try again later.']);
-    });
-
-    it('reports a thread failure with the request id and nothing else identifying', async () => {
-      const t = failing({
-        getLastThreadInfo: async () => {
-          throw new ThreadInfoError('apps/api is down');
-        },
-      });
-      await runWithRequestId('req-9', () => t.handle(textMessage({}, 'a-very-distinctive-question')));
-      expect(t.reports[0]!.report.context).toEqual({ request_id: 'req-9' });
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
 describe('sending', () => {
   it('survives Meta refusing the answer: logs it and does not throw', async () => {
     const metaApi: MetaApiService = {
       sendTypingIndicator: async () => {},
+      sendInteractiveList: async () => {},
       sendMessage: async () => {
         throw new MetaApiError('Meta said no', 400);
       },
@@ -1147,6 +624,7 @@ describe('sending', () => {
   it('survives Meta refusing a notice', async () => {
     const metaApi: MetaApiService = {
       sendTypingIndicator: async () => {},
+      sendInteractiveList: async () => {},
       sendMessage: async () => {
         throw new MetaApiError('Meta said no', 400);
       },
@@ -1163,10 +641,10 @@ describe('the typing indicator', () => {
   /** An apps/api whose chat answer arrives only when the test lets it. */
   function slowAnswer() {
     const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger, now: () => NOW });
+    const inner = new AnsariClientMock({ logger: log.logger });
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
-    return { release: () => release(), client: wrappedAnsari(inner, { processMessage: async (...args) => (await gate, inner.processMessage(...args)) }) };
+    return { release: () => release(), client: wrappedAnsari(inner, { completeChat: async (...args) => (await gate, inner.completeChat(...args)) }) };
   }
 
   function typingCounter() {
@@ -1177,6 +655,7 @@ describe('the typing indicator', () => {
         state.typing += 1;
         state.ids.push(`${recipient}/${messageId}`);
       },
+      sendInteractiveList: (recipient, list) => metaApi.sendInteractiveList(recipient, list),
       sendMessage: (recipient, parts) => metaApi.sendMessage(recipient, parts),
     };
     return { state, counting, mock: metaApi };
@@ -1233,27 +712,8 @@ describe('the typing indicator', () => {
       metaApi: counter.counting,
       typingIntervalMs: 10,
       ansariClient: wrappedAnsari(inner, {
-        processMessage: async () => {
+        completeChat: async () => {
           throw new MessageProcessingError('boom');
-        },
-      }),
-    });
-    await t.handle(textMessage());
-    const atFinish = counter.state.typing;
-    await wait(60);
-    expect(counter.state.typing).toBe(atFinish);
-  });
-
-  it('stops when a thread step fails', async () => {
-    const counter = typingCounter();
-    const log = capturingLogger();
-    const inner = new AnsariClientMock({ logger: log.logger });
-    const t = setup({
-      metaApi: counter.counting,
-      typingIntervalMs: 10,
-      ansariClient: wrappedAnsari(inner, {
-        getLastThreadInfo: async () => {
-          throw new ThreadInfoError('boom');
         },
       }),
     });
@@ -1271,7 +731,7 @@ describe('the typing indicator', () => {
       metaApi: counter.counting,
       typingIntervalMs: 10,
       ansariClient: wrappedAnsari(inner, {
-        processMessage: async () => {
+        completeChat: async () => {
           throw new RangeError('bug');
         },
       }),
@@ -1290,6 +750,7 @@ describe('the typing indicator', () => {
         attempts += 1;
         throw new MetaApiError('Meta said no', 500);
       },
+      sendInteractiveList: async () => {},
       sendMessage: async () => {},
     };
     const t = setup({ ansariClient: slow.client, metaApi, typingIntervalMs: 10 });
@@ -1307,5 +768,402 @@ describe('the typing indicator', () => {
     expect(counter.state.typing).toBe(0);
     expect(t.log.text()).toContain('missing bsuid or message_id');
     expect(counter.mock.sent).toHaveLength(1); // the answer is still sent
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+const PROCESSING_FAILED = 'An error occurred while processing your message. Please try again later.';
+const EMPTY_ANSWER = "Sorry, we couldn't process your message. Please try again later.";
+
+describe('a normal answer', () => {
+  it('signs in, asks apps/api with the default expiry, and sends the messages as they come, in order', async () => {
+    const seen: Array<{ token: string; request: { message: string; expiryHours: number } }> = [];
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    const t = setup({
+      ansariClient: wrappedAnsari(inner, {
+        completeChat: async (token, request) => {
+          seen.push({ token, request });
+          return ['*first* part', 'second part'];
+        },
+      }),
+    });
+
+    expect(await t.handle(textMessage({}, 'What is patience?'))).toBe('text');
+    expect(seen).toEqual([{ token: expect.any(String), request: { message: 'What is patience?', expiryHours: 3 } }]);
+    expect(t.replies()).toEqual(['*first* part', 'second part']);
+    expect(t.recipients()).toEqual([BSUID]);
+  });
+
+  it('sends the stored expiry, read from the preferences of the signed-in user', async () => {
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    await inner.setPreference('tok', CHAT_RETENTION_PREFERENCE, '0');
+    const seen: number[] = [];
+    const t = setup({
+      authClient: authAnswering(async () => 'tok'),
+      ansariClient: wrappedAnsari(inner, {
+        completeChat: async (_token, request) => {
+          seen.push(request.expiryHours);
+          return ['ok'];
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(seen).toEqual([0]);
+  });
+
+  it('falls back to WHATSAPP_CHAT_RETENTION_HOURS when nothing is stored', async () => {
+    const seen: number[] = [];
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    const t = setup({
+      config: { WHATSAPP_CHAT_RETENTION_HOURS: 6 },
+      ansariClient: wrappedAnsari(inner, {
+        completeChat: async (_token, request) => {
+          seen.push(request.expiryHours);
+          return ['ok'];
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(seen).toEqual([6]);
+  });
+
+  it.each(['30', 'soon', '-1'])('warns and uses the default when the stored expiry is %j', async (stored) => {
+    const seen: number[] = [];
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    await inner.setPreference('tok', CHAT_RETENTION_PREFERENCE, stored);
+    const t = setup({
+      authClient: authAnswering(async () => 'tok'),
+      ansariClient: wrappedAnsari(inner, {
+        completeChat: async (_token, request) => {
+          seen.push(request.expiryHours);
+          return ['ok'];
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(seen).toEqual([3]);
+    expect(t.log.text()).toContain('A stored chat expiry is not valid; the default is used');
+  });
+
+  it('drops blank parts, since WhatsApp refuses them', async () => {
+    const t = setup({
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => ['ok', '   ', ''],
+      }),
+    });
+    await t.handle(textMessage());
+    expect(t.replies()).toEqual(['ok']);
+  });
+});
+
+describe('an answer with nothing to send', () => {
+  it.each([
+    ['an empty list', []],
+    ['only blank parts', ['  ', '\n']],
+  ])('tells the user when apps/api sends %s', async (_name, messages) => {
+    const t = setup({
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => messages,
+      }),
+    });
+    await t.handle(textMessage());
+    expect(t.replies()).toEqual([EMPTY_ANSWER]);
+    expect(t.reports).toEqual([]); // an empty answer is not an operator error
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+describe('one re-exchange after an apps/api 401', () => {
+  /** A sign-in that hands out `stale` first and `fresh` afterwards, and records the order of exchanges and forgets. */
+  function twoTokens(events: string[]): AuthClient {
+    let exchanges = 0;
+    return authAnswering(
+      async () => {
+        exchanges += 1;
+        events.push('exchange');
+        return exchanges === 1 ? 'stale' : 'fresh';
+      },
+      () => events.push('forget'),
+    );
+  }
+
+  it('drops the stale token, exchanges once more, and answers the message with the fresh token', async () => {
+    const events: string[] = [];
+    const t = setup({
+      authClient: twoTokens(events),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async (token) => {
+          if (token === 'stale') throw new ApiUnauthorizedError('refused');
+          return [`answer for ${token}`];
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(t.replies()).toEqual(['answer for fresh']);
+  });
+
+  it('forgets the stale token before asking again, not after', async () => {
+    const events: string[] = [];
+    const t = setup({
+      authClient: twoTokens(events),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async (token) => {
+          if (token === 'stale') throw new ApiUnauthorizedError('refused');
+          return ['ok'];
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(events).toEqual(['exchange', 'forget', 'exchange']);
+  });
+
+  it('gives up after a second 401: never a third exchange or a third attempt', async () => {
+    const events: string[] = [];
+    let calls = 0;
+    const t = setup({
+      authClient: twoTokens(events),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => {
+          calls += 1;
+          throw new ApiUnauthorizedError('refused');
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(calls).toBe(2);
+    expect(events.filter((event) => event === 'exchange')).toHaveLength(2);
+    expect(t.replies()).toEqual([PROCESSING_FAILED]);
+    expect(t.reportedAs()).toEqual(['api_unauthorized_after_reexchange']);
+  });
+
+  it('tells a user found banned on the re-exchange so, and does not retry', async () => {
+    let exchanges = 0;
+    let calls = 0;
+    const t = setup({
+      authClient: authAnswering(async () => {
+        exchanges += 1;
+        if (exchanges === 2) throw new AuthUserBannedError('banned');
+        return 'stale';
+      }),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => {
+          calls += 1;
+          throw new ApiUnauthorizedError('refused');
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(calls).toBe(1);
+    expect(t.replies()).toEqual([BANNED_NOTICE]);
+  });
+
+  it('does not tell the user they are sending too quickly when the re-exchange is rate limited', async () => {
+    let exchanges = 0;
+    const t = setup({
+      authClient: authAnswering(async () => {
+        exchanges += 1;
+        if (exchanges === 2) throw new AuthRateLimitedError('slow down', 60);
+        return 'stale';
+      }),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => {
+          throw new ApiUnauthorizedError('refused');
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(t.replies()).toEqual([SIGN_IN_FAILED_NOTICE]);
+  });
+
+  it('does not retry a failure that is not a 401', async () => {
+    const events: string[] = [];
+    let calls = 0;
+    const t = setup({
+      authClient: twoTokens(events),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        completeChat: async () => {
+          calls += 1;
+          throw new MessageProcessingError('boom');
+        },
+      }),
+    });
+    await t.handle(textMessage());
+    expect(calls).toBe(1);
+    expect(events).toEqual(['exchange']);
+    expect(t.replies()).toEqual([PROCESSING_FAILED]);
+    expect(t.reportedAs()).toEqual(['message_processing_failure']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+describe('/expiry: the chat expiry list', () => {
+  it('sends a list with the current setting and one row per choice, each id naming this environment', async () => {
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    await inner.setPreference('tok', CHAT_RETENTION_PREFERENCE, '6');
+    let answered = false;
+    const t = setup({
+      authClient: authAnswering(async () => 'tok'),
+      ansariClient: wrappedAnsari(inner, {
+        completeChat: async () => {
+          answered = true;
+          return ['never'];
+        },
+      }),
+    });
+
+    expect(await t.handle(textMessage({}, '/expiry'))).toBe('expiry_command');
+    const { lists } = t.metaApi as MetaApiServiceMock;
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.recipient).toBe(BSUID);
+    expect(lists[0]?.list.bodyText).toContain('6 hours');
+    expect(lists[0]?.list.rows.map((row) => row.id)).toEqual([0, 1, 2, 3, 6, 12, 24].map((h) => `expiry:${h}:production`));
+    for (const row of lists[0]?.list.rows ?? []) expect([...row.title].length).toBeLessThanOrEqual(24);
+    expect(answered).toBe(false);
+    expect(t.replies()).toEqual([]);
+  });
+
+  it('shows the default when nothing is stored yet', async () => {
+    const t = setup();
+    await t.handle(textMessage({}, '/expiry'));
+    expect((t.metaApi as MetaApiServiceMock).lists[0]?.list.bodyText).toContain('3 hours');
+  });
+
+  it('is recognised after the staging prefix, in any case and with spaces around it', async () => {
+    const t = setup({ config: { ENVIRONMENT: 'staging' } });
+    expect(t.manager.triage(textMessage({}, '!s  /Expiry '))).toBe('expiry_command');
+  });
+
+  it('is not a command inside a longer message, and needs the staging prefix on staging', () => {
+    const t = setup({ config: { ENVIRONMENT: 'staging' } });
+    expect(t.manager.triage(textMessage({}, '!s /expiry please'))).toBe('text');
+    expect(t.manager.triage(textMessage({}, '/expiry'))).toBe('dev_filter');
+  });
+
+  it('tells the user the answer failed and sends no list when the preference cannot be read', async () => {
+    const t = setup({
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        getPreferences: async () => {
+          throw new PreferencesError('apps/api is down');
+        },
+      }),
+    });
+    await t.handle(textMessage({}, '/expiry'));
+    expect((t.metaApi as MetaApiServiceMock).lists).toEqual([]);
+    expect(t.replies()).toEqual([PROCESSING_FAILED]);
+    expect(t.reportedAs()).toEqual(['preferences_failure']);
+  });
+});
+
+describe('a list reply: saving the chat expiry', () => {
+  it('saves the chosen hours and confirms them', async () => {
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    const t = setup({
+      authClient: authAnswering(async () => 'tok'),
+      ansariClient: wrappedAnsari(inner, {}),
+    });
+    expect(await t.handle(listReply(expiryRowId(6, 'production')))).toBe('list_reply');
+    expect((await inner.getPreferences('tok'))[CHAT_RETENTION_PREFERENCE]).toBe('6');
+    expect(t.replies()).toEqual(['Done. Your chat setting is now 6 hours.']);
+  });
+
+  it('confirms a choice of 0 as a new session for every message', async () => {
+    const t = setup();
+    await t.handle(listReply(expiryRowId(0, 'production')));
+    expect(t.replies()).toEqual(['Done. Your chat setting is now a new session for every message.']);
+  });
+
+  it('saves a staging choice on staging, where the row id names staging', async () => {
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    const t = setup({
+      config: { ENVIRONMENT: 'staging' },
+      authClient: authAnswering(async () => 'tok'),
+      ansariClient: wrappedAnsari(inner, {}),
+    });
+    await t.handle(listReply(expiryRowId(12, 'staging')));
+    expect((await inner.getPreferences('tok'))[CHAT_RETENTION_PREFERENCE]).toBe('12');
+  });
+
+  it("is not answered by an environment other than the one that sent the list", async () => {
+    let saved = false;
+    const t = setup({
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        setPreference: async () => {
+          saved = true;
+        },
+      }),
+    });
+    expect(t.manager.triage(listReply(expiryRowId(3, 'staging')))).toBe('dev_filter');
+    expect(saved).toBe(false);
+    expect(t.replies()).toEqual([]);
+  });
+
+  it('a row this environment did not offer gets a short notice, and nothing is saved', async () => {
+    const inner = new AnsariClientMock({ logger: capturingLogger().logger });
+    const t = setup({ authClient: authAnswering(async () => 'tok'), ansariClient: wrappedAnsari(inner, {}) });
+    await t.handle(listReply('expiry:5:production'));
+    expect(t.replies()).toEqual(['Sorry, that option is no longer available. Send /expiry to choose again.']);
+    expect(await inner.getPreferences('tok')).toEqual({});
+  });
+
+  it('a failed save tells the user and is reported', async () => {
+    const t = setup({
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        setPreference: async () => {
+          throw new PreferencesError('apps/api is down');
+        },
+      }),
+    });
+    await t.handle(listReply(expiryRowId(1, 'production')));
+    expect(t.replies()).toEqual(['An error occurred while saving your chat setting. Please try again later.']);
+    expect(t.reportedAs()).toEqual(['preferences_failure']);
+  });
+
+  it('signs the user in first: a refused sign-in is told, and nothing is saved', async () => {
+    let saved = false;
+    const t = setup({
+      authClient: authAnswering(async () => {
+        throw new AuthUserBannedError('banned');
+      }),
+      ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
+        setPreference: async () => {
+          saved = true;
+        },
+      }),
+    });
+    await t.handle(listReply(expiryRowId(1, 'production')));
+    expect(t.replies()).toEqual([BANNED_NOTICE]);
+    expect(saved).toBe(false);
+  });
+
+  it('a button reply is still unsupported, not mistaken for a list reply', () => {
+    const t = setup();
+    const button = textMessage({
+      messageType: 'interactive',
+      messageBody: { type: 'button_reply', button_reply: { id: 'x', title: 'y' } },
+    });
+    expect(t.manager.triage(button)).toBe('unsupported');
+  });
+});
+
+describe('chat expiry helpers', () => {
+  it.each([
+    [undefined, 3],
+    ['0', 0],
+    ['24', 24],
+    ['25', 3],
+    ['-1', 3],
+    ['2.5', 3],
+    ['', 3],
+    ['soon', 3],
+  ])('a stored %j becomes %j (the default is 3)', (stored, expected) => {
+    expect(chatRetentionHours(stored, 3)).toBe(expected);
+  });
+
+  it('reads a list reply id only when this environment offered it', () => {
+    expect(parseExpiryChoice('expiry:6:production', 'production')).toBe(6);
+    expect(parseExpiryChoice('expiry:24:production', 'production')).toBe(24);
+    expect(parseExpiryChoice('expiry:5:production', 'production')).toBeUndefined();
+    expect(parseExpiryChoice('expiry:6:staging', 'production')).toBeUndefined();
+    expect(parseExpiryChoice('6', 'production')).toBeUndefined();
   });
 });

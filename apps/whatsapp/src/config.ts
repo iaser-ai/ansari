@@ -107,8 +107,8 @@ const rawSchema = z.object({
   // ---------- chat ----------
   /** This service's own maintenance switch, independent of apps/api's MAINTENANCE_MODE. */
   WA_MAINTENANCE_MODE: envBoolean(),
-  /** Hours of silence after which the next message starts a new thread. */
-  WHATSAPP_CHAT_RETENTION_HOURS: z.coerce.number().int().positive().default(3),
+  /** The chat expiry for users who have not picked one with `/expiry`. apps/api accepts 0 to 24 hours. */
+  WHATSAPP_CHAT_RETENTION_HOURS: z.coerce.number().int().min(0).max(24).default(3),
   /** Messages older than this are rejected instead of answered (default one day). */
   WHATSAPP_MESSAGE_AGE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(86400),
 

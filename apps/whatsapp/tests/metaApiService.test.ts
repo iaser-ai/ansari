@@ -149,6 +149,44 @@ describe('what is sent', () => {
   });
 });
 
+describe('interactive lists', () => {
+  const LIST = {
+    bodyText: 'Your current setting: 3 hours.',
+    buttonText: 'Choose',
+    sectionTitle: 'Chat expiry',
+    rows: [
+      { id: 'expiry:3:production', title: '3 hours' },
+      { id: 'expiry:0:production', title: 'New chat every message' },
+    ],
+  };
+
+  it('sends a phone number list as `to`, with the rows in the list', async () => {
+    const { service, calls } = setup(ok);
+    await service.sendInteractiveList(PHONE, LIST);
+    expect(calls[0]!.json).toEqual({
+      messaging_product: 'whatsapp',
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: LIST.bodyText },
+        action: { button: 'Choose', sections: [{ title: 'Chat expiry', rows: LIST.rows }] },
+      },
+      to: PHONE,
+    });
+  });
+
+  it('sends a BSUID list as `recipient`, the same as a text message', async () => {
+    const { service, calls } = setup(ok);
+    await service.sendInteractiveList(BSUID, LIST);
+    expect(calls[0]!.json).toMatchObject({ recipient_type: 'individual', recipient: BSUID, type: 'interactive' });
+    expect(calls[0]!.json).not.toHaveProperty('to');
+  });
+
+  it('a refusal from Meta is raised as a MetaApiError, like a text message', async () => {
+    const { service } = setup(() => jsonResponse(400, { error: { code: 131009, message: 'bad list' } }));
+    expect(await thrown(service.sendInteractiveList(PHONE, LIST))).toBeInstanceOf(MetaApiError);
+  });
+});
 describe('when Meta refuses', () => {
   it.each(['staging', 'development', 'production'] as const)(
     'logs Meta\'s error fields in %s',
