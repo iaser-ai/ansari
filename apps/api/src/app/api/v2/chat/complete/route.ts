@@ -20,6 +20,10 @@ const chatCompleteSchema = z.object({
   expiryHours: z.number().min(0).max(24).optional().default(3),
 });
 
+const whatsappResponseSchema = z.object({
+  messages: z.array(z.string().min(1)).min(1),
+});
+
 // POST /api/v2/chat/complete - Non-streaming endpoint for WhatsApp
 export async function POST(request: NextRequest) {
   try {
@@ -115,9 +119,44 @@ export async function POST(request: NextRequest) {
               return createErrorResponse('The model returned an empty answer. Please try again.', 500);
             }
 
-            // Store assistant message. A warn-level answer stores the warning ahead of the
-            // text, as the thread route does. Replay uses rawPayload, so the warning reaches
-            // the model only as history text when a turn has no rawPayload (never here).
+            // Parse and validate the model response before adding it to thread history.
+            // Keep accepting code fences for compatibility with older model responses.
+            let cleanedText: string;
+            let parsedResponse: unknown;
+            try {
+              cleanedText = fullText.trim();
+              if (cleanedText.startsWith('```json')) {
+                cleanedText = cleanedText.substring(7); // Remove ```json
+              } else if (cleanedText.startsWith('```')) {
+                cleanedText = cleanedText.substring(3); // Remove ```
+              }
+              if (cleanedText.endsWith('```')) {
+                cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+              }
+              cleanedText = cleanedText.trim();
+
+              parsedResponse = JSON.parse(cleanedText);
+            } catch (parseError) {
+              const e = parseError as { name?: string; message?: string };
+              console.error('[chat-complete] failed to parse WhatsApp response', {
+                name: e?.name,
+                message: e?.message,
+              });
+              Sentry.captureException(parseError);
+              return createErrorResponse('Failed to parse AI model response', 500);
+            }
+
+            const validation = whatsappResponseSchema.safeParse(parsedResponse);
+            if (!validation.success) {
+              console.error('[chat-complete] invalid response format', {
+                issueCount: validation.error.issues.length,
+              });
+              Sentry.captureMessage('chat-complete invalid response format', { level: 'error' });
+              return createErrorResponse('Invalid response format from AI model', 500);
+            }
+
+            // A warn-level answer stores the warning ahead of the validated response, as the
+            // thread route does. Persistence still precedes the HTTP return, not Meta delivery.
             const storedText = history.verdict === 'warn' ? `${HISTORY_WARNING_MESSAGE}\n\n${fullText}` : fullText;
             await createMessage({
               threadId,
@@ -136,47 +175,12 @@ export async function POST(request: NextRequest) {
               modelId: event.provenance?.modelId ?? null,
             });
 
-            // Parse the WhatsApp-formatted response
-            try {
-              // Strip markdown code blocks if present
-              let cleanedText = fullText.trim();
-              if (cleanedText.startsWith('```json')) {
-                cleanedText = cleanedText.substring(7); // Remove ```json
-              } else if (cleanedText.startsWith('```')) {
-                cleanedText = cleanedText.substring(3); // Remove ```
-              }
-              if (cleanedText.endsWith('```')) {
-                cleanedText = cleanedText.substring(0, cleanedText.length - 3);
-              }
-              cleanedText = cleanedText.trim();
-
-              const whatsappResponse = JSON.parse(cleanedText);
-
-              // Validate the response structure
-              if (!whatsappResponse.messages || !Array.isArray(whatsappResponse.messages)) {
-                console.error('[chat-complete] invalid response format: missing or non-array messages');
-                Sentry.captureMessage('chat-complete invalid response format', {
-                  level: 'error',
-                });
-                return createErrorResponse('Invalid response format from AI model', 500);
-              }
-
-              // On a warn-level thread the notice leads the answer as its own message, so it
-              // reaches WhatsApp as a separate message; it is also stored (above).
-              const answer: string[] =
-                history.verdict === 'warn'
-                  ? [HISTORY_WARNING_MESSAGE, ...whatsappResponse.messages]
-                  : whatsappResponse.messages;
-              return Response.json({ messages: answer });
-            } catch (parseError) {
-              const e = parseError as { name?: string; message?: string };
-              console.error('[chat-complete] failed to parse WhatsApp response', {
-                name: e?.name,
-                message: e?.message,
-              });
-              Sentry.captureException(parseError);
-              return createErrorResponse('Failed to parse AI model response', 500);
-            }
+            // On a warn-level thread the notice leads the answer as its own message.
+            const answer: string[] =
+              history.verdict === 'warn'
+                ? [HISTORY_WARNING_MESSAGE, ...validation.data.messages]
+                : validation.data.messages;
+            return Response.json({ messages: answer });
 
           case 'error':
             console.error('[chat-complete] facilitator error:', event.data);

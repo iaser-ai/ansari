@@ -262,6 +262,10 @@ describe('POST /api/v2/chat/complete', () => {
 
       expect(response.status).toBe(200);
       expect(body.messages).toEqual(whatsappResponse.messages);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(2);
+      expect(mockCreateMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ role: 'assistant', source: 'whatsapp' }),
+      );
     });
 
     it('returns 500 when facilitator returns empty answer', async () => {
@@ -271,6 +275,7 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
 
       const body = await response.json();
       expect(body.error).toContain('empty answer');
@@ -290,6 +295,7 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     });
 
     it('returns 500 when response is missing messages array', async () => {
@@ -322,6 +328,24 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not persist a response whose messages are not all strings', async () => {
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: '{"messages":["valid",42]}' };
+        yield {
+          type: 'done',
+          data: '',
+          usage: { promptTokenCount: 10, candidatesTokenCount: 20 },
+          toolCalls: [],
+          provenance: { provider: 'gemini', modelId: 'gemini-3-flash' },
+        };
+      });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+      expect(response.status).toBe(500);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     });
   });
 

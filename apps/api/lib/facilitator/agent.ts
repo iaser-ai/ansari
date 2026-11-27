@@ -15,6 +15,7 @@ import {
   type GeminiResponse,
   type GeminiStreamEvent,
   type GeminiUsageMetadata,
+  type GeminiCallOptions,
 } from '../ai/gemini-client';
 import { streamInkling, isInklingConfigured } from '../ai/inkling-client';
 import { FACILITATOR_SYSTEM_PROMPT, TOOL_CONTINUATION_DIRECTIVE } from '../ai/prompts/facilitator';
@@ -43,6 +44,17 @@ function getSystemPrompt(source?: string): string {
   }
   return FACILITATOR_SYSTEM_PROMPT;
 }
+
+const WHATSAPP_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    messages: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+    },
+  },
+  required: ['messages'],
+} satisfies NonNullable<GeminiCallOptions['responseSchema']>;
 
 // Maximum iterations to prevent infinite loops
 const MAX_ITERATIONS = 10;
@@ -438,6 +450,10 @@ export async function* runFacilitator(
   // Spread into every Gemini call's options; empty when the request is not pinned, so
   // an unpinned request's calls are exactly what they were before the seam existed.
   const pinnedCallOptions = pinnedModel !== undefined ? { model: pinnedModel, noModelFallback: true } : {};
+  const whatsappOutputOptions: Pick<GeminiCallOptions, 'responseMimeType' | 'responseSchema'> =
+    options?.source === 'whatsapp'
+      ? { responseMimeType: 'application/json', responseSchema: WHATSAPP_RESPONSE_SCHEMA }
+      : {};
   const systemPrompt = getSystemPrompt(options?.source);
   const tools = getGeminiToolDescriptions();
   const tracker: ToolUsageTracker = { history: [], callsWithArgs: [] };
@@ -648,7 +664,7 @@ export async function* runFacilitator(
             ...synthesisOptions,
             timeoutMs: Math.min(remainingMs, config.inkling.timeoutMs),
           })
-        : streamGemini('', { ...synthesisOptions, ...pinnedCallOptions });
+        : streamGemini('', { ...synthesisOptions, ...pinnedCallOptions, ...whatsappOutputOptions });
       for await (const event of stream) {
         if (event.type === 'text') {
           synthText += event.data;
@@ -752,7 +768,7 @@ export async function* runFacilitator(
             ...callOptions,
             timeoutMs: Math.min(remainingToSoft, config.inkling.timeoutMs),
           })
-        : streamGemini(currentQuery, { ...callOptions, ...pinnedCallOptions });
+        : streamGemini(currentQuery, { ...callOptions, ...pinnedCallOptions, ...whatsappOutputOptions });
 
       const toolCallsCollected: GeminiToolCall[] = [];
       let response: GeminiResponse | null = null;

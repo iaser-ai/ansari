@@ -24,6 +24,7 @@ const sdk = vi.hoisted(() => ({
   establishCalls: 0,
   modelsTried: [] as string[],
   messagesSent: [] as unknown[],
+  configs: [] as Array<{ responseMimeType?: string; responseSchema?: unknown }>,
   scripts: [] as Array<(model: string) => AsyncGenerator<unknown>>,
 }));
 
@@ -52,13 +53,17 @@ vi.mock('@google/genai', () => ({
   GoogleGenAI: class {
     constructor(_opts: unknown) {}
     chats = {
-      create: (args: { model: string }) => ({
+      create: (args: {
+        model: string;
+        config?: { responseMimeType?: string; responseSchema?: unknown };
+      }) => ({
         // Establishment resolves successfully; the returned iterator is where
         // any mid-stream 429 surfaces (matching Vertex's accept-then-429 behavior).
         sendMessageStream: async (params?: { message?: unknown }) => {
           sdk.establishCalls += 1;
           sdk.modelsTried.push(args.model);
           sdk.messagesSent.push(params?.message);
+          sdk.configs.push(args.config ?? {});
           const script = sdk.scripts.shift();
           if (!script) {
             // Default: a one-chunk success.
@@ -87,6 +92,7 @@ beforeEach(() => {
   sdk.establishCalls = 0;
   sdk.modelsTried = [];
   sdk.messagesSent = [];
+  sdk.configs = [];
   sdk.scripts = [];
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -96,6 +102,29 @@ afterEach(() => {
 });
 
 describe('streamGemini mid-stream 429 (issue #37)', () => {
+  it('passes structured response settings to the SDK request config', async () => {
+    const responseSchema = {
+      type: 'OBJECT',
+      properties: {
+        messages: { type: 'ARRAY', items: { type: 'STRING' } },
+      },
+      required: ['messages'],
+    };
+
+    const { streamGemini } = await import('../lib/ai/gemini-client');
+    for await (const _event of streamGemini('q', {
+      responseMimeType: 'application/json',
+      responseSchema,
+    })) {
+      // The mocked stream completes immediately.
+    }
+
+    expect(sdk.configs[0]).toMatchObject({
+      responseMimeType: 'application/json',
+      responseSchema,
+    });
+  });
+
   it('(a) 429 on the first chunk pull — before any text — recovers via retry', async () => {
     sdk.scripts = [
       // Attempt 1: request accepted, then 429 on the very first pull. No text yet.

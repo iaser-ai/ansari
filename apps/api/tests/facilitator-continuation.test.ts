@@ -166,8 +166,29 @@ describe('post-tool-round continuation directive (issue #73)', () => {
     expect(h.calls).toHaveLength(2); // tool round + continuation
     expect(h.calls[0].message).toBe('What is sabr?'); // first call carries real user text
     expect(h.calls[1].message).toBe(DIRECTIVE); // continuation carries the directive — was ''
+    expect(h.calls[0].options.responseMimeType).toBeUndefined();
     expect(types).toContain('done');
     expect(types).not.toContain('error');
+  });
+
+  it('uses a JSON response schema on WhatsApp tool and final turns', async () => {
+    h.scripts = [toolRound(['search_quran']), textRound('{"messages":["Sabr means patience."]}')];
+
+    await collect(
+      runFacilitator([userMessage('What is sabr?')], undefined, { source: 'whatsapp' }) as AsyncGenerator<Event>,
+    );
+
+    expect(h.calls).toHaveLength(2);
+    for (const call of h.calls) {
+      expect(call.options.responseMimeType).toBe('application/json');
+      expect(call.options.responseSchema).toEqual({
+        type: 'OBJECT',
+        properties: {
+          messages: { type: 'ARRAY', items: { type: 'STRING' } },
+        },
+        required: ['messages'],
+      });
+    }
   });
 
   it('every continuation of a multi-tool-round request carries the directive', async () => {

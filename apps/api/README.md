@@ -29,6 +29,38 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 
 Auth is owned by `apps/auth` (Better Auth, spec 300): this service verifies its short-lived JWTs against the JWKS, and the `/v2/users/*` and password-reset routes are a compatibility layer over it with the legacy response shapes. No password, session or signing secret lives here.
 
+### `POST /api/v2/chat/complete` (WhatsApp, non-streaming)
+
+Used by `apps/whatsapp` (spec 360). Source: [route.ts](./src/app/api/v2/chat/complete/route.ts). Authenticate with the user's JWT: `Authorization: Bearer <jwt>`.
+
+Request body:
+
+```json
+{ "message": "the WhatsApp user's text", "expiryHours": 3 }
+```
+
+- `message`: required, non-empty string.
+- `expiryHours`: optional integer from 0 to 24, default 3. The user's `whatsapp` thread is reused while its last update is within this many hours. `0` starts a new thread for every message.
+
+Success (`200`):
+
+```json
+{ "messages": ["first part of the answer", "second part"] }
+```
+
+- Each item is a WhatsApp-formatted string. The 4,096-character limit per item comes from the prompt only; the API does not check item lengths.
+- On a thread near the history limit, the first item is the history warning. Over the block threshold, or when the incoming message alone is over it, the response is a single notice item and no model call is made.
+
+Errors use the `{ "detail": "..." }` shape:
+
+| Status | When |
+|--------|------|
+| `401` | Missing or invalid JWT |
+| `422` | Body fails validation (for example, empty `message`) |
+| `500` | The model returned an empty answer, invalid JSON, a response that does not match `{ messages: string[] }`, or a facilitator error |
+
+Persistence: the user message is stored before the model call. The assistant answer is stored only after its JSON and shape validate, and before the response is returned. The endpoint does not wait for Meta to deliver the message to the WhatsApp user.
+
 ## Tech Stack
 
 - **Runtime**: Next.js 15 (App Router, API routes), Node ≥ 22, TypeScript

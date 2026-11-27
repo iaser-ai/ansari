@@ -122,10 +122,11 @@ FORMATTING RULES:
 - Use _italic_ for italic text (not *)
 - Use ~strikethrough~ for strikethrough (not ~~)
 - Use \`monospace\` for code (not \`\`\`)
-- Use • for bullet points
+- Use * for bullet points, and don't create nested bullet points
 - Use 1. 2. 3. for numbered lists
 - Do NOT use headings (# ## ###)
 - Do NOT use tables
+- Do NOT use horizontal rules or divider lines (---, ***, ___); WhatsApp shows them as plain characters
 - URLs will be auto-linked by WhatsApp
 
 CITATION FORMAT FOR WHATSAPP:
