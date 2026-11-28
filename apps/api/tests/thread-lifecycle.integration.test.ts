@@ -16,7 +16,11 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 
 import * as schema from '@/db/schema';
-import { getOrCreateThread } from '@/lib/db/threads';
+import {
+  createMessageIfThreadExists,
+  getOrCreateThread,
+  getOrCreateThreadWithUserMessage,
+} from '@/lib/db/threads';
 import { insertAppUserRow } from '@/lib/db/users';
 
 const DRIZZLE_DIR = fileURLToPath(new URL('../drizzle/', import.meta.url));
@@ -84,17 +88,42 @@ describe('getOrCreateThread against PostgreSQL via PGlite', () => {
     expect(rows[0]?.count).toBe('1');
   });
 
-  it('returns one thread for simultaneous first messages', async () => {
-    const results = await Promise.all([
-      getOrCreateThread(USER_ID, 'whatsapp', 3),
-      getOrCreateThread(USER_ID, 'whatsapp', 3),
-    ]);
+  it('creates a new thread and stores the first message in one transaction', async () => {
+    const result = await getOrCreateThreadWithUserMessage(USER_ID, 'whatsapp', 3, {
+      role: 'user',
+      content: [{ type: 'text', text: 'first question' }],
+      source: 'whatsapp',
+    });
 
-    expect(results[0]?.id).toBe(results[1]?.id);
+    expect(result.thread.id).toBeDefined();
+    expect(result.message.threadId).toBe(result.thread.id);
+    expect(result.history.some((message) => message.id === result.message.id)).toBe(true);
     const { rows } = await client.query<{ count: string }>(
-      'SELECT count(*)::text AS count FROM threads WHERE user_id = $1 AND source = $2',
-      [USER_ID, 'whatsapp'],
+      'SELECT count(*)::text AS count FROM messages WHERE thread_id = $1',
+      [result.thread.id],
     );
     expect(rows[0]?.count).toBe('1');
+  });
+
+  it('does not save a completed answer after its thread has been replaced', async () => {
+    const thread = await getOrCreateThread(USER_ID, 'whatsapp', 3);
+    await client.query('DELETE FROM threads WHERE id = $1', [thread.id]);
+
+    const answer = await createMessageIfThreadExists(
+      {
+        threadId: thread.id,
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Completed answer' }],
+        source: 'whatsapp',
+      },
+      USER_ID,
+    );
+
+    expect(answer).toBeUndefined();
+    const { rows } = await client.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM messages WHERE thread_id = $1',
+      [thread.id],
+    );
+    expect(rows[0]?.count).toBe('0');
   });
 });

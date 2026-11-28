@@ -74,10 +74,13 @@ export function estimateHistoryTokens(messages: Message[]): number {
  * thread on every later turn and the thread could never be used again. A refused
  * message is answered with HISTORY_MESSAGE_TOO_LONG_MESSAGE and nothing is saved.
  */
-export function incomingMessageTooLong(text: string, threadId: string): boolean {
+export function incomingMessageTooLong(text: string, threadId?: string): boolean {
   const estimatedTokens = Math.ceil(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
   if (estimatedTokens < config.threadHistory.blockTokens) return false;
-  console.warn('[history-limit] incoming message refused', { threadId, estimatedTokens });
+  console.warn('[history-limit] incoming message refused', {
+    ...(threadId ? { threadId } : {}),
+    estimatedTokens,
+  });
   return true;
 }
 

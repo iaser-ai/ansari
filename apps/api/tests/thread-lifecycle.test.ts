@@ -12,6 +12,7 @@ vi.mock('../lib/db', () => ({
 
 describe('getOrCreateThread', () => {
   const mockTx = {
+    execute: vi.fn().mockResolvedValue(undefined),
     select: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
@@ -177,9 +178,7 @@ describe('getOrCreateThread', () => {
       expect(mockTx.insert).toHaveBeenCalled();
     });
 
-    it('handles race condition with row-level lock', async () => {
-      // This test verifies that the query uses .for('update')
-      // The actual race condition prevention is handled by PostgreSQL
+    it('takes the per-user advisory lock before selecting a thread', async () => {
 
       mockTx.select.mockReturnValue({
         from: vi.fn().mockReturnValue({
@@ -208,8 +207,8 @@ describe('getOrCreateThread', () => {
 
       await getOrCreateThread('user-1', 'whatsapp', 3);
 
-      // Verify that .for('update') was called
-      expect(mockTx.select).toHaveBeenCalled();
+      expect(mockTx.execute).toHaveBeenCalledTimes(1);
+      expect(mockTx.execute.mock.invocationCallOrder[0]).toBeLessThan(mockTx.select.mock.invocationCallOrder[0]!);
     });
   });
 

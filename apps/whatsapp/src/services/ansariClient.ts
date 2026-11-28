@@ -25,7 +25,7 @@ export const CHAT_RETENTION_PREFERENCE = 'whatsapp.chat_retention_hours';
 /** Preference reads and writes give up after this long. */
 const REQUEST_TIMEOUT_MS = 60_000;
 /** An answer can run the model and its tools for a while, so it gets more time than the other calls. */
-const CHAT_TIMEOUT_MS = 120_000;
+const CHAT_TIMEOUT_MS = 180_000;
 
 export interface AnsariClient {
   /**

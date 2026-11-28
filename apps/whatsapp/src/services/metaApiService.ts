@@ -17,6 +17,7 @@ import { noopErrorReporter } from '../errorReporter';
 import { getRequestId, type Logger } from '../logger';
 import { maskIdentifiers, redactValues } from '../logMasking';
 import { pythonList, pythonRepr } from '../utils/pythonRepr';
+import { prepareWhatsAppMessages } from '../utils/whatsappMessageSplitter';
 import { describeNetworkError, discardBody, type FetchLike } from './http';
 
 /** Sending to a user is the answer they are waiting for; Meta can take longer than a few seconds to accept one. */
@@ -225,21 +226,22 @@ export class MetaApiServiceReal implements MetaApiService {
       logger.error('Cannot send message: No recipient');
       return;
     }
-    if (messageParts.length === 0) {
+    const safeParts = prepareWhatsAppMessages(messageParts);
+    if (safeParts.length === 0) {
       logger.warn('No message parts to send');
       return;
     }
 
-    logger.debug(`Sending ${messageParts.length} message part(s)`);
-    for (const [index, part] of messageParts.entries()) {
+    logger.debug(`Sending ${safeParts.length} message part(s)`);
+    for (const [index, part] of safeParts.entries()) {
       await this.#post(
         addressed(recipient, { messaging_product: 'whatsapp', type: 'text', text: { body: part } }),
         'message',
         'send_message',
       );
-      logger.info(`Sent message part ${index + 1}/${messageParts.length}: ${[...part].length} characters`);
+      logger.info(`Sent message part ${index + 1}/${safeParts.length}: ${[...part].length} characters`);
     }
-    logger.info(`All ${messageParts.length} message part(s) sent successfully`);
+    logger.info(`All ${safeParts.length} message part(s) sent successfully`);
   }
 
   async sendInteractiveList(recipient: string, list: InteractiveList): Promise<void> {

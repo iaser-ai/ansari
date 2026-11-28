@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import * as Sentry from '@sentry/nextjs';
 import { db, type Executor } from './index';
 import {
@@ -147,6 +147,72 @@ export async function createMessage(data: NewMessage, exec: Executor = db): Prom
 
   const result = await exec.insert(messages).values(data).returning();
   return result[0];
+}
+
+async function lockUserThreads(exec: Executor, userId: string): Promise<void> {
+  await exec.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+}
+
+async function getOrCreateThreadInTransaction(
+  tx: Executor,
+  userId: string,
+  source: string,
+  expiryHours: number,
+): Promise<Thread> {
+  await lockUserThreads(tx, userId);
+
+  const [existingThread] = await tx
+    .select()
+    .from(threads)
+    .where(and(eq(threads.userId, userId), eq(threads.source, source)))
+    .orderBy(desc(threads.updatedAt))
+    .limit(1)
+    .for('update');
+
+  if (existingThread && !isThreadExpired(existingThread, expiryHours)) return existingThread;
+
+  if (existingThread) {
+    await tx.delete(threads).where(eq(threads.id, existingThread.id));
+  }
+
+  const [newThread] = await tx
+    .insert(threads)
+    .values({ userId, source })
+    .returning();
+
+  return newThread;
+}
+
+/**
+ * Select the user's thread and record their message under the same per-user
+ * transaction lock, so expiry=0 cannot replace the thread between those writes.
+ */
+export async function getOrCreateThreadWithUserMessage(
+  userId: string,
+  source: string,
+  expiryHours: number,
+  message: Omit<NewMessage, 'threadId'>,
+): Promise<{ thread: Thread; message: Message; history: MessageRow[] }> {
+  return db.transaction(async (tx) => {
+    const thread = await getOrCreateThreadInTransaction(tx, userId, source, expiryHours);
+    const storedMessage = await createMessage({ ...message, threadId: thread.id }, tx);
+    const history = await findMessagesByThread(thread.id, tx);
+    return { thread, message: storedMessage, history };
+  });
+}
+
+/**
+ * Save an answer only while its original thread still exists. A concurrent
+ * expiry=0 request may replace it during model generation; in that case the
+ * answer is still returned to the user but is not added to a deleted thread.
+ */
+export async function createMessageIfThreadExists(data: NewMessage, userId: string): Promise<Message | undefined> {
+  return db.transaction(async (tx) => {
+    await lockUserThreads(tx, userId);
+    const thread = await findThreadById(data.threadId, userId, tx);
+    if (!thread) return undefined;
+    return createMessage(data, tx);
+  });
 }
 
 /**
@@ -302,35 +368,5 @@ export async function getOrCreateThread(
   source: string,
   expiryHours: number
 ): Promise<Thread> {
-  return await db.transaction(async (tx) => {
-    // Try to find existing thread for this user and source
-    const [existingThread] = await tx
-      .select()
-      .from(threads)
-      .where(and(eq(threads.userId, userId), eq(threads.source, source)))
-      .orderBy(desc(threads.updatedAt))
-      .limit(1)
-      .for('update'); // Row-level lock to prevent race conditions
-
-    // If thread exists and not expired, reuse it
-    if (existingThread && !isThreadExpired(existingThread, expiryHours)) {
-      return existingThread;
-    }
-
-    // Delete expired thread FIRST (atomic operation)
-    if (existingThread) {
-      await tx.delete(threads).where(eq(threads.id, existingThread.id));
-    }
-
-    // Create new thread SECOND (atomic operation)
-    const [newThread] = await tx
-      .insert(threads)
-      .values({
-        userId,
-        source,
-      })
-      .returning();
-
-    return newThread;
-  });
+  return db.transaction((tx) => getOrCreateThreadInTransaction(tx, userId, source, expiryHours));
 }

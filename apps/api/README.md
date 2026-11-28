@@ -40,7 +40,7 @@ Request body:
 ```
 
 - `message`: required, non-empty string.
-- `expiryHours`: optional integer from 0 to 24, default 3. The user's `whatsapp` thread is reused while its last update is within this many hours. `0` starts a new thread for every message.
+- `expiryHours`: optional whole number from 0 to 24, default 3. The user's `whatsapp` thread is reused while its last update is within this many hours. `0` starts a new thread for every message.
 
 Success (`200`):
 
@@ -48,8 +48,9 @@ Success (`200`):
 { "messages": ["first part of the answer", "second part"] }
 ```
 
-- Each item is a WhatsApp-formatted string. The 4,096-character limit per item comes from the prompt only; the API does not check item lengths.
+- The response contains 1-10 WhatsApp-formatted strings. The WhatsApp service splits any item over 4,096 characters before sending. If splitting would require more than 10 outbound messages, it sends no answer parts and gives the user the standard failure notice.
 - On a thread near the history limit, the first item is the history warning. Over the block threshold, or when the incoming message alone is over it, the response is a single notice item and no model call is made.
+- An incoming message over the history block threshold is refused before a thread is created or replaced.
 
 Errors use the `{ "detail": "..." }` shape:
 
@@ -59,7 +60,7 @@ Errors use the `{ "detail": "..." }` shape:
 | `422` | Body fails validation (for example, empty `message`) |
 | `500` | The model returned an empty answer, invalid JSON, a response that does not match `{ messages: string[] }`, or a facilitator error |
 
-Persistence: the user message is stored before the model call. The assistant answer is stored only after its JSON and shape validate, and before the response is returned. The endpoint does not wait for Meta to deliver the message to the WhatsApp user.
+Persistence: the user message is stored in the same transaction that selects or creates its thread. The assistant answer is stored as readable text only after its JSON and shape validate, and before the response is returned. If another request replaces that thread while the model is working, the answer is returned but not stored in the replaced thread. The endpoint does not wait for Meta to deliver the message to the WhatsApp user.
 
 ## Tech Stack
 

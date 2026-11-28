@@ -112,6 +112,27 @@ describe('what is sent', () => {
     expect(calls.map((call) => (call.json as { text: { body: string } }).text.body)).toEqual(['one', 'two', 'three']);
   });
 
+  it('splits oversized replies without breaking Unicode characters', async () => {
+    const text = '🙂'.repeat(4_097);
+    const { service, calls } = setup(ok);
+
+    await service.sendMessage(BSUID, [text]);
+
+    const sent = calls.map((call) => (call.json as { text: { body: string } }).text.body);
+    expect(sent).toHaveLength(2);
+    expect(sent.every((part) => [...part].length <= 4_096)).toBe(true);
+    expect(sent.join('')).toBe(text);
+  });
+
+  it('rejects answers that would need more than ten messages before sending any', async () => {
+    const { service, calls } = setup(ok);
+
+    await expect(service.sendMessage(BSUID, Array.from({ length: 11 }, (_, i) => `part ${i + 1}`))).rejects.toThrow(
+      '10-message WhatsApp limit',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
   it('stops at the first part Meta refuses, so later parts are not sent out of order', async () => {
     let n = 0;
     const { service, calls } = setup(() => (++n === 2 ? jsonResponse(400, META_REPLY) : ok()));

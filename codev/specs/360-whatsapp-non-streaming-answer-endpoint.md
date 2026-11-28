@@ -41,8 +41,11 @@ WhatsApp needs a finished, complete answer in one response so it can:
 - **Thread expiry is user-configurable** (0-24 hours, where 0 = new thread per message), passed from WhatsApp layer. Default: 3 hours.
 - WhatsApp Gemini calls use JSON response mode with a schema requiring `messages: string[]`; the API parses and validates a non-empty array of non-empty strings before returning it
 - The API stores an assistant answer only after that JSON/schema validation succeeds; the inbound user message remains stored if generation or validation fails
-- Each array entry is intended to be one WhatsApp message. There is no deterministic server-side splitter or per-entry length check; the prompt asks the model to keep each entry under 4,096 characters
-- The WhatsApp service sends returned entries in order, without formatting or splitting them again
+- The API validates 1-10 non-empty strings. The WhatsApp service splits any entry over 4,096 characters at paragraph, sentence, or whitespace boundaries, preserving Unicode characters.
+- The service refuses an answer that would need more than 10 outbound messages before sending any answer parts, then sends the usual failure notice. If Meta rejects a send after earlier parts were accepted, the service sends that failure notice after logging the refusal.
+- A single incoming message over the history block threshold is refused before a thread is created or replaced.
+- The WhatsApp service sends the resulting entries in order without changing their formatting.
+- If an expiry-zero request replaces a thread while an earlier answer is being generated, the earlier answer is returned but not stored in the deleted thread.
 - No streaming assembly remains in the WhatsApp service
 
 The API also applies the thread-history limits described in plan amendment A1. `/expiry` is a WhatsApp chat command that causes the service to send a Meta interactive list; it is not an API endpoint.
@@ -55,7 +58,7 @@ The API also applies the thread-history limits described in plan amendment A1. `
 - [x] A real local request returned a complete answer in the expected JSON shape
 - [x] Gemini is prompted for WhatsApp-formatted JSON messages
 - [x] WhatsApp Gemini calls enforce the JSON response schema, and the API validates it before persisting the assistant answer
-- [ ] Long answers have not yet been checked to confirm every generated message stays within WhatsApp's 4,096-character limit; there is no deterministic splitter or length guard
+- [x] Oversized replies are split below WhatsApp's 4,096-character limit, and answers requiring more than 10 outbound messages fail before any answer parts are sent
 - [x] Error responses use HTTP status codes and JSON bodies
 - [x] WhatsApp answer retrieval no longer uses SSE
 - [x] Endpoint and client unit tests pass; the real WhatsApp/Meta staging flow remains pending
@@ -67,7 +70,7 @@ The API also applies the thread-history limits described in plan amendment A1. `
 - **Architecture:** Separate WhatsApp service in monorepo (`apps/whatsapp`) calling `apps/api` over HTTP
 - **User identity:** BSUID exchanged for JWT via `apps/auth` `/api/whatsapp/session`; `apps/api` identifies user by GUID in JWT
 - **Thread lifecycle:** One thread per user, replaced after 3 hours inactivity (global `WHATSAPP_CHAT_RETENTION_HOURS`)
-- **Answer format:** The API prompts Gemini to return WhatsApp-formatted `messages[]`; the WhatsApp service sends those strings as-is. The API does not deterministically split or enforce the per-message character limit.
+- **Answer format:** The API prompts Gemini to return WhatsApp-formatted `messages[]`, with no more than 10 entries. The WhatsApp service enforces the 4,096-character limit by splitting an oversized entry and refuses answers requiring more than 10 outbound messages.
 - **Authentication:** Same JWT flow as streaming endpoint
 
 **Decisions made during design and implementation:**
@@ -76,10 +79,10 @@ The API also applies the thread-history limits described in plan amendment A1. `
 - Thread handling: Auto-create/reuse based on user's last thread and expiry (moved to API layer)
 - **Thread expiry**: User-configurable (0-24 hours, where 0 = new thread per message), passed from WhatsApp layer to API endpoint. Default: 3 hours.
 - **Expiry UX (decided in Phase 3):** a user sends `/expiry` and picks from an interactive list of 0, 1, 2, 3, 6, 12 or 24 hours (Meta allows at most 10 rows, so not every hour is offered). The choice is stored in the existing per-user `preferences` table under `whatsapp.chat_retention_hours`, with no schema change. Users who never chose get the global `WHATSAPP_CHAT_RETENTION_HOURS` (default 3). The plan (A3) has the details.
-- **Thread lifecycle and formatting move to apps/api (Phase 3):** the WhatsApp service no longer creates, reads or deletes threads, and it no longer formats or splits answers (plan A4). It sends the `messages[]` it receives.
+- **Thread lifecycle and formatting move to apps/api (Phase 3):** the WhatsApp service no longer creates, reads or deletes threads, and it does not reformat answers. It enforces WhatsApp's outbound message size limit before sending.
 - LLM output: WhatsApp Gemini calls set `responseMimeType: application/json` and a response schema requiring `messages` to be an array of strings; the prompt still supplies the formatting and message-length guidance
 - **Assistant persistence:** The API persists the inbound user message before generation, but persists the assistant answer only after JSON parsing and response-shape validation. This is still before returning the API response; it does not wait for Meta to accept or deliver the outbound WhatsApp message.
-- Text splitting: No deterministic splitter is used. Gemini is asked to return one WhatsApp-sized message per array entry; the endpoint does not enforce the character limit.
+- Text splitting: Gemini supplies logical `messages[]` boundaries, while the WhatsApp service deterministically splits any overlong entry. The response is limited to 10 outbound messages.
 - No usage/token info in response (not needed by WhatsApp layer)
 - **Thread history limit (added at Phase 2 review, issue #400):** the endpoint applies the same limit as the thread route. A message over the block threshold on its own is refused and not stored; a warn-level thread gets the warning as its own first `messages` item; a block-level thread gets the notice as its answer with no model call. Both notices are stored, as on the thread route, for consistency (see plan, Amendments A1).
 
@@ -88,10 +91,10 @@ The API also applies the thread-history limits described in plan amendment A1. `
 - `apps/auth` `/api/whatsapp/session` endpoint exists and works (spec 329)
 - The AI model (Gemini) can run to completion without streaming
 - **Thread expiry is user-configurable** (0-24 hours), stored in user preferences, passed from WhatsApp layer to API endpoint. Default: 3 hours.
-- The prompt asks Gemini to follow WhatsApp's formatting and 4,096-character limit. The API does not enforce the per-message limit, so long-answer validation remains necessary.
+- The prompt asks Gemini to follow WhatsApp's formatting and size guidance. The WhatsApp service independently enforces the 4,096-character limit, so model compliance is not the safety boundary.
 - The new endpoint coexists with the streaming endpoint — both serve different clients
 - WhatsApp Gemini calls use JSON response mode and a schema; the API strips optional code fences and validates the parsed response shape.
-- A dedicated text-splitting library is not used; Gemini supplies message boundaries.
+- Gemini supplies message boundaries; the WhatsApp service splits oversized entries and caps a delivered answer at 10 messages.
 
 **Note on terminology**: In this spec, "the AI model" or "Gemini" refers to the language model that generates answers. The codebase currently calls the orchestration layer that wraps Gemini the "facilitator" (see `apps/api/lib/facilitator/agent.ts`). This spec uses "the AI model" or "Gemini" for simplicity, but the implementation will use the existing facilitator code.
 
@@ -100,12 +103,12 @@ The API also applies the thread-history limits described in plan amendment A1. `
 ### Approach 1: New dedicated endpoint `/api/v2/chat/complete` (Recommended)
 
 A new endpoint that:
-- Accepts `{ message: string, expiryHours: number }` in body (expiryHours: 0-24, where 0 = new thread per message, default 3)
+- Accepts `{ message: string, expiryHours: integer }` in body (expiryHours: 0-24, where 0 = new thread per message, default 3)
 - Uses JWT from Authorization header to identify user
 - Finds or creates thread based on user-configurable expiry (passed from WhatsApp layer)
 - Runs the AI model (Gemini via facilitator) to completion with WhatsApp-specific formatting instructions
 - Instructs the AI model to return WhatsApp-formatted JSON with a `messages` array
-- Asks the model to keep each message under 4,096 characters; the API does not enforce this with a deterministic splitter or length check
+- Asks the model to keep each message under 4,096 characters; the WhatsApp service enforces that limit and caps the final answer at 10 messages
 - Returns `{ messages: string[] }`
 
 **Pros:**
@@ -120,7 +123,7 @@ A new endpoint that:
 
 **Cons:**
 - New endpoint to maintain
-- No deterministic splitter means an overlong model response can still be rejected by Meta
+- An answer that splits into more than 10 WhatsApp messages is rejected before sending its answer parts; the user gets a failure notice
 - LLM must be instructed for WhatsApp format (requires prompt engineering)
 
 ### Approach 2: Add `?stream=false` to existing endpoint
@@ -183,7 +186,7 @@ The `rawPayload` stores step 2-3's tool call history so step 5 can build on it.
 
 - **WhatsApp response shape:** Gemini's JSON response mode and response schema require a `messages` array. The API also strips optional code fences and validates that it contains at least one non-empty string before persisting or returning it; the WhatsApp service sends each returned string in order.
 - **Assistant persistence:** Save assistant output only after that parse and schema validation succeeds. Do not wait for Meta delivery acknowledgment in this change; comparing that alternative is deferred to a separate issue draft.
-- **Formatting and splitting:** The prompt asks Gemini to use WhatsApp formatting and keep each message under 4,096 characters. No deterministic conversion or splitting layer remains in the WhatsApp service, and the API does not enforce the character limit. A real long-answer check is still required.
+- **Formatting and splitting:** The prompt asks the model to use WhatsApp formatting and keep each item under 4,096 characters. The WhatsApp service preserves formatting, splits oversized items safely, and refuses answers that would need more than 10 messages.
 - **Thread lifecycle:** `POST /api/v2/chat/complete` finds, reuses, expires, or replaces the user's WhatsApp thread in the API layer. The existing per-user preferences API stores the selected expiry.
 - **Expiry UX:** A user sends `/expiry` in WhatsApp and chooses from a Meta interactive list with 0, 1, 2, 3, 6, 12, or 24 hours. This is a chat command, not a backend route; details are recorded in plan amendment A3.
 - **History limits:** The endpoint mirrors the thread route's oversized-message, warning, and block behavior; details and rationale are recorded in plan amendment A1.
@@ -199,8 +202,8 @@ The `rawPayload` stores step 2-3's tool call history so step 5 can build on it.
 - **AI model error:** Returns 5xx with error JSON
 - **Invalid/expired JWT:** Returns 401
 - **Missing message in body:** Returns 422
-- **Concurrent messages:** The lifecycle uses a transaction and row-level locking; verification with concurrent requests against staging PostgreSQL remains pending
-- **Long answer (10k+ chars):** Pending real validation; Gemini is prompted to return multiple messages, each ≤4096 characters, but the API does not enforce this.
+- **Concurrent messages:** Per-user advisory transaction locks serialize thread selection, user-message storage, and the history snapshot. The completion path skips assistant persistence if a concurrent expiry replaced the original thread. A dedicated API CI test uses two PostgreSQL connections and a delayed insert to check simultaneous first requests; its first CI result is pending.
+- **Long answer (10k+ chars):** The WhatsApp service splits oversized parts and tests that every outbound part stays within 4,096 Unicode code points; answers requiring over 10 parts are refused before delivery.
 - **Answer with markdown:** AI model returns WhatsApp-formatted text (`*bold*`, `_italic_`, etc.)
 - **Answer with citations/footnotes:** Properly formatted for WhatsApp
 - **Answer with Quran/Hadith references:** Properly formatted for WhatsApp
@@ -211,10 +214,10 @@ The `rawPayload` stores step 2-3's tool call history so step 5 can build on it.
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| AI model returns invalid JSON or messages over WhatsApp's limit | Medium | Medium | Parse/shape tests plus real long-answer checks; no deterministic length guard exists |
-| Thread race condition (concurrent first messages) | Medium | High | Transactional thread lifecycle and row locking; verify concurrent requests against staging PostgreSQL |
+| AI model returns invalid JSON or too many messages | Medium | Medium | Parse/shape validation; the WhatsApp service refuses answers requiring over 10 outbound messages |
+| Thread race condition (concurrent first messages) | Medium | High | Per-user advisory transaction lock, atomic creation/inbound storage/history snapshot, and a real PostgreSQL concurrency test in CI |
 | JWT expires mid-request (15 min) | Low | Medium | Same as streaming — 401 triggers re-exchange in WhatsApp service |
-| Answer too large for single response | Medium | Medium | Model is prompted to return multiple entries under 4,096 characters, but the API does not enforce this; test long answers |
+| Answer too large for WhatsApp | Medium | Medium | Split overlong entries to at most 4,096 Unicode code points; refuse answers requiring over 10 outbound parts and send a failure notice |
 | LLM doesn't follow WhatsApp format instructions | Medium | Medium | Structured-output constraint and API-side validation; test varied real responses |
 | WhatsApp formatting not supported for some content | Low | Low | Document limitations; fallback to plain text |
 
@@ -223,6 +226,11 @@ The `rawPayload` stores step 2-3's tool call history so step 5 can build on it.
 - Issue iaser-ai/ansari#360 — "apps/api: add answer endpoints that don't stream, for WhatsApp"
 - Spec 321 — WhatsApp support in the monorepo (architecture, identity, thread lifecycle)
 - Spec 329 — apps/auth service API keys / WhatsApp exchange (JWT contract)
+- Research basis:
+  - [WhatsApp message components](../research/1.1-whatsapp-message-components.md)
+  - [LLM structured output](../research/1.2-llm-structured-output.md)
+  - [Smart text splitting](../research/1.3-smart-text-splitting.md)
+  - [Thread lifecycle](../research/1.4-thread-lifecycle.md)
 - Branch `feat/360-whatsapp-chat-complete` — WhatsApp migration based on the merged TypeScript service
 - `apps/api/src/app/api/v2/chat/complete/route.ts` — Non-streaming endpoint and API-owned thread lifecycle
 - `apps/api/lib/ai/prompts/facilitator-whatsapp.ts` — WhatsApp-specific prompt and JSON response contract

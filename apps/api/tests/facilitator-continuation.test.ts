@@ -184,7 +184,7 @@ describe('post-tool-round continuation directive (issue #73)', () => {
       expect(call.options.responseSchema).toEqual({
         type: 'OBJECT',
         properties: {
-          messages: { type: 'ARRAY', items: { type: 'STRING' } },
+          messages: { type: 'ARRAY', maxItems: 10, items: { type: 'STRING' } },
         },
         required: ['messages'],
       });

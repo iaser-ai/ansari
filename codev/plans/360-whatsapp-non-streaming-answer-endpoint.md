@@ -9,9 +9,9 @@ This plan defines HOW and WHEN. The spec defines WHAT and WHY.
 
 This plan implements the non-streaming answer endpoint for WhatsApp as specified in `codev/specs/360-whatsapp-non-streaming-answer-endpoint.md`.
 
-**Goal**: Have the TypeScript WhatsApp service use `POST /api/v2/chat/complete` and send the API's WhatsApp-formatted `messages[]` response without SSE assembly or client-side formatting/splitting.
+**Goal**: Have the TypeScript WhatsApp service use `POST /api/v2/chat/complete` and send the API's WhatsApp-formatted `messages[]` response without SSE assembly or a second formatting pass. The service safely splits overlong parts before sending.
 
-**Status (2026-11-27)**: Phases 1-4 are complete for this PR. Phase 3 is implemented; WhatsApp Gemini calls request schema-constrained JSON, and the API validates before assistant persistence. The owner checked the long-answer message lengths and the 3-hour expiry reuse, and confirmed a local `!d` roundtrip through the Test app callback and reserved zrok. Deployment and staging validation happen after the PR is accepted (see *Follow-up after the PR is accepted*).
+**Status (2026-11-28)**: Review fixes are implemented. Focused API tests passed (65 passed, 2 PostgreSQL-only tests skipped locally) and focused WhatsApp tests passed (199 passed). The API CI job now runs the simultaneous-request tests against a dedicated PostgreSQL service; that CI result is pending. Prior owner checks covered long-answer handling, 3-hour expiry reuse, and a local `!d` roundtrip through the Test app callback and reserved zrok. Deployment and staging validation happen after the PR is accepted (see *Follow-up after the PR is accepted*).
 
 ## Architecture
 
@@ -26,10 +26,10 @@ Facilitator (WhatsApp-specific prompt)
     ↓
 JSON Response { messages: string[] }
     ↓
-WhatsApp Service sends each string in order
+WhatsApp Service safely splits long strings, then sends each part in order
 ```
 
-Gemini supplies message boundaries and is prompted to keep each string under 4,096 characters. The API parses the response shape but does not deterministically split or enforce the per-message limit.
+The model supplies logical message boundaries and is prompted to keep each string under 4,096 characters. The WhatsApp service enforces the limit independently and refuses an answer that would require more than 10 outbound messages.
 
 ## Phase 1: Research & Design (1-2 days)
 
@@ -44,9 +44,9 @@ Gemini supplies message boundaries and is prompted to keep each string under 4,0
 - [x] Confirm one real local answer parses successfully (see Phase 3.5)
 
 ### 1.3 Response Size and Message Boundaries
-- [x] Choose model-generated `messages[]` boundaries; no text-splitting dependency or client-side splitter is used
-- [x] Remove the old WhatsApp formatter/splitter rather than transforming API-formatted output twice
-- [x] Validate long answers in Phase 4 (owner-checked 2026-11-27); the API does not enforce the 4,096-character limit
+- [x] Choose model-generated `messages[]` boundaries, with deterministic splitting of any part over 4,096 characters in the WhatsApp service
+- [x] Remove the old formatter; preserve API formatting and split only to satisfy Meta's outbound size limit
+- [x] Validate long answers in Phase 4 (owner-checked 2026-11-27); unit tests now cover the deterministic size limit and message-count cap
 
 ### 1.4 Thread Lifecycle Design
 - [x] Move thread selection/replacement to the API's existing transactional helper
@@ -64,7 +64,8 @@ Gemini supplies message boundaries and is prompted to keep each string under 4,0
 ### 2.2 Thread Management
 - [x] Implement thread find/create logic in the API
 - [x] Add expiry handling (user-configurable, default 3 hours)
-- [x] Replace the expired thread and its messages atomically
+- [x] Serialize per-user thread selection and atomically store the inbound message with thread creation/reuse
+- [x] Skip assistant persistence if the selected thread was replaced during model generation
 - [x] Add unit and PGlite-backed lifecycle tests
 
 ### 2.3 Facilitator Integration
@@ -76,10 +77,10 @@ Gemini supplies message boundaries and is prompted to keep each string under 4,0
 
 ### 2.4 Response Formatting
 - [x] Use the facilitator's WhatsApp prompt and Gemini response schema to produce formatted message strings
-- [x] Do not add a deterministic splitter or another WhatsApp formatting pass
+- [x] Preserve API formatting; split oversized outbound parts in the WhatsApp service
 - [x] Test JSON parsing and require a non-empty array of non-empty strings
 - [x] Keep invalid model output out of assistant thread history while preserving the inbound user message
-- [x] Validate long-answer length and formatting with real model responses (owner-checked 2026-11-27)
+- [x] Check outbound message lengths and the ten-message cap with deterministic tests
 
 ### 2.5 Error Handling
 - [x] Implement error responses (HTTP status codes + JSON)
@@ -98,8 +99,8 @@ Gemini supplies message boundaries and is prompted to keep each string under 4,0
 
 ### 3.2 Update ConversationManager
 - [x] Remove `#resolveThread` and thread-lifecycle notices
-- [x] Read the user's expiry (defaulting to `WHATSAPP_CHAT_RETENTION_HOURS`) and pass it as `expiryHours`
-- [x] Send each returned `messages[]` string in order without reformatting or splitting
+- [x] Read the user's expiry, falling back to `WHATSAPP_CHAT_RETENTION_HOURS` if preferences are unavailable, and pass it as `expiryHours`
+- [x] Send each returned `messages[]` string in order without reformatting; split oversized strings before sending
 - [x] Preserve the empty-answer notice
 - [x] Add `/expiry` and the 0, 1, 2, 3, 6, 12, 24-hour choices
 - [x] Save list replies, confirm valid choices, and reject unknown choices
@@ -129,18 +130,19 @@ Gemini supplies message boundaries and is prompted to keep each string under 4,0
 - [x] Verify malformed JSON and invalid message shapes do not persist an assistant answer
 - [x] Verify WhatsApp facilitator calls carry the JSON MIME type and response schema
 - [x] Test thread create/reuse/expiry behavior (`thread-lifecycle.test.ts` and the PGlite-backed `thread-lifecycle.integration.test.ts`)
-- [x] Confirm text splitting is not a service responsibility; the model supplies `messages[]` boundaries, so there is no splitter to unit-test
+- [x] Test Unicode-safe message splitting, the 4,096-character outbound limit, and rejection before sending when more than 10 parts would be required
 - [x] Test the WhatsApp client and conversation manager branches in the WhatsApp suite
 
 ### 4.2 Integration Tests
 - [x] Exercise `AnsariClientReal` against local auth/API with one real model answer (Phase 3.5); this did not run the full webhook/Meta delivery path
 - [x] Make one direct local `POST /api/v2/chat/complete` request with the structured-output change; it returned HTTP 200 with one valid `messages` string (1,061 characters). This exercised local auth/API and the configured staging Vertex credentials, not the WhatsApp webhook or Meta delivery path.
 - [x] Owner confirmed one successful local `!d` roundtrip through the Test app callback and reserved zrok; the response arrived (2026-11-26). This is not a deployed-staging test.
-- [x] Test a real answer over 10k characters and inspect every returned message length; the owner checked this on 2026-11-27. The API still relies on the model prompt for the 4,096-character limit (see Risks)
+- [x] Test long text splitting and the ten-message cap with deterministic service tests; the live model's adherence to the prompt is not a safety boundary
 
 ### 4.3 Manual Testing
 - [x] Owner verified one local `!d` message through the TypeScript WhatsApp service via the Test app and reserved zrok, and confirmed the response was received (2026-11-26)
-- [x] Owner ran the 15,000-character WhatsApp prompt: splitting and formatting were good. The `---` divider lines were then addressed by a prompt rule only (A5); the owner decided not to re-test them.
+- [x] Owner ran the 15,000-character WhatsApp prompt. The `---` divider lines were then addressed by a prompt rule only (A5); the owner decided not to re-test them.
+- [ ] Re-run the prompt against an authorized non-production model and verify JSON output that includes tool use; this was not performed during this review response.
 
 ## Phase 5: Documentation & Deployment (1-2 days)
 
@@ -157,26 +159,29 @@ Moved to *Follow-up after the PR is accepted*. Deployment is not required for Ph
 ## Technical Decisions
 
 ### Text Splitting
-**Choice**: No deterministic splitting library. Gemini is prompted to return `messages[]`, with each entry under 4,096 characters; the API parses the response but does not validate entry lengths.
+**Choice**: Gemini is prompted to return logical `messages[]` entries. The WhatsApp service deterministically splits any entry over 4,096 Unicode code points and refuses an answer that would require more than 10 outbound messages before sending any answer parts.
 
 **Reasoning**:
-- Avoids reformatting or splitting the already WhatsApp-formatted response in the service
-- Keeps message boundaries with the model's answer structure
-- Leaves a known risk: a non-conforming or long answer can exceed Meta's limit; Phase 4 must test this
+- Preserves WhatsApp formatting while enforcing Meta's hard per-message size limit
+- Keeps the model's logical message boundaries unless an entry must be split
+- Avoids partially sending an answer that exceeds the service's 10-message cap
 
 ### LLM Output Format
 **Choice**: WhatsApp Gemini calls set `responseMimeType: application/json` and a response schema requiring `{ "messages": string[] }`. The prompt continues to define WhatsApp formatting and message-length guidance; the API removes optional Markdown code fences and independently validates a non-empty array of non-empty strings.
 
-**Persistence**: The inbound user message is stored before model generation. The assistant answer is stored only after JSON parsing and shape validation succeed, but before the API response is returned. The endpoint does not wait for Meta send acknowledgment; that comparison is deferred to a separate issue draft.
+**Persistence**: Thread selection/creation and inbound-message storage occur in one per-user locked transaction. The assistant answer is stored as readable text only after JSON parsing and shape validation succeed, but before the API response is returned. If the thread is replaced while generation is in progress, the answer is returned but not written to the deleted thread. The endpoint does not wait for Meta send acknowledgment; the timing comparison is tracked in issue #447.
 
 **Validation**: API tests cover parsing, invalid output, and persistence behavior. One direct local request returned the expected `messages: string[]` response; the one generated part was under 4,096 characters. This does not establish long-answer, multi-part, or WhatsApp delivery behavior.
 
 ### Thread Management
-**Choice**: The non-streaming endpoint calls the API's transactional `getOrCreateThread` helper, scoped to the user's `whatsapp` threads.
+**Choice**: The non-streaming endpoint uses a per-user PostgreSQL advisory transaction lock to select/create the user's `whatsapp` thread, store the inbound message, and read the matching history snapshot atomically. Before saving the assistant answer, it checks that the original thread still exists.
 
 **Reasoning**:
 - Keep thread creation, reuse, and expiry inside the API
-- Existing thread-level row locking and PGlite lifecycle tests cover schema-backed lifecycle behavior
+- A request cannot observe a half-created first thread or write its initial message outside the selection transaction
+- A request whose thread expires during generation cannot persist an answer into a replaced conversation
+- PGlite lifecycle tests cover schema-backed behavior. A separate integration test pauses a thread insert while two requests run at once, proving one thread is created and both messages are retained.
+- The dedicated PostgreSQL integration test is enabled in the API CI job; its first result is pending.
 
 ## Dependencies
 
@@ -188,8 +193,8 @@ Moved to *Follow-up after the PR is accepted*. Deployment is not required for Ph
 
 | Risk | Mitigation |
 |------|------------|
-| Model returns invalid JSON or a part over 4,096 characters | Validate JSON/error paths in unit tests; inspect real long answers in Phase 4. No deterministic length guard exists. |
-| Thread lifecycle race conditions | Transaction and row-lock implementation plus PGlite lifecycle tests. |
+| Model returns invalid JSON or an overlong answer | Validate JSON/error paths; split oversized parts and refuse answers requiring more than 10 outbound messages. |
+| Thread lifecycle race conditions | Per-user advisory transaction lock, atomic inbound storage/history snapshot, and guarded assistant persistence. A real PostgreSQL concurrency test runs in CI; its first result is pending. |
 | Latency exceeds target | Measure real responses; one local model smoke test took 13.69 seconds, so the <5-second target is not yet met. |
 
 ## Timeline
@@ -297,11 +302,11 @@ These were not in the original phases. Each is recorded here with the phase that
 - **Why `/expiry` and not `/`:** a message that is only `/` is a plausible user message, and a command word is easier to remember.
 - **Cost:** each message reads the preference once (one extra `GET /api/v2/preferences`). Acceptable for WhatsApp traffic.
 
-### A4. Formatter and splitter removed from the WhatsApp service (decided in Phase 3)
+### A4. Formatter removed; outbound size guard remains in the WhatsApp service (updated during PR review)
 
-- **What:** `apps/whatsapp/src/formatting/` is deleted. The WhatsApp service sends the strings of `messages[]` as the API returns them.
-- **Why:** The API's WhatsApp prompt asks Gemini to return formatted `messages[]`. Running the old formatter over that output again could change it (for example, `*bold*` is rewritten). Keeping both would double the work and hide which side is responsible. The API does not deterministically split or enforce the per-message character limit; that remains a validation risk.
-- **Risk:** if the model ever returns a message over Meta's 4,096-character limit, the send will fail. The Phase 3 real check (3.5) looks at the message lengths. The API prompt and tests are the first line of defence.
+- **What:** `apps/whatsapp/src/formatting/` remains deleted. The service preserves the API's formatting, but deterministically splits any outbound part over 4,096 Unicode code points and caps an answer at 10 outbound messages.
+- **Why:** A second formatting pass could change the API's WhatsApp formatting (for example, rewriting `*bold*`). A narrow size guard is still needed because Meta enforces a hard per-message limit.
+- **Failure behavior:** If an answer needs more than 10 outbound messages, the service sends none of its answer parts and returns through the existing failure-notice path. A send rejected after earlier parts were accepted also triggers that notice.
 - **Known consequence:** the thread title (`pythonSplitWords`) moved with the thread lifecycle, so `utils/pythonText.ts` goes too.
 
 ### A5. Divider lines are discouraged by the WhatsApp prompt only (found in the owner's 15,000-character WhatsApp test, 2026-11-27)
@@ -325,6 +330,38 @@ These were not in the original phases. Each is recorded here with the phase that
 - **Where it shows:** the owner confirmed on 2026-11-27 that the production number's Automations page (Conversational Components) lists `expiry`. WhatsApp Manager's phone-number list does not show commands, so do not use it to check.
 - **Still open:** the `/` popup did not appear in the existing chat with the production number on 2026-11-27. The owner chose to wait for the change to propagate, or to try a new chat, rather than delete the existing one. Candidates: the chat thread was opened before the command was set, or the client has not refreshed. The command was written with the system-user token of the "Ansari - Test" app (the only token in `meta.env` that can write it), and the API reads it back. App tokens cannot read the field.
 - **Routing note:** a plain `/expiry` (no `!d`/`!s`) is answered by production only. Staging and development need `!s` or `!d` typed before the command, because the popup inserts the command text on its own.
+
+### A7. Serialize first-message and expiring-thread requests (PR review)
+
+- **What:** A per-user advisory transaction lock covers thread selection/creation and the initial user-message write. Assistant persistence takes the same lock and checks that the original thread still exists.
+- **Why:** Two requests can arrive before any thread exists, or an expiry-zero request can replace a thread while an earlier model response is being prepared. The lock prevents inconsistent lifecycle state, while the existence check avoids inserting into a deleted thread.
+- **Behavior:** If an earlier request's thread was replaced during generation, the endpoint still returns that request's answer but does not attach it to the newer conversation.
+- **Verification:** PGlite covers lifecycle behavior; a separate test uses real PostgreSQL and two pool connections, delaying the first insert so both requests reach the first-thread race window. The CI result is pending.
+
+### A8. Check oversized inbound messages before changing thread history (PR review)
+
+- **What:** The history-limit check runs before thread selection, creation, or replacement. An oversized message is refused without deleting an existing conversation or creating a new one.
+- **Why:** A rejected paste should not destroy useful history; the same size check also applies to a user's first message.
+
+### A9. Keep production error reports free of raw details (PR review)
+
+- **What:** Production logs and Sentry receive only safe error metadata such as error name/code. Raw details are available only in the local development environment.
+- **Why:** Error details can include user content; development output stays local.
+
+### A10. Preserve tool-use records when answer validation fails (PR review)
+
+- **What:** Tool records are saved as orphaned tool-use records if the final answer is empty or fails JSON/shape validation.
+- **Why:** A failed final answer should not erase the record of useful work already performed by tools.
+
+### A11. Fall back when a saved expiry preference cannot be read (PR review)
+
+- **What:** A preference-read failure uses `WHATSAPP_CHAT_RETENTION_HOURS`; authentication failures remain errors.
+- **Why:** A temporary preference-service problem should not prevent a user from receiving an answer.
+
+### A12. Accept only whole-hour expiry choices (PR review)
+
+- **What:** The API accepts whole-hour values from 0 to 24, matching the WhatsApp picker and documentation.
+- **Why:** Fractional values imply expiry behavior the user cannot choose and that the service does not promise.
 
 ### PR body notes (design choices to carry into the PR description)
 

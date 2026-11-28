@@ -608,17 +608,23 @@ describe('sign-in: what the user and the operator are told', () => {
 
 // ---------------------------------------------------------------------------------------------------------------------
 describe('sending', () => {
-  it('survives Meta refusing the answer: logs it and does not throw', async () => {
+  it('tells the user when Meta refuses the answer', async () => {
+    const sent: string[][] = [];
+    let attempts = 0;
     const metaApi: MetaApiService = {
       sendTypingIndicator: async () => {},
       sendInteractiveList: async () => {},
-      sendMessage: async () => {
-        throw new MetaApiError('Meta said no', 400);
+      sendMessage: async (_recipient, parts) => {
+        attempts += 1;
+        if (attempts === 1) throw new MetaApiError('Meta said no', 400);
+        sent.push(parts);
       },
     };
     const t = setup({ metaApi });
     await expect(t.handle(textMessage())).resolves.toBe('text');
     expect(t.log.lines().some((line) => line.level === 'error' && line.message.includes('Error sending WhatsApp message'))).toBe(true);
+    expect(attempts).toBe(2);
+    expect(sent[0]?.[0]).toContain('An error occurred while processing your message');
   });
 
   it('survives Meta refusing a notice', async () => {
@@ -1039,7 +1045,7 @@ describe('/expiry: the chat expiry list', () => {
     expect(t.manager.triage(textMessage({}, '/expiry'))).toBe('dev_filter');
   });
 
-  it('tells the user the answer failed and sends no list when the preference cannot be read', async () => {
+  it('uses the configured default when the preference cannot be read', async () => {
     const t = setup({
       ansariClient: wrappedAnsari(new AnsariClientMock({ logger: capturingLogger().logger }), {
         getPreferences: async () => {
@@ -1048,9 +1054,11 @@ describe('/expiry: the chat expiry list', () => {
       }),
     });
     await t.handle(textMessage({}, '/expiry'));
-    expect((t.metaApi as MetaApiServiceMock).lists).toEqual([]);
-    expect(t.replies()).toEqual([PROCESSING_FAILED]);
-    expect(t.reportedAs()).toEqual(['preferences_failure']);
+    expect((t.metaApi as MetaApiServiceMock).lists).toHaveLength(1);
+    expect((t.metaApi as MetaApiServiceMock).lists[0]?.list.bodyText).toContain('3 hours');
+    expect(t.replies()).toEqual([]);
+    expect(t.reportedAs()).toEqual([]);
+    expect(t.log.text()).toContain('using the configured default');
   });
 });
 

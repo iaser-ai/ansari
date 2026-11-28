@@ -354,7 +354,7 @@ export class ConversationManager {
     await this.#deliver(recipient, [text]);
   }
 
-  async #deliver(recipient: string, parts: string[]): Promise<void> {
+  async #deliver(recipient: string, parts: string[], failureNotice?: string): Promise<void> {
     const { logger, metaApi } = this.#options;
     if (!recipient) {
       logger.error('Cannot send WhatsApp message: No recipient provided');
@@ -364,6 +364,13 @@ export class ConversationManager {
       await metaApi.sendMessage(recipient, parts);
     } catch (error) {
       logger.error('Error sending WhatsApp message', error);
+      if (failureNotice) {
+        try {
+          await metaApi.sendMessage(recipient, [failureNotice]);
+        } catch (noticeError) {
+          logger.error('Failed to send WhatsApp delivery failure notice', noticeError);
+        }
+      }
     }
   }
 
@@ -482,7 +489,14 @@ export class ConversationManager {
   /** The user's chat expiry: their saved choice, or the env default when they have not chosen one (or the value is unusable). */
   async #expiryHours(token: string): Promise<number> {
     const { ansariClient, config, logger } = this.#options;
-    const preferences = await ansariClient.getPreferences(token);
+    let preferences: Record<string, string>;
+    try {
+      preferences = await ansariClient.getPreferences(token);
+    } catch (error) {
+      if (!(error instanceof PreferencesError)) throw error;
+      logger.warn('Could not read the chat expiry preference; using the configured default');
+      return config.WHATSAPP_CHAT_RETENTION_HOURS;
+    }
     const stored = preferences[CHAT_RETENTION_PREFERENCE];
     const hours = chatRetentionHours(stored, config.WHATSAPP_CHAT_RETENTION_HOURS);
     if (stored !== undefined && hours !== Number(stored)) logger.warn('A stored chat expiry is not valid; the default is used');
@@ -519,7 +533,7 @@ export class ConversationManager {
         await this.notify(turn.replyTo, EMPTY_ANSWER_NOTICE);
         return;
       }
-      await this.#deliver(turn.replyTo, parts);
+      await this.#deliver(turn.replyTo, parts, PROCESSING_FAILED_NOTICE);
     } catch (error) {
       logger.error('Unexpected error processing text message', error);
       await this.notify(turn.replyTo, UNEXPECTED_FAILURE_NOTICE);

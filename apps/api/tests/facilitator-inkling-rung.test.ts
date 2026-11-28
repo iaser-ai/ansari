@@ -134,7 +134,7 @@ vi.mock('@/lib/ai/inkling-client', () => ({
 }));
 
 vi.mock('@/lib/ai/prompts/facilitator', () => ({
-  FACILITATOR_SYSTEM_PROMPT: 'BASE_PROMPT',
+  FACILITATOR_SYSTEM_PROMPT: 'BASE_PROMPT\nCITATION FORMAT (VERY IMPORTANT):',
   TOOL_CONTINUATION_DIRECTIVE: 'CONTINUATION_DIRECTIVE',
 }));
 
@@ -240,7 +240,7 @@ describe('Inkling final fallback rung (issues #74/#79)', () => {
     expect(h.calls[1].options.model).toBeUndefined();
     expect(h.inklingCalls).toHaveLength(1);
     // Load-bearing (#74): the fallback call reuses the same tool-budget prompt.
-    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT');
+    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT\nCITATION FORMAT (VERY IMPORTANT):');
     expect(types).toContain('done');
     expect(types).not.toContain('error');
     expect(textOf(events)).toBe('Answer from Inkling.');
@@ -401,7 +401,7 @@ describe('Inkling rescue on terminal Gemini errors (issue #79)', () => {
 
     expect(h.calls).toHaveLength(1); // Gemini is never re-asked after the rescue (sticky)
     expect(h.inklingCalls).toHaveLength(2); // rescue call + post-tool continuation
-    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT');
+    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT\nCITATION FORMAT (VERY IMPORTANT):');
     expect(types).toContain('tool_result');
     expect(types).toContain('done');
     expect(types).not.toContain('error');
@@ -635,7 +635,7 @@ describe('forced Inkling primary — provider option (issue #74 amendment)', () 
 
     expect(h.calls).toHaveLength(0); // no silent Gemini anywhere
     expect(h.inklingCalls).toHaveLength(2);
-    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT');
+    expect(h.inklingCalls[0].options.systemPrompt).toBe('BASE_PROMPT\nCITATION FORMAT (VERY IMPORTANT):');
     // The post-tool continuation carries the #73 directive, not an empty message.
     expect(h.inklingCalls[1].message).toBe('CONTINUATION_DIRECTIVE');
     expect(types).toContain('tool_result');

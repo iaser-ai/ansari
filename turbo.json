@@ -253,6 +253,9 @@
     // CI runs test:coverage, NOT test — it must be a real task or CI has to
     // bypass the task graph entirely.
     "test:coverage": {
+      // Dedicated, non-secret PostgreSQL endpoint used only by the API's
+      // thread-concurrency integration test in CI.
+      "env": ["POSTGRES_TEST_URL"],
       "inputs": ["$TURBO_DEFAULT$", ".env.ci"],
       "outputs": ["coverage/**"]
     },

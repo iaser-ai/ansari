@@ -31,13 +31,11 @@ vi.mock('@/lib/error-response', () => ({
 
 const mockGetOrCreateThread = vi.fn();
 const mockCreateMessage = vi.fn();
-const mockFindMessagesByThread = vi.fn();
 const mockPersistOrphanToolCalls = vi.fn();
 
 vi.mock('@/lib/db/threads', () => ({
-  getOrCreateThread: (...a: unknown[]) => mockGetOrCreateThread(...a),
-  createMessage: (...a: unknown[]) => mockCreateMessage(...a),
-  findMessagesByThread: (...a: unknown[]) => mockFindMessagesByThread(...a),
+  getOrCreateThreadWithUserMessage: (...a: unknown[]) => mockGetOrCreateThread(...a),
+  createMessageIfThreadExists: (...a: unknown[]) => mockCreateMessage(...a),
   persistOrphanToolCalls: (...a: unknown[]) => mockPersistOrphanToolCalls(...a),
   findThreadById: vi.fn(),
 }));
@@ -75,13 +73,14 @@ function makeRequest(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireUser.mockResolvedValue({ user: USER });
-  mockGetOrCreateThread.mockResolvedValue(THREAD);
+  mockGetOrCreateThread.mockResolvedValue({
+    thread: THREAD,
+    message: { id: 'user-msg-1' },
+    history: [{ role: 'user', content: [{ type: 'text', text: 'What is patience?' }] }],
+  });
   mockCreateMessage.mockResolvedValue({ id: 'msg-1' });
   mockAssessHistory.mockReturnValue({ verdict: 'ok', estimatedTokens: 10 });
   mockIncomingMessageTooLong.mockReturnValue(false);
-  mockFindMessagesByThread.mockResolvedValue([
-    { role: 'user', content: [{ type: 'text', text: 'What is patience?' }] },
-  ]);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -152,6 +151,11 @@ describe('POST /api/v2/chat/complete', () => {
       const response = await POST(makeRequest({ message: 'test', expiryHours: -1 }));
       expect(response.status).toBe(422);
     });
+
+    it('returns 422 when expiryHours is fractional', async () => {
+      const response = await POST(makeRequest({ message: 'test', expiryHours: 1.5 }));
+      expect(response.status).toBe(422);
+    });
   });
 
   describe('thread management', () => {
@@ -169,7 +173,12 @@ describe('POST /api/v2/chat/complete', () => {
 
       await POST(makeRequest({ message: 'test', expiryHours: 5 }));
 
-      expect(mockGetOrCreateThread).toHaveBeenCalledWith(USER.id, 'whatsapp', 5);
+      expect(mockGetOrCreateThread).toHaveBeenCalledWith(
+        USER.id,
+        'whatsapp',
+        5,
+        expect.objectContaining({ role: 'user', source: 'whatsapp' }),
+      );
     });
 
     it('stores user message with correct parameters', async () => {
@@ -186,14 +195,16 @@ describe('POST /api/v2/chat/complete', () => {
 
       await POST(makeRequest({ message: 'test message' }));
 
-      expect(mockCreateMessage).toHaveBeenCalledWith(
+      expect(mockGetOrCreateThread).toHaveBeenCalledWith(
+        USER.id,
+        'whatsapp',
+        3,
         expect.objectContaining({
-          threadId: THREAD.id,
           role: 'user',
           content: [{ type: 'text', text: 'test message' }],
           source: 'whatsapp',
           client: 'test-client',
-        })
+        }),
       );
     });
   });
@@ -262,10 +273,32 @@ describe('POST /api/v2/chat/complete', () => {
 
       expect(response.status).toBe(200);
       expect(body.messages).toEqual(whatsappResponse.messages);
-      expect(mockCreateMessage).toHaveBeenCalledTimes(2);
+      expect(mockGetOrCreateThread).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
       expect(mockCreateMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({ role: 'assistant', source: 'whatsapp' }),
+        USER.id,
       );
+    });
+
+    it('returns the answer without storing it if a concurrent request replaced the thread', async () => {
+      mockCreateMessage.mockResolvedValue(undefined);
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: '{"messages":["Still delivered"]}' };
+        yield {
+          type: 'done',
+          data: '',
+          usage: {},
+          toolCalls: [],
+          provenance: { provider: 'gemini', modelId: 'gemini-3-flash' },
+        };
+      });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ messages: ['Still delivered'] });
+      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     });
 
     it('returns 500 when facilitator returns empty answer', async () => {
@@ -275,43 +308,52 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
-      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+      expect(mockGetOrCreateThread).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).not.toHaveBeenCalled();
 
       const body = await response.json();
       expect(body.error).toContain('empty answer');
     });
 
-    it('returns 500 when response is not valid JSON', async () => {
+    it('returns 500 when response is not valid JSON and keeps tool history', async () => {
+      const toolCalls = [{ type: 'tool_use', id: 'tool-1', name: 'search_quran', input: {} }];
       mockRunFacilitator.mockImplementation(async function* () {
         yield { type: 'text', data: 'not valid json' };
         yield {
           type: 'done',
           data: '',
           usage: { promptTokenCount: 10, candidatesTokenCount: 20 },
-          toolCalls: [],
+          toolCalls,
           provenance: { provider: 'gemini', modelId: 'gemini-3-flash' },
         };
       });
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
-      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).not.toHaveBeenCalled();
+      expect(mockPersistOrphanToolCalls).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'empty_final', toolCalls }),
+      );
     });
 
-    it('returns 500 when response is missing messages array', async () => {
+    it('returns 500 when response is missing messages array and keeps tool history', async () => {
+      const toolCalls = [{ type: 'tool_use', id: 'tool-1', name: 'search_quran', input: {} }];
       mockRunFacilitator.mockImplementation(async function* () {
         yield { type: 'text', data: '{"invalid":"structure"}' };
         yield {
           type: 'done',
           data: '',
           usage: { promptTokenCount: 10, candidatesTokenCount: 20 },
-          toolCalls: [],
+          toolCalls,
           provenance: { provider: 'gemini', modelId: 'gemini-3-flash' },
         };
       });
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
+      expect(mockPersistOrphanToolCalls).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'empty_final', toolCalls }),
+      );
     });
 
     it('returns 500 when messages is not an array', async () => {
@@ -328,7 +370,7 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
-      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).not.toHaveBeenCalled();
     });
 
     it('does not persist a response whose messages are not all strings', async () => {
@@ -345,7 +387,41 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'test' }));
       expect(response.status).toBe(500);
-      expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateMessage).not.toHaveBeenCalled();
+    });
+
+    it('wraps unstructured Inkling fallback text as one WhatsApp message', async () => {
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'text', data: 'A plain-text answer from the fallback model.' };
+        yield {
+          type: 'done',
+          data: '',
+          toolCalls: [],
+          provenance: { provider: 'inkling', modelId: 'thinkingmachines/inkling' },
+        };
+      });
+
+      const response = await POST(makeRequest({ message: 'test' }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ messages: ['A plain-text answer from the fallback model.'] });
+      expect(mockCreateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: [{ type: 'text', text: 'A plain-text answer from the fallback model.' }] }),
+        USER.id,
+      );
+    });
+
+    it('persists tool records as orphans when the model returns no text', async () => {
+      const toolCalls = [{ type: 'tool_use', id: 'tool-1', name: 'search_quran', input: {} }];
+      mockRunFacilitator.mockImplementation(async function* () {
+        yield { type: 'done', data: '', toolCalls, provenance: { provider: 'gemini', modelId: 'm' } };
+      });
+
+      await POST(makeRequest({ message: 'test' }));
+
+      expect(mockPersistOrphanToolCalls).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'empty_final', toolCalls }),
+      );
     });
   });
 
@@ -375,8 +451,9 @@ describe('POST /api/v2/chat/complete', () => {
       expect(mockCreateMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({
           role: 'assistant',
-          content: [{ type: 'text', text: `${HISTORY_WARNING_MESSAGE}\n\n${ANSWER}` }],
+          content: [{ type: 'text', text: `${HISTORY_WARNING_MESSAGE}\n\nFirst part\n\nSecond part` }],
         }),
+        USER.id,
       );
     });
 
@@ -388,7 +465,8 @@ describe('POST /api/v2/chat/complete', () => {
 
       await POST(makeRequest({ message: 'test' }));
       expect(mockCreateMessage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ role: 'assistant', content: [{ type: 'text', text: ANSWER }] }),
+        expect.objectContaining({ role: 'assistant', content: [{ type: 'text', text: 'First part\n\nSecond part' }] }),
+        USER.id,
       );
     });
 
@@ -411,6 +489,7 @@ describe('POST /api/v2/chat/complete', () => {
           role: 'assistant',
           content: [{ type: 'text', text: HISTORY_BLOCK_MESSAGE }],
         }),
+        USER.id,
       );
     });
 
@@ -419,7 +498,7 @@ describe('POST /api/v2/chat/complete', () => {
 
       const response = await POST(makeRequest({ message: 'x'.repeat(10) }));
       expect(await response.json()).toEqual({ messages: [HISTORY_MESSAGE_TOO_LONG_MESSAGE] });
-      expect(mockCreateMessage).not.toHaveBeenCalled();
+      expect(mockGetOrCreateThread).not.toHaveBeenCalled();
       expect(mockRunFacilitator).not.toHaveBeenCalled();
     });
 
@@ -463,7 +542,7 @@ describe('POST /api/v2/chat/complete', () => {
         expect.objectContaining({
           threadId: THREAD.id,
           role: 'assistant',
-          content: [{ type: 'text', text: '{"messages":["Test message"]}' }],
+          content: [{ type: 'text', text: 'Test message' }],
           agentName: 'facilitator',
           source: 'whatsapp',
           client: 'test-client',
@@ -473,7 +552,8 @@ describe('POST /api/v2/chat/complete', () => {
           totalTokens: 350,
           modelProvider: 'gemini',
           modelId: 'gemini-3-flash',
-        })
+        }),
+        USER.id,
       );
     });
   });

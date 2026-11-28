@@ -51,6 +51,7 @@ const WHATSAPP_RESPONSE_SCHEMA = {
     messages: {
       type: 'ARRAY',
       items: { type: 'STRING' },
+      maxItems: 10,
     },
   },
   required: ['messages'],
