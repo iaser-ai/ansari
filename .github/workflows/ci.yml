@@ -17,6 +17,20 @@ jobs:
     name: api (lint, typecheck, test, build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ansari_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ansari_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -65,6 +79,8 @@ jobs:
       # Runs the full suite AND emits a coverage summary. Report-only — there is
       # deliberately no coverage threshold gate yet.
       - name: Test (with coverage)
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/ansari_test
         run: pnpm exec turbo run test:coverage --filter ansari-api...
 
   # Better Auth service (issue #59: apps/auth + packages/auth). Mirrors the `api`

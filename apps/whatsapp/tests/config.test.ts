@@ -43,6 +43,15 @@ describe('defaults', () => {
   });
 });
 
+describe('WHATSAPP_CHAT_RETENTION_HOURS (the default chat expiry)', () => {
+  it.each(['0', '24'])('accepts %s, the whole range apps/api accepts', (hours) => {
+    expect(buildConfig(env({ WHATSAPP_CHAT_RETENTION_HOURS: hours })).WHATSAPP_CHAT_RETENTION_HOURS).toBe(Number(hours));
+  });
+
+  it.each(['25', '-1', '2.5'])('refuses %s, which apps/api would refuse for every message', (hours) => {
+    expect(() => buildConfig(env({ WHATSAPP_CHAT_RETENTION_HOURS: hours }))).toThrow(/WHATSAPP_CHAT_RETENTION_HOURS/);
+  });
+});
 describe('booleans', () => {
   it('reads "False" as false (a plain string check would call it true)', () => {
     expect(buildConfig(env({ WA_MAINTENANCE_MODE: 'False' })).WA_MAINTENANCE_MODE).toBe(false);

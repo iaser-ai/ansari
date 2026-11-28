@@ -7,7 +7,7 @@ Ansari's WhatsApp number, Meta posts the message to this service, and the servic
 ```
 Meta ──POST /whatsapp/v3──> this service ──token exchange──> apps/auth
                                  │  ▲
-                                 │  └── answer ── apps/api (threads + streamed chat)
+                                 │  └── answer ── apps/api (one complete answer)
                                  └──────────────> Meta (reply)
 ```
 
@@ -97,13 +97,18 @@ service is switched over.
 |---|---|
 | `src/index.ts` | starts everything, handles SIGTERM |
 | `src/app.ts` | the routes |
-| `src/conversationManager.ts` | what happens to a message: sign in, thread, answer, notices |
+| `src/conversationManager.ts` | what happens to a message: sign in, chat expiry, answer, `/expiry` list, notices |
 | `src/services/` | the three outside services (`apps/auth`, `apps/api`, Meta), each with a real and a mock client |
 | `src/webhook/` | reading Meta's payload, the signature check, Meta's reply body |
-| `src/formatting/` | markdown to WhatsApp formatting and the 4000-character splitter |
 | `src/config.ts` | every environment variable, validated |
 | `tests/` | Vitest; no test touches the network |
 
+## Chat expiry (/expiry)
+
+A user's conversation is kept until it has been silent for the chosen time, then a new one starts. A user sends /expiry and
+picks from a list of 0, 1, 2, 3, 6, 12 or 24 hours (0 means a new session for every message). The choice is saved in apps/api's
+preferences table under whatsapp.chat_retention_hours. Until the user chooses, WHATSAPP_CHAT_RETENTION_HOURS (default 3)
+applies. The list rows name the environment, so staging's list is answered by staging only.
 ## Deploy
 
 `Dockerfile` builds from the repo root (`docker build -f apps/whatsapp/Dockerfile .`) and `railway.toml` records the Railway
@@ -112,5 +117,5 @@ settings. Railway reads its settings from the dashboard, not that file; keep the
 ## Behaviour that differs from the Python service
 
 The port keeps the Python behaviour except where a header comment in the code says otherwise. The main differences are the
-route version above, three formatting and splitting bugs fixed on purpose (see `src/formatting/`), a stricter reading of
+route version above, a stricter reading of
 true/false settings (`true`, `false`, `True`, `False`, `1`, `0` only), and no trace sampling in Sentry.

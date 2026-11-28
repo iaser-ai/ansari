@@ -112,6 +112,27 @@ describe('what is sent', () => {
     expect(calls.map((call) => (call.json as { text: { body: string } }).text.body)).toEqual(['one', 'two', 'three']);
   });
 
+  it('splits oversized replies without breaking Unicode characters', async () => {
+    const text = '🙂'.repeat(4_097);
+    const { service, calls } = setup(ok);
+
+    await service.sendMessage(BSUID, [text]);
+
+    const sent = calls.map((call) => (call.json as { text: { body: string } }).text.body);
+    expect(sent).toHaveLength(2);
+    expect(sent.every((part) => [...part].length <= 4_096)).toBe(true);
+    expect(sent.join('')).toBe(text);
+  });
+
+  it('rejects answers that would need more than ten messages before sending any', async () => {
+    const { service, calls } = setup(ok);
+
+    await expect(service.sendMessage(BSUID, Array.from({ length: 11 }, (_, i) => `part ${i + 1}`))).rejects.toThrow(
+      '10-message WhatsApp limit',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
   it('stops at the first part Meta refuses, so later parts are not sent out of order', async () => {
     let n = 0;
     const { service, calls } = setup(() => (++n === 2 ? jsonResponse(400, META_REPLY) : ok()));
@@ -149,6 +170,44 @@ describe('what is sent', () => {
   });
 });
 
+describe('interactive lists', () => {
+  const LIST = {
+    bodyText: 'Your current setting: 3 hours.',
+    buttonText: 'Choose',
+    sectionTitle: 'Chat expiry',
+    rows: [
+      { id: 'expiry:3:production', title: '3 hours' },
+      { id: 'expiry:0:production', title: 'New chat every message' },
+    ],
+  };
+
+  it('sends a phone number list as `to`, with the rows in the list', async () => {
+    const { service, calls } = setup(ok);
+    await service.sendInteractiveList(PHONE, LIST);
+    expect(calls[0]!.json).toEqual({
+      messaging_product: 'whatsapp',
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: LIST.bodyText },
+        action: { button: 'Choose', sections: [{ title: 'Chat expiry', rows: LIST.rows }] },
+      },
+      to: PHONE,
+    });
+  });
+
+  it('sends a BSUID list as `recipient`, the same as a text message', async () => {
+    const { service, calls } = setup(ok);
+    await service.sendInteractiveList(BSUID, LIST);
+    expect(calls[0]!.json).toMatchObject({ recipient_type: 'individual', recipient: BSUID, type: 'interactive' });
+    expect(calls[0]!.json).not.toHaveProperty('to');
+  });
+
+  it('a refusal from Meta is raised as a MetaApiError, like a text message', async () => {
+    const { service } = setup(() => jsonResponse(400, { error: { code: 131009, message: 'bad list' } }));
+    expect(await thrown(service.sendInteractiveList(PHONE, LIST))).toBeInstanceOf(MetaApiError);
+  });
+});
 describe('when Meta refuses', () => {
   it.each(['staging', 'development', 'production'] as const)(
     'logs Meta\'s error fields in %s',

@@ -470,14 +470,14 @@ describe('createServices', () => {
     try {
       const services = createServices(real, log(), () => {});
       await services.authClient.getToken('US.1').catch(() => {});
-      await services.ansariClient.getLastThreadInfo('t').catch(() => {});
+      await services.ansariClient.completeChat('t', { message: 'hi', expiryHours: 3 }).catch(() => {});
       await services.metaApi.sendMessage('US.1', ['hi']).catch(() => {});
     } finally {
       vi.unstubAllGlobals();
     }
     expect(urls).toEqual([
       'http://auth.test/api/whatsapp/session',
-      'http://api.test/api/v2/threads',
+      'http://api.test/api/v2/chat/complete',
       'https://graph.facebook.com/v26.0/1/messages',
     ]);
   });

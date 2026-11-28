@@ -9,6 +9,14 @@ export const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
 const SOURCE_FILE = /\.(ts|tsx|js|mjs|cjs)$/;
 
+/**
+ * A repo-relative path with `/` separators, which the scans compare against literals.
+ * Windows' path.join uses `\`; other platforms already do, so the path passes through.
+ */
+export function toPosixPath(rel: string): string {
+  return process.platform === 'win32' ? rel.split(path.sep).join('/') : rel;
+}
+
 /** Every source file under `dir` (repo-relative), skipping build output and dependencies. */
 export function sourceFiles(dir: string): string[] {
   const abs = path.join(REPO_ROOT, dir);
@@ -16,7 +24,7 @@ export function sourceFiles(dir: string): string[] {
     if (name === 'node_modules' || name === 'dist' || name.startsWith('.next')) return [];
     const rel = path.join(dir, name);
     if (statSync(path.join(REPO_ROOT, rel)).isDirectory()) return sourceFiles(rel);
-    return SOURCE_FILE.test(name) ? [rel] : [];
+    return SOURCE_FILE.test(name) ? [toPosixPath(rel)] : [];
   });
 }
 
@@ -145,16 +153,39 @@ export function removedHopTextHits(text: string): string[] {
   return text.split('\n').filter((line) => REMOVED_HOP.some((re) => re.test(line)));
 }
 
-// ── Scan 5: apps/api has no WhatsApp-specific code (spec 329) ──
+// ── Scan 5: apps/api has no WhatsApp-specific code (spec 329), as narrowed by spec 360 ──
 
 /**
- * apps/api serves a WhatsApp user exactly as a web user: the exchange token
- * passes `requireUser` unchanged. The scope is apps/api's runtime source
+ * Spec 329's invariant: apps/api serves a WhatsApp user exactly as a web user,
+ * so the exchange token passes `requireUser` unchanged and the core backend
+ * carries no WhatsApp-aware code. The scope is apps/api's runtime source
  * (`src/`, `lib/`); its tests are outside it, since the contract test names
  * `registered_via = 'whatsapp'`. Comments count: a branch planned in a comment
  * is WhatsApp code in waiting.
+ *
+ * SUPERSEDED IN PART by spec 360 (non-streaming WhatsApp answer endpoint).
+ * Spec 360 deliberately breaks the "no WhatsApp code" rule for one reason: the
+ * WhatsApp answer must be formatted by the model from the first token (WhatsApp
+ * markup, chunking, citations), which is intrinsic to generation and cannot be
+ * layered on afterward without re-streaming. That requires the core to know the
+ * output target, so spec 360 introduces a WhatsApp-specific system prompt, a
+ * `source` selector in the facilitator, and a dedicated non-streaming endpoint.
+ * These specific files are the ONLY sanctioned exception; the guard still
+ * protects the rest of apps/api, so any OTHER WhatsApp-aware line fails the
+ * build. The allow-list below is exhaustive and each entry cites spec 360.
  */
 export const WHATSAPP_SCAN_DIRS = ['apps/api/src/', 'apps/api/lib/'] as const;
+
+/**
+ * Files where spec 360 sanctions WhatsApp-specific code. Each is a deliberate,
+ * reviewed exception to spec 329's invariant (see the block comment above).
+ * Keep this list minimal: a new entry needs a spec that justifies it.
+ */
+export const WHATSAPP_SCAN_ALLOWLIST: ReadonlySet<string> = new Set([
+  'apps/api/lib/ai/prompts/facilitator-whatsapp.ts', // spec 360: WhatsApp system prompt
+  'apps/api/src/app/api/v2/chat/complete/route.ts', // spec 360: non-streaming endpoint
+  'apps/api/lib/facilitator/agent.ts', // spec 360: `source` selector picks the WhatsApp prompt
+]);
 
 const WHATSAPP = /whatsapp/i;
 
@@ -163,11 +194,13 @@ export function isInWhatsappScanScope(rel: string): boolean {
   return WHATSAPP_SCAN_DIRS.some((dir) => posix.startsWith(dir));
 }
 
-/** Every in-scope line naming WhatsApp (any case), by file; out-of-scope files are skipped. */
+/** Every in-scope line naming WhatsApp (any case), by file; out-of-scope and allow-listed files are skipped. */
 export function whatsappHits(files: readonly { path: string; source: string }[]): Record<string, string[]> {
   const hits: Record<string, string[]> = {};
   for (const file of files) {
+    const posix = file.path.split(path.sep).join('/');
     if (!isInWhatsappScanScope(file.path)) continue;
+    if (WHATSAPP_SCAN_ALLOWLIST.has(posix)) continue;
     const found = file.source.split('\n').filter((line) => WHATSAPP.test(line));
     if (found.length > 0) hits[file.path] = found;
   }
@@ -201,7 +234,9 @@ export function railwayScanDirs(): string[] {
       .map((name) => path.join(parent, name))
       .filter((rel) => statSync(path.join(REPO_ROOT, rel)).isDirectory());
   const apps = dirs('apps').flatMap((app) => [path.join(app, 'src'), path.join(app, 'lib')]);
-  return [...apps, ...dirs('packages')].filter((rel) => existsSync(path.join(REPO_ROOT, rel)));
+  return [...apps, ...dirs('packages')]
+    .filter((rel) => existsSync(path.join(REPO_ROOT, rel)))
+    .map(toPosixPath);
 }
 
 /** Each file whose code names a RAILWAY_* variable, with the names it names. No file is exempt. */

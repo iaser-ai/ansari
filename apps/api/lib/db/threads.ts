@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import * as Sentry from '@sentry/nextjs';
 import { db, type Executor } from './index';
 import {
@@ -149,6 +149,72 @@ export async function createMessage(data: NewMessage, exec: Executor = db): Prom
   return result[0];
 }
 
+async function lockUserThreads(exec: Executor, userId: string): Promise<void> {
+  await exec.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+}
+
+async function getOrCreateThreadInTransaction(
+  tx: Executor,
+  userId: string,
+  source: string,
+  expiryHours: number,
+): Promise<Thread> {
+  await lockUserThreads(tx, userId);
+
+  const [existingThread] = await tx
+    .select()
+    .from(threads)
+    .where(and(eq(threads.userId, userId), eq(threads.source, source)))
+    .orderBy(desc(threads.updatedAt))
+    .limit(1)
+    .for('update');
+
+  if (existingThread && !isThreadExpired(existingThread, expiryHours)) return existingThread;
+
+  if (existingThread) {
+    await tx.delete(threads).where(eq(threads.id, existingThread.id));
+  }
+
+  const [newThread] = await tx
+    .insert(threads)
+    .values({ userId, source })
+    .returning();
+
+  return newThread;
+}
+
+/**
+ * Select the user's thread and record their message under the same per-user
+ * transaction lock, so expiry=0 cannot replace the thread between those writes.
+ */
+export async function getOrCreateThreadWithUserMessage(
+  userId: string,
+  source: string,
+  expiryHours: number,
+  message: Omit<NewMessage, 'threadId'>,
+): Promise<{ thread: Thread; message: Message; history: MessageRow[] }> {
+  return db.transaction(async (tx) => {
+    const thread = await getOrCreateThreadInTransaction(tx, userId, source, expiryHours);
+    const storedMessage = await createMessage({ ...message, threadId: thread.id }, tx);
+    const history = await findMessagesByThread(thread.id, tx);
+    return { thread, message: storedMessage, history };
+  });
+}
+
+/**
+ * Save an answer only while its original thread still exists. A concurrent
+ * expiry=0 request may replace it during model generation; in that case the
+ * answer is still returned to the user but is not added to a deleted thread.
+ */
+export async function createMessageIfThreadExists(data: NewMessage, userId: string): Promise<Message | undefined> {
+  return db.transaction(async (tx) => {
+    await lockUserThreads(tx, userId);
+    const thread = await findThreadById(data.threadId, userId, tx);
+    if (!thread) return undefined;
+    return createMessage(data, tx);
+  });
+}
+
 /**
  * Persist tool dispatch records for a turn that produced NO assistant message
  * row (spec 73): facilitator error, empty final, or mcp-complete's 502.
@@ -268,4 +334,39 @@ export async function getThreadWithMessages(
 
   const threadMessages = await findMessagesByThread(threadId, exec);
   return { thread, messages: threadMessages };
+}
+
+// ============================================================================
+// Thread Lifecycle Management (Spec 360)
+// ============================================================================
+
+/**
+ * Check if a thread has expired based on the expiry hours.
+ * expiryHours = 0 means always create a new thread.
+ * Uses updatedAt (which is updated when messages are created).
+ */
+function isThreadExpired(thread: Thread, expiryHours: number): boolean {
+  if (expiryHours === 0) return true; // Always create new thread
+  if (!thread.updatedAt) return true; // No timestamp — treat as expired
+  const expiryTime = new Date(thread.updatedAt);
+  expiryTime.setHours(expiryTime.getHours() + expiryHours);
+  return new Date() > expiryTime;
+}
+
+/**
+ * Get or create a thread for a user based on source and expiry.
+ * 
+ * Logic:
+ * 1. Check if user has an active thread with the given source
+ * 2. If no thread or thread expired, delete old thread and create new one
+ * 3. If thread exists and not expired, reuse it
+ * 
+ * Uses database transaction with row-level locking to prevent race conditions.
+ */
+export async function getOrCreateThread(
+  userId: string,
+  source: string,
+  expiryHours: number
+): Promise<Thread> {
+  return db.transaction((tx) => getOrCreateThreadInTransaction(tx, userId, source, expiryHours));
 }

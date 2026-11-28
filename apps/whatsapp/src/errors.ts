@@ -72,24 +72,14 @@ export class ApiUnauthorizedError extends AnsariClientError {
   override readonly name = 'ApiUnauthorizedError';
 }
 
-/** Thread creation failed. */
-export class ThreadCreationError extends AnsariClientError {
-  override readonly name = 'ThreadCreationError';
-}
-
-/** Deleting an expired thread failed. */
-export class ThreadDeletionError extends AnsariClientError {
-  override readonly name = 'ThreadDeletionError';
-}
-
-/** Retrieving thread info failed. */
-export class ThreadInfoError extends AnsariClientError {
-  override readonly name = 'ThreadInfoError';
-}
-
-/** Message processing failed. */
+/** Getting a complete answer failed. */
 export class MessageProcessingError extends AnsariClientError {
   override readonly name = 'MessageProcessingError';
+}
+
+/** Reading or writing a user's preference (the chat expiry) failed. */
+export class PreferencesError extends AnsariClientError {
+  override readonly name = 'PreferencesError';
 }
 
 /**

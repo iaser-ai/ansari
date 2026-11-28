@@ -158,6 +158,8 @@ function buildConfig(options: GeminiCallOptions): GenerateContentConfig {
   return {
     systemInstruction: options.systemPrompt,
     tools: options.tools,
+    ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
+    ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
     // Bounds runaway decoding loops (issue #51). Thinking-inclusive on Gemini 3;
     // sized with large headroom — see MAX_OUTPUT_TOKENS above.
     maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -245,6 +247,9 @@ export interface GeminiCallOptions {
   history?: Content[];
   /** Enable tool usage */
   tools?: Tool[];
+  /** Optional structured response format for model output. */
+  responseMimeType?: GenerateContentConfig['responseMimeType'];
+  responseSchema?: GenerateContentConfig['responseSchema'];
   /**
    * Optional per-call overall timeout in ms (issue #49). The effective deadline is
    * `min(GEMINI_TIMEOUT_MS, timeoutMs)`, so a caller (e.g. the facilitator's request

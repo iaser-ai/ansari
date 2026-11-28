@@ -20,6 +20,7 @@ import {
   removedHopTextHits,
   sourceFiles,
   whatsappHits,
+  WHATSAPP_SCAN_ALLOWLIST,
 } from './scan';
 
 function report(name: string, files: string[], hits: Record<string, string[]>): void {
@@ -279,12 +280,24 @@ describe('scan 5: apps/api has no WhatsApp-specific code (spec 329)', () => {
     }
   });
 
-  it('apps/api src and lib have no hits', () => {
+  it('apps/api src and lib have no hits outside the spec 360 allow-list', () => {
     const files = [...sourceFiles('apps/api/src'), ...sourceFiles('apps/api/lib')];
     expect(files.length).toBeGreaterThan(60);
     const hits = whatsappHits(files.map((file) => ({ path: file, source: readSource(file) })));
-    report('whatsapp (apps/api src + lib)', files, hits);
+    report('whatsapp (apps/api src + lib, minus spec 360 allow-list)', files, hits);
     expect(hits).toEqual({});
+  });
+
+  it('the spec 360 allow-list is what lets the WhatsApp endpoint, prompt and selector through', () => {
+    // Each allow-listed file legitimately names WhatsApp; the same line in any
+    // other in-scope file must still fail. This proves the allow-list is narrow.
+    const line = "const source = 'whatsapp';";
+    for (const allowed of WHATSAPP_SCAN_ALLOWLIST) {
+      expect(whatsappHits([{ path: allowed, source: line }]), allowed).toEqual({});
+    }
+    expect(whatsappHits([{ path: 'apps/api/lib/facilitator/other.ts', source: line }])).toEqual({
+      'apps/api/lib/facilitator/other.ts': [line],
+    });
   });
 });
 

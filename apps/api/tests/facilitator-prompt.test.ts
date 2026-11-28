@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FACILITATOR_SYSTEM_PROMPT } from '../lib/ai/prompts/facilitator';
+import { WHATSAPP_FACILITATOR_SYSTEM_PROMPT } from '../lib/ai/prompts/facilitator-whatsapp';
 
 // The facilitator must still surface crisis resources when a user shows genuine
 // suicidality or self-harm intent — but ONLY then. An earlier version of this
@@ -131,5 +132,25 @@ describe('Facilitator system prompt — the Islamic perspective on every questio
   it('no longer makes the Islamic perspective conditional on relevance', () => {
     expect(FACILITATOR_SYSTEM_PROMPT).not.toContain('where it is relevant');
     expect(FACILITATOR_SYSTEM_PROMPT.split('Requests for advice or guidance on everyday life')).toHaveLength(2);
+  });
+});
+
+describe('WhatsApp facilitator prompt', () => {
+  it('reuses the main prompt before replacing only its citation and formatting section', () => {
+    const sharedPromptEnd = FACILITATOR_SYSTEM_PROMPT.indexOf('CITATION FORMAT (VERY IMPORTANT):');
+    const whatsappFormattingStart = WHATSAPP_FACILITATOR_SYSTEM_PROMPT.indexOf('WHATSAPP FORMATTING (VERY IMPORTANT):');
+
+    expect(sharedPromptEnd).toBeGreaterThan(0);
+    expect(WHATSAPP_FACILITATOR_SYSTEM_PROMPT.slice(0, whatsappFormattingStart)).toBe(
+      FACILITATOR_SYSTEM_PROMPT.slice(0, sharedPromptEnd),
+    );
+    expect(WHATSAPP_FACILITATOR_SYSTEM_PROMPT).toContain('Return one JSON object with a "messages" array');
+  });
+
+  it('inherits the latest shared guidance rather than the obsolete outside-domain refusal', () => {
+    expect(WHATSAPP_FACILITATOR_SYSTEM_PROMPT).toContain(
+      'Requests for advice or guidance on everyday life (work, family, money, personal decisions) are not outside this domain',
+    );
+    expect(WHATSAPP_FACILITATOR_SYSTEM_PROMPT).not.toContain('For questions outside Islamic knowledge domain:');
   });
 });

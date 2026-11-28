@@ -19,7 +19,7 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 |------|-----------|
 | Health | `GET /api/health` |
 | Auth & users | `POST /api/v2/users/register`, `login`, `logout`, `refresh_token`, `GET /api/v2/users/me`, password reset (`request_password_reset`, `reset_password`) |
-| Chat | `POST /api/v2/threads` (create), `POST /api/v2/threads/{id}` (send message, SSE stream), thread naming, sharing |
+| Chat | `POST /api/v2/threads` (create), `POST /api/v2/threads/{id}` (send message, SSE stream), `POST /api/v2/chat/complete` (non-streaming for WhatsApp), thread naming, sharing |
 | Sources | `GET /api/v2/threads/{id}/documents` (owner-scoped, derived from stored tool records), `GET /api/v2/share/{id}/documents` (public, from the share snapshot): citable sources per answer, joined to the matching GET's `messages` by `message_index` |
 | Feedback & prefs | `POST /api/v2/feedback`, `GET/POST /api/v2/preferences` |
 | App support | `GET /api/v2/app-check` (version/maintenance gate) |
@@ -28,6 +28,39 @@ Responses stream over SSE, threads and messages persist to Postgres, and the sea
 | Admin | `GET /api/v2/admin/stats`, `/admin/analytics` dashboard |
 
 Auth is owned by `apps/auth` (Better Auth, spec 300): this service verifies its short-lived JWTs against the JWKS, and the `/v2/users/*` and password-reset routes are a compatibility layer over it with the legacy response shapes. No password, session or signing secret lives here.
+
+### `POST /api/v2/chat/complete` (WhatsApp, non-streaming)
+
+Used by `apps/whatsapp` (spec 360). Source: [route.ts](./src/app/api/v2/chat/complete/route.ts). Authenticate with the user's JWT: `Authorization: Bearer <jwt>`.
+
+Request body:
+
+```json
+{ "message": "the WhatsApp user's text", "expiryHours": 3 }
+```
+
+- `message`: required, non-empty string.
+- `expiryHours`: optional whole number from 0 to 24, default 3. The user's `whatsapp` thread is reused while its last update is within this many hours. `0` starts a new thread for every message.
+
+Success (`200`):
+
+```json
+{ "messages": ["first part of the answer", "second part"] }
+```
+
+- The response contains 1-10 WhatsApp-formatted strings. The WhatsApp service splits any item over 4,096 characters before sending. If splitting would require more than 10 outbound messages, it sends no answer parts and gives the user the standard failure notice.
+- On a thread near the history limit, the first item is the history warning. Over the block threshold, or when the incoming message alone is over it, the response is a single notice item and no model call is made.
+- An incoming message over the history block threshold is refused before a thread is created or replaced.
+
+Errors use the `{ "detail": "..." }` shape:
+
+| Status | When |
+|--------|------|
+| `401` | Missing or invalid JWT |
+| `422` | Body fails validation (for example, empty `message`) |
+| `500` | The model returned an empty answer, invalid JSON, a response that does not match `{ messages: string[] }`, or a facilitator error |
+
+Persistence: the user message is stored in the same transaction that selects or creates its thread. The assistant answer is stored as readable text only after its JSON and shape validate, and before the response is returned. If another request replaces that thread while the model is working, the answer is returned but not stored in the replaced thread. The endpoint does not wait for Meta to deliver the message to the WhatsApp user.
 
 ## Tech Stack
 

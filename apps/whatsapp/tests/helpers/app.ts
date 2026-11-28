@@ -142,7 +142,7 @@ export async function startApp(
   const background = new BackgroundTasks({ logger: log.logger, reportError });
   const manager = new ConversationManager({
     config: env,
-    ansariClient: options.ansariClient ?? new AnsariClientMock({ logger: log.logger, now: () => NOW }),
+    ansariClient: options.ansariClient ?? new AnsariClientMock({ logger: log.logger }),
     authClient: options.authClient ?? new AuthClientMock(),
     metaApi: options.metaApi ?? metaMock,
     logger: log.logger,

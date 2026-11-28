@@ -67,6 +67,8 @@ const TRIAGE_REPLIES: Record<TriageAction, MetaResponseInput> = {
     errorCode: 'UNSUPPORTED_MESSAGE_TYPE',
   },
   text: { success: true, message: 'Message processed successfully' },
+  expiry_command: { success: true, message: 'Chat expiry list requested' },
+  list_reply: { success: true, message: 'Chat expiry choice received' },
 };
 
 /** Query values arrive as a string, a list (`?a=1&a=2`) or nothing; the last one wins, as in Starlette. */
